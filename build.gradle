@@ -57,6 +57,7 @@ subprojects {
 
   java {
     withSourcesJar()
+    withJavadocJar()
   }
 
   idea {
@@ -68,12 +69,47 @@ subprojects {
 
   publishing {
     publications {
-      myLibrary(MavenPublication) {
+      mavenJava(MavenPublication) {
         from components.java
+
+        pom {
+          name = project.name
+          description = 'Java based data processing framework for stateless data processing'
+          url = 'https://github.com/fleaktech/zephflow-core'
+
+          licenses {
+            license {
+              name = licenseName
+              url = licenseUrl
+            }
+          }
+
+          developers {
+            developer {
+              id = 'fleaktech'
+              name = 'Fleak Tech Team'
+              email = 'contact@fleak.ai'
+            }
+          }
+
+          scm {
+            connection = 'scm:git:git://github.com/fleaktech/zephflow-core.git'
+            developerConnection = 'scm:git:ssh://github.com/fleaktech/zephflow-core.git'
+            url = 'https://github.com/fleaktech/zephflow-core'
+          }
+        }
       }
     }
     repositories {
-      mavenCentral()
+      // GitHub Packages repository
+      maven {
+        name = "GitHubPackages"
+        url = uri("https://maven.pkg.github.com/fleaktech/zephflow-core")
+        credentials {
+          username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+          password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
+        }
+      }
     }
   }
 
