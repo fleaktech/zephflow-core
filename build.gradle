@@ -6,6 +6,7 @@ plugins {
   id 'com.diffplug.spotless' version '6.25.0'
   id "com.github.ben-manes.versions" version "0.51.0"
   id 'com.github.hierynomus.license' version '0.16.1'
+  id 'jacoco'
 }
 
 allprojects {
@@ -169,5 +170,12 @@ subprojects {
     strictCheck = true
     include '**/*.java'
     exclude '**/build/generated/**/*.java'
+  }
+
+  jacocoTestReport {
+    reports {
+      xml.required = true
+      html.required = true
+    }
   }
 }
