@@ -1,0 +1,50 @@
+{
+  "activity_id": 1,
+  "activity_name": "Open",
+  "category_name": "Network Activity",
+  "category_uid": 4,
+  "class_name": "Tunnel Activity",
+  "class_uid": 4014,
+  "time": 1539174900000 ,
+  "raw_data": "Oct 10 2018 12:35:00 localhost CiscoASA[999]: %ASA-6-113039: Group Sales User jsmith IP 192.168.10.25 AnyConnect parent session started.",
+  "user": {
+    "name": "jsmith",
+    "groups": [
+      {
+        "name": "Sales"
+      }
+    ]
+  },
+  "src_endpoint": {
+    "ip": "192.168.10.25"
+  },
+  "connection_info": {
+    "boundary": "External",
+    "boundary_id": 3,
+    "direction_id": 1,
+    "direction": "Inbound"
+  },
+  "severity_id": 1,
+  "severity": "Informational",
+  "status_id": 1,
+  "status": "Success",
+  "type_name": "Tunnel Activity: Open",
+  "type_uid": 401401,
+  "session": {
+    "is_vpn": true
+  },
+  "metadata": {
+    "event_code": "113039",
+    "original_time": "Oct 10 2018 12:35:00",
+    "product": {
+      "vendor_name": "Cisco",
+      "name": "Cisco ASA",
+      "version": "Unknown"
+    },
+    "version": "1.3.0"
+  },
+  "unmapped": {
+    "program": "CiscoASA",
+    "pid": "999"
+  }
+}

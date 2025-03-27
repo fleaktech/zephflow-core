@@ -1,0 +1,8 @@
+rootProject.name = 'zephflow-core'
+include('lib')
+include('api')
+include('evaluator')
+include('runner')
+include('clistarter')
+include('httpstarter')
+include('sdk')

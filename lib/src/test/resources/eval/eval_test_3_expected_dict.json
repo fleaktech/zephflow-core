@@ -1,0 +1,8 @@
+{
+  "city": "New York",
+  "state": "NY",
+  "foo": {
+    "tag0": "friend",
+    "tag1": "developer"
+  }
+}

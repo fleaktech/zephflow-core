@@ -1,0 +1,11 @@
+{
+  "level": "6",
+  "message_number": "113039",
+  "__raw__": "Oct 10 2018 12:35:00 localhost CiscoASA[999]: %ASA-6-113039: Group Sales User jsmith IP 192.168.10.25 AnyConnect parent session started.",
+  "pid": "999",
+  "program": "CiscoASA",
+  "username": "jsmith",
+  "ip_address": "192.168.10.25",
+  "group_name": "Sales",
+  "timestamp": "Oct 10 2018 12:35:00"
+}

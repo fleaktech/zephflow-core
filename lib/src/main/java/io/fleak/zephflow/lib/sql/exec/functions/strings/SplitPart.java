@@ -1,0 +1,47 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.fleak.zephflow.lib.sql.exec.functions.strings;
+
+import io.fleak.zephflow.lib.sql.exec.functions.BaseFunction;
+import io.fleak.zephflow.lib.sql.exec.types.TypeCast;
+import io.fleak.zephflow.lib.sql.exec.types.TypeSystem;
+import java.util.List;
+
+public class SplitPart extends BaseFunction {
+
+  public static final String NAME = "split_part";
+  private static TypeCast<Integer> integerTypeCast;
+
+  public SplitPart(TypeSystem typeSystem) {
+    super(typeSystem, NAME);
+  }
+
+  @Override
+  public Object apply(List<Object> args) {
+    if (integerTypeCast == null) integerTypeCast = typeSystem.lookupTypeCast(Integer.class);
+
+    assertArgs(args, 3, "(input, delimiter, field)");
+
+    var input = args.get(0);
+    if (input == null) return null;
+
+    var delimiter = args.get(1);
+    var field = integerTypeCast.cast(args.get(2));
+
+    var parts = input.toString().split(delimiter.toString());
+    if (field < 1 || field > parts.length) return null;
+
+    return parts[field - 1];
+  }
+}

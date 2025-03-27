@@ -1,0 +1,15 @@
+{
+  "errorMessage": null,
+  "modelOutputs": [
+    {
+      "result": "{\"AAPL\": \"positive\", \"QCOM\": \"negative\"}",
+      "name": "gpt-4-0613",
+      "errorMessage": null,
+      "inputTokens": 139,
+      "tag": "my_tag",
+      "outputTokens": 14,
+      "totalTokens": 153,
+      "timestamp": 1716258944
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "integration": "snmp",
+  "attachments": {
+    "snmp_pdf": "s3://a.pdf",
+    "f1": "s3://b.pdf"
+  },
+  "resp": {
+    "Test1": [
+      {
+        "operation_system": "windows",
+        "ipAddr": "1.2.3.4"
+      },
+      {
+        "operation_system": "windows",
+        "ipAddr": "1.2.3.5"
+      }
+    ]
+  }
+}

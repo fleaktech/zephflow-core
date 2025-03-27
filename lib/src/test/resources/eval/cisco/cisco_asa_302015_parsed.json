@@ -1,0 +1,22 @@
+{
+  "level": "6",
+  "dest_interface": "inside",
+  "message_number": "302015",
+  "__raw__": "Oct 10 2018 12:34:56 localhost CiscoASA[999]: %ASA-6-302015: Built outbound UDP connection 11758 for outside:100.66.80.32/53 (100.66.80.32/53) to inside:172.31.98.44/56132 (172.31.98.44/56132)",
+  "pid": "999",
+  "source_mapped_port": "53",
+  "program": "CiscoASA",
+  "source_ip": "100.66.80.32",
+  "hostname": "localhost",
+  "protocol": "UDP",
+  "connection_id": "11758",
+  "source_mapped_ip": "100.66.80.32",
+  "source_interface": "outside",
+  "source_port": "53",
+  "dest_ip": "172.31.98.44",
+  "dest_mapped_ip": "172.31.98.44",
+  "dest_mapped_port": "56132",
+  "dest_port": "56132",
+  "timestamp": "Oct 10 2018 12:34:56",
+  "direction": "outbound"
+}

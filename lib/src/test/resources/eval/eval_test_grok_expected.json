@@ -1,0 +1,11 @@
+{
+  "grok_result": {
+    "timestamp": "Oct 10 2018 12:34:56",
+    "hostname": "localhost",
+    "program": "CiscoASA",
+    "pid": "999",
+    "level": "6",
+    "message_number": "305011",
+    "message_text": "Built dynamic TCP translation from inside:172.31.98.44/1772 to outside:100.66.98.44/8256"
+  }
+}

@@ -1,0 +1,72 @@
+[
+  {
+    "num": 0,
+    "type": "even"
+  },
+  {
+    "num": 2,
+    "type": "even"
+  },
+  {
+    "num": 4,
+    "type": "even"
+  },
+  {
+    "num": 6,
+    "type": "even"
+  },
+  {
+    "num": 8,
+    "type": "even"
+  },
+  {
+    "num": 1,
+    "type": "odd"
+  },
+  {
+    "num": 3,
+    "type": "odd"
+  },
+  {
+    "num": 5,
+    "type": "odd"
+  },
+  {
+    "num": 7,
+    "type": "odd"
+  },
+  {
+    "num": 9,
+    "type": "odd"
+  },
+  {
+    "num": 0
+  },
+  {
+    "num": 1
+  },
+  {
+    "num": 2
+  },
+  {
+    "num": 3
+  },
+  {
+    "num": 4
+  },
+  {
+    "num": 5
+  },
+  {
+    "num": 6
+  },
+  {
+    "num": 7
+  },
+  {
+    "num": 8
+  },
+  {
+    "num": 9
+  }
+]

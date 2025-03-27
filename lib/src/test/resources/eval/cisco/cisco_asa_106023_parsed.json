@@ -1,0 +1,18 @@
+{
+  "level": "4",
+  "dest_interface": "inside",
+  "message_number": "106023",
+  "__raw__": "Oct 10 2018 12:34:56 localhost CiscoASA[999]: %ASA-4-106023: Deny tcp src outside:100.66.19.254/80 dst inside:172.31.98.44/8277 by access-group \"inbound\" [0x0, 0x0]",
+  "pid": "999",
+  "program": "CiscoASA",
+  "source_ip": "100.66.19.254",
+  "hostname": "localhost",
+  "protocol": "tcp",
+  "rule_ids": "0x0, 0x0",
+  "source_interface": "outside",
+  "source_port": "80",
+  "dest_ip": "172.31.98.44",
+  "access_group": "\"inbound\"",
+  "dest_port": "8277",
+  "timestamp": "Oct 10 2018 12:34:56"
+}

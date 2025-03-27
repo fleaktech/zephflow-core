@@ -1,0 +1,137 @@
+plugins {
+  id 'nebula.dependency-lock' version '12.7.1'
+  id 'nebula.maven-base-publish' version '18.4.0'
+  id 'nebula.release' version '17.2.2'
+  id 'idea'
+  id 'com.diffplug.spotless' version '6.25.0'
+  id "com.github.ben-manes.versions" version "0.51.0"
+  id 'com.github.hierynomus.license' version '0.16.1'
+}
+
+allprojects {
+  group 'io.fleak.zephflow'
+  apply plugin: 'java'
+  apply plugin: 'java-library'
+  apply plugin: 'nebula.maven-base-publish'
+  apply plugin: 'nebula.dependency-lock'
+  apply plugin: 'nebula.release'
+
+  ext {
+    licenseName = 'Apache License, Version 2.0'
+    licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+
+    javaVersion = '21'
+    avroVersion = '1.12.0'
+    junitVersion = '5.10.2' // make sure the version is the same as spring boot
+    guavaVersion = '33.4.0-jre'
+    lombokVersion = '1.18.34'
+    commonsLang3Version = '3.17.0'
+    commonsTextVersion = '1.12.0'
+    commonsCollections4Version = '4.4'
+    commonsIoVersion = '2.17.0'
+    commonsCliVersion = '1.9.0'
+    commonsCsvVersion = '1.12.0'
+    commonsCodecVersion = '1.17.2'
+    slf4jVersion = '2.0.16'
+    mockitoVersion = '5.7.0'
+    antlrVersion = '4.13.2'
+    jacksonVersion = '2.18.2'
+    awsVersion = '2.30.36'
+    opensearchGrok = '2.17.1'
+    opencsvVersion = '5.9'
+    kafkaVersion = '3.8.1'
+    testContainersVersion = '1.20.5'
+    springdocVersion = '2.3.0'
+    hamcrestVersion = '2.2'
+  }
+
+}
+
+subprojects {
+  apply plugin: 'com.diffplug.spotless'
+  apply plugin: 'com.github.hierynomus.license'
+
+  repositories {
+    mavenCentral()
+  }
+
+  java {
+    withSourcesJar()
+  }
+
+  idea {
+    module {
+      downloadJavadoc = true
+      downloadSources = true
+    }
+  }
+
+  publishing {
+    publications {
+      myLibrary(MavenPublication) {
+        from components.java
+      }
+    }
+    repositories {
+      mavenCentral()
+    }
+  }
+
+  sourceCompatibility = javaVersion
+  targetCompatibility = javaVersion
+  tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+  }
+
+  dependencies {
+    implementation platform("com.fasterxml.jackson:jackson-bom:${jacksonVersion}")
+    implementation group: 'org.apache.commons', name: 'commons-lang3', version: commonsLang3Version
+    implementation group: 'org.apache.commons', name: 'commons-text', version: commonsTextVersion
+    implementation group: 'org.apache.commons', name: 'commons-collections4', version: commonsCollections4Version
+    implementation group: 'com.google.guava', name: 'guava', version: guavaVersion
+    implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jsr310'
+    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-xml'
+    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml'
+    implementation group: 'org.opensearch', name: 'opensearch-grok', version: opensearchGrok
+
+
+    compileOnly group: 'org.projectlombok', name: 'lombok', version: lombokVersion
+    annotationProcessor group: 'org.projectlombok', name: 'lombok', version: lombokVersion
+    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: junitVersion
+    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-params', version: junitVersion
+    testRuntimeOnly group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: junitVersion
+    testImplementation group: 'org.mockito', name: 'mockito-core', version: mockitoVersion
+    testCompileOnly group: 'org.projectlombok', name: 'lombok', version: lombokVersion
+    testAnnotationProcessor group: 'org.projectlombok', name: 'lombok', version: lombokVersion
+
+    testImplementation group: 'org.testcontainers', name: 'junit-jupiter', version: testContainersVersion
+    testImplementation group: 'org.testcontainers', name: 'postgresql', version: testContainersVersion
+    testImplementation group: 'org.testcontainers', name: 'minio', version: testContainersVersion
+    testImplementation group: 'org.testcontainers', name: 'kafka', version: testContainersVersion
+
+    constraints {
+      implementation("commons-codec:commons-codec:${commonsCodecVersion}")
+      implementation("commons-io:commons-io:${commonsIoVersion}")
+      implementation("org.slf4j:slf4j-api:${slf4jVersion}")
+      testImplementation("org.hamcrest:hamcrest-core:${hamcrestVersion}")
+    }
+  }
+
+  spotless {
+    java {
+      target 'src/main/java/**/*.java'
+      googleJavaFormat('1.22.0') // Use an appropriate version
+    }
+  }
+  tasks.named('compileJava') {
+    // Ensure googleJavaFormat task is run before compiling Java
+    dependsOn 'spotlessCheck'
+  }
+
+  license {
+    header = rootProject.file('LICENSE_HEADER')
+    strictCheck = true
+    include '**/*.java'
+    exclude '**/build/generated/**/*.java'
+  }
+}

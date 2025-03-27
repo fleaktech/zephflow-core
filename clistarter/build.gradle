@@ -1,0 +1,9 @@
+dependencies {
+  implementation project(":runner")
+  implementation group: 'commons-cli', name: 'commons-cli', version: commonsCliVersion
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+  testLogging.showStandardStreams = true
+}

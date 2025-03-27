@@ -1,0 +1,54 @@
+jobContext:
+  otherProperties:
+  metricTags:
+  dlqConfig:
+
+dag:
+  #  /->(even events)->(add even tag) b-\
+  # a-->(odd events) ->(add odd tag)  c -> d
+  #  \->        (all events)           -/
+  - id: "a"
+    commandName: "noop"
+    config:
+    outputs:
+      - "a_to_b_filter"
+      - "a_to_c_filter"
+      - "d"
+
+  - id: "a_to_b_filter"
+    commandName: "filter"
+    config: |
+      $.num%2 == 0
+    outputs:
+      - "b"
+
+  - id: "a_to_c_filter"
+    commandName: "filter"
+    config: |
+      $.num%2 == 1
+    outputs:
+      - "c"
+
+  - id: "b"
+    commandName: "eval"
+    config: |
+      dict(
+        type='even',
+        num=$.num
+      )
+    outputs:
+      - "d"
+
+  - id: "c"
+    commandName: "eval"
+    config: |
+      dict(
+        type='odd',
+        num=$.num
+      )
+    outputs:
+      - "d"
+
+  - id: "d"
+    commandName: "noop"
+    config:

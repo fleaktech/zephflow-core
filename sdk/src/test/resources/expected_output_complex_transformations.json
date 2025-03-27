@@ -1,0 +1,102 @@
+[
+  {
+    "summary": {
+      "category": "even",
+      "value": 0,
+      "range": "low"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "odd",
+      "value": 1,
+      "range": "low"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "even",
+      "value": 2,
+      "range": "low"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "odd",
+      "value": 3,
+      "range": "medium"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "even",
+      "value": 4,
+      "range": "medium"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "odd",
+      "value": 5,
+      "range": "medium"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "even",
+      "value": 6,
+      "range": "medium"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "odd",
+      "value": 7,
+      "range": "high"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "even",
+      "value": 8,
+      "range": "high"
+    },
+    "meta": {
+      "processed": true
+    }
+  },
+  {
+    "summary": {
+      "category": "odd",
+      "value": 9,
+      "range": "high"
+    },
+    "meta": {
+      "processed": true
+    }
+  }
+]

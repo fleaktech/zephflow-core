@@ -1,0 +1,43 @@
+queries:
+  selectStatement:
+    - select col1, col3, col4 as "this is", col5 as n1
+    - select col1 n, col3 as n
+    - select item from table as b where 1 > 2;
+    - select item from table as d, a as k, (select table from data) as k, (select another from table) as p;
+    - select item from (select a from table) v, table, (select a from n) v;
+    - select item from (select a from table where a > 2) v, table, (select a from n where n > 2 group by a) v;
+    - select item from (select a from table where a > 2) v, table, (select a from n) v;
+    - select item::int as val from table a
+    - select item from table as b, c;
+    - select item from table as b, c, d, e as f;
+    - select sum(item::int) as val from table a
+    - select count() as val from table a
+    - select id, item from (select json_array_elements(matches)->'metadata'->'text' item, id from test123) t;
+    - select a from table where a > 1 and b = 2 or c > 2
+    - select a from table where a > 1 and b = 2 or c > 2 group by a, table.b, 1, a > 2
+    - select 1 from table group by a
+    - SELECT col1, col2 FROM table1;
+    - SELECT col1, col2 FROM table1, table2 WHERE col1 = col2;
+    - SELECT col1, col2 FROM table1 GROUP BY col1;
+    - SELECT col1, col2 FROM table1 ORDER BY col1 DESC;
+    - SELECT col1, col2 FROM table1 AS t1;
+    - SELECT col1, col2 FROM (SELECT col1 FROM table1) AS subquery;
+    - SELECT col1, col2 FROM table1 WHERE col1 = 10 AND col2 > 5;
+    - SELECT col1, col2 FROM table1 WHERE col1 LIKE 'pattern%';
+    - SELECT col1, col2 FROM table1 WHERE col1 IS NULL;
+    - SELECT col1, col2 FROM table1 WHERE col1::INT = 5;
+    - SELECT col1, col2 FROM table1 WHERE col1 IS NOT NULL;
+    - SELECT col1, col2 FROM table1 WHERE col1 + col2 = 10;
+    - SELECT col1, col2 FROM table1 WHERE col1 || col2 = 'concatenated';
+    - SELECT col1, col2 FROM table1 GROUP BY (col1, col2);
+    - SELECT col1, col2 FROM table1 GROUP BY col1, col2;
+    - SELECT col1, col2 FROM table1 GROUP BY date_trunc('day', col1), col2;
+    - SELECT col1, col2 FROM table1 WHERE col2 > 10 and col1 < 2 GROUP BY date_trunc('day', col1), col2;
+    - select json_array_elements(matches1) -> 'metadata' -> 'text' as txt, json_array_elements(matches2) as ids from test345 where matches2 is not null;
+  expr:
+    - 1 not in col
+    - 1 in col
+    - a * 0 <> a->'field'
+    - a = 1
+    - sum(a) <= 10
+    - a and b = 1 or c

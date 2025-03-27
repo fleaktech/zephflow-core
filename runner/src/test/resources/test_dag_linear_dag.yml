@@ -1,0 +1,19 @@
+jobContext:
+  otherProperties:
+  metricTags:
+  dlqConfig:
+
+dag:
+  # a -> b(num times 2) -> c
+  - id: "a"
+    commandName: "testSource"
+    config:
+  - id: "b"
+    commandName: "eval"
+    config: |
+      dict(
+        num=$.num * 2
+      )
+  - id: "c"
+    commandName: "testSink"
+    config:

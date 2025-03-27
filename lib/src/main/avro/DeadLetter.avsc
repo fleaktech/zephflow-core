@@ -1,0 +1,43 @@
+{
+  "namespace": "io.fleak.zephflow.lib.deadletter",
+  "type": "record",
+  "name": "DeadLetter",
+  "fields": [
+    {
+      "name": "processingTimestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis"
+    },
+    {
+      "name": "key",
+      "type": [
+        "null",
+        "bytes"
+      ],
+      "default": null
+    },
+    {
+      "name": "value",
+      "type": [
+        "null",
+        "bytes"
+      ],
+      "default": null
+    },
+    {
+      "name": "metadata",
+      "type": [
+        "null",
+        {
+          "type": "map",
+          "values": "string"
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "errorMessage",
+      "type": "string"
+    }
+  ]
+}

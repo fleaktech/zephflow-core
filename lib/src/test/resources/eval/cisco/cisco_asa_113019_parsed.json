@@ -1,0 +1,16 @@
+{
+  "level": "4",
+  "message_number": "113019",
+  "__raw__": "Nov 04 2024 09:15:32 localhost CiscoASA[999]: %ASA-4-113019: Group = Sales, Username = jdoe, IP = 192.168.10.12, Session disconnected. Session Type: IPsec, Duration: 0:45:12, Bytes xmt: 345672, Bytes rcv: 456789, Reason: Idle Timeout",
+  "pid": "999",
+  "program": "CiscoASA",
+  "username": "jdoe",
+  "peer_ip": "192.168.10.12",
+  "session_type": "IPsec",
+  "group_name": "Sales",
+  "disconnect_reason": "Idle Timeout",
+  "duration": "0:45:12",
+  "timestamp": "Nov 04 2024 09:15:32",
+  "bytes_xmt": 345672,
+  "bytes_rcv": 456789
+}

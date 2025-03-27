@@ -1,0 +1,309 @@
+{
+  "workflowId": "1fhnith2cg65gf62",
+  "output": {
+    "outputEvents": {
+      "d": [
+        {
+          "num": 0,
+          "type": "even"
+        },
+        {
+          "num": 2,
+          "type": "even"
+        },
+        {
+          "num": 4,
+          "type": "even"
+        },
+        {
+          "num": 6,
+          "type": "even"
+        },
+        {
+          "num": 8,
+          "type": "even"
+        },
+        {
+          "num": 1,
+          "type": "odd"
+        },
+        {
+          "num": 3,
+          "type": "odd"
+        },
+        {
+          "num": 5,
+          "type": "odd"
+        },
+        {
+          "num": 7,
+          "type": "odd"
+        },
+        {
+          "num": 9,
+          "type": "odd"
+        },
+        {
+          "num": 0
+        },
+        {
+          "num": 1
+        },
+        {
+          "num": 2
+        },
+        {
+          "num": 3
+        },
+        {
+          "num": 4
+        },
+        {
+          "num": 5
+        },
+        {
+          "num": 6
+        },
+        {
+          "num": 7
+        },
+        {
+          "num": 8
+        },
+        {
+          "num": 9
+        }
+      ]
+    },
+    "outputByStep": {
+      "a": {
+        "http_input": [
+          {
+            "num": 0
+          },
+          {
+            "num": 1
+          },
+          {
+            "num": 2
+          },
+          {
+            "num": 3
+          },
+          {
+            "num": 4
+          },
+          {
+            "num": 5
+          },
+          {
+            "num": 6
+          },
+          {
+            "num": 7
+          },
+          {
+            "num": 8
+          },
+          {
+            "num": 9
+          }
+        ]
+      },
+      "a_to_b_filter": {
+        "a": [
+          {
+            "num": 0
+          },
+          {
+            "num": 2
+          },
+          {
+            "num": 4
+          },
+          {
+            "num": 6
+          },
+          {
+            "num": 8
+          }
+        ]
+      },
+      "a_to_c_filter": {
+        "a": [
+          {
+            "num": 1
+          },
+          {
+            "num": 3
+          },
+          {
+            "num": 5
+          },
+          {
+            "num": 7
+          },
+          {
+            "num": 9
+          }
+        ]
+      },
+      "b": {
+        "a_to_b_filter": [
+          {
+            "num": 0,
+            "type": "even"
+          },
+          {
+            "num": 2,
+            "type": "even"
+          },
+          {
+            "num": 4,
+            "type": "even"
+          },
+          {
+            "num": 6,
+            "type": "even"
+          },
+          {
+            "num": 8,
+            "type": "even"
+          }
+        ]
+      },
+      "c": {
+        "a_to_c_filter": [
+          {
+            "num": 1,
+            "type": "odd"
+          },
+          {
+            "num": 3,
+            "type": "odd"
+          },
+          {
+            "num": 5,
+            "type": "odd"
+          },
+          {
+            "num": 7,
+            "type": "odd"
+          },
+          {
+            "num": 9,
+            "type": "odd"
+          }
+        ]
+      },
+      "d": {
+        "a": [
+          {
+            "num": 0
+          },
+          {
+            "num": 1
+          },
+          {
+            "num": 2
+          },
+          {
+            "num": 3
+          },
+          {
+            "num": 4
+          },
+          {
+            "num": 5
+          },
+          {
+            "num": 6
+          },
+          {
+            "num": 7
+          },
+          {
+            "num": 8
+          },
+          {
+            "num": 9
+          }
+        ],
+        "b": [
+          {
+            "num": 0,
+            "type": "even"
+          },
+          {
+            "num": 2,
+            "type": "even"
+          },
+          {
+            "num": 4,
+            "type": "even"
+          },
+          {
+            "num": 6,
+            "type": "even"
+          },
+          {
+            "num": 8,
+            "type": "even"
+          }
+        ],
+        "c": [
+          {
+            "num": 1,
+            "type": "odd"
+          },
+          {
+            "num": 3,
+            "type": "odd"
+          },
+          {
+            "num": 5,
+            "type": "odd"
+          },
+          {
+            "num": 7,
+            "type": "odd"
+          },
+          {
+            "num": 9,
+            "type": "odd"
+          }
+        ]
+      }
+    },
+    "errorByStep": {
+      "a": {
+        "http_input": [
+        ]
+      },
+      "a_to_b_filter": {
+        "a": [
+        ]
+      },
+      "a_to_c_filter": {
+        "a": [
+        ]
+      },
+      "b": {
+        "a_to_b_filter": [
+        ]
+      },
+      "c": {
+        "a_to_c_filter": [
+        ]
+      },
+      "d": {
+        "a": [
+        ],
+        "b": [
+        ],
+        "c": [
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+queries:
+  - SELECT column1 FROM table1
+  - SELECT column1, column2 FROM table1
+#  - SELECT DISTINCT column1 FROM table1
+  - SELECT table1.column1 FROM table1
+  - SELECT table1.column1 FROM table1 WHERE table1.column1 = 'value'
+  - SELECT table1.column1, COUNT(a) FROM table1 GROUP BY table1.column1
+  - SELECT table1.column1 FROM table1 WHERE table1.column1 = 'value' AND table1.column2 = 'value'
+#  - SELECT DISTINCT table1.column1, table1.column2 FROM table1
+  - SELECT table1.column1 AS alias1 FROM table1
+  - SELECT t.column1 FROM table1 AS t
+  - SELECT COUNT(a) FROM table1
+#  - SELECT table1.column1 FROM table1 ORDER BY table1.column1 DESC
+  - SELECT table1.column1 FROM table1 LIMIT 10
+#  - SELECT table1.column1 FROM table1 LIMIT 10 OFFSET 5
+#  - SELECT table1.column1 FROM table1 JOIN table2 ON table1.id = table2.id
+  - SELECT t1.column1 FROM table1 t1, table1 t2 WHERE t1.id = t2.parent_id
+  - SELECT table1.a, table1.column1, table1.column2 FROM table1
+  - SELECT table1.column1, COUNT(a) FROM table1 GROUP BY table1.column1
+  - SELECT table1.column1 FROM table1 WHERE table1.column1 IS NULL
+  - SELECT table1.column1 FROM table1 WHERE table1.column1 IS NOT NULL
+  - select json_array_elements(matches1) -> 'metadata' -> 'text' as txt, json_array_elements(matches2) as ids from test345 where matches2 is not null

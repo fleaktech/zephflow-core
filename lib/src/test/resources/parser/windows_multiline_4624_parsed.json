@@ -1,0 +1,55 @@
+{
+  "__ts__": "03/12/2021 10:48:14 AM",
+  "Keywords": "Audit Success",
+  "TaskCategory": "Logon",
+  "Message": "An account was successfully logged on.",
+  "EventCode": "4624",
+  "ComputerName": "win-dc-725.attackrange.local",
+  "LogName": "Security",
+  "RecordNumber": "257879",
+  "EventType": "0",
+  "SourceName": "Microsoft Windows security auditing.",
+  "Type": "Information",
+  "Impersonation Level": "Impersonation",
+  "OpCode": "Info",
+  "Network Information": {
+    "Source Port": "-",
+    "Workstation Name": "-",
+    "Source Network Address": "-"
+  },
+  "Detailed Authentication Information": {
+    "Package Name (NTLM only)": "-",
+    "Logon Process": "Advapi",
+    "Transited Services": "-",
+    "Authentication Package": "Negotiate",
+    "Key Length": "0"
+  },
+  "Subject": {
+    "Account Name": "WIN-DC-725$",
+    "Security ID": "NT AUTHORITY\\SYSTEM",
+    "Logon ID": "0x3E7",
+    "Account Domain": "ATTACKRANGE"
+  },
+  "Logon Information": {
+    "Logon Type": "5",
+    "Virtual Account": "No",
+    "Elevated Token": "Yes",
+    "Restricted Admin Mode": "-"
+  },
+  "Process Information": {
+    "Process ID": "0x350",
+    "Process Name": "C:\\Windows\\System32\\services.exe"
+  },
+  "New Logon": {
+    "Linked Logon ID": "0x0",
+    "Account Name": "SYSTEM",
+    "Network Account Name": "-",
+    "Security ID": "NT AUTHORITY\\SYSTEM",
+    "Logon ID": "0x3E7",
+    "Logon GUID": "{00000000-0000-0000-0000-000000000000}",
+    "Network Account Domain": "-",
+    "Account Domain": "NT AUTHORITY"
+  },
+  "__raw__": "03/12/2021 10:48:14 AM\nLogName=Security\nSourceName=Microsoft Windows security auditing.\nEventCode=4624\nEventType=0\nType=Information\nComputerName=win-dc-725.attackrange.local\nTaskCategory=Logon\nOpCode=Info\nRecordNumber=257879\nKeywords=Audit Success\nMessage=An account was successfully logged on.\n\nSubject:\n\tSecurity ID:\t\tNT AUTHORITY\\SYSTEM\n\tAccount Name:\t\tWIN-DC-725$\n\tAccount Domain:\t\tATTACKRANGE\n\tLogon ID:\t\t0x3E7\n\nLogon Information:\n\tLogon Type:\t\t5\n\tRestricted Admin Mode:\t-\n\tVirtual Account:\t\tNo\n\tElevated Token:\t\tYes\n\nImpersonation Level:\t\tImpersonation\n\nNew Logon:\n\tSecurity ID:\t\tNT AUTHORITY\\SYSTEM\n\tAccount Name:\t\tSYSTEM\n\tAccount Domain:\t\tNT AUTHORITY\n\tLogon ID:\t\t0x3E7\n\tLinked Logon ID:\t\t0x0\n\tNetwork Account Name:\t-\n\tNetwork Account Domain:\t-\n\tLogon GUID:\t\t{00000000-0000-0000-0000-000000000000}\n\nProcess Information:\n\tProcess ID:\t\t0x350\n\tProcess Name:\t\tC:\\Windows\\System32\\services.exe\n\nNetwork Information:\n\tWorkstation Name:\t-\n\tSource Network Address:\t-\n\tSource Port:\t\t-\n\nDetailed Authentication Information:\n\tLogon Process:\t\tAdvapi\n\tAuthentication Package:\tNegotiate\n\tTransited Services:\t-\n\tPackage Name (NTLM only):\t-\n\tKey Length:\t\t0\n\nThis event is generated when a logon session is created. It is generated on the computer that was accessed.\n\nThe subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.\n\nThe logon type field indicates the kind of logon that occurred. The most common types are 2 (interactive) and 3 (network).\n\nThe New Logon fields indicate the account for whom the new logon was created, i.e. the account that was logged on.\n\nThe network fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.\n\nThe impersonation level field indicates the extent to which a process in the logon session can impersonate.",
+  "description": "This event is generated when a logon session is created. It is generated on the computer that was accessed.\nThe subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.\nThe logon type field indicates the kind of logon that occurred. The most common types are 2 (interactive) and 3 (network).\nThe New Logon fields indicate the account for whom the new logon was created, i.e. the account that was logged on.\nThe network fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.\nThe impersonation level field indicates the extent to which a process in the logon session can impersonate."
+}

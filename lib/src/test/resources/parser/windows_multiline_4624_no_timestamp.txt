@@ -1,0 +1,51 @@
+Log Name:      Security
+Source:        Microsoft-Windows-Security-Auditing
+Event ID:      4624
+Task Category: Logon
+Level:         Information
+Keywords:      Audit Success
+User:          N/A
+Computer:      WIN-DC01.contoso.local
+Description:   An account was successfully logged on.
+
+Subject:
+	Security ID:		S-1-5-18
+	Account Name:		SYSTEM
+	Account Domain:		NT AUTHORITY
+	Logon ID:		0x3E7
+
+Logon Information:
+	Logon Type:		2
+	Restricted Admin Mode:	No
+	Virtual Account:		No
+	Elevated Token:		Yes
+
+Impersonation Level:		Impersonation
+
+New Logon:
+	Security ID:		S-1-5-21-3623811015-3361044348-30300820-1013
+	Account Name:		jsmith
+	Account Domain:		CONTOSO
+	Logon ID:		0x95B23
+	Linked Logon ID:		0x0
+	Network Account Name:	-
+	Network Account Domain:	-
+	Logon GUID:		{B16DD7C8-D4A0-D538-E9FC-0090F02A4D05}
+
+Process Information:
+	Process ID:		0x3e4
+	Process Name:		C:\Windows\System32\svchost.exe
+
+Network Information:
+	Workstation Name:	WIN-DC01
+	Source Network Address:	192.168.1.100
+	Source Port:		54321
+
+Detailed Authentication Information:
+	Logon Process:		User32
+	Authentication Package:	Negotiate
+	Transited Services:	-
+	Package Name (NTLM only):	-
+	Key Length:		0
+
+This event is generated when a logon session is created. It is generated on the computer that was accessed.

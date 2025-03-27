@@ -1,0 +1,18 @@
+{
+  "level": "6",
+  "message_number": "305011",
+  "source_zone": "inside",
+  "__raw__": "Oct 10 2018 12:34:56 localhost CiscoASA[999]: %ASA-6-305011: Built dynamic TCP translation from inside:172.31.98.44/1772 to outside:100.66.98.44/8256",
+  "pid": "999",
+  "program": "CiscoASA",
+  "dest_zone": "outside",
+  "source_ip": "172.31.98.44",
+  "translation_type": "dynamic",
+  "hostname": "localhost",
+  "protocol": "TCP",
+  "source_port": "1772",
+  "dest_ip": "100.66.98.44",
+  "action": "Built",
+  "dest_port": "8256",
+  "timestamp": "Oct 10 2018 12:34:56"
+}

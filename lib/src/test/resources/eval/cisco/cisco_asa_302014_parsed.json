@@ -1,0 +1,20 @@
+{
+  "reason": "TCP Reset-I",
+  "level": "6",
+  "dest_interface": "inside",
+  "message_number": "302014",
+  "__raw__": "Oct 10 2018 12:34:56 localhost CiscoASA[999]: %ASA-6-302014: Teardown TCP connection 11749 for outside:100.66.211.242/80 to inside:172.31.98.44/1758 duration 0:01:07 bytes 38110 TCP Reset-I",
+  "pid": "999",
+  "program": "CiscoASA",
+  "source_ip": "100.66.211.242",
+  "duration": "0:01:07",
+  "hostname": "localhost",
+  "protocol": "TCP",
+  "connection_id": "11749",
+  "source_interface": "outside",
+  "bytes": "38110",
+  "source_port": "80",
+  "dest_ip": "172.31.98.44",
+  "dest_port": "1758",
+  "timestamp": "Oct 10 2018 12:34:56"
+}

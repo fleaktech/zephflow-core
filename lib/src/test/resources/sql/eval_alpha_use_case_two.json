@@ -1,0 +1,75 @@
+{
+  "status": "ok",
+  "total_hits": 2,
+  "page": 1,
+  "total_pages": 1,
+  "page_size": 2,
+  "articles": [
+    {
+      "title": "MEMS Packaging Market Witness Excellent Long-Term Growth by Top Key Players ChipMos Technologies Inc., MEMSCAP, Infineon Technologies AG, AAC Technologies Holdings Inc.",
+      "author": "Big Market Research",
+      "published_date": "2020-07-24 07:11:07",
+      "published_date_precision": "full",
+      "link": "https://www.openpr.com/news/2096076/mems-packaging-market-witness-excellent-long-term-growth-by-top",
+      "clean_url": "openpr.com",
+      "excerpt": null,
+      "text": "MEMs packaging plays a vital role in the protection of the wafer and chipset structure from environmental factors along with providing other benefits such as conductivity, connective communication, etc. The complex manufacturing process involved in MEMs packaging is restraining the",
+      "rights": "openpr.com",
+      "rank": 9387,
+      "topic": "news",
+      "country": "DE",
+      "language": "en",
+      "authors": "Big Market Research",
+      "media": null,
+      "is_opinion": false,
+      "twitter_account": null,
+      "_score": 17.321272,
+      "_id": "f55d5caff496776fe1e98548ebe8868c"
+    },
+    {
+      "title": "Haptic Technology for Mobile Devices Market Analysis and Forecast 2020: By Keyplayers Immersion, Texas Instruments Incorporated, Precision Microdrives Limited, Johnson Electric Holdings Limited, AAC Technologies, Analog Devices, Inc., ALPS ALPINE CO., LTD",
+      "author": "Coherent Market Insights",
+      "published_date": "2020-07-27 09:48:19",
+      "published_date_precision": "full",
+      "link": "https://www.openpr.com/news/2097177/haptic-technology-for-mobile-devices-market-analysis",
+      "clean_url": "openpr.com",
+      "excerpt": null,
+      "text": "Don't Quarantine Your Research, you keep your social distance and we provide you a social DISCOUNT use QUARANTINEDAYS Code in precise requirement and Get FLAT 1000USD OFF on all CMI reports Market Overview Haptic technology is also known as kinaesthetic communication\u00a0or\u00a03D touch,",
+      "rights": "openpr.com",
+      "rank": 9387,
+      "topic": "news",
+      "country": "DE",
+      "language": "en",
+      "authors": "Coherent Market Insights",
+      "media": null,
+      "is_opinion": false,
+      "twitter_account": null,
+      "_score": 13.8976145,
+      "_id": "84710c6219d06a874791f98480ed064f"
+    }
+  ],
+  "user_input": {
+    "q": "aac technologies holding",
+    "search_in": [
+      "title_en"
+    ],
+    "lang": [
+      "en"
+    ],
+    "not_lang": null,
+    "countries": null,
+    "not_countries": null,
+    "from": "2020-07-01 00:00:00",
+    "to": "2020-09-30 00:00:00",
+    "ranked_only": "True",
+    "from_rank": null,
+    "to_rank": null,
+    "sort_by": "relevancy",
+    "page": 1,
+    "size": 100,
+    "sources": null,
+    "not_sources": null,
+    "topic": null,
+    "published_date_precision": null
+  }
+}

@@ -1,0 +1,13 @@
+plugins {
+  id 'java'
+  id 'application'
+}
+
+dependencies {
+  api project(":lib")
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+  testLogging.showStandardStreams = true
+}

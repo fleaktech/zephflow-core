@@ -1,0 +1,50 @@
+jobContext:
+  otherProperties:
+  metricTags:
+  dlqConfig:
+dag:
+  #                               /->(even) c
+  # a -> b(calculate type odd/even)
+  #                               \->(odd)  d
+  - id: "a"
+    commandName: "testSource"
+    config:
+    outputs:
+      - "b"
+
+  - id: "b"
+    commandName: "eval"
+    config: |
+      dict(
+        type=case(
+          $.num%2==0 => 'even',
+          $.num%2==1 => 'odd',
+          _ => 'unknown'
+        ),
+        num=$.num
+      )
+    outputs:
+      - "b_to_c_filter"
+      - "b_to_d_filter"
+
+  - id: "b_to_c_filter"
+    commandName: "filter"
+    config: |
+      $.type == 'even'
+    outputs:
+      - "c"
+
+  - id: "b_to_d_filter"
+    commandName: "filter"
+    config: |
+      $.type == 'odd'
+    outputs:
+      - "d"
+
+  - id: "c"
+    commandName: "testSink"
+    config:
+
+  - id: "d"
+    commandName: "testSink"
+    config:

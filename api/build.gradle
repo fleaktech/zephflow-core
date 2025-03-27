@@ -1,0 +1,7 @@
+dependencies {
+	api group: 'org.apache.avro', name: 'avro', version: avroVersion
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}

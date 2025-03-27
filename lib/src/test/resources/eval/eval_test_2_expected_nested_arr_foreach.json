@@ -1,0 +1,32 @@
+{
+  "val": [
+    [
+      {
+        "groupName": "Group1",
+        "value": 1
+      },
+      {
+        "groupName": "Group1",
+        "value": 2
+      },
+      {
+        "groupName": "Group1",
+        "value": 3
+      }
+    ],
+    [
+      {
+        "groupName": "Group2",
+        "value": 4
+      },
+      {
+        "groupName": "Group2",
+        "value": 5
+      },
+      {
+        "groupName": "Group2",
+        "value": 6
+      }
+    ]
+  ]
+}

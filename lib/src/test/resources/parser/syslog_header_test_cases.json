@@ -1,0 +1,233 @@
+[
+  {
+    "logEntry": "Oct 10 2018 12:34:56 localhost CiscoASA[999]: %ASA-4-106023: Deny tcp src outside:100.66.19.254/80 dst inside:172.31.98.44/8277 by access-group \"inbound\" [0x0, 0x0]",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "TIMESTAMP",
+        "DEVICE",
+        "APP"
+      ],
+      "timestampPattern": "MMM dd yyyy HH:mm:ss",
+      "messageBodyDelimiter": ":"
+    },
+    "expected": {
+      "appName": "CiscoASA[999]",
+      "timestamp": "Oct 10 2018 12:34:56",
+      "deviceId": "localhost",
+      "content": "%ASA-4-106023: Deny tcp src outside:100.66.19.254/80 dst inside:172.31.98.44/8277 by access-group \"inbound\" [0x0, 0x0]"
+    }
+  },
+  {
+    "logEntry": "<34>Oct 11 22:14:15 mymachine fake message body",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP",
+        "DEVICE"
+      ],
+      "timestampPattern": "MMM dd HH:mm:ss",
+      "messageBodyDelimiter": null
+    },
+    "expected": {
+      "priority": 34,
+      "timestamp": "Oct 11 22:14:15",
+      "deviceId": "mymachine",
+      "content": "fake message body"
+    }
+  },
+  {
+    "logEntry": "<13>Feb 25 10:56:11 testhost myapp[12345]: Test message content",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP",
+        "DEVICE",
+        "APP"
+      ],
+      "timestampPattern": "MMM dd HH:mm:ss",
+      "messageBodyDelimiter": ":"
+    },
+    "expected": {
+      "priority": 13,
+      "timestamp": "Feb 25 10:56:11",
+      "deviceId": "testhost",
+      "appName": "myapp[12345]",
+      "content": "Test message content"
+    }
+  },
+  {
+    "logEntry": "<166>2018-06-27T12:17:46Z asa : %ASA-6-110002: Failed to locate egress interface for protocol",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP",
+        "DEVICE"
+      ],
+      "timestampPattern": "yyyy-MM-dd'T'HH:mm:ss'Z'",
+      "messageBodyDelimiter": ":"
+    },
+    "expected": {
+      "priority": 166,
+      "timestamp": "2018-06-27T12:17:46Z",
+      "deviceId": "asa",
+      "content": "%ASA-6-110002: Failed to locate egress interface for protocol"
+    }
+  },
+  {
+    "logEntry": "<166>2018-06-27T12:17:46Z: %ASA-6-110002: Failed to locate egress interface",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP"
+      ],
+      "timestampPattern": "yyyy-MM-dd'T'HH:mm:ss'Z'",
+      "messageBodyDelimiter": ":"
+    },
+    "expected": {
+      "priority": 166,
+      "timestamp": "2018-06-27T12:17:46Z",
+      "content": "%ASA-6-110002: Failed to locate egress interface"
+    }
+  },
+  {
+    "logEntry": "<165>1 2022-03-30T14:15:16.123Z host1 appName 12345 ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] Application event log entry",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "VERSION",
+        "TIMESTAMP",
+        "DEVICE",
+        "APP",
+        "PROC_ID",
+        "MSG_ID",
+        "STRUCTURED_DATA"
+      ],
+      "timestampPattern": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+      "messageBodyDelimiter": null
+    },
+    "expected": {
+      "priority": 165,
+      "version": "1",
+      "timestamp": "2022-03-30T14:15:16.123Z",
+      "deviceId": "host1",
+      "appName": "appName",
+      "procId": "12345",
+      "msgId": "ID47",
+      "structuredData": {
+        "exampleSDID@32473": {
+          "iut": "3",
+          "eventSource": "Application",
+          "eventID": "1011"
+        }
+      },
+      "content": "Application event log entry"
+    }
+  },
+  {
+    "logEntry": "<34>1 2022-11-05T09:12:33.987Z host42 process - - - Simple log message",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "VERSION",
+        "TIMESTAMP",
+        "DEVICE",
+        "APP",
+        "PROC_ID",
+        "MSG_ID",
+        "STRUCTURED_DATA"
+      ],
+      "timestampPattern": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+      "messageBodyDelimiter": null
+    },
+    "expected": {
+      "priority": 34,
+      "version": "1",
+      "timestamp": "2022-11-05T09:12:33.987Z",
+      "deviceId": "host42",
+      "appName": "process",
+      "procId": "-",
+      "msgId": "-",
+      "structuredData": "-",
+      "content": "Simple log message"
+    }
+  },
+  {
+    "logEntry": "<0>Jan 1 00:00:00 Minimal message",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP"
+      ],
+      "timestampPattern": "MMM d HH:mm:ss",
+      "messageBodyDelimiter": null
+    },
+    "expected": {
+      "priority": 0,
+      "timestamp": "Jan 1 00:00:00",
+      "content": "Minimal message"
+    }
+  },
+  {
+    "logEntry": "<191>Mar 15 12:30:45 highpri High priority message",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP",
+        "DEVICE"
+      ],
+      "timestampPattern": "MMM d HH:mm:ss",
+      "messageBodyDelimiter": null
+    },
+    "expected": {
+      "priority": 191,
+      "timestamp": "Mar 15 12:30:45",
+      "deviceId": "highpri",
+      "content": "High priority message"
+    }
+  },
+  {
+    "logEntry": "<78>1 2023-04-22T15:23:45.678Z multisd app 1234 - [data@1 key1=\"val1\"][data@2 key2=\"val2\"] Multiple structured data",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "VERSION",
+        "TIMESTAMP",
+        "DEVICE",
+        "APP",
+        "PROC_ID",
+        "MSG_ID",
+        "STRUCTURED_DATA"
+      ],
+      "timestampPattern": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+      "messageBodyDelimiter": null
+    },
+    "expected": {
+      "priority": 78,
+      "version": "1",
+      "timestamp": "2023-04-22T15:23:45.678Z",
+      "deviceId": "multisd",
+      "appName": "app",
+      "procId": "1234",
+      "msgId": "-",
+      "structuredData": {
+        "data@1": {
+          "key1": "val1"
+        },
+        "data@2": {
+          "key2": "val2"
+        }
+      },
+      "content": "Multiple structured data"
+    }
+  }
+]

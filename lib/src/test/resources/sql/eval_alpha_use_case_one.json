@@ -1,0 +1,27 @@
+{
+  "url": "https://www.cnbc.com/2023/03/01/qualcomm-ceo-says-planning-for-apple-to-make-own-iphone-modems-from-2024-.html",
+  "authorsByline": "Jenni Reid",
+  "articleId": "abed680d86fd4e699c4b14766072941f",
+  "clusterId": "cfcfb268846941d3a68390ce7c7af09d",
+  "source": {
+    "domain": "cnbc.com",
+    "paywall": false
+  },
+  "imageUrl": "https://image.cnbcfm.com/api/v1/image/107100476-16599735222022-08-08t154222z_307289344_rc29qa90egp5_rtrmadp_0_qualcomm-glofoundries.jpeg?v=1677667612&w=1920&h=1080",
+  "country": "us",
+  "language": "en",
+  "pubDate": "2023-03-01T10:46:52+00:00",
+  "addDate": "2023-03-01T10:56:48.697451+00:00",
+  "refreshDate": "2023-03-01T10:56:48.697452+00:00",
+  "score": 1,
+  "title": "Qualcomm CEO says he's expecting Apple to make its own iPhone modems from 2024",
+  "description": "Cristiano Amon told CNBC Qualcomm has \"no plans\" to provide Apple with modem chips in 2024, but added it was \"their decision to make.\"",
+  "content": "Apple is moving to in-house 5G modem chips for its 2024 iPhones, as far as the chief executive of Qualcomm — which currently produces them for the tech giant — is aware.\n\n\"We're making no plans for 2024, my planning assumption is we're not providing [Apple] a modem in '24, but it's their decision to make,\" Cristiano Amon told CNBC at the Mobile World Congress in Barcelona.\n\nApple's most recent iPhone 14 models use Qualcomm modems, but the company has been looking to go solo in the wireless connectivity market for some years.\n\nIt bought Intel's modem business in 2019 and there had been speculation it would begin using in-house parts this year.\n\nAmon said Qualcomm had told investors back in 2021 that it did not expect to provide modems for the iPhone in 2023, but Apple then decided to continue for another year.\n\nQualcomm has been diversifying its business into automotive semiconductors and low-power applications.",
+  "medium": "Article",
+  "links": [
+    "https://www.cnbc.com/quotes/AAPL/",
+    "https://www.cnbc.com/quotes/QCOM/",
+    "https://www.apple.com/newsroom/2019/07/apple-to-acquire-the-majority-of-intels-smartphone-modem-business/",
+    "https://www.cnbc.com/2022/04/27/qualcomms-plan-to-diversify-into-new-markets-pays-off-with-blowout-earnings.html"
+  ]
+}

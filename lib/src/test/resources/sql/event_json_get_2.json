@@ -1,0 +1,17 @@
+{
+  "semtiment_labels": {
+    "errorMessage": null,
+    "modelOutputs": [
+      {
+        "result": "{\"ticker\": \"AAPL\", \"label\": \"positive\"}, {\"ticker\": \"QCOM\", \"label\": \"negative\"}, {\"ticker\": \"INTC\", \"label\": \"neutral\"}",
+        "name": "gpt-4-0613",
+        "errorMessage": null,
+        "inputTokens": 157,
+        "tag": "my_tag",
+        "outputTokens": 39,
+        "totalTokens": 196,
+        "timestamp": 1716585828
+      }
+    ]
+  }
+}

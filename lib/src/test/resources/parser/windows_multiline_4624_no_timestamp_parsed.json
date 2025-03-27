@@ -1,0 +1,52 @@
+{
+  "Keywords": "Audit Success",
+  "User": "N/A",
+  "Description": "An account was successfully logged on.",
+  "Network Information": {
+    "Source Port": "54321",
+    "Workstation Name": "WIN-DC01",
+    "Source Network Address": "192.168.1.100"
+  },
+  "__raw__": "Log Name:      Security\nSource:        Microsoft-Windows-Security-Auditing\nEvent ID:      4624\nTask Category: Logon\nLevel:         Information\nKeywords:      Audit Success\nUser:          N/A\nComputer:      WIN-DC01.contoso.local\nDescription:   An account was successfully logged on.\n\nSubject:\n\tSecurity ID:\t\tS-1-5-18\n\tAccount Name:\t\tSYSTEM\n\tAccount Domain:\t\tNT AUTHORITY\n\tLogon ID:\t\t0x3E7\n\nLogon Information:\n\tLogon Type:\t\t2\n\tRestricted Admin Mode:\tNo\n\tVirtual Account:\t\tNo\n\tElevated Token:\t\tYes\n\nImpersonation Level:\t\tImpersonation\n\nNew Logon:\n\tSecurity ID:\t\tS-1-5-21-3623811015-3361044348-30300820-1013\n\tAccount Name:\t\tjsmith\n\tAccount Domain:\t\tCONTOSO\n\tLogon ID:\t\t0x95B23\n\tLinked Logon ID:\t\t0x0\n\tNetwork Account Name:\t-\n\tNetwork Account Domain:\t-\n\tLogon GUID:\t\t{B16DD7C8-D4A0-D538-E9FC-0090F02A4D05}\n\nProcess Information:\n\tProcess ID:\t\t0x3e4\n\tProcess Name:\t\tC:\\Windows\\System32\\svchost.exe\n\nNetwork Information:\n\tWorkstation Name:\tWIN-DC01\n\tSource Network Address:\t192.168.1.100\n\tSource Port:\t\t54321\n\nDetailed Authentication Information:\n\tLogon Process:\t\tUser32\n\tAuthentication Package:\tNegotiate\n\tTransited Services:\t-\n\tPackage Name (NTLM only):\t-\n\tKey Length:\t\t0\n\nThis event is generated when a logon session is created. It is generated on the computer that was accessed.",
+  "description": "This event is generated when a logon session is created. It is generated on the computer that was accessed.",
+  "Detailed Authentication Information": {
+    "Package Name (NTLM only)": "-",
+    "Logon Process": "User32",
+    "Transited Services": "-",
+    "Authentication Package": "Negotiate",
+    "Key Length": "0"
+  },
+  "Event ID": "4624",
+  "Source": "Microsoft-Windows-Security-Auditing",
+  "Subject": {
+    "Account Name": "SYSTEM",
+    "Security ID": "S-1-5-18",
+    "Logon ID": "0x3E7",
+    "Account Domain": "NT AUTHORITY"
+  },
+  "Logon Information": {
+    "Logon Type": "2",
+    "Virtual Account": "No",
+    "Elevated Token": "Yes",
+    "Restricted Admin Mode": "No"
+  },
+  "Process Information": {
+    "Process ID": "0x3e4",
+    "Process Name": "C:\\Windows\\System32\\svchost.exe"
+  },
+  "Impersonation Level": "Impersonation",
+  "New Logon": {
+    "Linked Logon ID": "0x0",
+    "Account Name": "jsmith",
+    "Network Account Name": "-",
+    "Security ID": "S-1-5-21-3623811015-3361044348-30300820-1013",
+    "Logon ID": "0x95B23",
+    "Logon GUID": "{B16DD7C8-D4A0-D538-E9FC-0090F02A4D05}",
+    "Network Account Domain": "-",
+    "Account Domain": "CONTOSO"
+  },
+  "Computer": "WIN-DC01.contoso.local",
+  "Level": "Information",
+  "Task Category": "Logon",
+  "Log Name": "Security"
+}

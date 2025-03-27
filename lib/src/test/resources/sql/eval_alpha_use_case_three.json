@@ -1,0 +1,28 @@
+{
+  "question": "test question?",
+  "news_query_result": {
+    "matchList": [
+      {
+        "score": 0.866036057472229,
+        "metadata": {
+          "pc_write_ts": 1.708200089736E12,
+          "text": "news 1 about Argentina won the world cup 2022"
+        },
+        "id": "dd7352f6-939a-4a43-ae4a-51c788941669",
+        "values": []
+      },
+      {
+        "score": 0.866036057472229,
+        "metadata": {
+          "pc_write_ts": 1.708407631273E12,
+          "text": "news 2 about Argentina won the world cup 2022"
+        },
+        "id": "7bd9bbc4-c6a2-4c05-bebd-09b5aac6419c",
+        "values": []
+      }
+    ],
+    "usage": {
+      "readUnit": 6
+    }
+  }
+}

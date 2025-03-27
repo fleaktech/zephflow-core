@@ -1,0 +1,102 @@
+[
+  {
+    "value": 11.0,
+    "highPriority": true,
+    "source": "A"
+  },
+  {
+    "value": 13.0,
+    "highPriority": true,
+    "source": "A"
+  },
+  {
+    "value": 15.0,
+    "highPriority": true,
+    "source": "A"
+  },
+  {
+    "value": 17.0,
+    "highPriority": true,
+    "source": "A"
+  },
+  {
+    "value": 19.0,
+    "highPriority": true,
+    "source": "A"
+  },
+  {
+    "value": 1.0,
+    "highPriority": false,
+    "source": "A"
+  },
+  {
+    "value": 3.0,
+    "highPriority": false,
+    "source": "A"
+  },
+  {
+    "value": 5.0,
+    "highPriority": false,
+    "source": "A"
+  },
+  {
+    "value": 7.0,
+    "highPriority": false,
+    "source": "A"
+  },
+  {
+    "value": 9.0,
+    "highPriority": false,
+    "source": "A"
+  },
+  {
+    "value": 12.0,
+    "highPriority": true,
+    "source": "B"
+  },
+  {
+    "value": 14.0,
+    "highPriority": true,
+    "source": "B"
+  },
+  {
+    "value": 16.0,
+    "highPriority": true,
+    "source": "B"
+  },
+  {
+    "value": 18.0,
+    "highPriority": true,
+    "source": "B"
+  },
+  {
+    "value": 0.0,
+    "highPriority": false,
+    "source": "B"
+  },
+  {
+    "value": 2.0,
+    "highPriority": false,
+    "source": "B"
+  },
+  {
+    "value": 4.0,
+    "highPriority": false,
+    "source": "B"
+  },
+  {
+    "value": 6.0,
+    "highPriority": false,
+    "source": "B"
+  },
+  {
+    "value": 8.0,
+    "highPriority": false,
+    "source": "B"
+  },
+  {
+    "value": 10.0,
+    "highPriority": false,
+    "source": "B"
+  }
+]

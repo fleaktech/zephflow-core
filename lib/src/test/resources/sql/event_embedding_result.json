@@ -1,0 +1,25 @@
+{
+  "output": {
+    "errorMessage": null,
+    "modelOutputs": [
+      {
+        "result": "some summary",
+        "name": "gpt-4-0613",
+        "errorMessage": null,
+        "inputTokens": 70,
+        "tag": "my_tag",
+        "outputTokens": 46,
+        "totalTokens": 116,
+        "timestamp": 1715986616
+      }
+    ]
+  },
+  "embedding_output": {
+    "tokenCount": 46,
+    "embedding": [
+      0.035992317,
+      0.015277487
+    ]
+  },
+  "txt": "some text"
+}

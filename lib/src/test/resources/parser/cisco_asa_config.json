@@ -1,0 +1,84 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "grok",
+    "grokExpression": "%{GREEDYDATA:timestamp} %{HOSTNAME:hostname} %{WORD:program}\\[%{POSINT:pid}\\]: %ASA-%{INT:level}-%{INT:message_number}: %{GREEDYDATA:message_text}"
+  },
+  "dispatchConfig": {
+    "dispatchField": "message_number",
+    "dispatchMap": {
+      "106023": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Deny %{WORD:protocol} src %{WORD:source_interface}:%{IP:source_ip}/%{NUMBER:source_port} dst %{WORD:dest_interface}:%{IP:dest_ip}/%{NUMBER:dest_port} by access-group %{DATA:access_group} \\[%{DATA:rule_ids}\\]"
+        }
+      },
+      "302013": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "%{WORD:action} %{WORD:direction} %{WORD:protocol} connection %{NUMBER:connection_id} for %{WORD:source_interface}:%{IP:source_ip}/%{NUMBER:source_port} \\(%{IP:source_mapped_ip}/%{NUMBER:source_mapped_port}\\) to %{WORD:dest_interface}:%{IP:dest_ip}/%{NUMBER:dest_port} \\(%{IP:dest_mapped_ip}/%{NUMBER:dest_mapped_port}\\)"
+        }
+      },
+      "302014": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Teardown %{WORD:protocol} connection %{NUMBER:connection_id} for %{WORD:source_interface}:%{IP:source_ip}/%{NUMBER:source_port} to %{WORD:dest_interface}:%{IP:dest_ip}/%{NUMBER:dest_port} duration %{TIME:duration} bytes %{NUMBER:bytes} %{GREEDYDATA:reason}"
+        }
+      },
+      "302015": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Built %{WORD:direction} %{WORD:protocol} connection %{NUMBER:connection_id} for %{WORD:source_interface}:%{IP:source_ip}/%{NUMBER:source_port} \\(%{IP:source_mapped_ip}/%{NUMBER:source_mapped_port}\\) to %{WORD:dest_interface}:%{IP:dest_ip}/%{NUMBER:dest_port} \\(%{IP:dest_mapped_ip}/%{NUMBER:dest_mapped_port}\\)"
+        }
+      },
+      "302016": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Teardown %{WORD:protocol} connection %{NUMBER:connection_id} for %{DATA:source_interface}:%{IP:source_ip}/%{NUMBER:source_port} to %{DATA:dest_interface}:%{IPORHOST:dest_ip}/%{NUMBER:dest_port} duration %{TIME:duration} bytes %{NUMBER:bytes}"
+        }
+      },
+      "305011": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "%{WORD:action} %{WORD:translation_type} %{WORD:protocol} translation from %{WORD:source_interface}:%{IP:source_ip}/%{INT:source_port} to %{WORD:dest_interface}:%{IP:dest_ip}/%{INT:dest_port}"
+        }
+      },
+      "305012": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Teardown %{WORD:translation_type} %{WORD:protocol} translation from %{WORD:source_interface}:%{IP:source_ip}/%{NUMBER:source_port} to %{WORD:dest_interface}:%{IP:dest_ip}/%{NUMBER:dest_port} duration %{TIME:duration}"
+        }
+      },
+      "113019": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Group = %{WORD:group_name} , Username = %{USERNAME:username} , IP = %{IP:peer_address} , Session disconnected. Session Type: %{DATA:session_type} , Duration: %{TIME:duration} , Bytes xmt: %{NUMBER:bytes_xmt} , Bytes rcv: %{NUMBER:bytes_rcv} , Reason: %{GREEDYDATA:disconnect_reason}"
+        }
+      },
+      "113039": {
+        "targetField": "message_text",
+        "removeTargetField": true,
+        "extractionConfig": {
+          "type": "grok",
+          "grokExpression": "Group %{DATA:group_name} User %{USERNAME:username} IP %{IP:ip_address} AnyConnect parent session started."
+        }
+      }
+    }
+  }
+}

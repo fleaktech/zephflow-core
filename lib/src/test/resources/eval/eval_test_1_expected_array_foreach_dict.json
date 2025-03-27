@@ -1,0 +1,16 @@
+{
+  "devices": [
+    {
+      "source": "snmp",
+      "osVersion": "windows",
+      "pdf_attachment": "s3://a.pdf",
+      "ip": "1.2.3.4"
+    },
+    {
+      "source": "snmp",
+      "osVersion": "windows",
+      "pdf_attachment": "s3://a.pdf",
+      "ip": "1.2.3.5"
+    }
+  ]
+}

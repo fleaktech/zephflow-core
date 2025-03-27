@@ -1,0 +1,18 @@
+plugins {
+  id 'java'
+  id 'application'
+}
+
+dependencies {
+  api project(":runner")
+
+  testImplementation group: 'software.amazon.awssdk', name: 's3', version: awsVersion
+  testImplementation group: 'software.amazon.awssdk', name: 'kinesis', version: awsVersion
+  testImplementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
+
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+  testLogging.showStandardStreams = true
+}
