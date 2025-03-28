@@ -1,12 +1,8 @@
 services:
-  https-tarter:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  zephflow:
+    image: ghcr.io/fleaktech/zephflow-core/httpstarter:latest
     ports:
       - "8080:8080"
-    container_name: http-starter-service
-    restart: unless-stopped
     volumes:
       - ./logs:/app/logs
     healthcheck:
