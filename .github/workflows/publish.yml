@@ -57,7 +57,7 @@ jobs:
       # Publish snapshots from main branch
       - name: Publish SNAPSHOT to GitHub Packages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: ./gradlew devSnapshot publish
+        run: ./gradlew clean devSnapshot publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
