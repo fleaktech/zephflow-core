@@ -92,12 +92,16 @@ jobs:
             type=ref,event=pr
             type=sha,format=long
 
+      # Build the httpstarter JAR (ensure it's built before Docker image)
+      - name: Build httpstarter JAR
+        run: ./gradlew :httpstarter:build
+
       # Build and push Docker image
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./httpstarter
+          file: ./httpstarter/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
