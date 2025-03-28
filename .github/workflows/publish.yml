@@ -64,6 +64,6 @@ jobs:
       # Publish releases
       - name: Publish Release to GitHub Packages
         if: github.event_name == 'release'
-        run: ./gradlew final publish
+        run: ./gradlew clean final publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
