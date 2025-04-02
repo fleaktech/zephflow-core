@@ -72,7 +72,9 @@ jobs:
       # Install cosign for attestation signing
       - name: Install cosign
         if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
-        uses: sigstore/cosign-installer@v3.1.1
+        uses: sigstore/cosign-installer@v3.3.0
+        with:
+          cosign-release: 'v2.2.3'  # Specific version that avoids the TUF key issue
 
       # Set up QEMU for multi-architecture builds
       - name: Set up QEMU
@@ -130,14 +132,6 @@ jobs:
           provenance: mode=max  # Add provenance attestation
           sbom: true            # Add SBOM attestation
 
-      # Sign the httpstarter image with cosign
-      - name: Sign httpstarter image with Cosign
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
-        run: |
-          HTTPSTARTER_IMAGE_DIGEST=$(docker buildx imagetools inspect ${{ steps.meta-httpstarter.outputs.tags }} --format "{{json .Manifest}}" | jq -r '.digest')
-          HTTPSTARTER_IMAGE_REFERENCE=$(echo ${{ steps.meta-httpstarter.outputs.tags }} | cut -d, -f1)
-          cosign sign --yes "${HTTPSTARTER_IMAGE_REFERENCE}@${HTTPSTARTER_IMAGE_DIGEST}"
-
       ##### CLISTARTER DOCKER IMAGE #####
 
       # Build the clistarter JAR with shadowJar
@@ -175,14 +169,6 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: mode=max  # Add provenance attestation
           sbom: true            # Add SBOM attestation
-
-      # Sign the clistarter image with cosign
-      - name: Sign clistarter image with Cosign
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
-        run: |
-          CLISTARTER_IMAGE_DIGEST=$(docker buildx imagetools inspect ${{ steps.meta-clistarter.outputs.tags }} --format "{{json .Manifest}}" | jq -r '.digest')
-          CLISTARTER_IMAGE_REFERENCE=$(echo ${{ steps.meta-clistarter.outputs.tags }} | cut -d, -f1)
-          cosign sign --yes "${CLISTARTER_IMAGE_REFERENCE}@${CLISTARTER_IMAGE_DIGEST}"
 
       # Run Docker Scout to analyze the images
       - name: Docker Scout analysis
