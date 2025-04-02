@@ -169,16 +169,3 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: mode=max  # Add provenance attestation
           sbom: true            # Add SBOM attestation
-
-      # Run Docker Scout to analyze the images
-      - name: Docker Scout analysis
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
-        uses: docker/scout-action@v1
-        with:
-          command: quickview,cves,recommendations
-          image: |
-            ${{ steps.meta-httpstarter.outputs.tags }}
-            ${{ steps.meta-clistarter.outputs.tags }}
-          only-severities: critical,high
-          sarif-file: docker-scout-results.sarif
-          github-token: ${{ secrets.GITHUB_TOKEN }}
