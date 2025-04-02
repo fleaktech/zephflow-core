@@ -57,7 +57,7 @@ jobs:
       # Publish only the sdk module as SNAPSHOT
       - name: Publish SDK SNAPSHOT to GitHub Packages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: ./gradlew devSnapshot :sdk:publish
+        run: ./gradlew clean devSnapshot :sdk:publish # must do a clean to remove generated code to pass license check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
