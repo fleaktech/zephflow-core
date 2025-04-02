@@ -1,3 +1,21 @@
+plugins {
+  id 'com.gradleup.shadow' version '8.3.3'
+  id 'java'
+  id 'application'
+}
+
+application {
+  mainClassName = 'io.fleak.zephflow.clistarter.Main'
+}
+
+shadowJar {
+  zip64 true
+  archiveBaseName.set('clistarter')
+  archiveClassifier.set('')
+  archiveVersion.set('')
+}
+
+
 dependencies {
   implementation project(":runner")
   implementation group: 'commons-cli', name: 'commons-cli', version: commonsCliVersion

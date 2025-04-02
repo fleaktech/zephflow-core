@@ -1,6 +1,6 @@
 services:
   zephflow:
-    image: ghcr.io/fleaktech/zephflow-core/httpstarter:latest
+    image: fleak/zephflow-httpstarter:latest
     ports:
       - "8080:8080"
     volumes:
