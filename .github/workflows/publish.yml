@@ -9,7 +9,7 @@ on:
     types: [ created ]
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -54,17 +54,17 @@ jobs:
         with:
           fail_ci_if_error: false
 
-      # Publish snapshots from main branch
-      - name: Publish SNAPSHOT to GitHub Packages
+      # Publish only the sdk module as SNAPSHOT
+      - name: Publish SDK SNAPSHOT to GitHub Packages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: ./gradlew clean devSnapshot publish
+        run: ./gradlew :sdk:devSnapshot :sdk:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Publish releases
-      - name: Publish Release to GitHub Packages
+      # Publish only the sdk module for releases
+      - name: Publish SDK Release to GitHub Packages
         if: github.event_name == 'release'
-        run: ./gradlew -Prelease.useLastTag=true publish
+        run: ./gradlew -Prelease.useLastTag=true :sdk:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -78,11 +78,18 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
 
       ##### HTTPSTARTER DOCKER IMAGE #####
 
+      # Build the httpstarter JAR
+      - name: Build httpstarter JAR
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        run: ./gradlew :httpstarter:build
+
       # Extract metadata for httpstarter Docker
       - name: Extract httpstarter Docker metadata
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         id: meta-httpstarter
         uses: docker/metadata-action@v5
         with:
@@ -90,32 +97,34 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=ref,event=branch
-            type=ref,event=pr
-            type=sha,format=long
-
-      # Build the httpstarter JAR (ensure it's built before Docker image)
-      - name: Build httpstarter JAR
-        run: ./gradlew :httpstarter:build
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
       # Build and push httpstarter Docker image
       - name: Build and push httpstarter Docker image
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: docker/build-push-action@v5
         with:
           context: ./httpstarter
           file: ./httpstarter/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta-httpstarter.outputs.tags }}
           labels: ${{ steps.meta-httpstarter.outputs.labels }}
           build-args: |
             COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
 
       ##### CLISTARTER DOCKER IMAGE #####
 
+      # Build the clistarter JAR with shadowJar
+      - name: Build clistarter JAR
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        run: ./gradlew :clistarter:shadowJar
+
       # Extract metadata for clistarter Docker
       - name: Extract clistarter Docker metadata
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         id: meta-clistarter
         uses: docker/metadata-action@v5
         with:
@@ -123,24 +132,20 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=ref,event=branch
-            type=ref,event=pr
-            type=sha,format=long
-
-      # Build the clistarter JAR with shadowJar (ensure it's built before Docker image)
-      - name: Build clistarter JAR
-        run: ./gradlew :clistarter:shadowJar
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
       # Build and push clistarter Docker image
       - name: Build and push clistarter Docker image
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: docker/build-push-action@v5
         with:
           context: ./clistarter
           file: ./clistarter/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta-clistarter.outputs.tags }}
           labels: ${{ steps.meta-clistarter.outputs.labels }}
           build-args: |
             COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
