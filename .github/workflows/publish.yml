@@ -16,6 +16,7 @@ jobs:
       packages: write
       checks: write
       pull-requests: write
+      id-token: write # Required for keyless signing
 
     steps:
       - uses: actions/checkout@v3
@@ -68,6 +69,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Install cosign for attestation signing
+      - name: Install cosign
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        uses: sigstore/cosign-installer@v3.1.1
+
       # Set up QEMU for multi-architecture builds
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -106,7 +112,7 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
-      # Build and push httpstarter Docker image
+      # Build and push httpstarter Docker image with attestations
       - name: Build and push httpstarter Docker image
         if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: docker/build-push-action@v5
@@ -121,6 +127,16 @@ jobs:
             COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: mode=max  # Add provenance attestation
+          sbom: true            # Add SBOM attestation
+
+      # Sign the httpstarter image with cosign
+      - name: Sign httpstarter image with Cosign
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        run: |
+          HTTPSTARTER_IMAGE_DIGEST=$(docker buildx imagetools inspect ${{ steps.meta-httpstarter.outputs.tags }} --format "{{json .Manifest}}" | jq -r '.digest')
+          HTTPSTARTER_IMAGE_REFERENCE=$(echo ${{ steps.meta-httpstarter.outputs.tags }} | cut -d, -f1)
+          cosign sign --yes "${HTTPSTARTER_IMAGE_REFERENCE}@${HTTPSTARTER_IMAGE_DIGEST}"
 
       ##### CLISTARTER DOCKER IMAGE #####
 
@@ -142,7 +158,7 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
-      # Build and push clistarter Docker image
+      # Build and push clistarter Docker image with attestations
       - name: Build and push clistarter Docker image
         if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
         uses: docker/build-push-action@v5
@@ -157,3 +173,26 @@ jobs:
             COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: mode=max  # Add provenance attestation
+          sbom: true            # Add SBOM attestation
+
+      # Sign the clistarter image with cosign
+      - name: Sign clistarter image with Cosign
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        run: |
+          CLISTARTER_IMAGE_DIGEST=$(docker buildx imagetools inspect ${{ steps.meta-clistarter.outputs.tags }} --format "{{json .Manifest}}" | jq -r '.digest')
+          CLISTARTER_IMAGE_REFERENCE=$(echo ${{ steps.meta-clistarter.outputs.tags }} | cut -d, -f1)
+          cosign sign --yes "${CLISTARTER_IMAGE_REFERENCE}@${CLISTARTER_IMAGE_DIGEST}"
+
+      # Run Docker Scout to analyze the images
+      - name: Docker Scout analysis
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        uses: docker/scout-action@v1
+        with:
+          command: quickview,cves,recommendations
+          image: |
+            ${{ steps.meta-httpstarter.outputs.tags }}
+            ${{ steps.meta-clistarter.outputs.tags }}
+          only-severities: critical,high
+          sarif-file: docker-scout-results.sarif
+          github-token: ${{ secrets.GITHUB_TOKEN }}
