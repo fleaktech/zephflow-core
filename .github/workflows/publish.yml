@@ -58,14 +58,15 @@ jobs:
       # Publish only the sdk module as SNAPSHOT
       - name: Publish SDK SNAPSHOT to GitHub Packages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: ./gradlew clean devSnapshot :sdk:publish # must do a clean to remove generated code to pass license check
+        # must do a clean to remove generated code to pass license check
+        run: ./gradlew clean devSnapshot :sdk:publish :runner:publish :lib:publish :api:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Publish only the sdk module for releases
       - name: Publish SDK Release to GitHub Packages
         if: github.event_name == 'release'
-        run: ./gradlew -Prelease.useLastTag=true :sdk:publish
+        run: ./gradlew -Prelease.useLastTag=true :sdk:publish :runner:publish :lib:publish :api:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
