@@ -23,7 +23,7 @@ allprojects {
 
     javaVersion = '21'
     avroVersion = '1.12.0'
-    junitVersion = '5.10.2' // make sure the version is the same as spring boot
+    junitVersion = '5.11.4' // make sure the version is the same as spring boot
     guavaVersion = '33.4.0-jre'
     lombokVersion = '1.18.34'
     commonsLang3Version = '3.17.0'
@@ -33,17 +33,18 @@ allprojects {
     commonsCliVersion = '1.9.0'
     commonsCsvVersion = '1.12.0'
     commonsCodecVersion = '1.17.2'
-    slf4jVersion = '2.0.16'
-    mockitoVersion = '5.7.0'
+    slf4jVersion = '2.0.17'
+    mockitoVersion = '5.15.2'
     antlrVersion = '4.13.2'
-    jacksonVersion = '2.18.2'
+    jacksonVersion = '2.18.3'
     awsVersion = '2.30.36'
     opensearchGrok = '2.17.1'
     opencsvVersion = '5.9'
     kafkaVersion = '3.8.1'
-    testContainersVersion = '1.20.5'
-    springdocVersion = '2.3.0'
+    testContainersVersion = '1.20.6'
+    springdocVersion = '2.8.6'
     hamcrestVersion = '2.2'
+    nettyVersion = '4.1.119.Final'
   }
 
 }
@@ -65,6 +66,16 @@ subprojects {
     module {
       downloadJavadoc = true
       downloadSources = true
+    }
+  }
+
+  configurations.all {
+    resolutionStrategy {
+      eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'io.netty' && details.requested.name.startsWith('netty-')) {
+          details.useVersion nettyVersion
+        }
+      }
     }
   }
 
