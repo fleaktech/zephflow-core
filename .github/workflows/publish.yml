@@ -67,10 +67,10 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           ./gradlew clean devSnapshot \
-            :sdk:publish \
-            :runner:publish \
-            :lib:publish \
-            :api:publish
+            :sdk:publishAllPublicationsToMavenCentralRepository \
+            :runner:publishAllPublicationsToMavenCentralRepository \
+            :lib:publishAllPublicationsToMavenCentralRepository \
+            :api:publishAllPublicationsToMavenCentralRepository
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
@@ -82,10 +82,10 @@ jobs:
         if: github.event_name == 'release'
         run: |
           ./gradlew -Prelease.useLastTag=true \
-            :sdk:publish \
-            :runner:publish \
-            :lib:publish \
-            :api:publish
+            :sdk:publishAllPublicationsToMavenCentralRepository \
+            :runner:publishAllPublicationsToMavenCentralRepository \
+            :lib:publishAllPublicationsToMavenCentralRepository \
+            :api:publishAllPublicationsToMavenCentralRepository
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
