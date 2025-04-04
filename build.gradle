@@ -7,6 +7,19 @@ plugins {
   id "com.github.ben-manes.versions" version "0.51.0"
   id 'com.github.hierynomus.license' version '0.16.1'
   id 'jacoco'
+  id 'signing'
+  id 'io.github.gradle-nexus.publish-plugin' version '1.3.0'
+}
+
+nexusPublishing {
+  repositories {
+    sonatype {
+      nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+      snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+      username = findProperty("ossrh.user") ?: System.getenv("OSSRH_USERNAME")
+      password = findProperty("ossrh.password") ?: System.getenv("OSSRH_PASSWORD")
+    }
+  }
 }
 
 allprojects {
@@ -45,12 +58,12 @@ allprojects {
     springdocVersion = '2.3.0'
     hamcrestVersion = '2.2'
   }
-
 }
 
 subprojects {
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'com.github.hierynomus.license'
+  apply plugin: 'signing'
 
   repositories {
     mavenCentral()
@@ -101,17 +114,18 @@ subprojects {
         }
       }
     }
-    repositories {
-      // GitHub Packages repository
-      maven {
-        name = "GitHubPackages"
-        url = uri("https://maven.pkg.github.com/fleaktech/zephflow-core")
-        credentials {
-          username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
-          password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
-        }
-      }
-    }
+  }
+
+  // Signing configuration for Maven Central
+  signing {
+    def signingKey = findProperty("signing.key") ?: System.getenv("GPG_PRIVATE_KEY")
+    def signingPassword = findProperty("signing.password") ?: System.getenv("GPG_PASSPHRASE")
+
+    useInMemoryPgpKeys(signingKey, signingPassword)
+    sign publishing.publications.mavenJava
+
+    // Only require signing for non-SNAPSHOT versions
+    required { !project.version.toString().contains('SNAPSHOT') && gradle.taskGraph.hasTask("publish") }
   }
 
   sourceCompatibility = javaVersion

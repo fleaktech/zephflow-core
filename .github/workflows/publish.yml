@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
       checks: write
       pull-requests: write
       id-token: write # Required for keyless signing
@@ -55,20 +54,45 @@ jobs:
         with:
           fail_ci_if_error: false
 
-      # Publish only the sdk module as SNAPSHOT
-      - name: Publish SDK SNAPSHOT to GitHub Packages
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        # must do a clean to remove generated code to pass license check
-        run: ./gradlew clean devSnapshot :sdk:publish :runner:publish :lib:publish :api:publish
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Import GPG key for Maven Central publishing
+      - name: Import GPG key
+        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        uses: crazy-max/ghaction-import-gpg@v5
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      # Publish only the sdk module for releases
-      - name: Publish SDK Release to GitHub Packages
-        if: github.event_name == 'release'
-        run: ./gradlew -Prelease.useLastTag=true :sdk:publish :runner:publish :lib:publish :api:publish
+      # Publish SNAPSHOT to Maven Central
+      - name: Publish SNAPSHOT to Maven Central
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: | # must do a clean to remove generated code to pass license check
+          ./gradlew clean devSnapshot \
+            :sdk:publishToSonatype \
+            :runner:publishToSonatype \
+            :lib:publishToSonatype \
+            :api:publishToSonatype \
+            closeAndReleaseSonatypeStagingRepository
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      # Publish Release to Maven Central
+      - name: Publish Release to Maven Central
+        if: github.event_name == 'release'
+        run: |
+          ./gradlew -Prelease.useLastTag=true \
+            :sdk:publishToSonatype \
+            :runner:publishToSonatype \
+            :lib:publishToSonatype \
+            :api:publishToSonatype \
+            closeAndReleaseSonatypeStagingRepository
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       # Install cosign for attestation signing
       - name: Install cosign
