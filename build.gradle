@@ -68,13 +68,6 @@ allprojects {
 }
 
 jreleaser {
-
-  project {
-    snapshot {
-      enabled = true
-    }
-  }
-
   signing {
     active = 'ALWAYS'
     armored = true
