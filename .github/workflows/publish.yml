@@ -65,12 +65,8 @@ jobs:
       # Publish SNAPSHOT to Maven Central
       - name: Publish SNAPSHOT to Maven Central
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: | # must do a clean to remove generated code to pass license check
-          ./gradlew clean devSnapshot \
-            :sdk:jreleaserFullRelease \
-            :runner:jreleaserFullRelease \
-            :lib:jreleaserFullRelease \
-            :api:jreleaserFullRelease
+        # must do a clean to remove generated code to pass license check
+        run: ./gradlew clean devSnapshot jreleaserFullRelease
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
@@ -80,12 +76,7 @@ jobs:
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: |
-          ./gradlew -Prelease.useLastTag=true \
-            :sdk:jreleaserFullRelease \
-            :runner:jreleaserFullRelease \
-            :lib:jreleaserFullRelease \
-            :api:jreleaserFullRelease
+        run: ./gradlew clean -Prelease.useLastTag=true jreleaserFullRelease
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
