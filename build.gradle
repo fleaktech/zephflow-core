@@ -8,17 +8,7 @@ plugins {
   id 'com.github.hierynomus.license' version '0.16.1'
   id 'jacoco'
   id 'signing'
-  id 'io.github.gradle-nexus.publish-plugin' version '1.3.0'
-}
-
-nexusPublishing {
-  repositories {
-    sonatype {
-      nexusUrl.set(uri("https://central.sonatype.com/"))
-      username = findProperty("ossrh.user") ?: System.getenv("OSSRH_USERNAME")
-      password = findProperty("ossrh.password") ?: System.getenv("OSSRH_PASSWORD")
-    }
-  }
+  id 'com.vanniktech.maven.publish' version '0.28.0'
 }
 
 allprojects {
@@ -59,10 +49,45 @@ allprojects {
   }
 }
 
+// Configure Vanniktech Maven Publish for all projects
+mavenPublishing {
+  publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+  signAllPublications()
+
+  // Configure POM information for all projects
+  pom {
+    name = project.name
+    description = 'Java based data processing framework for stateless data processing'
+    url = 'https://github.com/fleaktech/zephflow-core'
+
+    licenses {
+      license {
+        name = licenseName
+        url = licenseUrl
+      }
+    }
+
+    developers {
+      developer {
+        id = 'fleaktech'
+        name = 'Fleak Tech Team'
+        email = 'contact@fleak.ai'
+      }
+    }
+
+    scm {
+      connection = 'scm:git:git://github.com/fleaktech/zephflow-core.git'
+      developerConnection = 'scm:git:ssh://github.com/fleaktech/zephflow-core.git'
+      url = 'https://github.com/fleaktech/zephflow-core'
+    }
+  }
+}
+
 subprojects {
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'com.github.hierynomus.license'
   apply plugin: 'signing'
+  apply plugin: 'com.vanniktech.maven.publish' // Apply to all subprojects
 
   repositories {
     mavenCentral()
@@ -78,53 +103,6 @@ subprojects {
       downloadJavadoc = true
       downloadSources = true
     }
-  }
-
-  publishing {
-    publications {
-      mavenJava(MavenPublication) {
-        from components.java
-
-        pom {
-          name = project.name
-          description = 'Java based data processing framework for stateless data processing'
-          url = 'https://github.com/fleaktech/zephflow-core'
-
-          licenses {
-            license {
-              name = licenseName
-              url = licenseUrl
-            }
-          }
-
-          developers {
-            developer {
-              id = 'fleaktech'
-              name = 'Fleak Tech Team'
-              email = 'contact@fleak.ai'
-            }
-          }
-
-          scm {
-            connection = 'scm:git:git://github.com/fleaktech/zephflow-core.git'
-            developerConnection = 'scm:git:ssh://github.com/fleaktech/zephflow-core.git'
-            url = 'https://github.com/fleaktech/zephflow-core'
-          }
-        }
-      }
-    }
-  }
-
-  // Signing configuration for Maven Central
-  signing {
-    def signingKey = findProperty("signing.key") ?: System.getenv("GPG_PRIVATE_KEY")
-    def signingPassword = findProperty("signing.password") ?: System.getenv("GPG_PASSPHRASE")
-
-    useInMemoryPgpKeys(signingKey, signingPassword)
-    sign publishing.publications.mavenJava
-
-    // Only require signing for non-SNAPSHOT versions
-    required { !project.version.toString().contains('SNAPSHOT') && gradle.taskGraph.hasTask("publish") }
   }
 
   sourceCompatibility = javaVersion
@@ -189,6 +167,16 @@ subprojects {
     reports {
       xml.required = true
       html.required = true
+    }
+  }
+
+  // Disable publishing for modules that shouldn't be published
+  if (!['sdk', 'runner', 'lib', 'api'].contains(project.name)) {
+    tasks.withType(PublishToMavenRepository) {
+      enabled = false
+    }
+    tasks.withType(PublishToMavenLocal) {
+      enabled = false
     }
   }
 }
