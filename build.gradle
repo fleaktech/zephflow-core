@@ -1,6 +1,5 @@
 plugins {
   id 'nebula.dependency-lock' version '12.7.1'
-  id 'nebula.maven-base-publish' version '18.4.0'
   id 'nebula.release' version '17.2.2'
   id 'idea'
   id 'com.diffplug.spotless' version '6.25.0'
@@ -15,7 +14,6 @@ allprojects {
   group 'io.fleak.zephflow'
   apply plugin: 'java'
   apply plugin: 'java-library'
-  apply plugin: 'nebula.maven-base-publish'
   apply plugin: 'nebula.dependency-lock'
   apply plugin: 'nebula.release'
 
@@ -49,45 +47,46 @@ allprojects {
   }
 }
 
-// Configure Vanniktech Maven Publish for all projects
-mavenPublishing {
-  publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
-  signAllPublications()
-
-  // Configure POM information for all projects
-  pom {
-    name = project.name
-    description = 'Java based data processing framework for stateless data processing'
-    url = 'https://github.com/fleaktech/zephflow-core'
-
-    licenses {
-      license {
-        name = licenseName
-        url = licenseUrl
-      }
-    }
-
-    developers {
-      developer {
-        id = 'fleaktech'
-        name = 'Fleak Tech Team'
-        email = 'contact@fleak.ai'
-      }
-    }
-
-    scm {
-      connection = 'scm:git:git://github.com/fleaktech/zephflow-core.git'
-      developerConnection = 'scm:git:ssh://github.com/fleaktech/zephflow-core.git'
-      url = 'https://github.com/fleaktech/zephflow-core'
-    }
-  }
-}
-
 subprojects {
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'com.github.hierynomus.license'
   apply plugin: 'signing'
   apply plugin: 'com.vanniktech.maven.publish' // Apply to all subprojects
+
+  // Configure Vanniktech Maven Publish for all projects
+  mavenPublishing {
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
+
+    // Configure POM information for all projects
+    pom {
+      name = project.name
+      description = 'Java based data processing framework for stateless data processing'
+      url = 'https://github.com/fleaktech/zephflow-core'
+
+      licenses {
+        license {
+          name = licenseName
+          url = licenseUrl
+        }
+      }
+
+      developers {
+        developer {
+          id = 'fleaktech'
+          name = 'Fleak Tech Team'
+          email = 'contact@fleak.ai'
+        }
+      }
+
+      scm {
+        connection = 'scm:git:git://github.com/fleaktech/zephflow-core.git'
+        developerConnection = 'scm:git:ssh://github.com/fleaktech/zephflow-core.git'
+        url = 'https://github.com/fleaktech/zephflow-core'
+      }
+    }
+  }
+
 
   repositories {
     mavenCentral()
