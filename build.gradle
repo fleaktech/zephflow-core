@@ -7,15 +7,22 @@ plugins {
   id "com.github.ben-manes.versions" version "0.51.0"
   id 'com.github.hierynomus.license' version '0.16.1'
   id 'jacoco'
+  id 'signing'
+  id 'org.jreleaser' version '1.17.0'
 }
+
 
 allprojects {
   group 'io.fleak.zephflow'
   apply plugin: 'java'
   apply plugin: 'java-library'
-  apply plugin: 'nebula.maven-base-publish'
   apply plugin: 'nebula.dependency-lock'
   apply plugin: 'nebula.release'
+  apply plugin: 'jacoco'
+
+  repositories {
+    mavenCentral()
+  }
 
   ext {
     licenseName = 'Apache License, Version 2.0'
@@ -47,15 +54,46 @@ allprojects {
     nettyVersion = '4.1.119.Final'
   }
 
+  sourceCompatibility = javaVersion
+  targetCompatibility = javaVersion
+  tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+  }
+
+  jacocoTestReport {
+    reports {
+      xml.required = true
+      html.required = true
+    }
+  }
+}
+
+jreleaser {
+  signing {
+    active = 'ALWAYS'
+    armored = true
+  }
+  deploy {
+    maven {
+      mavenCentral {
+        sonatype {
+          active = 'ALWAYS'
+          url = 'https://central.sonatype.com/api/v1/publisher'
+          stagingRepository('build/staging-deploy')
+        }
+      }
+    }
+  }
 }
 
 subprojects {
+  apply plugin: 'java-library'
+  apply plugin: 'nebula.maven-base-publish'
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'com.github.hierynomus.license'
+  apply plugin: 'signing'
 
-  repositories {
-    mavenCentral()
-  }
+  description = "Zephflow Core - ${project.name.capitalize()} Module"
 
   java {
     withSourcesJar()
@@ -86,7 +124,6 @@ subprojects {
 
         pom {
           name = project.name
-          description = 'Java based data processing framework for stateless data processing'
           url = 'https://github.com/fleaktech/zephflow-core'
 
           licenses {
@@ -112,23 +149,24 @@ subprojects {
         }
       }
     }
+
     repositories {
-      // GitHub Packages repository
       maven {
-        name = "GitHubPackages"
-        url = uri("https://maven.pkg.github.com/fleaktech/zephflow-core")
-        credentials {
-          username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
-          password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
-        }
+        url = project.rootProject.layout.buildDirectory.dir('staging-deploy')
       }
     }
   }
 
-  sourceCompatibility = javaVersion
-  targetCompatibility = javaVersion
-  tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
+  // Signing configuration for Maven Central
+  signing {
+    def signingKey = findProperty("signing.key") ?: System.getenv("GPG_PRIVATE_KEY")
+    def signingPassword = findProperty("signing.password") ?: System.getenv("GPG_PASSPHRASE")
+
+    useInMemoryPgpKeys(signingKey, signingPassword)
+    sign publishing.publications.mavenJava
+
+    // Only require signing for non-SNAPSHOT versions
+    required { !project.version.toString().contains('SNAPSHOT') && gradle.taskGraph.hasTask("publish") }
   }
 
   dependencies {
@@ -181,12 +219,5 @@ subprojects {
     strictCheck = true
     include '**/*.java'
     exclude '**/build/generated/**/*.java'
-  }
-
-  jacocoTestReport {
-    reports {
-      xml.required = true
-      html.required = true
-    }
   }
 }

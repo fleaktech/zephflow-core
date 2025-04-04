@@ -44,6 +44,12 @@ public class ArrayFleakData implements FleakData {
   @Override
   @JsonValue
   public List<?> unwrap() {
-    return arrayPayload.stream().map(FleakData::unwrap).collect(Collectors.toList());
+    return arrayPayload.stream()
+        .map(
+            fd -> {
+              if (fd == null) return null;
+              return fd.unwrap();
+            })
+        .collect(Collectors.toList());
   }
 }

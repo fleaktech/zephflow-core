@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,7 @@ class ExpressionValueVisitorTest {
   @Test
   public void testEvaluateExpression_runtimeErrorInArrayForeach() {
     String evalExpr =
-        """
+"""
 dict(
    resources=arr_foreach(
       $.devices,
@@ -94,7 +95,7 @@ dict(
   @Test
   public void test_goodExpression() {
     String evalExpr =
-        """
+"""
 dict(
   version= 'TLSv1.3',
   fingerprints= array(
@@ -212,7 +213,7 @@ dict(
   @Test
   public void testArrForeach_ObjectAsArray() {
     String evalExpr =
-        """
+"""
 arr_foreach(
     $,
     elem,
@@ -225,7 +226,7 @@ arr_foreach(
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     String inputEventJsonStr =
-        """
+"""
 {
   "integration": "snmp",
   "attachments": {
@@ -240,7 +241,7 @@ arr_foreach(
     FleakData actual = visitor.visit(parser.language());
 
     String outputEventJsonStr =
-        """
+"""
 [
   {
     "source": "snmp",
@@ -259,7 +260,7 @@ arr_foreach(
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
 
     String inputEventJsonStr =
-        """
+"""
 {
  "type": "odd",
  "num": 1
@@ -274,11 +275,11 @@ arr_foreach(
   @Test
   public void testFunctionResultPath1() {
     String evalExpr =
-        """
+"""
 grok($.proc_name, "(?<parent_folder>.*?)\\\\\\\\(?<name>[^\\\\\\\\]+)$").parent_folder
 """;
     String inputEventJsonStr =
-        """
+"""
 {
   "proc_name": "C:\\\\Windows\\\\System32\\\\services.exe"
 }
@@ -294,7 +295,7 @@ grok($.proc_name, "(?<parent_folder>.*?)\\\\\\\\(?<name>[^\\\\\\\\]+)$").parent_
   @Test
   public void testFunctionResultPath2() {
     String evalExpr =
-        """
+"""
 arr_foreach(
     $,
     elem,
@@ -305,7 +306,7 @@ arr_foreach(
     )
 )[0].osVersion""";
     String inputEventJsonStr =
-        """
+"""
 {
   "integration": "snmp",
   "attachments": {
@@ -325,7 +326,7 @@ arr_foreach(
   @Test
   public void testStrSplit() {
     String evalExpr =
-        """
+"""
 str_split("a,b,c", ",")
 """;
     FleakData inputEvent = FleakData.wrap(Map.of());
@@ -334,5 +335,19 @@ str_split("a,b,c", ",")
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
     assertEquals(FleakData.wrap(List.of("a", "b", "c")), actual);
+  }
+
+  @Test
+  public void testArrayNull() {
+    String evalExpr = "array(null, 5)";
+    FleakData inputEvent = FleakData.wrap(Map.of());
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent);
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    FleakData actual = visitor.visit(parser.language());
+    ArrayList<FleakData> arrPayload = new ArrayList<>();
+    arrPayload.add(null);
+    arrPayload.add(FleakData.wrap(5));
+    assertEquals(FleakData.wrap(arrPayload), actual);
   }
 }
