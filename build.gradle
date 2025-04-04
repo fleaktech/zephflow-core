@@ -14,8 +14,7 @@ plugins {
 nexusPublishing {
   repositories {
     sonatype {
-      nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
-      snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+      nexusUrl.set(uri("https://central.sonatype.com/"))
       username = findProperty("ossrh.user") ?: System.getenv("OSSRH_USERNAME")
       password = findProperty("ossrh.password") ?: System.getenv("OSSRH_PASSWORD")
     }
