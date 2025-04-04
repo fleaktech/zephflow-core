@@ -92,6 +92,7 @@ subprojects {
   apply plugin: 'com.github.hierynomus.license'
   apply plugin: 'signing'
 
+  description = "Zephflow Core - ${project.name.capitalize()} Module"
 
   java {
     withSourcesJar()
@@ -112,7 +113,6 @@ subprojects {
 
         pom {
           name = project.name
-          description = 'Java based data processing framework for stateless data processing'
           url = 'https://github.com/fleaktech/zephflow-core'
 
           licenses {
