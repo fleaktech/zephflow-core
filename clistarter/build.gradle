@@ -25,3 +25,10 @@ tasks.named('test') {
   useJUnitPlatform()
   testLogging.showStandardStreams = true
 }
+
+tasks.withType(PublishToMavenRepository) {
+  enabled = false
+}
+tasks.withType(PublishToMavenLocal) {
+  enabled = false
+}
