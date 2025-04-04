@@ -68,7 +68,6 @@ allprojects {
 }
 
 jreleaser {
-
   project {
     snapshot {
       enabled = true
@@ -85,6 +84,7 @@ jreleaser {
         sonatype {
           active = 'ALWAYS'
           url = 'https://central.sonatype.com/api/v1/publisher'
+          snapshotSupported = true
           stagingRepository('build/staging-deploy')
         }
       }
