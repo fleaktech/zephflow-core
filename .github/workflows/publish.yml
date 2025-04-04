@@ -65,8 +65,13 @@ jobs:
       # Publish SNAPSHOT to Maven Central
       - name: Publish SNAPSHOT to Maven Central
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        # must do a clean to remove generated code to pass license check
-        run: ./gradlew clean devSnapshot :sdk:publishMavenJavaPublicationToOSSRHRepository :runner:publishMavenJavaPublicationToOSSRHRepository :lib:publishMavenJavaPublicationToOSSRHRepository :api:publishMavenJavaPublicationToOSSRHRepository
+        run: | # must do a clean to remove generated code to pass license check
+          ./gradlew clean devSnapshot \
+            :sdk:publishToSonatype \
+            :runner:publishToSonatype \
+            :lib:publishToSonatype \
+            :api:publishToSonatype \
+            closeAndReleaseSonatypeStagingRepository
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
@@ -76,7 +81,13 @@ jobs:
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew -Prelease.useLastTag=true :sdk:publishMavenJavaPublicationToOSSRHRepository :runner:publishMavenJavaPublicationToOSSRHRepository :lib:publishMavenJavaPublicationToOSSRHRepository :api:publishMavenJavaPublicationToOSSRHRepository
+        run: |
+          ./gradlew -Prelease.useLastTag=true \
+            :sdk:publishToSonatype \
+            :runner:publishToSonatype \
+            :lib:publishToSonatype \
+            :api:publishToSonatype \
+            closeAndReleaseSonatypeStagingRepository
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
