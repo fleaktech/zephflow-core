@@ -16,9 +16,13 @@ allprojects {
   group 'io.fleak.zephflow'
   apply plugin: 'java'
   apply plugin: 'java-library'
-  apply plugin: 'nebula.maven-base-publish'
   apply plugin: 'nebula.dependency-lock'
   apply plugin: 'nebula.release'
+  apply plugin: 'jacoco'
+
+  repositories {
+    mavenCentral()
+  }
 
   ext {
     licenseName = 'Apache License, Version 2.0'
@@ -48,16 +52,46 @@ allprojects {
     springdocVersion = '2.3.0'
     hamcrestVersion = '2.2'
   }
+
+  sourceCompatibility = javaVersion
+  targetCompatibility = javaVersion
+  tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+  }
+
+  jacocoTestReport {
+    reports {
+      xml.required = true
+      html.required = true
+    }
+  }
+}
+
+jreleaser {
+  signing {
+    active = 'ALWAYS'
+    armored = true
+  }
+  deploy {
+    maven {
+      mavenCentral {
+        sonatype {
+          active = 'ALWAYS'
+          url = 'https://central.sonatype.com/api/v1/publisher'
+          stagingRepository('build/staging-deploy')
+        }
+      }
+    }
+  }
 }
 
 subprojects {
+  apply plugin: 'java-library'
+  apply plugin: 'nebula.maven-base-publish'
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'com.github.hierynomus.license'
   apply plugin: 'signing'
 
-  repositories {
-    mavenCentral()
-  }
 
   java {
     withSourcesJar()
@@ -107,25 +141,7 @@ subprojects {
 
     repositories {
       maven {
-        url = layout.buildDirectory.dir('staging-deploy')
-      }
-    }
-  }
-
-  jreleaser {
-    signing {
-      active = 'ALWAYS'
-      armored = true
-    }
-    deploy {
-      maven {
-        mavenCentral {
-          sonatype {
-            active = 'ALWAYS'
-            url = 'https://central.sonatype.com/api/v1/publisher'
-            stagingRepository('build/staging-deploy')
-          }
-        }
+        url = project.rootProject.layout.buildDirectory.dir('staging-deploy')
       }
     }
   }
@@ -140,12 +156,6 @@ subprojects {
 
     // Only require signing for non-SNAPSHOT versions
     required { !project.version.toString().contains('SNAPSHOT') && gradle.taskGraph.hasTask("publish") }
-  }
-
-  sourceCompatibility = javaVersion
-  targetCompatibility = javaVersion
-  tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
   }
 
   dependencies {
@@ -198,12 +208,5 @@ subprojects {
     strictCheck = true
     include '**/*.java'
     exclude '**/build/generated/**/*.java'
-  }
-
-  jacocoTestReport {
-    reports {
-      xml.required = true
-      html.required = true
-    }
   }
 }
