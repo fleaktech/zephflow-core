@@ -67,10 +67,10 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: | # must do a clean to remove generated code to pass license check
           ./gradlew clean devSnapshot \
-            :sdk:publishAllPublicationsToMavenRepository \
-            :runner:publishAllPublicationsToMavenRepository \
-            :lib:publishAllPublicationsToMavenRepository \
-            :api:publishAllPublicationsToMavenRepository
+            :sdk:jreleaserFullRelease \
+            :runner:jreleaserFullRelease \
+            :lib:jreleaserFullRelease \
+            :api:jreleaserFullRelease
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
@@ -82,10 +82,10 @@ jobs:
         if: github.event_name == 'release'
         run: |
           ./gradlew -Prelease.useLastTag=true \
-            :sdk:publishAllPublicationsToMavenRepository \
-            :runner:publishAllPublicationsToMavenRepository \
-            :lib:publishAllPublicationsToMavenRepository \
-            :api:publishAllPublicationsToMavenRepository
+            :sdk:jreleaserFullRelease \
+            :runner:jreleaserFullRelease \
+            :lib:jreleaserFullRelease \
+            :api:jreleaserFullRelease
         env:
           OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
