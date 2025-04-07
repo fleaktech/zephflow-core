@@ -19,6 +19,7 @@ import com.google.common.base.Preconditions;
 import java.text.ParsePosition;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /** Created by bolei on 2/25/25 */
@@ -145,7 +146,7 @@ public abstract class SyslogHeaderComponentExtractor {
       }
 
       // Create a DateTimeFormatter with the given pattern
-      DateTimeFormatter formatter = DateTimeFormatter.ofPattern(timestampPattern);
+      DateTimeFormatter formatter = DateTimeFormatter.ofPattern(timestampPattern, Locale.US);
 
       // Use ParsePosition to determine how much of the string was consumed
       ParsePosition pos = new ParsePosition(startPosition);

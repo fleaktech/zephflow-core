@@ -386,7 +386,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
     String patternStr = normalizeStrLiteral(ctx.QUOTED_IDENTIFIER().getText());
     SimpleDateFormat simpleDateFormat;
     try {
-      simpleDateFormat = new SimpleDateFormat(patternStr, Locale.ENGLISH);
+      simpleDateFormat = new SimpleDateFormat(patternStr, Locale.US);
       simpleDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
     } catch (Exception e) {
       throw new RuntimeException(
