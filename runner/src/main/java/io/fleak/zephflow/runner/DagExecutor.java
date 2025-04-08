@@ -68,7 +68,7 @@ public class DagExecutor {
     OperatorCommand command =
         new ArrayList<>(entryNodesDagAndRest.getKey().getNodes()).getFirst().getNodeContent();
     Preconditions.checkArgument(command instanceof SourceCommand);
-    SimpleSourceCommand sourceCommand = (SimpleSourceCommand) command;
+    SimpleSourceCommand<?> sourceCommand = (SimpleSourceCommand<?>) command;
     List<Edge> edgesFromSource = new ArrayList<>(entryNodesDagAndRest.getKey().getEdges());
     Dag<OperatorCommand> subDagWithoutSource = entryNodesDagAndRest.getValue();
     DagRunCounters counters = createCounters();
