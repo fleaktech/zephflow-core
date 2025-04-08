@@ -62,19 +62,6 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      # Publish SNAPSHOT to Maven Central
-      - name: Publish SNAPSHOT to Maven Central
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        # must do a clean to remove generated code to pass license check
-        run: ./gradlew clean devSnapshot sdk:publish runner:publish lib:publish api:publish jreleaserDeploy
-        env:
-          JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
-          JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
-          JRELEASER_GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          JRELEASER_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
