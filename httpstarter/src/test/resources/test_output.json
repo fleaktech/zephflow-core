@@ -274,36 +274,6 @@
           }
         ]
       }
-    },
-    "errorByStep": {
-      "a": {
-        "http_input": [
-        ]
-      },
-      "a_to_b_filter": {
-        "a": [
-        ]
-      },
-      "a_to_c_filter": {
-        "a": [
-        ]
-      },
-      "b": {
-        "a_to_b_filter": [
-        ]
-      },
-      "c": {
-        "a_to_c_filter": [
-        ]
-      },
-      "d": {
-        "a": [
-        ],
-        "b": [
-        ],
-        "c": [
-        ]
-      }
     }
   }
 }

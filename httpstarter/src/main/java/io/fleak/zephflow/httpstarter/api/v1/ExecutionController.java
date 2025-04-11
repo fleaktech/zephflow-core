@@ -15,7 +15,6 @@ package io.fleak.zephflow.httpstarter.api.v1;
 
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_EXECUTION_CONTROLLER_PATH;
 
-import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.httpstarter.dto.ExecuteDto;
 import io.fleak.zephflow.runner.DagResult;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
@@ -60,7 +59,6 @@ public class ExecutionController {
           noSourceDagRunner.run(
               batchPayload.getInputRecords(),
               "http_endpoint_user",
-              new MetricClientProvider.NoopMetricClientProvider(),
               new NoSourceDagRunner.DagRunConfig(includeErrorByStep, includeOutputByStep));
 
       return ExecuteDto.Response.builder()

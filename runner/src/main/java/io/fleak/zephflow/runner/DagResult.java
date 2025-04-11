@@ -16,7 +16,11 @@ package io.fleak.zephflow.runner;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_COMMAND_NAME;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_NODE_ID;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.ScalarSinkCommand;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +34,16 @@ public class DagResult {
   Map<String, List<RecordFleakData>> outputEvents = new HashMap<>(); // exit_node -> output_events
   Map<String, Map<String, List<RecordFleakData>>> outputByStep = new HashMap<>();
   Map<String, Map<String, List<ErrorOutput>>> errorByStep = new HashMap<>();
+
+  @JsonIgnore Map<String, ScalarSinkCommand.SinkResult> sinkResultMap = new HashMap<>();
+
+  void consolidateSinkResult() {
+    sinkResultMap.forEach(
+        (s, sinkResult) -> {
+          RecordFleakData sinkOutputEvent = sinkResultToOutputEvent(sinkResult);
+          outputEvents.put(s, List.of(sinkOutputEvent));
+        });
+  }
 
   void handleNodeResult(
       Map<String, String> callingUserTag,
@@ -63,8 +77,24 @@ public class DagResult {
       String upstreamNodeId,
       List<T> data,
       Map<String, Map<String, List<T>>> debugDataByStep) {
+    if (CollectionUtils.isEmpty(data)) {
+      return;
+    }
     Map<String, List<T>> upstreamIdAndDebugInfo =
         debugDataByStep.computeIfAbsent(currentNodeId, k -> new HashMap<>());
     upstreamIdAndDebugInfo.put(upstreamNodeId, data);
+  }
+
+  static RecordFleakData sinkResultToOutputEvent(ScalarSinkCommand.SinkResult sinkResult) {
+    Map<String, FleakData> payload = new HashMap<>();
+    payload.put(
+        "inputCount",
+        new NumberPrimitiveFleakData(
+            sinkResult.getInputCount(), NumberPrimitiveFleakData.NumberType.INT));
+    payload.put(
+        "successCount",
+        new NumberPrimitiveFleakData(
+            sinkResult.getSuccessCount(), NumberPrimitiveFleakData.NumberType.INT));
+    return new RecordFleakData(payload);
   }
 }

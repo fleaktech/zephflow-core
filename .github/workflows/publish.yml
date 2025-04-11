@@ -56,7 +56,7 @@ jobs:
 
       # Import GPG key for Maven Central publishing
       - name: Import GPG key
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         uses: crazy-max/ghaction-import-gpg@v5
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -76,7 +76,7 @@ jobs:
 
       # Install cosign for attestation signing
       - name: Install cosign
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         uses: sigstore/cosign-installer@v3.3.0
         with:
           cosign-release: 'v2.2.3'  # Specific version that avoids the TUF key issue
@@ -97,18 +97,18 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
 
       ##### HTTPSTARTER DOCKER IMAGE #####
 
       # Build the httpstarter JAR
       - name: Build httpstarter JAR
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         run: ./gradlew :httpstarter:build
 
       # Extract metadata for httpstarter Docker
       - name: Extract httpstarter Docker metadata
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         id: meta-httpstarter
         uses: docker/metadata-action@v5
         with:
@@ -121,7 +121,7 @@ jobs:
 
       # Build and push httpstarter Docker image with attestations
       - name: Build and push httpstarter Docker image
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         uses: docker/build-push-action@v5
         with:
           context: ./httpstarter
@@ -141,12 +141,12 @@ jobs:
 
       # Build the clistarter JAR with shadowJar
       - name: Build clistarter JAR
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         run: ./gradlew :clistarter:shadowJar
 
       # Extract metadata for clistarter Docker
       - name: Extract clistarter Docker metadata
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         id: meta-clistarter
         uses: docker/metadata-action@v5
         with:
@@ -159,7 +159,7 @@ jobs:
 
       # Build and push clistarter Docker image with attestations
       - name: Build and push clistarter Docker image
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
         uses: docker/build-push-action@v5
         with:
           context: ./clistarter
