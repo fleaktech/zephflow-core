@@ -27,6 +27,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.runner.DagCompilationException;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.*;
 import java.util.*;
@@ -362,7 +363,7 @@ public class ZephFlowTest {
     verify(sinkErrorCounter, times(5)).increase(eq(0L), any());
 
     verify(inputEventCounter).increase(eq(10L), any());
-    verify(outputEventCounter).increase(eq(1L), any());
+    verify(outputEventCounter).increase(eq(5L), any());
     verify(errorEventCounter).increase(eq(5L), any());
   }
 
@@ -468,9 +469,9 @@ public class ZephFlowTest {
             .stdinSource(EncodingType.JSON_ARRAY)
             .stdoutSink(EncodingType.JSON_OBJECT)
             .stdoutSink(EncodingType.JSON_OBJECT); // sink after sink
-    IllegalStateException ex =
+    DagCompilationException ex =
         assertThrows(
-            IllegalStateException.class,
+            DagCompilationException.class,
             () -> flow.execute("test_job_id", "test_env", "test_service"));
     System.err.println(ex.getMessage());
     assertTrue(ex.getMessage().contains("Sink nodes must be terminal nodes."));
@@ -488,9 +489,9 @@ public class ZephFlowTest {
             .stdinSource(EncodingType.JSON_ARRAY); // second source
 
     // The flow should fail during execution
-    IllegalStateException ex =
+    DagCompilationException ex =
         assertThrows(
-            IllegalStateException.class,
+            DagCompilationException.class,
             () -> flow.execute("test_job_id", "test_env", "test_service"));
     assertTrue(ex.getMessage().contains("Source nodes cannot have incoming connections"));
   }
@@ -505,7 +506,7 @@ public class ZephFlowTest {
     Exception e =
         assertThrows(
             Exception.class, () -> flow.execute("test_job_id", "test_env", "test_service"));
-    assertEquals("Graph nodes must not be empty", e.getMessage());
+    assertEquals("Dag validation failed: Graph nodes must not be empty", e.getMessage());
   }
 
   /**
@@ -521,10 +522,12 @@ public class ZephFlowTest {
             .stdoutSink(EncodingType.JSON_OBJECT);
 
     // Should fail due to invalid filter expression
-    Exception e =
+    DagCompilationException e =
         assertThrows(
-            Exception.class, () -> flow.execute("test_job_id", "test_env", "test_service"));
-    assertTrue(e.getMessage().startsWith("failed to compile dag at node filter_"));
+            DagCompilationException.class,
+            () -> flow.execute("test_job_id", "test_env", "test_service"));
+    assertEquals(e.getCommandName(), COMMAND_NAME_FILTER);
+    assertTrue(e.getNodeId().startsWith("filter_"));
   }
 
   /**

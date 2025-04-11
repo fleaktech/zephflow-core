@@ -13,14 +13,20 @@
  */
 package io.fleak.zephflow.httpstarter;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
+
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
 import io.fleak.zephflow.lib.serdes.des.csv.CsvDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.jsonarr.JsonArrayDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.strline.StringLineDeserializerFactory;
 import io.fleak.zephflow.runner.DagCompiler;
+import io.fleak.zephflow.runner.DagRunnerService;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.boot.SpringApplication;
@@ -42,8 +48,13 @@ public class HttpStarterApplication {
   }
 
   @Bean
-  public DagCompiler dagCompiler() {
-    return new DagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS);
+  public DagRunnerService dagRunnerService() {
+    DagCompiler dagCompiler = new DagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS);
+    MetricClientProvider metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
+    return new DagRunnerService(
+        dagCompiler,
+        metricClientProvider,
+        Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"));
   }
 
   @Bean
