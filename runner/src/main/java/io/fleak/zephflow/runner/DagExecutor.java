@@ -76,6 +76,7 @@ public class DagExecutor {
         new NoSourceDagRunner(
             edgesFromSource,
             subDagWithoutSource,
+            metricClientProvider,
             counters,
             jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
     try {
@@ -94,7 +95,6 @@ public class DagExecutor {
               noSourceDagRunner.run(
                   recordFleakData,
                   jobConfig.getJobId(),
-                  metricClientProvider,
                   new NoSourceDagRunner.DagRunConfig(false, false));
             }
           });

@@ -13,15 +13,14 @@
  */
 package io.fleak.zephflow.runner;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTag;
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
+import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
-import io.fleak.zephflow.api.structure.FleakData;
-import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
@@ -41,19 +40,21 @@ import org.slf4j.MDC;
 public record NoSourceDagRunner(
     @NonNull List<Edge> edgesFromSource,
     Dag<OperatorCommand> compiledDagWithoutSource,
+    MetricClientProvider metricClientProvider,
     DagRunCounters counters,
     boolean useDlq) {
 
   public DagResult run(
-      List<RecordFleakData> events,
-      String callingUser,
-      MetricClientProvider metricClientProvider,
-      NoSourceDagRunner.DagRunConfig runConfig) {
+      List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
 
     // make sure all edges are from the same source
     var sourceNodeIds = edgesFromSource.stream().map(Edge::getFrom).distinct().toList();
-    Preconditions.checkArgument(sourceNodeIds.size() == 1);
+    Preconditions.checkArgument(
+        sourceNodeIds.size() == 1,
+        String.format(
+            "Only single source DAG is supported but found %d sources", sourceNodeIds.size()));
     var sourceNodeId = sourceNodeIds.getFirst();
+    String commandName = "source_node";
 
     Map<String, String> callingUserTag = getCallingUserTag(callingUser);
     counters.increaseInputEventCounter(events.size(), callingUserTag);
@@ -70,14 +71,15 @@ public record NoSourceDagRunner(
             .metricClientProvider(metricClientProvider)
             .runConfig(runConfig)
             .build();
-    routeToDownstream(sourceNodeId, events, edgesFromSource, runContext);
-    counters.increaseOutputEventCounter(dagResult.outputEvents.size(), callingUserTag);
+    routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
     counters.stopStopWatch(callingUserTag);
+    dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
     return dagResult;
   }
 
   void routeToDownstream(
       String currentNodeId,
+      String commandName,
       List<RecordFleakData> events,
       List<Edge> outgoingEdges,
       RunContext runContext) {
@@ -85,6 +87,10 @@ public record NoSourceDagRunner(
       List<RecordFleakData> currentNodeOutput =
           runContext.dagResult.outputEvents.computeIfAbsent(currentNodeId, k -> new ArrayList<>());
       currentNodeOutput.addAll(events);
+      Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
+      tags.put(METRIC_TAG_NODE_ID, currentNodeId);
+      tags.put(METRIC_TAG_COMMAND_NAME, commandName);
+      counters.increaseOutputEventCounter(events.size(), tags);
       return;
     }
     for (var e : outgoingEdges) {
@@ -115,7 +121,8 @@ public record NoSourceDagRunner(
           counters,
           useDlq);
 
-      routeToDownstream(currentNodeId, result.getOutput(), downstreamEdges, runContext);
+      routeToDownstream(
+          currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
       return;
     }
     if (command instanceof ScalarSinkCommand sinkCommand) {
@@ -133,27 +140,21 @@ public record NoSourceDagRunner(
           result.getFailureEvents(),
           counters,
           useDlq);
+      Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
+      tags.put(METRIC_TAG_NODE_ID, currentNodeId);
+      tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
+      counters.increaseOutputEventCounter(events.size(), tags);
 
-      routeToDownstream(currentNodeId, List.of(sinkOutputEvent), downstreamEdges, runContext);
+      if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {
+        result.merge(runContext.dagResult.sinkResultMap.get(currentNodeId));
+      }
+      runContext.dagResult.sinkResultMap.put(currentNodeId, result);
       return;
     }
     throw new IllegalStateException(
         String.format(
             "encountered unsupported command at downstream node: id=%s, commandName=%s",
             currentNodeId, command.commandName()));
-  }
-
-  private RecordFleakData sinkResultToOutputEvent(ScalarSinkCommand.SinkResult sinkResult) {
-    Map<String, FleakData> payload = new HashMap<>();
-    payload.put(
-        "inputCount",
-        new NumberPrimitiveFleakData(
-            sinkResult.getInputCount(), NumberPrimitiveFleakData.NumberType.INT));
-    payload.put(
-        "successCount",
-        new NumberPrimitiveFleakData(
-            sinkResult.getSuccessCount(), NumberPrimitiveFleakData.NumberType.INT));
-    return new RecordFleakData(payload);
   }
 
   public void terminate() {

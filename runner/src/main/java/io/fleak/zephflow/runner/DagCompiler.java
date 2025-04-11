@@ -33,8 +33,7 @@ public class DagCompiler {
   }
 
   public Dag<OperatorCommand> compile(
-      AdjacencyListDagDefinition adjacencyListDagDefinition, boolean checkConnected)
-      throws Exception {
+      AdjacencyListDagDefinition adjacencyListDagDefinition, boolean checkConnected) {
     NodesEdgesDagDefinition nodesEdgesDagDefinition =
         NodesEdgesDagDefinition.fromAdjacencyListDagDefinition(adjacencyListDagDefinition);
     var rawDag = nodesEdgesDagDefinition.getDag();
@@ -43,19 +42,23 @@ public class DagCompiler {
     Predicate<Node<RawDagNode>> rawSourceNodePredicate =
         n -> {
           String commandName = n.getNodeContent().getCommandName();
-          CommandFactory commandFactory = getCommandFactory(commandName);
+          CommandFactory commandFactory = getCommandFactory(n.getId(), commandName);
           return commandFactory.commandType() == CommandType.SOURCE;
         };
 
     Predicate<Node<RawDagNode>> rawSinkNodePredicate =
         n -> {
           String commandName = n.getNodeContent().getCommandName();
-          CommandFactory commandFactory = getCommandFactory(commandName);
+          CommandFactory commandFactory = getCommandFactory(n.getId(), commandName);
           return commandFactory.commandType() == CommandType.SINK;
         };
 
     // Validate the DAG structure
-    rawDag.validate(checkConnected, rawSourceNodePredicate, rawSinkNodePredicate);
+    try {
+      rawDag.validate(checkConnected, rawSourceNodePredicate, rawSinkNodePredicate);
+    } catch (Exception e) {
+      throw new DagCompilationException(null, null, "Dag validation failed: " + e.getMessage(), e);
+    }
 
     // Compile nodes
     List<Node<OperatorCommand>> compiledNodes =
@@ -64,7 +67,8 @@ public class DagCompiler {
                 n -> {
                   RawDagNode rdn = n.getNodeContent();
                   try {
-                    CommandFactory commandFactory = getCommandFactory(rdn.getCommandName());
+                    CommandFactory commandFactory =
+                        getCommandFactory(n.getId(), rdn.getCommandName());
 
                     OperatorCommand command = commandFactory.createCommand(n.getId(), jobContext);
                     command.parseAndValidateArg(n.getNodeContent().getArg());
@@ -74,10 +78,12 @@ public class DagCompiler {
                         .build();
                   } catch (Exception e) {
                     log.error("dag compilation error at node {}: {}", n.getId(), rdn, e);
-                    throw new IllegalArgumentException(
+                    throw new DagCompilationException(
+                        n.getId(),
+                        n.getNodeContent().getCommandName(),
                         String.format(
-                            "failed to compile dag at node %s: %s, reason: %s ",
-                            n.getId(), rdn, e.getMessage()));
+                            "failed to compile DAG node: %s, reason: %s", rdn, e.getMessage()),
+                        e);
                   }
                 })
             .collect(Collectors.toList());
@@ -91,10 +97,11 @@ public class DagCompiler {
     return new Dag<>(compiledNodes, compiledEdges);
   }
 
-  private CommandFactory getCommandFactory(String commandName) {
+  private CommandFactory getCommandFactory(String nodeId, String commandName) {
     CommandFactory commandFactory = commandFactoryMap.get(commandName);
     if (commandFactory == null) {
-      throw new IllegalArgumentException("unknown command: " + commandName);
+      throw new DagCompilationException(
+          nodeId, commandName, "unknown command: " + commandName, null);
     }
     return commandFactory;
   }
