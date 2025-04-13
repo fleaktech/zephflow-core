@@ -20,18 +20,17 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
 import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import io.fleak.zephflow.runner.spi.CommandProvider;
+import java.util.*;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
 /** Created by bolei on 2/28/25 */
+@Slf4j
 public class DagExecutor {
   private final JobConfig jobConfig;
   private final DagCompiler dagCompiler;
@@ -39,8 +38,42 @@ public class DagExecutor {
 
   public static DagExecutor createDagExecutor(
       JobConfig jobConfig, MetricClientProvider metricClientProvider) {
-    return createDagExecutor(
-        jobConfig, OperatorCommandRegistry.OPERATOR_COMMANDS, metricClientProvider);
+
+    // --- SPI Discovery and Command Aggregation ---
+    Map<String, CommandFactory> aggregatedCommands = new HashMap<>();
+    ServiceLoader<CommandProvider> loader = ServiceLoader.load(CommandProvider.class);
+
+    log.info("Discovering command providers...");
+    for (CommandProvider provider : loader) {
+      String providerName = provider.getClass().getName();
+      log.info("Loading commands from provider: {}", providerName);
+      try {
+        Map<String, CommandFactory> providerCommands = provider.getCommands();
+        if (providerCommands == null) {
+          continue;
+        }
+        providerCommands.forEach(
+            (key, value) -> {
+              if (aggregatedCommands.containsKey(key)) {
+                throw new IllegalStateException("Duplicate command detected: " + key);
+              }
+              log.info("Loading command: {}", key);
+              aggregatedCommands.put(key, value);
+            });
+
+      } catch (Exception e) {
+        log.error("Failed to load commands from provider {}: {}", providerName, e.getMessage());
+        throw e;
+      }
+    }
+
+    if (aggregatedCommands.isEmpty()) {
+      System.err.println(
+          "Warning: No commands were discovered. Check classpath and META-INF/services configuration.");
+      System.exit(1);
+    }
+
+    return createDagExecutor(jobConfig, aggregatedCommands, metricClientProvider);
   }
 
   public static DagExecutor createDagExecutor(
