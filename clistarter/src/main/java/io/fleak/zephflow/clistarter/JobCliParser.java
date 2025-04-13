@@ -121,7 +121,7 @@ public class JobCliParser {
     // try to get dag from the DAG environment variable
     String dagStr = StringUtils.trimToNull(System.getenv("DAG"));
     if (dagStr == null) {
-      throw new RuntimeException("no were specified");
+      throw new RuntimeException("no DAG were provided");
     }
     return fromYamlString(dagStr, new TypeReference<>() {});
   }
