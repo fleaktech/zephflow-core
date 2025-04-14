@@ -73,6 +73,7 @@ public record NoSourceDagRunner(
             .build();
     routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
     counters.stopStopWatch(callingUserTag);
+    MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
     return dagResult;
   }
