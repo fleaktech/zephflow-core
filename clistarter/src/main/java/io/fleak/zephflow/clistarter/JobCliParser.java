@@ -22,10 +22,12 @@ import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.*;
 import org.apache.commons.lang3.StringUtils;
 
 /** Created by bolei on 9/26/24 */
+@Slf4j
 public class JobCliParser {
   private static final Options CLI_OPTIONS;
   private static final Option ID_OPT =
@@ -108,9 +110,10 @@ public class JobCliParser {
               }
               try {
                 String dagStr = Files.readString(Path.of(f));
+                log.info("read content from dag file:\n {}", dagStr);
                 return fromYamlString(dagStr, new TypeReference<>() {});
               } catch (Exception e) {
-                throw new IllegalArgumentException("failed to load dag from file: " + f);
+                throw new IllegalArgumentException("failed to load dag from file: " + f, e);
               }
             },
             null);

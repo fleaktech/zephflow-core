@@ -20,7 +20,9 @@ import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public abstract class ScalarCommand extends OperatorCommand {
 
   protected ScalarCommand(
@@ -42,6 +44,7 @@ public abstract class ScalarCommand extends OperatorCommand {
         List<RecordFleakData> oneOutput = processOneEvent(event, callingUser, initializedConfig);
         processResult.output.addAll(oneOutput);
       } catch (Exception e) {
+        log.debug("process failure", e);
         ErrorOutput errorOutput = new ErrorOutput(event, e.getMessage());
         processResult.failureEvents.add(errorOutput);
       }
