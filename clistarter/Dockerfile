@@ -6,7 +6,7 @@ WORKDIR /app
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
 # Copy JAR (built externally by GitHub Actions)
-COPY ./build/libs/clistarter.jar clistarter.jar
+COPY ./build/libs/*-all.jar clistarter.jar
 
 # Set ownership for the application files
 RUN chown -R appuser:appgroup /app

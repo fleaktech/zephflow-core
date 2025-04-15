@@ -57,7 +57,7 @@ public class AwsClientFactory implements Serializable {
 
     if (StringUtils.contains(s3EndpointOverride, "minio")
         || !StringUtils.equalsAnyIgnoreCase(useForceStyle, "1", "true", "enabled", "ok", "yes")) {
-      log.info("Configuring s3 to use Path-Style URLs");
+      log.info("Configuring s3 to use Path-Style URLs: {}", s3EndpointOverride);
       builder.forcePathStyle(true);
     }
 

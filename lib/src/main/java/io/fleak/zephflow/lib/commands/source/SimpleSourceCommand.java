@@ -79,7 +79,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
           finished.set(true);
         }
         if (CollectionUtils.isEmpty(fetchedData)) {
-          log.debug("No fetched data found, sleeping for {} ms", sleep);
+          log.trace("No fetched data found, sleeping for {} ms", sleep);
           threadSleep(sleep);
           sleep = Math.min(sleep + SLEEP_INC, SLEEP_MAX);
           continue;
@@ -111,7 +111,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
     if (!finished.get()) {
       List<T> fetchedData = fetcher.fetch();
-      log.debug("fetched {} records from source", CollectionUtils.size(fetchedData));
+      log.trace("fetched {} records from source", CollectionUtils.size(fetchedData));
       return fetchedData;
     }
     return null;
