@@ -19,6 +19,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 3/26/25 */
@@ -32,14 +33,18 @@ public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> 
   }
 
   @Override
-  public ConvertedResult<SerializedEvent> convert(SerializedEvent sourceRecord) {
+  public ConvertedResult<SerializedEvent> convert(
+      SerializedEvent sourceRecord, SourceInitializedConfig<?> sourceInitializedConfig) {
     try {
+      sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, Map.of());
       List<RecordFleakData> events = fleakDeserializer.deserialize(sourceRecord);
+      sourceInitializedConfig.inputEventCounter().increase(events.size(), Map.of());
       if (log.isDebugEnabled()) {
         events.forEach(e -> log.debug("got message: {}", toJsonString(e)));
       }
       return ConvertedResult.success(events, sourceRecord);
     } catch (Exception e) {
+      sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
       if (log.isDebugEnabled()) {
         log.debug("failed to deserialize event {}", sourceRecord);
       }

@@ -13,8 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
+
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import java.util.Map;
 import java.util.Optional;
 
 /** Created by bolei on 9/24/24 */
@@ -32,8 +36,24 @@ public class SourceInitializer<T> extends CommandInitializer {
     Fetcher<T> fetcher = partsFactory.createFetcher(commandConfig);
     RawDataEncoder<T> encoder = partsFactory.createRawDataEncoder(commandConfig);
     RawDataConverter<T> converter = partsFactory.createRawDataConverter(commandConfig);
+
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName, nodeId);
+    FleakCounter dataSizeCounter =
+        commandPartsFactory
+            .getMetricClientProvider()
+            .counter(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, metricTags);
+    FleakCounter inputEventCounter =
+        commandPartsFactory
+            .getMetricClientProvider()
+            .counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter deserializeFailureCounter =
+        commandPartsFactory
+            .getMetricClientProvider()
+            .counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
+
     DlqWriter dlqWriter =
-        Optional.ofNullable(jobContext)
+        Optional.of(jobContext)
             .map(JobContext::getDlqConfig)
             .map(partsFactory::createDlqWriter)
             .orElse(null);
@@ -41,6 +61,13 @@ public class SourceInitializer<T> extends CommandInitializer {
       dlqWriter.open();
     }
 
-    return new SourceInitializedConfig<>(fetcher, converter, encoder, dlqWriter);
+    return new SourceInitializedConfig<>(
+        fetcher,
+        converter,
+        encoder,
+        dataSizeCounter,
+        inputEventCounter,
+        deserializeFailureCounter,
+        dlqWriter);
   }
 }

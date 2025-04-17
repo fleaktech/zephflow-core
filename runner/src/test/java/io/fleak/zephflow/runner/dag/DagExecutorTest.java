@@ -155,7 +155,7 @@ public class DagExecutorTest {
                 @Override
                 public RawDataConverter<RecordFleakData> createRawDataConverter(
                     CommandConfig commandConfig) {
-                  return sourceRecord ->
+                  return (sourceRecord, config) ->
                       ConvertedResult.success(List.of(sourceRecord), sourceRecord);
                 }
 
