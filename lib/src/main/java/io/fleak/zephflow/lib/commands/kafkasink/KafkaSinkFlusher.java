@@ -52,6 +52,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     List<ErrorOutput> errorOutputs = new ArrayList<>();
 
     List<RecordFleakData> preparedList = preparedInputEvents.preparedList();
+    long flushedDataSize = 0;
     for (RecordFleakData event : preparedList) {
       try {
         var serializedEvent = fleakSerializer.serialize(List.of(event));
@@ -68,6 +69,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
 
         if (eventValue != null && eventValue.length > 0) {
           futures.add(producer.send(new ProducerRecord<>(topic, keyBytesValue, eventValue)));
+          flushedDataSize += serializedEvent.value().length;
         }
       } catch (Exception e) {
         log.error(e.getMessage(), e);
@@ -85,7 +87,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     }
 
     return new SimpleSinkCommand.FlushResult(
-        preparedList.size() - errorOutputs.size(), errorOutputs);
+        preparedList.size() - errorOutputs.size(), flushedDataSize, errorOutputs);
   }
 
   @Override

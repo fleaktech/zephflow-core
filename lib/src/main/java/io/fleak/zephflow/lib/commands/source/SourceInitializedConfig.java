@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.source;
 
 import io.fleak.zephflow.api.InitializedConfig;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
 
@@ -22,6 +23,9 @@ public record SourceInitializedConfig<T>(
     Fetcher<T> fetcher,
     RawDataConverter<T> converter,
     RawDataEncoder<T> encoder,
+    FleakCounter dataSizeCounter,
+    FleakCounter inputEventCounter,
+    FleakCounter deserializeFailureCounter,
     DlqWriter dlqWriter)
     implements InitializedConfig {
   @Override

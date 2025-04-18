@@ -90,10 +90,11 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
           preparedInputEvents.rawAndPreparedList().stream()
               .map(pair -> new ErrorOutput(pair.getKey(), e.getMessage()))
               .toList();
-      flushResult = new FlushResult(0, error);
+      flushResult = new FlushResult(0, 0, error);
     }
     errorOutputs.addAll(flushResult.errorOutputList);
     sinkInitializedConfig.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
+    sinkInitializedConfig.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
     SinkResult sinkResult = new SinkResult(batch.size(), flushResult.successCount, errorOutputs);
     sinkInitializedConfig.sinkErrorCounter().increase(sinkResult.errorCount(), callingUserTag);
     return sinkResult;
@@ -129,5 +130,6 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     }
   }
 
-  public record FlushResult(int successCount, List<ErrorOutput> errorOutputList) {}
+  public record FlushResult(
+      int successCount, long flushedDataSize, List<ErrorOutput> errorOutputList) {}
 }

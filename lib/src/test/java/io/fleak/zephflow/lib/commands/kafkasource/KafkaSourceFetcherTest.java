@@ -20,7 +20,9 @@ import static org.mockito.Mockito.*;
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
+import io.fleak.zephflow.lib.commands.source.SourceInitializedConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.time.Duration;
@@ -108,10 +110,15 @@ class KafkaSourceFetcherTest {
 
     BytesRawDataConverter converter = new BytesRawDataConverter(deserializer);
 
+    SourceInitializedConfig<SerializedEvent> sourceInitializedConfig = mock();
+    when(sourceInitializedConfig.dataSizeCounter()).thenReturn(mock());
+    when(sourceInitializedConfig.inputEventCounter()).thenReturn(mock());
+    when(sourceInitializedConfig.deserializeFailureCounter()).thenReturn(mock());
     var fetchedData = fetcher.fetch();
     var result =
         fetchedData.stream()
-            .flatMap(x -> converter.convert(x).getTransformedData().stream())
+            .flatMap(
+                x -> converter.convert(x, sourceInitializedConfig).getTransformedData().stream())
             .toList();
     // Verify that the result contains the deserialized data
     assertNotNull(result);
