@@ -339,6 +339,11 @@ public class ZephFlowTest {
     FleakCounter outputEventCounter = mock();
     when(metricClientProvider.counter(eq(METRIC_NAME_PIPELINE_OUTPUT_EVENT), any()))
         .thenReturn(outputEventCounter);
+
+    FleakCounter outputSizeCounter = mock();
+    when(metricClientProvider.counter(eq(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT), any()))
+        .thenReturn(outputSizeCounter);
+
     FleakCounter errorEventCounter = mock();
     when(metricClientProvider.counter(eq(METRIC_NAME_PIPELINE_ERROR_EVENT), any()))
         .thenReturn(errorEventCounter);

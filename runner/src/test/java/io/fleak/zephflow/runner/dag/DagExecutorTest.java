@@ -239,7 +239,7 @@ public class DagExecutorTest {
                               .map(RecordFleakData::unwrap)
                               .toList());
                       return new SimpleSinkCommand.FlushResult(
-                          preparedInputEvents.preparedList().size(), List.of());
+                          preparedInputEvents.preparedList().size(), 0, List.of());
                     }
 
                     @Override
