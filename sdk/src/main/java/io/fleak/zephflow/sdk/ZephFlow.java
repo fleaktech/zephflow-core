@@ -42,7 +42,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
 import java.util.stream.Collectors;
-import javax.annotation.Nonnull;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -95,8 +94,6 @@ public class ZephFlow {
     this.metricClientProvider = metricClientProvider;
   }
 
-  // --- Static Factory Methods ---
-
   /**
    * Creates a new ZephFlow builder starting point with default context.
    *
@@ -117,6 +114,7 @@ public class ZephFlow {
    * @param jobContext The job context.
    * @return A new empty ZephFlow instance.
    */
+  @SuppressWarnings("unused") // Part of the public API
   public static ZephFlow startFlow(JobContext jobContext) {
     return startFlow(jobContext, new MetricClientProvider.NoopMetricClientProvider());
   }
@@ -149,8 +147,6 @@ public class ZephFlow {
     // Initial flow has no node and no upstreams
     return new ZephFlow(null, Collections.emptyList(), jobContext, metricClientProvider);
   }
-
-  // --- Builder Methods (Operations) ---
 
   /**
    * Appends a filter node to the flow.
@@ -262,9 +258,7 @@ public class ZephFlow {
             .regionStr(region)
             .bucketName(bucket)
             .keyName(folder)
-            .encodingType(
-                encodingType
-                    .toString()) // Consider passing EncodingType directly if DTO supports it
+            .encodingType(encodingType.toString())
             .s3EndpointOverride(s3EndpointOverride)
             .build();
     return appendNode(COMMAND_NAME_S3_SINK, toJsonString(config));
@@ -283,7 +277,7 @@ public class ZephFlow {
   public ZephFlow kafkaSource(
       @NonNull String broker,
       @NonNull String topic,
-      @Nonnull String groupId, // Consider @NonNull if null is never valid
+      @NonNull String groupId,
       @NonNull EncodingType encodingType,
       Map<String, String> properties) {
     KafkaSourceDto.Config config =
@@ -292,8 +286,7 @@ public class ZephFlow {
             .topic(topic)
             .groupId(groupId)
             .encodingType(encodingType)
-            .properties(
-                properties == null ? Collections.emptyMap() : properties) // Defensive copy/check
+            .properties(properties == null ? Collections.emptyMap() : properties)
             .build();
     return appendNode(COMMAND_NAME_KAFKA_SOURCE, toJsonString(config));
   }
@@ -319,11 +312,8 @@ public class ZephFlow {
             .broker(broker)
             .topic(topic)
             .partitionKeyFieldExpressionStr(partitionKeyFieldExpressionStr)
-            .encodingType(
-                encodingType
-                    .toString()) // Consider passing EncodingType directly if DTO supports it
-            .properties(
-                properties == null ? Collections.emptyMap() : properties) // Defensive copy/check
+            .encodingType(encodingType.toString())
+            .properties(properties == null ? Collections.emptyMap() : properties)
             .build();
     return appendNode(COMMAND_NAME_KAFKA_SINK, toJsonString(config));
   }
@@ -377,8 +367,6 @@ public class ZephFlow {
     return new ZephFlow(newNodeDef, upstreams, this.jobContext, this.metricClientProvider);
   }
 
-  // --- Flow Combination ---
-
   /**
    * Merges multiple ZephFlow branches into a single flow branch. The resulting ZephFlow instance
    * acts as a placeholder; the actual merge logic happens when a subsequent node is appended to
@@ -401,7 +389,6 @@ public class ZephFlow {
     // Collect all provided flows as upstreams for the merge point.
     List<ZephFlow> upstreamFlows = new ArrayList<>(Arrays.asList(flows));
 
-    // --- Merge JobContext ---
     // Note: Simple Map.putAll overwrites duplicate keys.
     Map<String, Serializable> mergedProperties = new HashMap<>();
     Map<String, String> mergedMetricTags = new HashMap<>();
@@ -421,7 +408,6 @@ public class ZephFlow {
     }
     JobContext mergedJobContext =
         JobContext.builder().otherProperties(mergedProperties).metricTags(mergedMetricTags).build();
-    // --- End Merge JobContext ---
 
     // Create a special ZephFlow instance with no node, representing the merge point.
     // It holds the merged flows as its upstreams and the merged context.
@@ -431,8 +417,6 @@ public class ZephFlow {
         mergedJobContext,
         chosenProvider);
   }
-
-  // --- DAG Building and Execution ---
 
   /**
    * Builds the internal DAG representation (AdjacencyListDagDefinition) from the fluent API
@@ -497,7 +481,6 @@ public class ZephFlow {
       }
     }
 
-    // --- Process Current Node (if it exists) ---
     DagNode currentNode = null;
     if (currentFlow.getNode() != null) {
       String nodeId = currentFlow.getNode().getId();
@@ -515,7 +498,6 @@ public class ZephFlow {
     }
     // If currentFlow.getNode() is null, this is a merge point, currentNode remains null.
 
-    // --- Recurse for Upstreams and Collect Leaf Nodes ---
     List<DagNode> allUpstreamLeafNodes = new ArrayList<>();
     for (ZephFlow upstreamFlow : currentFlow.upstreamFlows) {
       // Recursively build the upstream part of the graph & get its leaf nodes.
@@ -523,7 +505,6 @@ public class ZephFlow {
       allUpstreamLeafNodes.addAll(upstreamLeaves);
     }
 
-    // --- Connect Upstream Leaves to Current Node ---
     if (currentNode != null) { // Only connect if the current flow represents an actual node
       for (DagNode upstreamLeaf : allUpstreamLeafNodes) {
         if (upstreamLeaf == null) {
@@ -539,7 +520,6 @@ public class ZephFlow {
       }
     }
 
-    // --- Determine Return Value ---
     if (currentNode != null) {
       // If this flow has a node, it's the single leaf for this path.
       return List.of(currentNode);
@@ -559,7 +539,7 @@ public class ZephFlow {
    * @throws Exception if DAG execution fails.
    */
   public void execute(@NonNull String jobId, @NonNull String env, @NonNull String service)
-      throws Exception { // Consider more specific exceptions
+      throws Exception {
     AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag();
     JobConfig jobConfig =
         JobConfig.builder()
@@ -593,7 +573,6 @@ public class ZephFlow {
    * @param callingUser Identifier for the user initiating the processing.
    * @param runConfig Configuration for the DAG run.
    * @return The result of the DAG execution.
-   * @throws ClassCastException if events cannot be converted to RecordFleakData. // Document this
    */
   public DagResult process(
       List<?> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
@@ -622,7 +601,7 @@ public class ZephFlow {
    * @param httpStarterHostUrl The base URL of the HTTP starter service.
    * @return The response body from the submission endpoint.
    * @throws URISyntaxException if the provided URL is invalid.
-   * @throws RuntimeException wrapping HTTP client errors. // Document potential exceptions
+   * @throws RuntimeException wrapping HTTP client errors.
    */
   public String submitApiEndpoint(String httpStarterHostUrl) throws URISyntaxException {
     AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag();
