@@ -51,14 +51,16 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
     List<PutRecordsRequestEntry> records = new ArrayList<>();
     List<ErrorOutput> errorOutputs = new ArrayList<>();
-
+    List<Integer> recordSizes = new ArrayList<>();
     for (Pair<RecordFleakData, RecordFleakData> pair : preparedInputEvents.rawAndPreparedList()) {
       try {
-        SerializedEvent serializedEvent = fleakSerializer.serialize(List.of(pair.getRight()));
+        RecordFleakData recordFleakData = pair.getRight();
+        SerializedEvent serializedEvent = fleakSerializer.serialize(List.of(recordFleakData));
         if (serializedEvent.value() == null) {
           throw new IllegalArgumentException(
               String.format("JSON serialization resulted in null for record %s", pair.getRight()));
         }
+        recordSizes.add(serializedEvent.value().length);
         String partitionKey =
             partitionKeyPathExpression.getStringValueFromEventOrDefault(
                 pair.getRight(), UUID.randomUUID().toString());
@@ -76,7 +78,7 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
     }
 
     if (records.isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, errorOutputs);
+      return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
     }
 
     PutRecordsRequest putRecordsRequest =
@@ -92,6 +94,7 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
       int successCount =
           putRecordsResponse.records().size() - putRecordsResponse.failedRecordCount();
 
+      long flushedDataSize = 0;
       for (int i = 0; i < putRecordsResponse.records().size(); i++) {
         if (putRecordsResponse.records().get(i).errorCode() != null) {
           ErrorOutput errorOutput =
@@ -99,17 +102,20 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
                   preparedInputEvents.rawAndPreparedList().get(i).getLeft(),
                   putRecordsResponse.records().get(i).errorMessage());
           errorOutputs.add(errorOutput);
+        } else {
+          int recordSize = recordSizes.get(i);
+          flushedDataSize += recordSize;
         }
       }
 
-      return new SimpleSinkCommand.FlushResult(successCount, errorOutputs);
+      return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, errorOutputs);
     } catch (Exception e) {
       // Handle any exceptions from the Kinesis client, including null response
       for (Pair<RecordFleakData, RecordFleakData> pair : preparedInputEvents.rawAndPreparedList()) {
         errorOutputs.add(
             new ErrorOutput(pair.getLeft(), "Kinesis client error: " + e.getMessage()));
       }
-      return new SimpleSinkCommand.FlushResult(0, errorOutputs);
+      return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
     }
   }
 

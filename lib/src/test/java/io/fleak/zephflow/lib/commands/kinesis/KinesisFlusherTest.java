@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ class KinesisFlusherTest {
   private static final String STREAM_NAME = "test-stream";
   private KinesisClient kinesisClient;
   private KinesisFlusher flusher;
+  private FleakSerializer<?> serializer;
 
   @BeforeEach
   void setUp() {
@@ -44,42 +46,35 @@ class KinesisFlusherTest {
 
     SerializerFactory<?> serializerFactory =
         SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT);
-    FleakSerializer<?> serializer = serializerFactory.createSerializer();
+    serializer = serializerFactory.createSerializer();
 
     flusher =
         new KinesisFlusher(kinesisClient, STREAM_NAME, partitionKeyPathExpression, serializer);
   }
 
   @Test
-  void testSuccessfulFlush() {
+  void testSuccessfulFlush() throws Exception {
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents =
         new SimpleSinkCommand.PreparedInputEvents<>();
-    preparedInputEvents.add(
+
+    RecordFleakData record1 =
         new RecordFleakData(
             Map.of(
                 "partitionKey",
                 new StringPrimitiveFleakData("key1"),
                 "data",
-                new StringPrimitiveFleakData("value1"))),
-        new RecordFleakData(
-            Map.of(
-                "partitionKey",
-                new StringPrimitiveFleakData("key1"),
-                "data",
-                new StringPrimitiveFleakData("value1"))));
-    preparedInputEvents.add(
+                new StringPrimitiveFleakData("value1")));
+    long record1Size = serializer.serialize(List.of(record1)).value().length;
+    RecordFleakData record2 =
         new RecordFleakData(
             Map.of(
                 "partitionKey",
                 new StringPrimitiveFleakData("key2"),
                 "data",
-                new StringPrimitiveFleakData("value2"))),
-        new RecordFleakData(
-            Map.of(
-                "partitionKey",
-                new StringPrimitiveFleakData("key2"),
-                "data",
-                new StringPrimitiveFleakData("value2"))));
+                new StringPrimitiveFleakData("value2")));
+    long record2Size = serializer.serialize(List.of(record2)).value().length;
+    preparedInputEvents.add(record1, record1);
+    preparedInputEvents.add(record2, record2);
 
     PutRecordsResponse mockResponse =
         PutRecordsResponse.builder()
@@ -94,7 +89,7 @@ class KinesisFlusherTest {
 
     assertEquals(2, result.successCount());
     assertTrue(result.errorOutputList().isEmpty());
-
+    assertEquals(record1Size + record2Size, result.flushedDataSize());
     verify(kinesisClient)
         .putRecords(
             argThat(

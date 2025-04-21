@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -26,6 +27,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -76,6 +78,9 @@ class SimpleSourceCommandTest {
   private DlqWriter mockDlqWriter;
   private TestSimpleSourceCommand command;
   private CommandConfig mockCommandConfig;
+  private FleakCounter dataSizeCounter;
+  private FleakCounter inputEventCounter;
+  private FleakCounter deserializeFailureCounter;
 
   @BeforeEach
   void setUp() {
@@ -94,6 +99,10 @@ class SimpleSourceCommandTest {
     mockDlqWriter = mock(DlqWriter.class);
     mockCommandConfig = mock(CommandConfig.class);
     mockCommitter = mock(Fetcher.Committer.class);
+    dataSizeCounter = mock();
+    inputEventCounter = mock();
+    deserializeFailureCounter = mock();
+
     when(mockFetcher.commiter()).thenReturn(mockCommitter);
     // Setup command initializer factory
     when(mockCommandInitializerFactory.createCommandInitializer(
@@ -105,7 +114,13 @@ class SimpleSourceCommandTest {
             eq(TEST_COMMAND_NAME), eq(mockJobContext), any(CommandConfig.class)))
         .thenReturn(
             new SourceInitializedConfig<>(
-                mockFetcher, rawDataConverter, mockEncoder, mockDlqWriter));
+                mockFetcher,
+                rawDataConverter,
+                mockEncoder,
+                dataSizeCounter,
+                inputEventCounter,
+                deserializeFailureCounter,
+                mockDlqWriter));
     when(mockConfigParser.parseConfig(TEST_CONFIG)).thenReturn(mockCommandConfig);
     command =
         new TestSimpleSourceCommand(
@@ -129,7 +144,7 @@ class SimpleSourceCommandTest {
     // Setup test data
     RecordFleakData mockRecord = mock(RecordFleakData.class);
 
-    SerializedEvent mockRaw = mock();
+    SerializedEvent mockRaw = new SerializedEvent(null, "abcdef".getBytes(), null);
     List<SerializedEvent> fetched = List.of(mockRaw);
     when(mockFetcher.fetch())
         .thenAnswer(
@@ -142,15 +157,17 @@ class SimpleSourceCommandTest {
     // Execute
     command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
 
-    // Verify initialization
     verify(mockCommandInitializerFactory)
         .createCommandInitializer(
             eq(mockMetricClientProvider), eq(mockJobContext), any(), eq(TEST_NODE_ID));
 
-    // Verify processing
     verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
     verify(mockCommitter).commit();
     verify(mockSourceEventAcceptor).terminate();
+    verify(dataSizeCounter).increase(6, Map.of());
+    verify(inputEventCounter).increase(1, Map.of());
+    verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
+    verify(deserializeFailureCounter, never()).increase(anyMap());
   }
 
   @Test
@@ -182,6 +199,10 @@ class SimpleSourceCommandTest {
     // Verify DLQ writing
     verify(mockDlqWriter)
         .writeToDlq(anyLong(), same(serializedEvent), contains("Test processing error"));
+    verify(dataSizeCounter).increase(9, Map.of());
+    verify(inputEventCounter).increase(1, Map.of());
+    verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
+    verify(deserializeFailureCounter, never()).increase(anyMap());
   }
 
   @Test
@@ -201,6 +222,9 @@ class SimpleSourceCommandTest {
     verify(mockEncoder).serialize(same(serializedEvent));
     verify(mockDlqWriter)
         .writeToDlq(anyLong(), same(serializedEvent), contains("Test deserialization error"));
+    verify(dataSizeCounter).increase(9, Map.of());
+    verify(inputEventCounter, never()).increase(anyLong(), anyMap());
+    verify(deserializeFailureCounter).increase(Map.of());
   }
 
   @Test
@@ -230,5 +254,11 @@ class SimpleSourceCommandTest {
     // Verify only one fetch
     verify(mockFetcher, times(1)).fetch();
     verify(mockSourceEventAcceptor).terminate();
+    verify(dataSizeCounter, never()).increase(anyLong(), anyMap());
+    verify(dataSizeCounter, never()).increase(anyMap());
+    verify(inputEventCounter, never()).increase(anyLong(), anyMap());
+    verify(inputEventCounter, never()).increase(anyMap());
+    verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
+    verify(deserializeFailureCounter, never()).increase(anyMap());
   }
 }

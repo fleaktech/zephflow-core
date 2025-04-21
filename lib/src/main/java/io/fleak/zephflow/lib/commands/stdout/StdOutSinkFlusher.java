@@ -35,16 +35,18 @@ public class StdOutSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakD
   public SimpleSinkCommand.FlushResult flush(
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
     int successCount = 0;
+    long flushedDataSize = 0;
     for (RecordFleakData event : preparedInputEvents.preparedList()) {
       try {
         var serializedEvent = fleakSerializer.serialize(List.of(event));
         System.out.println(new String(serializedEvent.value()));
         successCount++;
+        flushedDataSize += serializedEvent.value().length;
       } catch (Exception e) {
         log.error("failed to write to stdout. event: {}", toJsonPayload(event), e);
       }
     }
-    return new SimpleSinkCommand.FlushResult(successCount, List.of());
+    return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, List.of());
   }
 
   @Override

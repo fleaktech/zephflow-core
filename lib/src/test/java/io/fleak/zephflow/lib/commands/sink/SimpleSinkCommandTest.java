@@ -51,6 +51,7 @@ class SimpleSinkCommandTest {
   private FleakCounter inputMessageCounter;
   private FleakCounter errorCounter;
   private FleakCounter sinkOutputCounter;
+  private FleakCounter outputSizeCounter;
   private FleakCounter sinkErrorCounter;
 
   @BeforeEach
@@ -59,6 +60,7 @@ class SimpleSinkCommandTest {
     inputMessageCounter = mock();
     errorCounter = mock();
     sinkOutputCounter = mock();
+    outputSizeCounter = mock();
     sinkErrorCounter = mock();
     when(metricClientProvider.counter(eq(METRIC_NAME_INPUT_EVENT_COUNT), any()))
         .thenReturn(inputMessageCounter);
@@ -66,6 +68,8 @@ class SimpleSinkCommandTest {
         .thenReturn(errorCounter);
     when(metricClientProvider.counter(eq(METRIC_NAME_SINK_OUTPUT_COUNT), any()))
         .thenReturn(sinkOutputCounter);
+    when(metricClientProvider.counter(eq(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT), any()))
+        .thenReturn(outputSizeCounter);
     when(metricClientProvider.counter(eq(METRIC_NAME_SINK_ERROR_COUNT), any()))
         .thenReturn(sinkErrorCounter);
   }
@@ -128,6 +132,7 @@ class SimpleSinkCommandTest {
     assertEquals(List.of(3L, 2L), inputMessageCounterCaptor.getAllValues());
     verify(errorCounter, times(2)).increase(any());
     verify(sinkOutputCounter, times(2)).increase(eq(1L), any());
+    verify(outputSizeCounter, times(2)).increase(eq(100L), anyMap());
     verify(sinkErrorCounter).increase(eq(1L), any());
   }
 
@@ -166,6 +171,7 @@ class SimpleSinkCommandTest {
                     "process error")));
     assertEquals(expected, sinkResult);
     verify(errorCounter, times(2)).increase(any());
+    verify(outputSizeCounter, never()).increase(anyLong(), any());
   }
 
   private static class FakeSimpleSinkCommandFactory extends CommandFactory {
@@ -248,7 +254,7 @@ class SimpleSinkCommandTest {
         }
         successSize++;
       }
-      return new SimpleSinkCommand.FlushResult(successSize, errorOutputList);
+      return new SimpleSinkCommand.FlushResult(successSize, 100, errorOutputList);
     }
 
     @Override

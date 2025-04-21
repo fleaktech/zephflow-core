@@ -86,7 +86,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         }
         // 2. Convert raw input into internal data structure
         List<ConvertedResult<T>> convertedResults =
-            fetchedData.stream().map(converter::convert).toList();
+            fetchedData.stream().map(fd -> converter.convert(fd, sourceInitializedConfig)).toList();
 
         processFetchedData(convertedResults, sourceEventAcceptor, committer, dlqWriter, encoder);
       }
