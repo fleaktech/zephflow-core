@@ -37,6 +37,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.runner.*;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition.DagNode;
+import java.io.Serializable;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
@@ -59,12 +60,20 @@ public class ZephFlow {
   private final List<ZephFlow> upstreamFlows;
 
   private final JobContext jobContext;
+  private final MetricClientProvider metricClientProvider;
+
+  private NoSourceDagRunner noSourceDagRunner;
 
   // Private constructor for internal use
-  private ZephFlow(DagNode node, List<ZephFlow> upstreamFlows, JobContext jobContext) {
+  private ZephFlow(
+      DagNode node,
+      List<ZephFlow> upstreamFlows,
+      JobContext jobContext,
+      MetricClientProvider metricClientProvider) {
     this.node = node;
     this.upstreamFlows = upstreamFlows;
     this.jobContext = jobContext;
+    this.metricClientProvider = metricClientProvider;
 
     // Register this instance if it has a node
     if (node != null) {
@@ -83,12 +92,27 @@ public class ZephFlow {
         JobContext.builder()
             .metricTags(
                 Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
-            .build());
+            .build(),
+        new MetricClientProvider.NoopMetricClientProvider());
   }
 
   public static ZephFlow startFlow(JobContext jobContext) {
+    return startFlow(jobContext, new MetricClientProvider.NoopMetricClientProvider());
+  }
+
+  public static ZephFlow startFlow(MetricClientProvider metricClientProvider) {
+    return startFlow(
+        JobContext.builder()
+            .metricTags(
+                Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
+            .build(),
+        metricClientProvider);
+  }
+
+  public static ZephFlow startFlow(
+      JobContext jobContext, MetricClientProvider metricClientProvider) {
     validateMetricTags(jobContext.getMetricTags());
-    return new ZephFlow(null, new ArrayList<>(), jobContext);
+    return new ZephFlow(null, new ArrayList<>(), jobContext, metricClientProvider);
   }
 
   /**
@@ -230,7 +254,7 @@ public class ZephFlow {
     }
 
     // Create the new flow with the node and upstream connections
-    return new ZephFlow(node, upstreams, jobContext);
+    return new ZephFlow(node, upstreams, jobContext, metricClientProvider);
   }
 
   // Static method to merge multiple flows into one
@@ -249,17 +273,26 @@ public class ZephFlow {
 
     // Return a special merged flow that doesn't have its own node
     // The node will be created when this flow is connected to a sink
+
+    Map<String, Serializable> properties = new HashMap<>();
+    Map<String, String> metricTags = new HashMap<>();
+    Arrays.stream(flows)
+        .forEach(
+            f -> {
+              properties.putAll(f.jobContext.getOtherProperties());
+              metricTags.putAll(f.jobContext.getMetricTags());
+            });
+    JobContext mergedJobContext =
+        JobContext.builder().otherProperties(properties).metricTags(metricTags).build();
+
     return new ZephFlow(
         null, // No intermediate node
         upstreamFlows,
-        flows[0].jobContext); // it is assumed that all flows have the same JobContext
+        mergedJobContext,
+        flows[0].metricClientProvider);
   }
 
   public AdjacencyListDagDefinition buildDag() {
-    return buildDag(JobContext.builder().build());
-  }
-
-  public AdjacencyListDagDefinition buildDag(JobContext jobContext) {
     List<DagNode> allNodes = new ArrayList<>();
     Map<String, Boolean> visited = new HashMap<>();
 
@@ -275,16 +308,7 @@ public class ZephFlow {
 
   public void execute(@NonNull String jobId, @NonNull String env, @NonNull String service)
       throws Exception {
-    execute(jobId, env, service, new MetricClientProvider.NoopMetricClientProvider());
-  }
-
-  public void execute(
-      @NonNull String jobId,
-      @NonNull String env,
-      @NonNull String service,
-      MetricClientProvider metricClientProvider)
-      throws Exception {
-    AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag(jobContext);
+    AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag();
     JobConfig jobConfig =
         JobConfig.builder()
             .environment(env)
@@ -297,32 +321,22 @@ public class ZephFlow {
   }
 
   public DagResult process(List<?> events, NoSourceDagRunner.DagRunConfig runConfig) {
-    return process(
-        events,
-        "default_user",
-        runConfig,
-        JobContext.builder()
-            .metricTags(
-                Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
-            .build(),
-        new MetricClientProvider.NoopMetricClientProvider());
+    return process(events, "default_user", runConfig);
   }
 
   public DagResult process(
-      List<?> events,
-      String callingUser,
-      NoSourceDagRunner.DagRunConfig runConfig,
-      JobContext jobContext,
-      MetricClientProvider metricClientProvider) {
+      List<?> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
     List<RecordFleakData> inputData =
         events.stream().map(o -> ((RecordFleakData) fromObject(o))).toList();
+    if (noSourceDagRunner == null) {
+      DagCompiler dagCompiler = new DagCompiler(aggregatedCommands);
+      DagRunnerService dagRunnerService = new DagRunnerService(dagCompiler, metricClientProvider);
 
-    DagCompiler dagCompiler = new DagCompiler(aggregatedCommands);
-    DagRunnerService dagRunnerService = new DagRunnerService(dagCompiler, metricClientProvider);
-
-    AdjacencyListDagDefinition dagDefinition = buildDag(jobContext);
-    NoSourceDagRunner noSourceDagRunner =
-        dagRunnerService.createForApiBackend(dagDefinition.getDag(), dagDefinition.getJobContext());
+      AdjacencyListDagDefinition dagDefinition = buildDag();
+      noSourceDagRunner =
+          dagRunnerService.createForApiBackend(
+              dagDefinition.getDag(), dagDefinition.getJobContext());
+    }
     return noSourceDagRunner.run(inputData, callingUser, runConfig);
   }
 

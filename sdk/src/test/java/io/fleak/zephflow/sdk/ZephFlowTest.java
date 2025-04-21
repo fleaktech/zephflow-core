@@ -272,9 +272,6 @@ public class ZephFlowTest {
 
   @Test
   public void testAssertion() throws Exception {
-    ZephFlow flow = ZephFlow.startFlow();
-    var assertionFlow = flow.stdinSource(EncodingType.JSON_ARRAY).assertion("$.num%2==0");
-    var outputFlow = assertionFlow.stdoutSink(EncodingType.JSON_OBJECT);
     MetricClientProvider metricClientProvider = mock();
     FleakCounter assertionInputMessageCounter = mock();
     FleakCounter stdoutInputMessageCounter = mock();
@@ -355,7 +352,10 @@ public class ZephFlowTest {
     // input from stdin has 5 event numbers and 5 odd numbers. assertion rule: num%2==0
     // assertion command should throw 5 errors and output 5 good events
     // stdout command should receive 5 good events and shouldn't encounter any errors
-    outputFlow.execute("test_id", "test_env", "test_service", metricClientProvider);
+    ZephFlow flow = ZephFlow.startFlow(metricClientProvider);
+    var assertionFlow = flow.stdinSource(EncodingType.JSON_ARRAY).assertion("$.num%2==0");
+    var outputFlow = assertionFlow.stdoutSink(EncodingType.JSON_OBJECT);
+    outputFlow.execute("test_id", "test_env", "test_service");
 
     // assertion node counters
     verify(assertionInputMessageCounter, times(10)).increase(any());
