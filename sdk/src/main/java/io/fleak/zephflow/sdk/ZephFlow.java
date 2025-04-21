@@ -14,14 +14,17 @@
 package io.fleak.zephflow.sdk;
 
 import static io.fleak.zephflow.lib.commands.SimpleHttpClient.MAX_RESPONSE_SIZE_BYTES;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.*;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_WORKFLOW_CONTROLLER_PATH;
+import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.SimpleHttpClient;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
@@ -31,9 +34,7 @@ import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
 import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.utils.JsonUtils;
-import io.fleak.zephflow.runner.DagExecutor;
-import io.fleak.zephflow.runner.JobConfig;
+import io.fleak.zephflow.runner.*;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition.DagNode;
 import java.net.URI;
@@ -51,14 +52,19 @@ public class ZephFlow {
   // Static registry to keep track of all ZephFlow instances and their nodes
   private static final Map<String, ZephFlow> flowRegistry = new HashMap<>();
 
+  private static final Map<String, CommandFactory> aggregatedCommands = loadCommands();
+
   @Getter private final DagNode node;
 
   private final List<ZephFlow> upstreamFlows;
 
+  private final JobContext jobContext;
+
   // Private constructor for internal use
-  private ZephFlow(DagNode node, List<ZephFlow> upstreamFlows) {
+  private ZephFlow(DagNode node, List<ZephFlow> upstreamFlows, JobContext jobContext) {
     this.node = node;
     this.upstreamFlows = upstreamFlows;
+    this.jobContext = jobContext;
 
     // Register this instance if it has a node
     if (node != null) {
@@ -73,7 +79,16 @@ public class ZephFlow {
    * @return a new empty ZephFlow
    */
   public static ZephFlow startFlow() {
-    return new ZephFlow(null, new ArrayList<>());
+    return startFlow(
+        JobContext.builder()
+            .metricTags(
+                Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
+            .build());
+  }
+
+  public static ZephFlow startFlow(JobContext jobContext) {
+    validateMetricTags(jobContext.getMetricTags());
+    return new ZephFlow(null, new ArrayList<>(), jobContext);
   }
 
   /**
@@ -215,7 +230,7 @@ public class ZephFlow {
     }
 
     // Create the new flow with the node and upstream connections
-    return new ZephFlow(node, upstreams);
+    return new ZephFlow(node, upstreams, jobContext);
   }
 
   // Static method to merge multiple flows into one
@@ -236,7 +251,8 @@ public class ZephFlow {
     // The node will be created when this flow is connected to a sink
     return new ZephFlow(
         null, // No intermediate node
-        upstreamFlows);
+        upstreamFlows,
+        flows[0].jobContext); // it is assumed that all flows have the same JobContext
   }
 
   public AdjacencyListDagDefinition buildDag() {
@@ -259,23 +275,13 @@ public class ZephFlow {
 
   public void execute(@NonNull String jobId, @NonNull String env, @NonNull String service)
       throws Exception {
-    execute(jobId, env, service, JobContext.builder().build());
+    execute(jobId, env, service, new MetricClientProvider.NoopMetricClientProvider());
   }
 
   public void execute(
       @NonNull String jobId,
       @NonNull String env,
       @NonNull String service,
-      @NonNull JobContext jobContext)
-      throws Exception {
-    execute(jobId, env, service, jobContext, new MetricClientProvider.NoopMetricClientProvider());
-  }
-
-  public void execute(
-      @NonNull String jobId,
-      @NonNull String env,
-      @NonNull String service,
-      @NonNull JobContext jobContext,
       MetricClientProvider metricClientProvider)
       throws Exception {
     AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag(jobContext);
@@ -290,6 +296,36 @@ public class ZephFlow {
     dagExecutor.executeDag();
   }
 
+  public DagResult process(List<?> events, NoSourceDagRunner.DagRunConfig runConfig) {
+    return process(
+        events,
+        "default_user",
+        runConfig,
+        JobContext.builder()
+            .metricTags(
+                Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
+            .build(),
+        new MetricClientProvider.NoopMetricClientProvider());
+  }
+
+  public DagResult process(
+      List<?> events,
+      String callingUser,
+      NoSourceDagRunner.DagRunConfig runConfig,
+      JobContext jobContext,
+      MetricClientProvider metricClientProvider) {
+    List<RecordFleakData> inputData =
+        events.stream().map(o -> ((RecordFleakData) fromObject(o))).toList();
+
+    DagCompiler dagCompiler = new DagCompiler(aggregatedCommands);
+    DagRunnerService dagRunnerService = new DagRunnerService(dagCompiler, metricClientProvider);
+
+    AdjacencyListDagDefinition dagDefinition = buildDag(jobContext);
+    NoSourceDagRunner noSourceDagRunner =
+        dagRunnerService.createForApiBackend(dagDefinition.getDag(), dagDefinition.getJobContext());
+    return noSourceDagRunner.run(inputData, callingUser, runConfig);
+  }
+
   public String submitApiEndpoint(String httpStarterHostUrl) throws URISyntaxException {
     AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag();
 
@@ -300,8 +336,8 @@ public class ZephFlow {
     URI baseUri = new URI(httpStarterHostUrl);
     URI resolvedUri = baseUri.resolve(HTTP_STARTER_WORKFLOW_CONTROLLER_PATH);
 
-    JsonNode dagJson = JsonUtils.convertToJsonNode(adjacencyListDagDefinition.getDag());
-    ObjectNode requestJson = JsonUtils.OBJECT_MAPPER.createObjectNode();
+    JsonNode dagJson = convertToJsonNode(adjacencyListDagDefinition.getDag());
+    ObjectNode requestJson = OBJECT_MAPPER.createObjectNode();
     requestJson.set("dag", dagJson);
     System.err.println(requestJson);
     SimpleHttpClient simpleHttpClient = SimpleHttpClient.getInstance(MAX_RESPONSE_SIZE_BYTES);
