@@ -71,9 +71,11 @@ class KafkaSinkFlusherTest {
 
     assertEquals("test-topic", capturedRecord.topic());
     assertEquals("user123", new String(capturedRecord.key()));
-    assertNotNull(capturedRecord.value());
+    byte[] value = capturedRecord.value();
+    assertNotNull(value);
 
     assertEquals(1, result.successCount());
+    assertEquals(value.length, result.flushedDataSize());
     assertTrue(result.errorOutputList().isEmpty());
   }
 
@@ -103,6 +105,7 @@ class KafkaSinkFlusherTest {
     verify(mockProducer).send(any(ProducerRecord.class));
 
     assertEquals(0, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     assertEquals(1, errorOutputs.size());
     assertEquals("Send failed", errorOutputs.getFirst().errorMessage());
     assertEquals(testEvent, errorOutputs.getFirst().inputEvent());

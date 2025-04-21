@@ -41,6 +41,10 @@ public class SinkInitializer<T> extends CommandInitializer {
         partsFactory.getMetricClientProvider().counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
     FleakCounter sinkOutputCounter =
         partsFactory.getMetricClientProvider().counter(METRIC_NAME_SINK_OUTPUT_COUNT, metricTags);
+    FleakCounter outputSizeCounter =
+        partsFactory
+            .getMetricClientProvider()
+            .counter(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, metricTags);
     FleakCounter sinkErrorCounter = // error count during flushing phase
         partsFactory.getMetricClientProvider().counter(METRIC_NAME_SINK_ERROR_COUNT, metricTags);
 
@@ -54,6 +58,7 @@ public class SinkInitializer<T> extends CommandInitializer {
         inputMessageCounter,
         errorCounter,
         sinkOutputCounter,
+        outputSizeCounter,
         sinkErrorCounter);
   }
 }

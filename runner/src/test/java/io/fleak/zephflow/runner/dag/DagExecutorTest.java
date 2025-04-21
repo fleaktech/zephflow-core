@@ -155,7 +155,7 @@ public class DagExecutorTest {
                 @Override
                 public RawDataConverter<RecordFleakData> createRawDataConverter(
                     CommandConfig commandConfig) {
-                  return sourceRecord ->
+                  return (sourceRecord, config) ->
                       ConvertedResult.success(List.of(sourceRecord), sourceRecord);
                 }
 
@@ -239,7 +239,7 @@ public class DagExecutorTest {
                               .map(RecordFleakData::unwrap)
                               .toList());
                       return new SimpleSinkCommand.FlushResult(
-                          preparedInputEvents.preparedList().size(), List.of());
+                          preparedInputEvents.preparedList().size(), 0, List.of());
                     }
 
                     @Override

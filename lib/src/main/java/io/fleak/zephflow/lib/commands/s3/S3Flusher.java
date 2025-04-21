@@ -55,7 +55,8 @@ public class S3Flusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
         PutObjectRequest.builder().bucket(bucketName).key(fileKey).build();
     s3Client.putObject(putObjectRequest, RequestBody.fromBytes(serializedEvent.value()));
 
-    return new SimpleSinkCommand.FlushResult(events.size(), List.of());
+    return new SimpleSinkCommand.FlushResult(
+        events.size(), serializedEvent.value().length, List.of());
   }
 
   @Override

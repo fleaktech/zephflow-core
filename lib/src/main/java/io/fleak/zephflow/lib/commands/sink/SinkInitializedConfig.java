@@ -29,6 +29,7 @@ public record SinkInitializedConfig<T>(
     FleakCounter inputMessageCounter,
     FleakCounter errorCounter,
     FleakCounter sinkOutputCounter,
+    FleakCounter outputSizeCounter,
     FleakCounter sinkErrorCounter)
     implements InitializedConfig {
 

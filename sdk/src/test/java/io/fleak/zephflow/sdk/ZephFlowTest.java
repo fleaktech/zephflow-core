@@ -288,8 +288,7 @@ public class ZephFlowTest {
               } else if (COMMAND_NAME_STDOUT.equals(cmdName)) {
                 return stdoutInputMessageCounter;
               } else {
-                fail();
-                return null;
+                return mock(FleakCounter.class);
               }
             });
     FleakCounter assertionOutputMessageCounter = mock();
@@ -306,6 +305,10 @@ public class ZephFlowTest {
                 return null;
               }
             });
+    when(metricClientProvider.counter(eq(METRIC_NAME_INPUT_EVENT_SIZE_COUNT), any()))
+        .thenReturn(mock());
+    when(metricClientProvider.counter(eq(METRIC_NAME_INPUT_DESER_ERR_COUNT), any()))
+        .thenReturn(mock());
     FleakCounter assertionErrorCounter = mock();
     FleakCounter stdoutErrorMessageCounter = mock();
     when(metricClientProvider.counter(eq(METRIC_NAME_ERROR_EVENT_COUNT), any()))
@@ -335,6 +338,11 @@ public class ZephFlowTest {
     FleakCounter outputEventCounter = mock();
     when(metricClientProvider.counter(eq(METRIC_NAME_PIPELINE_OUTPUT_EVENT), any()))
         .thenReturn(outputEventCounter);
+
+    FleakCounter outputSizeCounter = mock();
+    when(metricClientProvider.counter(eq(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT), any()))
+        .thenReturn(outputSizeCounter);
+
     FleakCounter errorEventCounter = mock();
     when(metricClientProvider.counter(eq(METRIC_NAME_PIPELINE_ERROR_EVENT), any()))
         .thenReturn(errorEventCounter);
