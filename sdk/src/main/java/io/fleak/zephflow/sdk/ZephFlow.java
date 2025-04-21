@@ -336,7 +336,7 @@ public class ZephFlow {
    * @param configStr The JSON configuration string for the command.
    * @return A new ZephFlow instance representing the flow with the new node appended.
    */
-  private ZephFlow appendNode(String commandName, String configStr) {
+  public ZephFlow appendNode(String commandName, String configStr) {
     // Generate a unique ID for the new node.
     String id = commandName + "_" + generateRandomHash();
 
