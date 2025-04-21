@@ -77,7 +77,7 @@
     },
     "outputByStep": {
       "a": {
-        "http_input": [
+        "sync_input": [
           {
             "num": 0
           },
