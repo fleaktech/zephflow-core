@@ -235,12 +235,16 @@ public interface MiscUtils {
   static Map<String, String> basicCommandMetricTags(
       Map<String, String> pipelineTags, String commandName, String currentNodeId) {
     Map<String, String> metricTags = new HashMap<>(pipelineTags);
-    Preconditions.checkNotNull(
-        pipelineTags.get(METRIC_TAG_SERVICE), "metric tag missing service name");
-    Preconditions.checkNotNull(pipelineTags.get(METRIC_TAG_ENV), "metric tag missing environment");
+    validateMetricTags(metricTags);
     metricTags.put(METRIC_TAG_COMMAND_NAME, commandName);
     metricTags.put(METRIC_TAG_NODE_ID, currentNodeId);
     return metricTags;
+  }
+
+  static void validateMetricTags(Map<String, String> metricTags) {
+    Preconditions.checkNotNull(
+        metricTags.get(METRIC_TAG_SERVICE), "metric tag missing service name");
+    Preconditions.checkNotNull(metricTags.get(METRIC_TAG_ENV), "metric tag missing environment");
   }
 
   static Map<String, String> getCallingUserTag(String nullableUserId) {

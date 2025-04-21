@@ -22,33 +22,23 @@ import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import lombok.NonNull;
 
 /** Created by bolei on 4/8/25 */
 public class DagRunnerService {
+  private static final String SYNC_INPUT_NODE_NAME = "sync_input";
 
   private final DagCompiler dagCompiler;
   private final MetricClientProvider metricClientProvider;
-  private final Map<String, String> basicTags;
 
-  public DagRunnerService(
-      DagCompiler dagCompiler,
-      MetricClientProvider metricClientProvider,
-      Map<String, String> basicTags) {
+  public DagRunnerService(DagCompiler dagCompiler, MetricClientProvider metricClientProvider) {
     this.dagCompiler = dagCompiler;
     this.metricClientProvider = metricClientProvider;
-    this.basicTags = basicTags;
   }
 
   public NoSourceDagRunner createForApiBackend(
-      List<AdjacencyListDagDefinition.DagNode> dag, JobContext jobContext) {
-    Map<String, String> metricTags = new HashMap<>(basicTags);
-    if (jobContext != null) {
-      metricTags.putAll(jobContext.getMetricTags());
-      jobContext.setMetricTags(metricTags);
-    }
+      List<AdjacencyListDagDefinition.DagNode> dag, @NonNull JobContext jobContext) {
     AdjacencyListDagDefinition dagDefinition =
         AdjacencyListDagDefinition.builder().jobContext(jobContext).dag(dag).build();
     Dag<OperatorCommand> compiledDag = dagCompiler.compile(dagDefinition, false);
@@ -56,13 +46,14 @@ public class DagRunnerService {
     for (Node<OperatorCommand> node : compiledDag.getEntryNodes()) {
       if (node.getNodeContent() instanceof SourceCommand) {
         throw new IllegalArgumentException(
-            "http backend doesn't support source function node in the dag. Found:"
+            "api backend doesn't support source function node in the dag. Found:"
                 + node.getNodeContent().commandName());
       }
-      incomingEdges.add(Edge.builder().from("http_input").to(node.getId()).build());
+      incomingEdges.add(Edge.builder().from(SYNC_INPUT_NODE_NAME).to(node.getId()).build());
     }
     DagRunCounters counters =
-        DagRunCounters.createPipelineCounters(metricClientProvider, metricTags);
+        DagRunCounters.createPipelineCounters(
+            metricClientProvider, dagDefinition.getJobContext().getMetricTags());
     return new NoSourceDagRunner(incomingEdges, compiledDag, metricClientProvider, counters, false);
   }
 }

@@ -40,6 +40,12 @@ public class DagExecutor {
       JobConfig jobConfig, MetricClientProvider metricClientProvider) {
 
     // --- SPI Discovery and Command Aggregation ---
+
+    Map<String, CommandFactory> aggregatedCommands = loadCommands();
+    return createDagExecutor(jobConfig, aggregatedCommands, metricClientProvider);
+  }
+
+  public static Map<String, CommandFactory> loadCommands() {
     Map<String, CommandFactory> aggregatedCommands = new HashMap<>();
     ServiceLoader<CommandProvider> loader = ServiceLoader.load(CommandProvider.class);
 
@@ -72,8 +78,7 @@ public class DagExecutor {
           "Warning: No commands were discovered. Check classpath and META-INF/services configuration.");
       System.exit(1);
     }
-
-    return createDagExecutor(jobConfig, aggregatedCommands, metricClientProvider);
+    return aggregatedCommands;
   }
 
   public static DagExecutor createDagExecutor(
