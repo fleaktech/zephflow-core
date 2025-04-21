@@ -65,7 +65,7 @@ public class ZephFlow {
   private final List<ZephFlow> upstreamFlows;
 
   // Job-level context (e.g., metrics tags, properties).
-  private final JobContext jobContext;
+  @Getter private final JobContext jobContext;
 
   // Provider for metric clients.
   private final MetricClientProvider metricClientProvider;
