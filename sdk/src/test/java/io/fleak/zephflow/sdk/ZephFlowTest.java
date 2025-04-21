@@ -580,13 +580,55 @@ public class ZephFlowTest {
     runTestWithStdIO(mergedFlow, "/expected_output_multiple_sinks.json");
   }
 
+  @Test
+  public void testMultipleMerge() throws Exception {
+    ZephFlow inputFlow = ZephFlow.startFlow().stdinSource(EncodingType.JSON_ARRAY);
+    ZephFlow evenFlow =
+        inputFlow
+            .filter("$.num%2 == 0") // Apply condition for even numbers
+            .eval("dict(type='even', num=$.num)");
+
+    // Create odd flow: filter for odd numbers, then add odd tag
+    ZephFlow oddFlow =
+        inputFlow
+            .filter("$.num%2 == 1") // Apply condition for odd numbers
+            .sql("SELECT num, 'odd' AS type FROM events;");
+    ZephFlow merge1 = ZephFlow.merge(evenFlow, oddFlow);
+    ZephFlow merge2 = ZephFlow.merge(merge1, inputFlow);
+    ZephFlow outputFlow = merge2.stdoutSink(EncodingType.JSON_OBJECT);
+    runTestWithStdIO(outputFlow, "/expected_output_stdio.json");
+  }
+
+  @Test
+  public void testMergeAndBranch() throws Exception {
+    ZephFlow inputFlow = ZephFlow.startFlow().stdinSource(EncodingType.JSON_ARRAY);
+    ZephFlow merge0 =
+        ZephFlow.merge(inputFlow.filter("$.num%2 == 0"), inputFlow.filter("$.num%2 == 1"));
+
+    ZephFlow evenFlow =
+        merge0
+            .filter("$.num%2 == 0") // Apply condition for even numbers
+            .eval("dict(type='even', num=$.num)");
+
+    // Create odd flow: filter for odd numbers, then add odd tag
+    ZephFlow oddFlow =
+        merge0
+            .filter("$.num%2 == 1") // Apply condition for odd numbers
+            .sql("SELECT num, 'odd' AS type FROM events;");
+    ZephFlow merge1 = ZephFlow.merge(evenFlow, oddFlow);
+    ZephFlow merge2 = ZephFlow.merge(merge1, inputFlow);
+    ZephFlow outputFlow = merge2.stdoutSink(EncodingType.JSON_OBJECT);
+    runTestWithStdIO(outputFlow, "/expected_output_stdio.json");
+  }
+
   private void runTestWithStdIO(ZephFlow outputFlow, String expectedOutputResource)
       throws Exception {
     outputFlow.execute("test_id", "test_env", "test_service");
     String output = testOut.toString();
     List<String> lines = output.lines().toList();
     var objects =
-        lines.subList(1, lines.size()).stream()
+        lines.stream()
+            .filter(l -> l.startsWith("{"))
             .map(l -> fromJsonString(l, new TypeReference<Map<String, Object>>() {}))
             .collect(Collectors.toSet());
     Set<Map<String, Object>> expected =
