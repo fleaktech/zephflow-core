@@ -18,7 +18,7 @@ jobs:
       id-token: write # Required for keyless signing
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Important for nebula-release
 
@@ -26,7 +26,7 @@ jobs:
         uses: graalvm/setup-graalvm@v1 # Check for the latest version of this action too
         with:
           java-version: '21'
-          version: '21.0.7'
+          distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }} # Required for rate limiting
 
       - name: Grant execute permission for gradlew
