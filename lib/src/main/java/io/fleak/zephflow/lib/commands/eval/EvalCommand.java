@@ -41,7 +41,8 @@ public class EvalCommand extends ScalarCommand {
     EvalInitializedConfig evalInitializedConfig = (EvalInitializedConfig) initializedConfig;
     evalInitializedConfig.getInputMessageCounter().increase(callingUserTag);
     try {
-      ExpressionValueVisitor expressionValueVisitor = ExpressionValueVisitor.createInstance(event);
+      ExpressionValueVisitor expressionValueVisitor =
+          ExpressionValueVisitor.createInstance(event, evalInitializedConfig.getPythonExecutor());
       FleakData fleakData =
           expressionValueVisitor.visit(evalInitializedConfig.getLanguageContext());
       if (fleakData instanceof RecordFleakData) {

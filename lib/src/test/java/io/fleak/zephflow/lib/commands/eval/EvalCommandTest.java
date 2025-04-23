@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -35,7 +36,7 @@ class EvalCommandTest {
   @Test
   public void testArrayFunction() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     attachments=array($.attachments.snmp_pdf, $.attachments.f1)
 )""";
@@ -46,7 +47,7 @@ dict(
     testEval(inputEvent, evalExpr, expected);
 
     evalExpr =
-        """
+"""
 dict(
     attachments=array()
 )""";
@@ -58,7 +59,7 @@ dict(
   @Test
   public void testArrayForEach() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     devices=arr_foreach(
         $.resp.Test1,
@@ -81,7 +82,7 @@ dict(
   @Test
   public void testNestedArrayForEach() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
   val = arr_foreach($.numbers, groupElem,
       arr_foreach(groupElem.values, valueElem,
@@ -103,7 +104,7 @@ dict(
   @Test
   public void testDict() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
   city=$.address.city,
   state=$.address.state,
@@ -123,7 +124,7 @@ dict(
   @Test
   public void testArrFlatten() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
   val = arr_flatten(
     arr_foreach($.numbers, groupElem,
@@ -146,7 +147,7 @@ dict(
   @Test
   public void testGrok() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
   grok_result = grok($.__raw__, "%{GREEDYDATA:timestamp} %{HOSTNAME:hostname} %{WORD:program}\\\\[%{POSINT:pid}\\\\]: %ASA-%{INT:level}-%{INT:message_number}: %{GREEDYDATA:message_text}")
 )
@@ -161,7 +162,7 @@ dict(
   @Test
   public void testDictMerge() throws IOException {
     String evalExpr =
-        """
+"""
 dict_merge(
   $,
   grok($.__raw__, "%{GREEDYDATA:timestamp} %{HOSTNAME:hostname} %{WORD:program}\\\\[%{POSINT:pid}\\\\]: %ASA-%{INT:level}-%{INT:message_number}: %{GREEDYDATA:message_text}")
@@ -177,7 +178,7 @@ dict_merge(
   @Test
   public void testDurationStrToMills() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
   duration=duration_str_to_mills($.duration_str)
 )
@@ -194,7 +195,7 @@ dict(
 
     // should match $.age > 21 first and return
     String evalExpr =
-        """
+"""
 dict(
   duration = case(
     $.age > 21 => duration_str_to_mills($.duration_str),
@@ -214,7 +215,7 @@ dict(
   @Test
   public void testNull() {
     String evalExpr =
-        """
+"""
 dict(
   val = case(
     $.k > 21 => true,
@@ -236,7 +237,7 @@ dict(
   @Test
   public void testNull2() {
     String evalExpr =
-        """
+"""
 dict(
   val = case(
     $.k == null => true,
@@ -255,7 +256,7 @@ dict(
   @Test
   public void testNull3() {
     String evalExpr =
-        """
+"""
 dict(
   val = $.securityContext.domain
 )
@@ -264,7 +265,7 @@ dict(
         (RecordFleakData)
             FleakData.wrap(
                 fromJsonString(
-                    """
+"""
   {
   "securityContext": {
     "isp": "google",
@@ -283,7 +284,7 @@ dict(
   @Test
   public void testUpper() {
     String evalExpr =
-        """
+"""
 dict(
   val = upper($.k)
 )
@@ -297,7 +298,7 @@ dict(
   @Test
   public void testLower() {
     String evalExpr =
-        """
+"""
 dict(
   val = lower($.k)
 )
@@ -311,7 +312,7 @@ dict(
   @Test
   public void testToString() {
     String evalExpr =
-        """
+"""
 dict(
   val = to_str($.k)
 )
@@ -332,7 +333,7 @@ dict(
   @Test
   public void testStrContains() {
     String evalExpr =
-        """
+"""
 dict(
   contains = str_contains($.k, $.sub_str)
 )
@@ -352,7 +353,7 @@ dict(
   @Test
   public void testSizeFunction() {
     String evalExpr =
-        """
+"""
 dict(
   s = size_of($.k)
 )
@@ -386,7 +387,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa106023() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 5,
     activity_name = "Refuse",
@@ -445,7 +446,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa302013() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 1,
     activity_name = "Open",
@@ -504,7 +505,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa302014() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 3,
     activity_name = "Reset",
@@ -568,7 +569,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa302015() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 1,
     activity_name = "Open",
@@ -627,7 +628,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa302016() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 2,
     activity_name = "Close",
@@ -690,7 +691,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa305011() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 1,
     activity_name = "Open",
@@ -748,7 +749,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa305012() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
     activity_id = 2,
     activity_name = "Close",
@@ -807,7 +808,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa113019() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
    activity_id = 2,
    activity_name = "Close",
@@ -876,7 +877,7 @@ dict(
   @Test
   public void testMappingOcsf_CiscoAsa113039() throws IOException {
     String evalExpr =
-        """
+"""
 dict(
    activity_id = 1,
    activity_name = "Open",
@@ -931,6 +932,59 @@ dict(
         (RecordFleakData) loadFleakDataFromJsonResource("/eval/cisco/cisco_asa_113039_parsed.json");
 
     FleakData expected = loadFleakDataFromJsonResource("/eval/cisco/cisco_asa_113039_ocsf.json");
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
+  public void testEval_PythonFunc() {
+    String evalExpr =
+"""
+dict(
+  pyData1 = python(
+    '
+# Script 1
+def process_req(req_value, factor):
+  return (req_value + 1) * factor
+',
+    $.request.value,
+    $.settings.factor
+  ),
+  pyData2 = python(
+    '
+# Script 2
+def format_user(name, roles):
+  return name.upper() + " roles: " + str(roles)
+',
+    $.user.name,
+    $.user.roles
+  ),
+   pyData3 = python(
+     '
+# Script 3
+def process_req(req_value, factor):
+  return (req_value + 1) * factor
+',
+     10.0,
+     2
+   )
+)
+""";
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            FleakData.wrap(
+                Map.of(
+                    "user", Map.of("name", "Alice", "id", 123L, "roles", List.of("admin", "dev")),
+                    "request", Map.of("value", 99.5, "items", List.of("apple", "banana")),
+                    "settings", Map.of("factor", 5)));
+    FleakData expected =
+        JsonUtils.loadFleakDataFromJsonString(
+"""
+{
+  "pyData3": 22,
+  "pyData1": 502.5,
+  "pyData2": "ALICE roles: ['admin', 'dev']"
+}
+""");
     testEval(inputEvent, evalExpr, expected);
   }
 

@@ -133,6 +133,26 @@ function
     | toStringFunction
     | strContainsFunction
     | sizeFunction
+    | pythonFunction
+    ;
+
+/*
+pythonFunction:
+Execute a single Python function automatically discovered within the script string.
+
+Syntax:
+python("<python_script_with_one_function_def>", arg1, arg2, ...)
+
+- The first argument MUST be a string literal containing the Python script.
+  This script MUST define exactly one top-level function usable as the entry point.
+- Subsequent arguments (arg1, arg2, ...) are standard FEEL expressions whose
+  evaluated values will be passed to the discovered Python function.
+- Returns the value returned by the Python function, converted back to FEEL data types.
+- Throws an error if zero or more than one function is found in the script.
+- Requires GraalVM with Python language support configured.
+*/
+pythonFunction
+    : 'python' '(' QUOTED_IDENTIFIER (',' expression)* ')' // Script + optional args
     ;
 
 /*
