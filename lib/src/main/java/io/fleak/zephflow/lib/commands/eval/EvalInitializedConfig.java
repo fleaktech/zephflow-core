@@ -16,29 +16,43 @@ package io.fleak.zephflow.lib.commands.eval;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import java.io.IOException;
 import lombok.EqualsAndHashCode;
 import lombok.Value;
+import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 10/19/24 */
 @EqualsAndHashCode(callSuper = true)
 @Value
+@Slf4j
 public class EvalInitializedConfig extends DefaultInitializedConfig {
 
   EvalExpressionParser.LanguageContext languageContext;
   boolean assertion;
+  PythonExecutor pythonExecutor;
 
   public EvalInitializedConfig(
       FleakCounter inputMessageCounter,
       FleakCounter outputMessageCounter,
       FleakCounter errorCounter,
       EvalExpressionParser.LanguageContext languageContext,
-      boolean assertion) {
+      boolean assertion,
+      PythonExecutor pythonExecutor) {
     super(inputMessageCounter, outputMessageCounter, errorCounter);
     this.languageContext = languageContext;
     this.assertion = assertion;
+    this.pythonExecutor = pythonExecutor;
   }
 
   @Override
-  public void close() throws IOException {}
+  public void close() throws IOException {
+    if (pythonExecutor != null) {
+      try {
+        pythonExecutor.close();
+      } catch (Exception e) {
+        log.error("failed to close python executor", e);
+      }
+    }
+  }
 }

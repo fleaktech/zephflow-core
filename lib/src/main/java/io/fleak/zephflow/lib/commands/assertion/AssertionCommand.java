@@ -43,7 +43,8 @@ public class AssertionCommand extends ScalarCommand {
     Map<String, String> callingUserTag = getCallingUserTag(callingUser);
     EvalInitializedConfig evalInitializedConfig = (EvalInitializedConfig) initializedConfig;
     evalInitializedConfig.getInputMessageCounter().increase(callingUserTag);
-    ExpressionValueVisitor expressionValueVisitor = ExpressionValueVisitor.createInstance(event);
+    ExpressionValueVisitor expressionValueVisitor =
+        ExpressionValueVisitor.createInstance(event, evalInitializedConfig.getPythonExecutor());
     FleakData fleakData = expressionValueVisitor.visit(evalInitializedConfig.getLanguageContext());
     if (fleakData instanceof BooleanPrimitiveFleakData && fleakData.isTrueValue()) {
       evalInitializedConfig.getOutputMessageCounter().increase(callingUserTag);

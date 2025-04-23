@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.eval;
 
 import static io.fleak.zephflow.lib.commands.eval.EvaluatorFuncs.BINARY_VALUE_EVALUATOR_FUNC_MAP;
 import static io.fleak.zephflow.lib.commands.eval.EvaluatorFuncs.UNARY_VALUE_EVALUATOR_FUNC_MAP;
+import static io.fleak.zephflow.lib.utils.GraalUtils.graalValueToFleakData;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static java.util.stream.Collectors.toList;
@@ -23,17 +24,24 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.structure.*;
 import io.fleak.zephflow.lib.antlr.EvalExpressionBaseVisitor;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import io.fleak.zephflow.lib.commands.eval.python.CompiledPythonFunction;
+import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.TimeZone;
+import lombok.extern.slf4j.Slf4j;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.collections4.CollectionUtils;
+import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.PolyglotException;
+import org.graalvm.polyglot.Value;
 import org.opensearch.grok.Grok;
 
 /** Created by bolei on 10/19/24 */
+@Slf4j
 public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData> {
 
   private final LinkedList<Map<String, FleakData>> variableEnvironment;
@@ -42,21 +50,28 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   private final boolean lenient;
 
+  private final PythonExecutor pythonExecutor;
+
   private ExpressionValueVisitor(
-      List<Map<String, FleakData>> variableEnvironment, boolean lenient) {
-    this.lenient = lenient;
+      List<Map<String, FleakData>> variableEnvironment,
+      boolean lenient,
+      PythonExecutor pythonExecutor) {
     Preconditions.checkArgument(CollectionUtils.isNotEmpty(variableEnvironment));
     this.variableEnvironment = new LinkedList<>(variableEnvironment);
+    this.lenient = lenient;
+    this.pythonExecutor = pythonExecutor;
   }
 
-  public static ExpressionValueVisitor createInstance(FleakData fleakData) {
-    return createInstance(fleakData, false);
+  public static ExpressionValueVisitor createInstance(
+      FleakData fleakData, PythonExecutor pythonExecutor) {
+    return createInstance(fleakData, false, pythonExecutor);
   }
 
-  public static ExpressionValueVisitor createInstance(FleakData fleakData, boolean lenient) {
+  public static ExpressionValueVisitor createInstance(
+      FleakData fleakData, boolean lenient, PythonExecutor pythonExecutor) {
     List<Map<String, FleakData>> variableEnvironment =
         List.of(Map.of(ROOT_OBJECT_VARIABLE_NAME, fleakData));
-    return new ExpressionValueVisitor(variableEnvironment, lenient);
+    return new ExpressionValueVisitor(variableEnvironment, lenient, pythonExecutor);
   }
 
   @Override
@@ -524,6 +539,97 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
           arg.getStringValue().length(), NumberPrimitiveFleakData.NumberType.INT);
     }
     throw new IllegalArgumentException("Unsupported argument: " + arg);
+  }
+
+  @Override
+  public FleakData visitPythonFunction(EvalExpressionParser.PythonFunctionContext ctx) {
+    if (pythonExecutor == null) {
+      throw new IllegalArgumentException(
+          "cannot execute python() function. No python executor provided");
+    }
+
+    long startTime = System.nanoTime();
+
+    // 1. Look up the pre-compiled function using the *current node context* as the key
+    CompiledPythonFunction compiledFunc = pythonExecutor.getCompiledPythonFunctions().get(ctx);
+
+    if (compiledFunc == null) {
+      // This node was not successfully pre-compiled (e.g., script error, discovery failure)
+      // Throw an error, as we cannot proceed without the function Value.
+      throw new IllegalStateException(
+          "No pre-compiled Python function found for the node at: "
+              + ctx.getSourceInterval()
+              + ". Check pre-compilation logs.");
+    }
+
+    Value targetFunction = compiledFunc.functionValue();
+    String targetFunctionName = compiledFunc.discoveredFunctionName(); // For logging
+    //noinspection resource
+    Context context = compiledFunc.pythonContext();
+
+    // 2. Evaluate FEEL arguments for *this specific invocation*
+    List<FleakData> feelArgs =
+        ctx.expression().stream()
+            .map(this::visit) // Use this visitor instance's visit method
+            .toList();
+
+    // 3. Unwrap arguments
+    Object[] pythonArgs =
+        feelArgs.stream()
+            .map(fd -> nullOrCompute(fd, FleakData::unwrap))
+            .map(
+                o -> {
+                  if (o instanceof List<?> list) {
+                    Value pythonList =
+                        context.eval(
+                            "python", "[]"); // Executes Python code "[]" to get a list Value
+
+                    for (Object e : list) {
+                      pythonList.invokeMember("append", context.asValue(e));
+                    }
+                    return pythonList;
+                  } else {
+                    return o;
+                  }
+                })
+            .toArray();
+
+    try {
+      // 4. Execute the pre-compiled function Value
+      // Use enter/leave for safety if context might be shared across threads
+      context.enter();
+      Value pyResult;
+      try {
+        pyResult = targetFunction.execute(pythonArgs);
+      } finally {
+        context.leave();
+      }
+
+      // 5. Convert result
+      FleakData result = graalValueToFleakData(pyResult);
+
+      long endTime = System.nanoTime();
+      log.debug(
+          "Python function '{}' (pre-compiled) execution time: {} ms",
+          targetFunctionName,
+          (endTime - startTime) / 1_000_000);
+      return result;
+
+    } catch (PolyglotException e) {
+      throw new IllegalArgumentException(
+          "Error during execution of pre-compiled Python function '"
+              + targetFunctionName
+              + "': "
+              + e.getMessage(),
+          e);
+    } catch (Exception e) {
+      throw new IllegalArgumentException(
+          "An unexpected error occurred executing pre-compiled Python function '"
+              + targetFunctionName
+              + "': "
+              + e.getMessage(),
+          e);
+    }
   }
 
   private FleakData getVariableValue(String name) {

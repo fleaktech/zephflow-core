@@ -22,11 +22,13 @@ jobs:
         with:
           fetch-depth: 0  # Important for nebula-release
 
-      - name: Set up JDK 21
+      - name: Set up GraalVM JDK 21
         uses: actions/setup-java@v3
         with:
           java-version: '21'
-          distribution: 'corretto'
+          # Use 'graalvm' distribution
+          distribution: 'graalvm'
+          java-package: 'jdk'
           cache: gradle
 
       - name: Grant execute permission for gradlew

@@ -18,9 +18,12 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.DefaultCommandInitializer;
 import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
+import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 10/19/24 */
+@Slf4j
 public class EvalCommandInitializer extends DefaultCommandInitializer {
   protected EvalCommandInitializer(String nodeId, EvalCommandPartsFactory commandPartsFactory) {
     super(nodeId, commandPartsFactory);
@@ -38,11 +41,14 @@ public class EvalCommandInitializer extends DefaultCommandInitializer {
     EvalExpressionParser parser =
         (EvalExpressionParser)
             AntlrUtils.parseInput(config.expression(), AntlrUtils.GrammarType.EVAL);
+    EvalExpressionParser.LanguageContext languageContext = parser.language();
+    PythonExecutor pythonExecutor = PythonExecutor.createPythonExecutor(languageContext);
     return new EvalInitializedConfig(
         inputMessageCounter,
         outputMessageCounter,
         errorCounter,
-        parser.language(),
-        config.assertion());
+        languageContext,
+        config.assertion(),
+        pythonExecutor);
   }
 }
