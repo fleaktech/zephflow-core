@@ -8,9 +8,13 @@ application {
   mainClassName = 'io.fleak.zephflow.clistarter.Main'
 }
 
+import com.github.jengelman.gradle.plugins.shadow.transformers.ServiceFileTransformer
+
 shadowJar {
   zip64 true
   archiveClassifier.set('all')
+  transform(ServiceFileTransformer) {
+  }
 }
 
 
