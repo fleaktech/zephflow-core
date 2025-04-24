@@ -13,6 +13,10 @@ dependencies {
   implementation group: 'com.opencsv', name: 'opencsv', version: opencsvVersion
   implementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
 
+  implementation group: 'org.graalvm.sdk', name: 'graal-sdk', version: graalvmVersion
+  runtimeOnly group: 'org.graalvm.polyglot', name: 'python', version: graalvmVersion
+
+
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
 
   antlr "org.antlr:antlr4:${antlrVersion}"
