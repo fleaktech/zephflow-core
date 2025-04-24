@@ -52,6 +52,7 @@ allprojects {
     springdocVersion = '2.3.0'
     hamcrestVersion = '2.2'
     log4j2Version = '2.24.3'
+    graalvmVersion = '24.2.1'
   }
 
   sourceCompatibility = javaVersion
