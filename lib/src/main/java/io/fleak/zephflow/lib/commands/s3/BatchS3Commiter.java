@@ -3,6 +3,7 @@ package io.fleak.zephflow.lib.commands.s3;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.toBase64String;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -24,7 +26,7 @@ public class BatchS3Commiter<T> extends S3Commiter<T> {
 
   private final int batchSize;
   private final long flushIntervalMillis;
-  private final S3CommiterSerializer<T> serializer;
+  @VisibleForTesting @Getter private final S3CommiterSerializer<T> serializer;
   private final ScheduledExecutorService scheduler;
 
   private final List<T> buffer = new ArrayList<>();

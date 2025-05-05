@@ -60,17 +60,22 @@ public class S3SinkPartsFactory extends SinkCommandPartsFactory<RecordFleakData>
     SerializerFactory<?> serializerFactory =
         SerializerFactory.createSerializerFactory(encodingType);
     FleakSerializer<?> serializer = serializerFactory.createSerializer();
-    S3Commiter<RecordFleakData> commiter =
-        config.isBatching()
-            ? new BatchS3Commiter<>(
-                s3Client,
-                config.getBucketName(),
-                config.getBatchSize(),
-                config.getFlushIntervalMillis(),
-                new S3CommiterSerializer.RecordFleakDataS3CommiterSerializer(serializer),
-                Executors.newSingleThreadScheduledExecutor())
-            : new OnDemandS3Commiter(
-                s3Client, config.getBucketName(), config.getKeyName(), serializer);
+    S3Commiter<RecordFleakData> commiter;
+    if (config.isBatching()) {
+      commiter =
+          new BatchS3Commiter<>(
+              s3Client,
+              config.getBucketName(),
+              config.getBatchSize(),
+              config.getFlushIntervalMillis(),
+              new S3CommiterSerializer.RecordFleakDataS3CommiterSerializer(serializer),
+              Executors.newSingleThreadScheduledExecutor());
+      ((BatchS3Commiter<RecordFleakData>) commiter).open();
+    } else {
+      commiter =
+          new OnDemandS3Commiter(s3Client, config.getBucketName(), config.getKeyName(), serializer);
+    }
+
     return new S3Flusher(commiter);
   }
 
