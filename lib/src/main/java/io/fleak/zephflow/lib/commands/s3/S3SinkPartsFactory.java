@@ -27,6 +27,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /** Created by bolei on 9/3/24 */
@@ -59,7 +60,18 @@ public class S3SinkPartsFactory extends SinkCommandPartsFactory<RecordFleakData>
     SerializerFactory<?> serializerFactory =
         SerializerFactory.createSerializerFactory(encodingType);
     FleakSerializer<?> serializer = serializerFactory.createSerializer();
-    return new S3Flusher(s3Client, config.getBucketName(), config.getKeyName(), serializer);
+    S3Commiter<RecordFleakData> commiter =
+        config.isBatching()
+            ? new BatchS3Commiter<>(
+                s3Client,
+                config.getBucketName(),
+                config.getBatchSize(),
+                config.getFlushIntervalMillis(),
+                new S3CommiterSerializer.RecordFleakDataS3CommiterSerializer(serializer),
+                Executors.newSingleThreadScheduledExecutor())
+            : new OnDemandS3Commiter(
+                s3Client, config.getBucketName(), config.getKeyName(), serializer);
+    return new S3Flusher(commiter);
   }
 
   public SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> createMessagePreProcessor() {

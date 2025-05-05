@@ -23,6 +23,7 @@ import static org.mockito.Mockito.when;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
+import java.io.IOException;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -62,10 +63,14 @@ class S3SinkPartsFactoryTest {
             S3SINK_TEST_CONFIG,
             awsClientFactory);
     try (S3Flusher s3Flusher = (S3Flusher) partsFactory.createFlusher()) {
-      assertSame(s3Client, s3Flusher.s3Client);
-      assertEquals(S3SINK_TEST_CONFIG.getBucketName(), s3Flusher.bucketName);
-      assertEquals(S3SINK_TEST_CONFIG.getKeyName(), s3Flusher.keyName);
-      assertEquals(CSV, s3Flusher.fleakSerializer.getEncodingType());
+      assertSame(s3Client, s3Flusher.s3Commiter.s3Client);
+      assertEquals(S3SINK_TEST_CONFIG.getBucketName(), s3Flusher.s3Commiter.bucketName);
+      assertInstanceOf(OnDemandS3Commiter.class, s3Flusher.s3Commiter);
+      OnDemandS3Commiter onDemandS3Commiter = (OnDemandS3Commiter) s3Flusher.s3Commiter;
+      assertEquals(S3SINK_TEST_CONFIG.getKeyName(), onDemandS3Commiter.keyName);
+      assertEquals(CSV, onDemandS3Commiter.fleakSerializer.getEncodingType());
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
   }
 }
