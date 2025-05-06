@@ -81,6 +81,10 @@ public class ParserConfigCompiler {
       return new PanwTrafficExtractionRule();
     }
 
+    if (extractionConfig instanceof JsonExtractionConfig) {
+      return new JsonExtractionRule();
+    }
+
     throw new IllegalArgumentException("unsupported extraction config: " + extractionConfig);
   }
 }
