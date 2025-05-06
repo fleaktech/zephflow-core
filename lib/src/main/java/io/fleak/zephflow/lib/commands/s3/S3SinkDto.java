@@ -29,5 +29,8 @@ public interface S3SinkDto {
     @NonNull private String encodingType;
     private String credentialId;
     private String s3EndpointOverride;
+    private boolean batching;
+    private int batchSize;
+    private long flushIntervalMillis;
   }
 }

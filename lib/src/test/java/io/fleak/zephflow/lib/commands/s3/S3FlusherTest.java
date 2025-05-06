@@ -67,7 +67,10 @@ class S3FlusherTest {
 
     FleakSerializer<?> serializer =
         SerializerFactory.createSerializerFactory(EncodingType.JSON_ARRAY).createSerializer();
-    s3Flusher = new S3Flusher(s3Client, bucketName, keyName, serializer);
+
+    S3Commiter<RecordFleakData> commiter =
+        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
+    s3Flusher = new S3Flusher(commiter);
 
     SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents);
 
@@ -102,7 +105,9 @@ class S3FlusherTest {
   void testFlush_AsJsonl() throws Exception {
     FleakSerializer<?> serializer =
         SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE).createSerializer();
-    s3Flusher = new S3Flusher(s3Client, bucketName, keyName, serializer);
+    S3Commiter<RecordFleakData> commiter =
+        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
+    s3Flusher = new S3Flusher(commiter);
 
     SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents);
 
@@ -137,7 +142,9 @@ class S3FlusherTest {
 
     FleakSerializer<?> serializer =
         SerializerFactory.createSerializerFactory(EncodingType.CSV).createSerializer();
-    s3Flusher = new S3Flusher(s3Client, bucketName, keyName, serializer);
+    S3Commiter<RecordFleakData> commiter =
+        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
+    s3Flusher = new S3Flusher(commiter);
 
     SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents);
 

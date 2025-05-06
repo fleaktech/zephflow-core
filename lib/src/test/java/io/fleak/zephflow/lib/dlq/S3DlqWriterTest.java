@@ -63,14 +63,14 @@ public class S3DlqWriterTest {
             new UsernamePasswordCredential(accessKey, secretKey),
             endpoint);
     dlqWriter.open();
-    dlqWriter.getS3Client().createBucket(b -> b.bucket(BUCKET_NAME));
+    dlqWriter.s3Commiter.getS3Client().createBucket(b -> b.bucket(BUCKET_NAME));
   }
 
   @AfterEach
   public void afterEach() {
     if (dlqWriter != null) {
-      deleteAllObjectsInBucket(dlqWriter.getS3Client(), BUCKET_NAME);
-      dlqWriter.getS3Client().deleteBucket(b -> b.bucket(BUCKET_NAME));
+      deleteAllObjectsInBucket(dlqWriter.s3Commiter.getS3Client(), BUCKET_NAME);
+      dlqWriter.s3Commiter.getS3Client().deleteBucket(b -> b.bucket(BUCKET_NAME));
       dlqWriter.close();
     }
   }
@@ -87,7 +87,7 @@ public class S3DlqWriterTest {
     Thread.sleep(2000);
 
     // Verify that the objects are in S3 (MinIO)
-    List<String> objectKeys = listS3Objects(dlqWriter.getS3Client());
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Commiter.getS3Client());
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after batch size reached.");
   }
 
@@ -101,7 +101,7 @@ public class S3DlqWriterTest {
 
     Thread.sleep(3000);
 
-    List<String> objectKeys = listS3Objects(dlqWriter.getS3Client());
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Commiter.getS3Client());
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after flush interval.");
   }
 
@@ -113,7 +113,7 @@ public class S3DlqWriterTest {
     writeDeadLetters(batchSize);
     Thread.sleep(2000);
 
-    List<String> objectKeys = listS3Objects(dlqWriter.getS3Client());
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Commiter.getS3Client());
     assertEquals(1, objectKeys.size(), "Expected one object in S3.");
 
     String objectKey = objectKeys.getFirst();
@@ -131,11 +131,11 @@ public class S3DlqWriterTest {
 
     Thread.sleep(2000);
 
-    List<String> objectKeys = listS3Objects(dlqWriter.getS3Client());
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Commiter.getS3Client());
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after batch size reached.");
 
     List<SerializedEvent> readDeadLetters =
-        readDeadLettersFromS3(dlqWriter.getS3Client(), objectKeys.getFirst());
+        readDeadLettersFromS3(dlqWriter.s3Commiter.getS3Client(), objectKeys.getFirst());
 
     assertEquals(
         writtenDeadLetters.size(), readDeadLetters.size(), "Mismatch in number of dead letters.");
