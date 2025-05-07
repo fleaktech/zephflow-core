@@ -226,7 +226,7 @@ The left hand side of the assignemnt (kvPair) is the key and the right hand side
 After evaluating the right hand side expression, its value is set as the value to the corresponding key.
 */
 dictFunction
-    : 'dict' '(' dictArg ')'
+    : 'dict' '(' (dictArg)? ')'
     ;
 dictArg
     : kvPair (',' kvPair)*

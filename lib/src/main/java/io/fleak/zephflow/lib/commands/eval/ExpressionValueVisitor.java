@@ -239,6 +239,9 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   @Override
   public FleakData visitDictFunction(EvalExpressionParser.DictFunctionContext ctx) {
+    if (ctx.dictArg() == null) {
+      return new RecordFleakData();
+    }
     return visit(ctx.dictArg());
   }
 
