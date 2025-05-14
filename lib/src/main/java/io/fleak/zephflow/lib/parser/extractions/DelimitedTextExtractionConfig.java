@@ -11,26 +11,17 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.parser.extractions;
 
-import io.fleak.zephflow.api.CommandConfig;
+import java.util.List;
 import lombok.*;
 
-/** Created by bolei on 9/3/24 */
-public interface S3SinkDto {
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String regionStr;
-    @NonNull private String bucketName;
-    @NonNull private String keyName;
-    @NonNull private String encodingType;
-    private String credentialId;
-    private String s3EndpointOverride;
-    private boolean batching;
-    private int batchSize;
-    private long flushIntervalMillis;
-  }
+/** Created by bolei on 5/8/25 */
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class DelimitedTextExtractionConfig implements ExtractionConfig {
+  @NonNull private String delimiter;
+  @NonNull private List<String> columns;
 }

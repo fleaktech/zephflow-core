@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
 import java.util.ArrayList;
@@ -351,5 +352,17 @@ str_split("a,b,c", ",")
     arrPayload.add(null);
     arrPayload.add(FleakData.wrap(5));
     assertEquals(FleakData.wrap(arrPayload), actual);
+  }
+
+  @Test
+  public void testEmptyDict() {
+    String evalExpr = "dict()";
+    FleakData inputEvent = FleakData.wrap(Map.of());
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    FleakData actual = visitor.visit(parser.language());
+    assertInstanceOf(RecordFleakData.class, actual);
+    assertTrue(actual.getPayload().isEmpty());
   }
 }

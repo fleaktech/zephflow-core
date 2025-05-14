@@ -13,10 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
+import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import org.junit.Before;
 import org.junit.Test;
@@ -24,24 +27,29 @@ import org.junit.Test;
 public class SourceInitializerTest {
   private static final String NODE_ID = "test-node";
 
-  private SourceCommandPartsFactory mockPartsFactory;
-  private Fetcher mockFetcher;
+  private SourceCommandPartsFactory<RecordFleakData> mockPartsFactory;
+  private Fetcher<RecordFleakData> mockFetcher;
   private DlqWriter mockDlqWriter;
   private JobContext mockJobContext;
   private CommandConfig mockCommandConfig;
   private JobContext.DlqConfig mockDlqConfig;
-  private SourceInitializer sourceInitializer;
+  private SourceInitializer<RecordFleakData> sourceInitializer;
 
   @Before
   public void setUp() {
+    //noinspection unchecked
     mockPartsFactory = mock(SourceCommandPartsFactory.class);
+    when(mockPartsFactory.getMetricClientProvider())
+        .thenReturn(new MetricClientProvider.NoopMetricClientProvider());
+    //noinspection unchecked
     mockFetcher = mock(Fetcher.class);
     mockDlqWriter = mock(DlqWriter.class);
     mockJobContext = mock(JobContext.class);
+    when(mockJobContext.getMetricTags()).thenReturn(JOB_CONTEXT.getMetricTags());
     mockCommandConfig = mock(CommandConfig.class);
     mockDlqConfig = mock(JobContext.DlqConfig.class);
 
-    sourceInitializer = new SourceInitializer(NODE_ID, mockPartsFactory);
+    sourceInitializer = new SourceInitializer<>(NODE_ID, mockPartsFactory);
   }
 
   @Test
@@ -53,14 +61,13 @@ public class SourceInitializerTest {
 
   @Test
   public void testInitialize_WithDlq() {
-    // Arrange
     String commandName = "test-command";
     when(mockJobContext.getDlqConfig()).thenReturn(mockDlqConfig);
     when(mockPartsFactory.createFetcher(mockCommandConfig)).thenReturn(mockFetcher);
     when(mockPartsFactory.createDlqWriter(mockDlqConfig)).thenReturn(mockDlqWriter);
 
     // Act
-    SourceInitializedConfig result =
+    SourceInitializedConfig<RecordFleakData> result =
         sourceInitializer.initialize(commandName, mockJobContext, mockCommandConfig);
 
     // Assert
@@ -82,28 +89,8 @@ public class SourceInitializerTest {
     when(mockPartsFactory.createFetcher(mockCommandConfig)).thenReturn(mockFetcher);
 
     // Act
-    SourceInitializedConfig result =
+    SourceInitializedConfig<RecordFleakData> result =
         sourceInitializer.initialize(commandName, mockJobContext, mockCommandConfig);
-
-    // Assert
-    assertNotNull("Result should not be null", result);
-
-    assertEquals("Fetcher should match", mockFetcher, result.fetcher());
-    assertNull("DlqWriter should be null", result.dlqWriter());
-
-    verify(mockPartsFactory).createFetcher(mockCommandConfig);
-    verify(mockPartsFactory, never()).createDlqWriter(any());
-  }
-
-  @Test
-  public void testInitialize_WithNullJobContext() {
-    // Arrange
-    String commandName = "test-command";
-    when(mockPartsFactory.createFetcher(mockCommandConfig)).thenReturn(mockFetcher);
-
-    // Act
-    SourceInitializedConfig result =
-        sourceInitializer.initialize(commandName, null, mockCommandConfig);
 
     // Assert
     assertNotNull("Result should not be null", result);

@@ -16,7 +16,9 @@ package io.fleak.zephflow.lib.parser;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.parser.extractions.JsonExtractionConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -24,6 +26,7 @@ import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.io.IOUtils;
 import org.junit.jupiter.api.Test;
@@ -63,5 +66,21 @@ class CompiledRulesTest {
           expectedDataDeserializer.deserialize(expectedDataSerializedEvent);
       assertEquals(expected, parsedEvents);
     }
+  }
+
+  @Test
+  public void testJsonExtractionRule() {
+    RecordFleakData inputEvent = (RecordFleakData) FleakData.wrap(Map.of("k", "{\"a\":100}"));
+    ParserConfigs.ParserConfig parserConfig =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("k")
+            .extractionConfig(new JsonExtractionConfig())
+            .removeTargetField(true)
+            .build();
+    ParserConfigCompiler parserConfigCompiler = new ParserConfigCompiler();
+    CompiledRules.ParseRule parseRule = parserConfigCompiler.compile(parserConfig);
+    assertNotNull(inputEvent);
+    RecordFleakData output = parseRule.parse(inputEvent);
+    assertEquals(Map.of("a", 100), output.unwrap());
   }
 }

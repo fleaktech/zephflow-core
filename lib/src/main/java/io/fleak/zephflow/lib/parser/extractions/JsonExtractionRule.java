@@ -11,26 +11,17 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.parser.extractions;
 
-import io.fleak.zephflow.api.CommandConfig;
-import lombok.*;
+import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
 
-/** Created by bolei on 9/3/24 */
-public interface S3SinkDto {
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String regionStr;
-    @NonNull private String bucketName;
-    @NonNull private String keyName;
-    @NonNull private String encodingType;
-    private String credentialId;
-    private String s3EndpointOverride;
-    private boolean batching;
-    private int batchSize;
-    private long flushIntervalMillis;
+import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+
+/** Created by bolei on 5/6/25 */
+public class JsonExtractionRule implements ExtractionRule {
+  @Override
+  public RecordFleakData extract(String raw) throws Exception {
+    return fromJsonString(raw, new TypeReference<>() {});
   }
 }

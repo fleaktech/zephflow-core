@@ -1,4 +1,4 @@
-FROM gradle:jdk21-corretto
+FROM ghcr.io/graalvm/graalvm-community:21
 
 WORKDIR /app
 

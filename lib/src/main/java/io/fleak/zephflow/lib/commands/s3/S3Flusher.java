@@ -15,28 +15,16 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
-import java.time.Instant;
+import java.io.IOException;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 @Slf4j
 public class S3Flusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
-  final S3Client s3Client;
-  final String bucketName;
-  final String keyName;
-  final FleakSerializer<?> fleakSerializer;
+  final S3Commiter<RecordFleakData> s3Commiter;
 
-  public S3Flusher(
-      S3Client s3Client, String bucketName, String keyName, FleakSerializer<?> fleakSerializer) {
-    this.s3Client = s3Client;
-    this.bucketName = bucketName;
-    this.keyName = keyName;
-    this.fleakSerializer = fleakSerializer;
+  public S3Flusher(S3Commiter<RecordFleakData> s3Commiter) {
+    this.s3Commiter = s3Commiter;
   }
 
   @Override
@@ -44,23 +32,12 @@ public class S3Flusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) throws Exception {
     List<RecordFleakData> events = preparedInputEvents.preparedList();
 
-    SerializedEvent serializedEvent = fleakSerializer.serialize(events);
-    String fileKey =
-        String.format(
-            "%s/%s.%s",
-            keyName,
-            Instant.now().toEpochMilli(),
-            fleakSerializer.getEncodingType().getFileExtension());
-    PutObjectRequest putObjectRequest =
-        PutObjectRequest.builder().bucket(bucketName).key(fileKey).build();
-    s3Client.putObject(putObjectRequest, RequestBody.fromBytes(serializedEvent.value()));
-
-    return new SimpleSinkCommand.FlushResult(
-        events.size(), serializedEvent.value().length, List.of());
+    long size = s3Commiter.commit(events);
+    return new SimpleSinkCommand.FlushResult(events.size(), size, List.of());
   }
 
   @Override
-  public void close() {
-    s3Client.close();
+  public void close() throws IOException {
+    s3Commiter.close();
   }
 }
