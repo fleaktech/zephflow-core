@@ -57,10 +57,18 @@ public interface MiscUtils {
   String METADATA_KAFKA_LEADER_EPOCH = METADATA_KAFKA_PREFIX + "leader_epoch ";
   String METADATA_KAFKA_HEADER_PREFIX = METADATA_KAFKA_PREFIX + "header_";
 
+  String METADATA_KINESIS_PARTITION_KEY = "kinesis_partition_key";
+  String METADATA_KINESIS_SEQUENCE_NUMBER = "kinesis_sequence_number";
+  String METADATA_KINESIS_HASH_KEY = "kinesis_hash_key";
+  String METADATA_KINESIS_SCHEMA_DATA_FORMAT = "kinesis_schema_data_format";
+  String METADATA_KINESIS_SCHEMA_DEFINITION = "kinesis_schema_definition";
+  String METADATA_KINESIS_SCHEMA_NAME = "kinesis_schema_name";
+
   String COMMAND_NAME_NOOP = "noop";
   String COMMAND_NAME_SQL_EVAL = "sqleval";
 
   String COMMAND_NAME_S3_SINK = "s3sink";
+  String COMMAND_NAME_KINESIS_SOURCE = "kinesissource";
   String COMMAND_NAME_KINESIS_SINK = "kinesissink";
   String COMMAND_NAME_KAFKA_SOURCE = "kafkasource";
   String COMMAND_NAME_KAFKA_SINK = "kafkasink";

@@ -10,6 +10,11 @@ dependencies {
   implementation group: 'org.apache.commons', name: 'commons-csv', version: commonsCsvVersion
   implementation group: 'software.amazon.awssdk', name: 's3', version: awsVersion
   implementation group: 'software.amazon.awssdk', name: 'kinesis', version: awsVersion
+
+  implementation group: 'software.amazon.kinesis', name: 'amazon-kinesis-client', version: awsKensisClientVersion
+  implementation group: 'software.amazon.awssdk', name: 'dynamodb', version: awsVersion
+  implementation group: 'software.amazon.awssdk', name: 'cloudwatch', version: awsVersion
+
   implementation group: 'com.opencsv', name: 'opencsv', version: opencsvVersion
   implementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
 
