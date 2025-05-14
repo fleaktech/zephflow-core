@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.kinesissource.KinesisSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
@@ -38,6 +39,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_NOOP, new NoopCommandFactory())
           .put(COMMAND_NAME_SQL_EVAL, new SqlCommandFactory())
           .put(COMMAND_NAME_S3_SINK, new S3SinkCommandFactory())
+          .put(COMMAND_NAME_KINESIS_SOURCE, new KinesisSourceCommandFactory())
           .put(COMMAND_NAME_KINESIS_SINK, new KinesisSinkCommandFactory())
           .put(COMMAND_NAME_KAFKA_SOURCE, new KafkaSourceCommandFactory())
           .put(COMMAND_NAME_KAFKA_SINK, new KafkaSinkCommandFactory())
