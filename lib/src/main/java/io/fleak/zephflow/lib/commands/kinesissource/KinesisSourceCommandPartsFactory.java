@@ -19,7 +19,6 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
@@ -38,12 +37,12 @@ public class KinesisSourceCommandPartsFactory extends SourceCommandPartsFactory<
 
   @Override
   public RawDataConverter<SerializedEvent> createRawDataConverter(CommandConfig commandConfig) {
-    KinesisSourceDto.Config config = (KinesisSourceDto.Config) commandConfig;
-    FleakDeserializer<?> deserializer =
+    if (!(commandConfig instanceof KinesisSourceDto.Config config)) {
+      throw new IllegalArgumentException("Expected KinesisSourceDto.Config");
+    }
+    return new BytesRawDataConverter(
         DeserializerFactory.createDeserializerFactory(selectEncodingType(config.getEncodingType()))
-            .createDeserializer();
-
-    return new BytesRawDataConverter(deserializer);
+            .createDeserializer());
   }
 
   private EncodingType selectEncodingType(@NonNull String encodingType) {

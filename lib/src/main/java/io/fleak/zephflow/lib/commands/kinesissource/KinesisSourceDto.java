@@ -30,6 +30,8 @@ public interface KinesisSourceDto {
     @NonNull private String applicationName;
     @NonNull private String encodingType;
 
+    private boolean disableMetrics;
+
     /** valid values LATEST, TRIM_HORIZON, or a timestamp. */
     private String initialPosition;
 

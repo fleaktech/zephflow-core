@@ -23,16 +23,12 @@ import java.util.List;
 
 public class KinesisSourceCommandInitializerFactory
     extends SourceCommandInitializerFactory<List<SerializedEvent>> {
-
-  public KinesisSourceCommandInitializerFactory() {}
-
   @Override
   protected CommandPartsFactory createCommandPartsFactory(
       MetricClientProvider metricClientProvider,
       JobContext jobContext,
       CommandConfig commandConfig,
       String nodeId) {
-
     return new KinesisSourceCommandPartsFactory(metricClientProvider);
   }
 }
