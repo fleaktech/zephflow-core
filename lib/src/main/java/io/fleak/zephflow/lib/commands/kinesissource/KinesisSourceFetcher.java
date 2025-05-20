@@ -20,17 +20,18 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
@@ -41,20 +42,29 @@ import software.amazon.kinesis.common.InitialPositionInStreamExtended;
 import software.amazon.kinesis.common.StreamIdentifier;
 import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.lifecycle.events.*;
+import software.amazon.kinesis.metrics.NullMetricsFactory;
 import software.amazon.kinesis.processor.*;
 import software.amazon.kinesis.retrieval.KinesisClientRecord;
 
 @Slf4j
 public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
-  private final ArrayBlockingQueue<KinesisClientRecord> recordQueue = new ArrayBlockingQueue<>(100);
+  private final ArrayBlockingQueue<KinesisClientRecord> recordQueue = new ArrayBlockingQueue<>(500);
   private final AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer =
       new AtomicReference<>();
-  private final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+  private final AtomicReference<Scheduler> schedulerRef = new AtomicReference<>();
+
+  private final ExecutorService EXECUTOR =
+      Executors.newSingleThreadExecutor(
+          runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("KinesisSourceFetcher");
+            thread.setDaemon(true);
+            return thread;
+          });
 
   @SneakyThrows
-  public KinesisSourceFetcher(KinesisSourceDto.Config config) {
-
+  public KinesisSourceFetcher(@NonNull KinesisSourceDto.Config config) {
     AwsCredentialsProvider credentialsProvider = null;
 
     if (config.getStaticCredentials() != null) {
@@ -83,6 +93,10 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             UUID.randomUUID().toString(),
             recordProcessorFactory);
 
+    if (config.isDisableMetrics()) {
+      configsBuilder.metricsConfig().metricsFactory(new NullMetricsFactory());
+    }
+
     // set the start position the first time we start reading from a stream
     var streamTracker = configureStreamTracker(config);
     var retrievalConfig = configsBuilder.retrievalConfig().streamTracker(streamTracker);
@@ -96,6 +110,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             configsBuilder.metricsConfig(),
             new ProcessorConfig(recordProcessorFactory),
             retrievalConfig);
+    schedulerRef.set(scheduler);
 
     EXECUTOR.submit(
         () -> {
@@ -187,17 +202,20 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       metadata.put(METADATA_KINESIS_PARTITION_KEY, r.partitionKey());
       metadata.put(METADATA_KINESIS_SEQUENCE_NUMBER, r.sequenceNumber());
       metadata.put(METADATA_KINESIS_HASH_KEY, r.explicitHashKey());
-      metadata.put(METADATA_KINESIS_SCHEMA_DATA_FORMAT, r.schema().getDataFormat());
-      metadata.put(METADATA_KINESIS_SCHEMA_DEFINITION, r.schema().getSchemaDefinition());
-      metadata.put(METADATA_KINESIS_SCHEMA_NAME, r.schema().getSchemaName());
+      if (r.schema() != null) {
+        metadata.put(METADATA_KINESIS_SCHEMA_DATA_FORMAT, r.schema().getDataFormat());
+        metadata.put(METADATA_KINESIS_SCHEMA_DEFINITION, r.schema().getSchemaDefinition());
+        metadata.put(METADATA_KINESIS_SCHEMA_NAME, r.schema().getSchemaName());
+      }
 
-      ByteBuffer dataBuff = r.data().duplicate();
-      byte[] value = new byte[dataBuff.remaining()];
-      dataBuff.get(value);
+      byte[] value = SdkBytes.fromByteBuffer(r.data()).asByteArray();
 
-      SerializedEvent serializedEvent =
-          new SerializedEvent(
-              r.explicitHashKey().getBytes(StandardCharsets.UTF_8), value, metadata);
+      byte[] key = null;
+      if (r.explicitHashKey() != null) {
+        key = r.explicitHashKey().getBytes(StandardCharsets.UTF_8);
+      }
+
+      SerializedEvent serializedEvent = new SerializedEvent(key, value, metadata);
 
       events.add(serializedEvent);
     }
@@ -213,7 +231,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
         try {
           checkpointer.checkpoint();
         } catch (Exception e) {
-          log.error(e.getMessage(), e);
+          log.error("Commiter failed: ", e);
         }
       }
     };
@@ -222,6 +240,12 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @SneakyThrows
   @Override
   public void close() throws IOException {
+
+    var scheduler = schedulerRef.get();
+    if (scheduler != null) {
+      scheduler.shutdown();
+    }
+
     EXECUTOR.shutdown();
     if (!EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
       EXECUTOR.shutdownNow();
@@ -231,12 +255,12 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @Slf4j
   public static class RecordProcessorFactory implements ShardRecordProcessorFactory {
 
-    private final Queue<KinesisClientRecord> records;
+    private final BlockingQueue<KinesisClientRecord> records;
     AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer;
 
     private RecordProcessorFactory(
         AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer,
-        Queue<KinesisClientRecord> records) {
+        BlockingQueue<KinesisClientRecord> records) {
       this.lastSeenCheckpointer = lastSeenCheckpointer;
       this.records = records;
     }
@@ -255,12 +279,12 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @Slf4j
   public static class ZephflowShardRecordProcessor implements ShardRecordProcessor {
 
-    private final Queue<KinesisClientRecord> records;
+    private final BlockingQueue<KinesisClientRecord> records;
     AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer;
 
     private ZephflowShardRecordProcessor(
         AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer,
-        Queue<KinesisClientRecord> records) {
+        BlockingQueue<KinesisClientRecord> records) {
       log.info(">>>>>>>>>>>>>>>>>> ZephflowShardRecordProcessor <<<<<<<<<<<<<<<<<<<");
       this.lastSeenCheckpointer = lastSeenCheckpointer;
       this.records = records;
@@ -271,6 +295,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       log.info("Initializing KinesisSourceFetcher: {}", initializationInput.toString());
     }
 
+    @SneakyThrows
     @Override
     public void processRecords(ProcessRecordsInput processRecordsInput) {
       // Kinesis consumer uses a push model to get records, while the Zephflow source commands are
@@ -278,8 +303,15 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       // To bridge this we push data to a blocking queue which Zephflow will pull from as it
       // processes the records.
       lastSeenCheckpointer.set(processRecordsInput.checkpointer());
-      System.out.println("Adding records: " + processRecordsInput.records().size());
-      records.addAll(processRecordsInput.records());
+      for (var record : processRecordsInput.records()) {
+        try {
+          records.put(record);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("Interrupted while adding to queue", e);
+          return;
+        }
+      }
     }
 
     @Override

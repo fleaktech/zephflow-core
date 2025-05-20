@@ -24,7 +24,6 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     KinesisSourceDto.Config config = (KinesisSourceDto.Config) commandConfig;
-
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getApplicationName()), "no application name is provided");
     Preconditions.checkArgument(
@@ -33,7 +32,6 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getEncodingType()), "no encoding type is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getStreamName()), "no stream name is provided");
-
     EncodingType.valueOf(config.getEncodingType());
   }
 }

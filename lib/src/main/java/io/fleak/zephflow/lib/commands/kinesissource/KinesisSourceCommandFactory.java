@@ -13,20 +13,18 @@
  */
 package io.fleak.zephflow.lib.commands.kinesissource;
 
-import io.fleak.zephflow.api.CommandInitializerFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.commands.source.SourceCommandFactory;
 
 public class KinesisSourceCommandFactory extends SourceCommandFactory {
-
   @Override
   public KinesisSourceCommand createCommand(String nodeId, JobContext jobContext) {
-    JsonConfigParser<KinesisSourceDto.Config> configParser =
-        new JsonConfigParser<>(KinesisSourceDto.Config.class);
-    KinesisSourceConfigValidator validator = new KinesisSourceConfigValidator();
-    CommandInitializerFactory initializerFactory = new KinesisSourceCommandInitializerFactory();
     return new KinesisSourceCommand(
-        nodeId, jobContext, configParser, validator, initializerFactory);
+        nodeId,
+        jobContext,
+        new JsonConfigParser<>(KinesisSourceDto.Config.class),
+        new KinesisSourceConfigValidator(),
+        new KinesisSourceCommandInitializerFactory());
   }
 }
