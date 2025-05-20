@@ -285,7 +285,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     private ZephflowShardRecordProcessor(
         AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer,
         BlockingQueue<KinesisClientRecord> records) {
-      log.info(">>>>>>>>>>>>>>>>>> ZephflowShardRecordProcessor <<<<<<<<<<<<<<<<<<<");
+      log.info("Starting ZephflowShardRecordProcessor processor");
       this.lastSeenCheckpointer = lastSeenCheckpointer;
       this.records = records;
     }
