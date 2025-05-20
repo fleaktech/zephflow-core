@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -45,8 +46,7 @@ class KinesisSourceConfigValidatorTest {
 
   public static Stream<Arguments> testData() {
     return Stream.of(
-            Arguments.of(KinesisSourceDto.Config.builder().applicationName("test").regionStr("us-east-1").encodingType("JSON_OBJECT").streamName("test").build(), false),
-            Arguments.of(KinesisSourceDto.Config.builder().applicationName("test").regionStr("us-east-1").encodingType("BLA").streamName("test").build(), true)
-            );
+            Arguments.of(KinesisSourceDto.Config.builder().applicationName("test").regionStr("us-east-1").encodingType(EncodingType.JSON_OBJECT).streamName("test").build(), false)
+    );
   }
 }

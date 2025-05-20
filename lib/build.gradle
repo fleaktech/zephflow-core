@@ -23,8 +23,8 @@ dependencies {
 
 
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
-  testImplementation group: 'org.testcontainers', name: 'testcontainers', version: testcontainersVersion
-  testImplementation group: 'org.testcontainers', name: 'localstack', version: testcontainersVersion
+
+  testImplementation group: 'org.testcontainers', name: 'localstack', version: testContainersVersion
   testImplementation group: 'org.apache.logging.log4j', name: 'log4j-core', version: log4j2Version
   testImplementation group: 'org.apache.logging.log4j', name: 'log4j-slf4j2-impl', version: log4j2Version
 

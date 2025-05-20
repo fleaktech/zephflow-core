@@ -15,8 +15,11 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.net.URI;
 import java.util.Date;
 import lombok.*;
+import software.amazon.kinesis.common.InitialPositionInStream;
 
 public interface KinesisSourceDto {
 
@@ -28,19 +31,17 @@ public interface KinesisSourceDto {
     @NonNull private String regionStr;
     @NonNull private String streamName;
     @NonNull private String applicationName;
-    @NonNull private String encodingType;
+    @NonNull private EncodingType encodingType;
 
-    private boolean disableMetrics;
-
-    /** valid values LATEST, TRIM_HORIZON, or a timestamp. */
-    private String initialPosition;
+    @NonNull private InitialPositionInStream initialPosition;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSZ")
     private Date initialPositionTimestamp;
 
-    private String dynamoEndpoint;
-    private String kinesisEndpoint;
-    private String cloudWatchEndpoint;
+    private boolean disableMetrics;
+    private URI dynamoEndpoint;
+    private URI kinesisEndpoint;
+    private URI cloudWatchEndpoint;
 
     private StaticCredentials staticCredentials;
   }

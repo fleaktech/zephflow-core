@@ -16,10 +16,8 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -32,7 +30,10 @@ public class KinesisSourceCommandPartsFactory extends SourceCommandPartsFactory<
   @Override
   public Fetcher<SerializedEvent> createFetcher(CommandConfig commandConfig) {
     KinesisSourceDto.Config config = (KinesisSourceDto.Config) commandConfig;
-    return new KinesisSourceFetcher(config);
+
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(config);
+    fetcher.start();
+    return fetcher;
   }
 
   @Override
@@ -41,12 +42,8 @@ public class KinesisSourceCommandPartsFactory extends SourceCommandPartsFactory<
       throw new IllegalArgumentException("Expected KinesisSourceDto.Config");
     }
     return new BytesRawDataConverter(
-        DeserializerFactory.createDeserializerFactory(selectEncodingType(config.getEncodingType()))
+        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
             .createDeserializer());
-  }
-
-  private EncodingType selectEncodingType(@NonNull String encodingType) {
-    return EncodingType.valueOf(encodingType.toUpperCase());
   }
 
   @Override
