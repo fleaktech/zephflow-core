@@ -33,7 +33,7 @@ public interface KinesisSourceDto {
     @NonNull private String applicationName;
     @NonNull private EncodingType encodingType;
 
-    @NonNull private InitialPositionInStream initialPosition;
+    private InitialPositionInStream initialPosition;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSZ")
     private Date initialPositionTimestamp;
