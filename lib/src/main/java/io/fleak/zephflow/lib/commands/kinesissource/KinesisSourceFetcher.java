@@ -18,6 +18,8 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -25,16 +27,21 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.kinesis.common.ConfigsBuilder;
+import software.amazon.kinesis.common.InitialPositionInStream;
+import software.amazon.kinesis.common.InitialPositionInStreamExtended;
+import software.amazon.kinesis.common.StreamIdentifier;
 import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.lifecycle.events.*;
-import software.amazon.kinesis.processor.RecordProcessorCheckpointer;
-import software.amazon.kinesis.processor.ShardRecordProcessor;
-import software.amazon.kinesis.processor.ShardRecordProcessorFactory;
+import software.amazon.kinesis.processor.*;
 import software.amazon.kinesis.retrieval.KinesisClientRecord;
 
 @Slf4j
@@ -45,11 +52,27 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       new AtomicReference<>();
   private final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
+  @SneakyThrows
   public KinesisSourceFetcher(KinesisSourceDto.Config config) {
-    KinesisAsyncClient kinesisClient = KinesisAsyncClient.create();
+
+    AwsCredentialsProvider credentialsProvider = null;
+
+    if (config.getStaticCredentials() != null) {
+      credentialsProvider =
+          StaticCredentialsProvider.create(
+              AwsBasicCredentials.create(
+                  config.getStaticCredentials().key(), config.getStaticCredentials().secret()));
+    }
+
+    KinesisAsyncClient kinesisClient = getKinesisAsyncClient(config, credentialsProvider);
+
     Region region = Region.of(config.getRegionStr());
-    DynamoDbAsyncClient dynamoClient = DynamoDbAsyncClient.builder().region(region).build();
-    CloudWatchAsyncClient cloudWatchClient = CloudWatchAsyncClient.builder().region(region).build();
+    DynamoDbAsyncClient dynamoClient = getDynamoDbAsyncClient(config, region, credentialsProvider);
+
+    CloudWatchAsyncClient cloudWatchClient =
+        getCloudWatchAsyncClient(config, region, credentialsProvider);
+
+    var recordProcessorFactory = new RecordProcessorFactory(lastSeenCheckpointer, recordQueue);
     ConfigsBuilder configsBuilder =
         new ConfigsBuilder(
             config.getStreamName(),
@@ -58,7 +81,11 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             dynamoClient,
             cloudWatchClient,
             UUID.randomUUID().toString(),
-            new RecordProcessorFactory(lastSeenCheckpointer, recordQueue));
+            recordProcessorFactory);
+
+    // set the start position the first time we start reading from a stream
+    var streamTracker = configureStreamTracker(config);
+    var retrievalConfig = configsBuilder.retrievalConfig().streamTracker(streamTracker);
 
     Scheduler scheduler =
         new Scheduler(
@@ -67,10 +94,82 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             configsBuilder.leaseManagementConfig(),
             configsBuilder.lifecycleConfig(),
             configsBuilder.metricsConfig(),
-            configsBuilder.processorConfig(),
-            configsBuilder.retrievalConfig());
+            new ProcessorConfig(recordProcessorFactory),
+            retrievalConfig);
 
-    EXECUTOR.submit(scheduler);
+    EXECUTOR.submit(
+        () -> {
+          try {
+            // ensure we print an error message if the scheduler fails to initialise
+            scheduler.run();
+          } catch (Exception e) {
+            log.error(e.getMessage(), e);
+          }
+        });
+  }
+
+  private SingleStreamTracker configureStreamTracker(KinesisSourceDto.Config config) {
+    InitialPositionInStreamExtended initial =
+        InitialPositionInStreamExtended.newInitialPosition(InitialPositionInStream.LATEST);
+
+    if (config.getInitialPositionTimestamp() != null) {
+      initial =
+          InitialPositionInStreamExtended.newInitialPositionAtTimestamp(
+              config.getInitialPositionTimestamp());
+    } else if (StringUtils.trimToNull(config.getInitialPosition()) != null) {
+      initial =
+          InitialPositionInStreamExtended.newInitialPosition(
+              InitialPositionInStream.valueOf(config.getInitialPosition()));
+    }
+
+    return new SingleStreamTracker(config.getStreamName(), initial);
+  }
+
+  private static CloudWatchAsyncClient getCloudWatchAsyncClient(
+      KinesisSourceDto.Config config, Region region, AwsCredentialsProvider credentialsProvider)
+      throws URISyntaxException {
+    var cloudWatchClientBuilder = CloudWatchAsyncClient.builder().region(region);
+    if (config.getCloudWatchEndpoint() != null) {
+      log.info("Using CloudWatch endpoint {}", config.getCloudWatchEndpoint());
+      cloudWatchClientBuilder =
+          cloudWatchClientBuilder.endpointOverride(new URI(config.getCloudWatchEndpoint()));
+    }
+    if (credentialsProvider != null) {
+      cloudWatchClientBuilder = cloudWatchClientBuilder.credentialsProvider(credentialsProvider);
+    }
+    return cloudWatchClientBuilder.build();
+  }
+
+  private static DynamoDbAsyncClient getDynamoDbAsyncClient(
+      KinesisSourceDto.Config config, Region region, AwsCredentialsProvider credentialsProvider)
+      throws URISyntaxException {
+    var dynamoClientBuilder = DynamoDbAsyncClient.builder().region(region);
+    if (config.getDynamoEndpoint() != null) {
+      log.info("Using DynamoDB endpoint {}", config.getDynamoEndpoint());
+      dynamoClientBuilder =
+          dynamoClientBuilder.endpointOverride(new URI(config.getDynamoEndpoint()));
+    }
+    if (credentialsProvider != null) {
+      dynamoClientBuilder = dynamoClientBuilder.credentialsProvider(credentialsProvider);
+    }
+
+    return dynamoClientBuilder.build();
+  }
+
+  private static KinesisAsyncClient getKinesisAsyncClient(
+      KinesisSourceDto.Config config, AwsCredentialsProvider credentialsProvider)
+      throws URISyntaxException {
+    var kinesisClientBuilder = KinesisAsyncClient.builder();
+    if (config.getKinesisEndpoint() != null) {
+      log.info("Using Kinesis endpoint {}", config.getKinesisEndpoint());
+      kinesisClientBuilder =
+          kinesisClientBuilder.endpointOverride(new URI(config.getKinesisEndpoint()));
+    }
+    if (credentialsProvider != null) {
+      kinesisClientBuilder = kinesisClientBuilder.credentialsProvider(credentialsProvider);
+    }
+
+    return kinesisClientBuilder.build();
   }
 
   @SneakyThrows
@@ -129,7 +228,8 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     }
   }
 
-  private static class RecordProcessorFactory implements ShardRecordProcessorFactory {
+  @Slf4j
+  public static class RecordProcessorFactory implements ShardRecordProcessorFactory {
 
     private final Queue<KinesisClientRecord> records;
     AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer;
@@ -142,12 +242,18 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     }
 
     @Override
+    public ShardRecordProcessor shardRecordProcessor(StreamIdentifier streamIdentifier) {
+      return shardRecordProcessor();
+    }
+
+    @Override
     public ShardRecordProcessor shardRecordProcessor() {
       return new ZephflowShardRecordProcessor(lastSeenCheckpointer, records);
     }
   }
 
-  private static class ZephflowShardRecordProcessor implements ShardRecordProcessor {
+  @Slf4j
+  public static class ZephflowShardRecordProcessor implements ShardRecordProcessor {
 
     private final Queue<KinesisClientRecord> records;
     AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer;
@@ -155,13 +261,14 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     private ZephflowShardRecordProcessor(
         AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer,
         Queue<KinesisClientRecord> records) {
+      log.info(">>>>>>>>>>>>>>>>>> ZephflowShardRecordProcessor <<<<<<<<<<<<<<<<<<<");
       this.lastSeenCheckpointer = lastSeenCheckpointer;
       this.records = records;
     }
 
     @Override
     public void initialize(InitializationInput initializationInput) {
-      log.info("Initializing KinesisSourceFetcher: " + initializationInput.toString());
+      log.info("Initializing KinesisSourceFetcher: {}", initializationInput.toString());
     }
 
     @Override
@@ -171,6 +278,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       // To bridge this we push data to a blocking queue which Zephflow will pull from as it
       // processes the records.
       lastSeenCheckpointer.set(processRecordsInput.checkpointer());
+      System.out.println("Adding records: " + processRecordsInput.records().size());
       records.addAll(processRecordsInput.records());
     }
 

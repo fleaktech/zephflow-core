@@ -13,7 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.kinesissource;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.Date;
 import lombok.*;
 
 public interface KinesisSourceDto {
@@ -27,5 +29,19 @@ public interface KinesisSourceDto {
     @NonNull private String streamName;
     @NonNull private String applicationName;
     @NonNull private String encodingType;
+
+    /** valid values LATEST, TRIM_HORIZON, or a timestamp. */
+    private String initialPosition;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+    private Date initialPositionTimestamp;
+
+    private String dynamoEndpoint;
+    private String kinesisEndpoint;
+    private String cloudWatchEndpoint;
+
+    private StaticCredentials staticCredentials;
   }
+
+  record StaticCredentials(String key, String secret) {}
 }
