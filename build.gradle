@@ -54,8 +54,6 @@ allprojects {
     hamcrestVersion = '2.2'
     log4j2Version = '2.24.3'
     graalvmVersion = '24.2.1'
-
-    testcontainersVersion = '1.19.3'
   }
 
   sourceCompatibility = javaVersion

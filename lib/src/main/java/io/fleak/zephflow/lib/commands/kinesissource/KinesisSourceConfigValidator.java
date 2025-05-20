@@ -17,7 +17,6 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import org.apache.commons.lang3.StringUtils;
 
 public class KinesisSourceConfigValidator implements ConfigValidator {
@@ -28,10 +27,8 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getApplicationName()), "no application name is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getRegionStr()), "no region name is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getEncodingType()), "no encoding type is provided");
+    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getStreamName()), "no stream name is provided");
-    EncodingType.valueOf(config.getEncodingType());
   }
 }

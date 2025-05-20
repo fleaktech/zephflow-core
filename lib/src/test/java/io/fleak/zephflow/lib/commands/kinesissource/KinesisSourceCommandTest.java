@@ -1,8 +1,27 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.fleak.zephflow.lib.commands.kinesissource;
 
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.api.SourceEventAcceptor;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.serdes.EncodingType;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.localstack.LocalStackContainer;
@@ -17,16 +36,19 @@ import software.amazon.awssdk.services.kinesis.model.DescribeStreamRequest;
 import software.amazon.awssdk.services.kinesis.model.PutRecordRequest;
 import software.amazon.kinesis.common.InitialPositionInStream;
 
+import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.concurrent.Executors;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.KINESIS;
 
 @Slf4j
-public class KinesisSourceFetcherTest {
+public class KinesisSourceCommandTest {
 
     private static final String STREAM_NAME = "test-stream-" + UUID.randomUUID();
     private static final String APPLICATION_NAME = "test-" + UUID.randomUUID();
@@ -43,6 +65,56 @@ public class KinesisSourceFetcherTest {
             );
 
     private static KinesisClient kinesisClient;
+
+    @Test
+    public void testFetcher() throws Exception {
+        var config = KinesisSourceDto.Config.builder()
+                .encodingType(EncodingType.TEXT)
+                .streamName(STREAM_NAME)
+                .regionStr(LOCALSTACK.getRegion())
+                .applicationName(APPLICATION_NAME)
+                .cloudWatchEndpoint(new URI(LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.CLOUDWATCH).toString()))
+                .kinesisEndpoint(new URI(LOCALSTACK.getEndpointOverride(KINESIS).toString()))
+                .dynamoEndpoint(new URI(LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.DYNAMODB).toString()))
+                .staticCredentials(new KinesisSourceDto.StaticCredentials(LOCALSTACK.getAccessKey(), LOCALSTACK.getSecretKey()))
+                .initialPosition(InitialPositionInStream.TRIM_HORIZON)
+                .disableMetrics(true)
+                .build();
+
+        var commandFactory = new KinesisSourceCommandFactory();
+        var command = commandFactory.createCommand("my_note", TestUtils.JOB_CONTEXT);
+
+        var eventConsumer = new TestSourceEventAcceptor();
+
+        command.parseAndValidateArg(toJsonString(config));
+
+        var executor = Executors.newSingleThreadExecutor();
+        var future = executor.submit(
+                        () -> {
+                            try {
+                                command.execute("test_user",
+                                        new MetricClientProvider.NoopMetricClientProvider(),
+                                        eventConsumer);
+                            } catch (Exception e) {
+                                log.error(e.getMessage(), e);
+                                Assertions.assertNull(e, e.getMessage());
+                            }
+                        });
+
+
+        var n = 100;
+        sendTestData(n);
+
+        log.info("Trying to read records");
+        waitAndFetchRecords(eventConsumer, n);
+        var records = eventConsumer.receivedEvents;
+        future.cancel(true);
+        executor.shutdown();
+
+        log.info("Got {} records", records.size());
+
+        assertEquals(n, records.size());
+    }
 
     @BeforeAll
     public static void setup() {
@@ -69,7 +141,7 @@ public class KinesisSourceFetcherTest {
         var start = System.currentTimeMillis();
 
         while (true) {
-            String status = kinesisClient.describeStream(
+            var status = kinesisClient.describeStream(
                             DescribeStreamRequest.builder().streamName(STREAM_NAME).build())
                     .streamDescription().streamStatusAsString();
             log.info("{}: {}", STREAM_NAME, status);
@@ -82,55 +154,14 @@ public class KinesisSourceFetcherTest {
         }
     }
 
-    @Test
-    public void test() throws Exception {
-        var config = KinesisSourceDto.Config.builder()
-                .encodingType("TEXT")
-                .streamName(STREAM_NAME)
-                .regionStr(LOCALSTACK.getRegion())
-                .applicationName(APPLICATION_NAME)
-                .cloudWatchEndpoint(LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.CLOUDWATCH).toString())
-                .kinesisEndpoint(LOCALSTACK.getEndpointOverride(KINESIS).toString())
-                .dynamoEndpoint(LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.DYNAMODB).toString())
-                .staticCredentials(new KinesisSourceDto.StaticCredentials(LOCALSTACK.getAccessKey(), LOCALSTACK.getSecretKey()))
-                .initialPosition(InitialPositionInStream.TRIM_HORIZON.name())
-                .disableMetrics(true)
-                .build();
-
-        var fetcher = new KinesisSourceFetcher(config);
-
-        int n = 100;
-        sendTestData(n);
-
-        log.info("Trying to read records");
-        var records = new ArrayList<SerializedEvent>();
-        waitAndFetchRecords(fetcher, records);
-        fetcher.close();
-        log.info("Got {} records", records.size());
-
-        assertEquals(n, records.size());
-
-        var recordsSet = records.stream()
-                .map(r -> new String(r.value()))
-                .collect(Collectors.toSet());
-
-        assertEquals(n, recordsSet.size());
-    }
-
-    private static void waitAndFetchRecords(KinesisSourceFetcher fetcher, ArrayList<SerializedEvent> records) throws Exception {
+    @SneakyThrows
+    private static void waitAndFetchRecords(TestSourceEventAcceptor fetcher, int waitForN) {
         int maxAttempts = 60 * 10;
         int delayMillis = 10_000;
 
         for(int i = 0; i < maxAttempts; i++) {
-            var list = fetcher.fetch();
-            if(list.isEmpty()) {
-                if(!records.isEmpty())
-                    break;
+            if(fetcher.receivedEvents.size() < waitForN) {
                 Thread.sleep(delayMillis);
-                System.out.println("Fetched events: " + list.size());
-            } else {
-                records.addAll(list);
-                fetcher.commiter().commit();
             }
         }
     }
@@ -154,4 +185,16 @@ public class KinesisSourceFetcherTest {
         LOCALSTACK.stop();
     }
 
+    public static class TestSourceEventAcceptor implements SourceEventAcceptor {
+        private final List<RecordFleakData> receivedEvents =
+                Collections.synchronizedList(new ArrayList<>());
+
+        @Override
+        public void terminate() {}
+
+        @Override
+        public void accept(List<RecordFleakData> recordFleakData) {
+            receivedEvents.addAll(recordFleakData);
+        }
+    }
 }

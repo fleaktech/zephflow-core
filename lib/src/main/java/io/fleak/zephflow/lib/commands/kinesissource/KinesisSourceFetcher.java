@@ -15,19 +15,18 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
+import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -49,6 +48,7 @@ import software.amazon.kinesis.retrieval.KinesisClientRecord;
 @Slf4j
 public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
+  private final AtomicBoolean started = new AtomicBoolean(false);
   private final ArrayBlockingQueue<KinesisClientRecord> recordQueue = new ArrayBlockingQueue<>(500);
   private final AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer =
       new AtomicReference<>();
@@ -74,13 +74,17 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
                   config.getStaticCredentials().key(), config.getStaticCredentials().secret()));
     }
 
-    KinesisAsyncClient kinesisClient = getKinesisAsyncClient(config, credentialsProvider);
+    KinesisAsyncClient kinesisClient =
+        AwsClientFactory.getKinesisAsyncClient(config.getKinesisEndpoint(), credentialsProvider);
 
     Region region = Region.of(config.getRegionStr());
-    DynamoDbAsyncClient dynamoClient = getDynamoDbAsyncClient(config, region, credentialsProvider);
+    DynamoDbAsyncClient dynamoClient =
+        AwsClientFactory.getDynamoDbAsyncClient(
+            region, config.getDynamoEndpoint(), credentialsProvider);
 
     CloudWatchAsyncClient cloudWatchClient =
-        getCloudWatchAsyncClient(config, region, credentialsProvider);
+        AwsClientFactory.getCloudWatchAsyncClient(
+            region, config.getCloudWatchEndpoint(), credentialsProvider);
 
     var recordProcessorFactory = new RecordProcessorFactory(lastSeenCheckpointer, recordQueue);
     ConfigsBuilder configsBuilder =
@@ -111,7 +115,14 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             new ProcessorConfig(recordProcessorFactory),
             retrievalConfig);
     schedulerRef.set(scheduler);
+  }
 
+  public void start() {
+    if (!started.compareAndSet(false, true)) {
+      log.warn("scheduler was already started");
+      return;
+    }
+    var scheduler = schedulerRef.get();
     EXECUTOR.submit(
         () -> {
           try {
@@ -131,60 +142,11 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       initial =
           InitialPositionInStreamExtended.newInitialPositionAtTimestamp(
               config.getInitialPositionTimestamp());
-    } else if (StringUtils.trimToNull(config.getInitialPosition()) != null) {
-      initial =
-          InitialPositionInStreamExtended.newInitialPosition(
-              InitialPositionInStream.valueOf(config.getInitialPosition()));
+    } else if (config.getInitialPosition() != null) {
+      initial = InitialPositionInStreamExtended.newInitialPosition(config.getInitialPosition());
     }
 
     return new SingleStreamTracker(config.getStreamName(), initial);
-  }
-
-  private static CloudWatchAsyncClient getCloudWatchAsyncClient(
-      KinesisSourceDto.Config config, Region region, AwsCredentialsProvider credentialsProvider)
-      throws URISyntaxException {
-    var cloudWatchClientBuilder = CloudWatchAsyncClient.builder().region(region);
-    if (config.getCloudWatchEndpoint() != null) {
-      log.info("Using CloudWatch endpoint {}", config.getCloudWatchEndpoint());
-      cloudWatchClientBuilder =
-          cloudWatchClientBuilder.endpointOverride(new URI(config.getCloudWatchEndpoint()));
-    }
-    if (credentialsProvider != null) {
-      cloudWatchClientBuilder = cloudWatchClientBuilder.credentialsProvider(credentialsProvider);
-    }
-    return cloudWatchClientBuilder.build();
-  }
-
-  private static DynamoDbAsyncClient getDynamoDbAsyncClient(
-      KinesisSourceDto.Config config, Region region, AwsCredentialsProvider credentialsProvider)
-      throws URISyntaxException {
-    var dynamoClientBuilder = DynamoDbAsyncClient.builder().region(region);
-    if (config.getDynamoEndpoint() != null) {
-      log.info("Using DynamoDB endpoint {}", config.getDynamoEndpoint());
-      dynamoClientBuilder =
-          dynamoClientBuilder.endpointOverride(new URI(config.getDynamoEndpoint()));
-    }
-    if (credentialsProvider != null) {
-      dynamoClientBuilder = dynamoClientBuilder.credentialsProvider(credentialsProvider);
-    }
-
-    return dynamoClientBuilder.build();
-  }
-
-  private static KinesisAsyncClient getKinesisAsyncClient(
-      KinesisSourceDto.Config config, AwsCredentialsProvider credentialsProvider)
-      throws URISyntaxException {
-    var kinesisClientBuilder = KinesisAsyncClient.builder();
-    if (config.getKinesisEndpoint() != null) {
-      log.info("Using Kinesis endpoint {}", config.getKinesisEndpoint());
-      kinesisClientBuilder =
-          kinesisClientBuilder.endpointOverride(new URI(config.getKinesisEndpoint()));
-    }
-    if (credentialsProvider != null) {
-      kinesisClientBuilder = kinesisClientBuilder.credentialsProvider(credentialsProvider);
-    }
-
-    return kinesisClientBuilder.build();
   }
 
   @SneakyThrows
@@ -240,7 +202,6 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @SneakyThrows
   @Override
   public void close() throws IOException {
-
     var scheduler = schedulerRef.get();
     if (scheduler != null) {
       scheduler.shutdown();
@@ -250,6 +211,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     if (!EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
       EXECUTOR.shutdownNow();
     }
+    started.set(false);
   }
 
   @Slf4j
