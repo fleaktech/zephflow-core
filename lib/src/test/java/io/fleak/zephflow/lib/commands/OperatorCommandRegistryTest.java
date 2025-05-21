@@ -30,6 +30,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_SQL_EVAL)
             .add(COMMAND_NAME_S3_SINK)
             .add(COMMAND_NAME_KINESIS_SINK)
+            .add(COMMAND_NAME_KINESIS_SOURCE)
             .add(COMMAND_NAME_KAFKA_SOURCE)
             .add(COMMAND_NAME_KAFKA_SINK)
             .add(COMMAND_NAME_EVAL)

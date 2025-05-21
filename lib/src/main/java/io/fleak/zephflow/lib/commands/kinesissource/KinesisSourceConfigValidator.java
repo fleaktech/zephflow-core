@@ -18,6 +18,7 @@ import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.kinesis.common.InitialPositionInStream;
 
 public class KinesisSourceConfigValidator implements ConfigValidator {
   @Override
@@ -30,5 +31,26 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
     Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getStreamName()), "no stream name is provided");
+
+    var initialPosition = config.getInitialPosition();
+    var initialTS = config.getInitialPositionTimestamp();
+
+    if (initialPosition != null) {
+      if (initialPosition.equals(InitialPositionInStream.AT_TIMESTAMP)) {
+        Preconditions.checkState(
+            initialTS != null,
+            "If initial position is AT_TIMESTAMP then a timestamp must be provided");
+      } else {
+        Preconditions.checkState(
+            initialTS == null,
+            "Timestamp must not be provided unless initial position is AT_TIMESTAMP. Found: %s with timestamp %s",
+            initialPosition,
+            initialTS);
+      }
+    } else {
+      Preconditions.checkState(
+          initialTS == null,
+          "Timestamp must not be provided unless initial position is AT_TIMESTAMP");
+    }
   }
 }
