@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -49,6 +51,9 @@ import software.amazon.kinesis.retrieval.KinesisClientRecord;
 public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
   private final AtomicBoolean started = new AtomicBoolean(false);
+  private final AtomicBoolean schedulerRunning = new AtomicBoolean(false);
+  private final AtomicReference<Exception> schedulerError = new AtomicReference<>();
+
   private final ArrayBlockingQueue<KinesisClientRecord> recordQueue = new ArrayBlockingQueue<>(500);
   private final AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer =
       new AtomicReference<>();
@@ -122,7 +127,9 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       log.warn("scheduler was already started");
       return;
     }
-    var scheduler = schedulerRef.get();
+    var scheduler = Objects.requireNonNull(schedulerRef.get());
+    schedulerRunning.set(true);
+
     EXECUTOR.submit(
         () -> {
           try {
@@ -130,6 +137,9 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             scheduler.run();
           } catch (Exception e) {
             log.error(e.getMessage(), e);
+            schedulerError.set(e);
+          } finally {
+            schedulerRunning.set(false);
           }
         });
   }
@@ -153,36 +163,60 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @Override
   public List<SerializedEvent> fetch() {
     log.trace("KinesisSource: fetch()");
-    List<KinesisClientRecord> recordEvents = new ArrayList<>();
+    var recordEvents = new ArrayList<KinesisClientRecord>();
     recordQueue.drainTo(recordEvents, 500);
 
-    List<SerializedEvent> events = new ArrayList<>(recordEvents.size());
+    var events = new ArrayList<SerializedEvent>(recordEvents.size());
     log.trace("Got record: {}", recordEvents.size());
 
-    for (KinesisClientRecord r : recordEvents) {
-      Map<String, String> metadata = new HashMap<>();
-      metadata.put(METADATA_KINESIS_PARTITION_KEY, r.partitionKey());
-      metadata.put(METADATA_KINESIS_SEQUENCE_NUMBER, r.sequenceNumber());
-      metadata.put(METADATA_KINESIS_HASH_KEY, r.explicitHashKey());
-      if (r.schema() != null) {
-        metadata.put(METADATA_KINESIS_SCHEMA_DATA_FORMAT, r.schema().getDataFormat());
-        metadata.put(METADATA_KINESIS_SCHEMA_DEFINITION, r.schema().getSchemaDefinition());
-        metadata.put(METADATA_KINESIS_SCHEMA_NAME, r.schema().getSchemaName());
-      }
-
-      byte[] value = SdkBytes.fromByteBuffer(r.data()).asByteArray();
-
-      byte[] key = null;
-      if (r.explicitHashKey() != null) {
-        key = r.explicitHashKey().getBytes(StandardCharsets.UTF_8);
-      }
-
-      SerializedEvent serializedEvent = new SerializedEvent(key, value, metadata);
-
+    for (var r : recordEvents) {
+      var serializedEvent = getSerializedEvent(r, getMetadata(r));
+      if (serializedEvent == null) continue;
       events.add(serializedEvent);
     }
 
+    if (events.isEmpty()) {
+      checkSchedulerIsRunning();
+    }
+
     return events;
+  }
+
+  private void checkSchedulerIsRunning() {
+    // first process all messages
+    // and then throw any exceptions or report not running
+    if (schedulerError.get() != null) {
+      throw new KinesisSourceFetcherError("kinesis scheduler error", schedulerError.get());
+    }
+    if (!schedulerRunning.get()) {
+      throw new KinesisSourceFetcherError("The kinesis scheduler stopped running");
+    }
+  }
+
+  private static @NotNull Map<String, String> getMetadata(KinesisClientRecord r) {
+    Map<String, String> metadata = new HashMap<>();
+    metadata.put(METADATA_KINESIS_PARTITION_KEY, r.partitionKey());
+    metadata.put(METADATA_KINESIS_SEQUENCE_NUMBER, r.sequenceNumber());
+    metadata.put(METADATA_KINESIS_HASH_KEY, r.explicitHashKey());
+    return metadata;
+  }
+
+  private static @Nullable SerializedEvent getSerializedEvent(
+      KinesisClientRecord r, Map<String, String> metadata) {
+    var data = r.data();
+    if (data == null) {
+      return null;
+    }
+
+    var value = SdkBytes.fromByteBuffer(data).asByteArray();
+
+    byte[] key = null;
+    var hashKey = r.explicitHashKey();
+    if (hashKey != null) {
+      key = hashKey.getBytes(StandardCharsets.UTF_8);
+    }
+
+    return new SerializedEvent(key, value, metadata);
   }
 
   @Override
