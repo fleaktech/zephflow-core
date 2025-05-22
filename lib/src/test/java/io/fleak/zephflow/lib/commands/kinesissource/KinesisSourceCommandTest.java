@@ -98,6 +98,7 @@ public class KinesisSourceCommandTest {
                                         new MetricClientProvider.NoopMetricClientProvider(),
                                         eventConsumer);
                             } catch (Exception e) {
+                                log.error(">>>>>>>>>>>>>>> Error executing kinesis source command:");
                                 log.error(e.getMessage(), e);
                                 Assertions.assertNull(e, e.getMessage());
                             }
@@ -121,6 +122,7 @@ public class KinesisSourceCommandTest {
     @BeforeAll
     public static void setup() {
         LOCALSTACK.start();
+        System.setProperty("aws.region", LOCALSTACK.getRegion());
 
         kinesisClient = KinesisClient.builder()
                 .endpointOverride(LOCALSTACK.getEndpointOverride(KINESIS))
