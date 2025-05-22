@@ -63,11 +63,15 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Build SDK fat jar
-        # if: github.event_name == 'release'  # Use this for production
-        if: github.ref != 'refs/heads/main' && github.event_name != 'release'  # Testing only
+        # Run for BOTH testing AND releases
+        if: (github.ref != 'refs/heads/main' && github.event_name != 'release') || github.event_name == 'release'
         id: build_jar
         run: |
           ./gradlew clean :sdk:shadowJar
+          
+          # Get version
+          VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           
           # List the built artifacts
           echo "=== Listing built artifacts ==="
@@ -75,26 +79,44 @@ jobs:
           
           # Find the fat jar
           JAR_FILE=$(find sdk/build/libs/ -name "*-all.jar" -type f | head -1)
+          if [ -z "$JAR_FILE" ]; then
+          echo "ERROR: No fat jar found!"
+          exit 1
+          fi
+          
           echo "jar_path=$JAR_FILE" >> $GITHUB_OUTPUT
           echo "jar_name=$(basename $JAR_FILE)" >> $GITHUB_OUTPUT
+          echo "Found JAR: $JAR_FILE"
 
-      # For testing - upload as GitHub artifact (no permissions needed)
-      - name: Upload JAR as Artifact (Testing Only)
-        if: github.ref != 'refs/heads/main' && github.event_name != 'release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: zephflow-sdk-fatjar-${{ github.run_number }}
-          path: ${{ steps.build_jar.outputs.jar_path }}
-          retention-days: 7
+      # Set release parameters based on context
+      - name: Set Release Parameters
+        if: (github.ref != 'refs/heads/main' && github.event_name != 'release') || github.event_name == 'release'
+        id: release_params
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            # Production release - use existing tag
+            echo "tag_name=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "create_release=false" >> $GITHUB_OUTPUT
+          else
+            # Test release - create new tag
+            echo "tag_name=test-${{ github.run_number }}-${{ github.run_id }}" >> $GITHUB_OUTPUT
+            echo "create_release=true" >> $GITHUB_OUTPUT
+            echo "release_name=Test Release ${{ steps.build_jar.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
 
-      # For actual releases - upload to existing release
+      # Upload JAR to release (works for both test and production)
       - name: Upload Fat JAR to Release
-        if: github.event_name == 'release'
+        if: (github.ref != 'refs/heads/main' && github.event_name != 'release') || github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.release_params.outputs.tag_name }}
+          name: ${{ steps.release_params.outputs.release_name }}
+          draft: ${{ steps.release_params.outputs.create_release == 'true' }}
+          prerelease: ${{ steps.release_params.outputs.create_release == 'true' }}
+          body: |
+            ${{ steps.release_params.outputs.create_release == 'true' && format('🧪 **Test Release** - DO NOT USE IN PRODUCTION\n\nVersion: {0}\nBranch: {1}\nCommit: {2}\n\n⚠️ This is a test release and will be deleted.', steps.build_jar.outputs.version, github.ref, github.sha) || '' }}
           files: |
             ${{ steps.build_jar.outputs.jar_path }}
-          tag_name: ${{ github.event.release.tag_name }}
 
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
