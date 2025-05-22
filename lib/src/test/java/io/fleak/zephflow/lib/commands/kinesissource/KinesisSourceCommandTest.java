@@ -43,7 +43,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static org.junit.jupiter.api.Assertions.*;
@@ -91,6 +94,9 @@ public class KinesisSourceCommandTest {
         command.parseAndValidateArg(toJsonString(config));
 
         var executor = Executors.newSingleThreadExecutor();
+        var commandExecutionException = new AtomicReference<Exception>();
+        var commandExecutionRunning = new AtomicBoolean(true);
+
         var future = executor.submit(
                         () -> {
                             try {
@@ -100,7 +106,10 @@ public class KinesisSourceCommandTest {
                             } catch (Exception e) {
                                 log.error(">>>>>>>>>>>>>>> Error executing kinesis source command:");
                                 log.error(e.getMessage(), e);
+                                commandExecutionException.set(e);
                                 Assertions.assertNull(e, e.getMessage());
+                            } finally {
+                                commandExecutionRunning.set(false);
                             }
                         });
 
@@ -109,7 +118,17 @@ public class KinesisSourceCommandTest {
         sendTestData(n);
 
         log.info("Trying to read records");
-        waitAndFetchRecords(eventConsumer, n);
+        waitAndFetchRecords(eventConsumer, n,
+                () -> {
+                    if(commandExecutionException.get() != null) {
+                        throw commandExecutionException.get();
+                    }
+                    if(!commandExecutionRunning.get()) {
+                        throw new RuntimeException("Command execution stopped");
+                    }
+                    return false;
+                }
+        );
         var records = eventConsumer.receivedEvents;
         future.cancel(true);
         executor.shutdown();
@@ -159,11 +178,14 @@ public class KinesisSourceCommandTest {
     }
 
     @SneakyThrows
-    private static void waitAndFetchRecords(TestSourceEventAcceptor fetcher, int waitForN) {
+    private static void waitAndFetchRecords(TestSourceEventAcceptor fetcher, int waitForN, Callable<Boolean> checkRunning) {
         int maxAttempts = 60 * 10;
         int delayMillis = 10_000;
 
         for(int i = 0; i < maxAttempts; i++) {
+            if(!checkRunning.call()){
+                return;
+            }
             if(fetcher.receivedEvents.size() < waitForN) {
                 Thread.sleep(delayMillis);
             }
