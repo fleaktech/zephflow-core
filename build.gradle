@@ -217,4 +217,10 @@ subprojects {
     include '**/*.java'
     exclude '**/build/generated/**/*.java'
   }
+
+  task printVersion {
+    doLast {
+      println version
+    }
+  }
 }
