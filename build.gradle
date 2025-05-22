@@ -74,15 +74,16 @@ jreleaser {
     active = 'ALWAYS'
     armored = true
   }
-
-  deploy {
-    maven {
-      mavenCentral {
-        sonatype {
-          active = 'ALWAYS'
-          url = 'https://central.sonatype.com/api/v1/publisher'
-          stagingRepository('build/staging-deploy')
-          maxRetries = 150
+  if (project.hasProperty('enableMavenCentralDeploy') && project.property('enableMavenCentralDeploy').toBoolean()) {
+    deploy {
+      maven {
+        mavenCentral {
+          sonatype {
+            active = 'ALWAYS'
+            url = 'https://central.sonatype.com/api/v1/publisher'
+            stagingRepository('build/staging-deploy')
+            maxRetries = 150
+          }
         }
       }
     }

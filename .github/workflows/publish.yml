@@ -76,7 +76,7 @@ jobs:
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish jreleaserDeploy
+        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish -PenableMavenCentralDeploy=true jreleaserDeploy
         env:
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
