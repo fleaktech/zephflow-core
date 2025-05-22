@@ -68,7 +68,7 @@ public class AwsClientFactory implements Serializable {
   }
 
   public static KinesisAsyncClient getKinesisAsyncClient(
-      @Nullable URI endpoint, @Nullable AwsCredentialsProvider credentialsProvider) {
+      Region region, @Nullable URI endpoint, @Nullable AwsCredentialsProvider credentialsProvider) {
     var kinesisClientBuilder = KinesisAsyncClient.builder();
     if (endpoint != null) {
       log.info("Using Kinesis endpoint {}", endpoint);
@@ -78,7 +78,7 @@ public class AwsClientFactory implements Serializable {
       kinesisClientBuilder = kinesisClientBuilder.credentialsProvider(credentialsProvider);
     }
 
-    return kinesisClientBuilder.build();
+    return kinesisClientBuilder.region(region).build();
   }
 
   public KinesisClient createKinesisClient(

@@ -80,7 +80,8 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     }
 
     KinesisAsyncClient kinesisClient =
-        AwsClientFactory.getKinesisAsyncClient(config.getKinesisEndpoint(), credentialsProvider);
+        AwsClientFactory.getKinesisAsyncClient(
+            Region.of(config.getRegionStr()), config.getKinesisEndpoint(), credentialsProvider);
 
     Region region = Region.of(config.getRegionStr());
     DynamoDbAsyncClient dynamoClient =
