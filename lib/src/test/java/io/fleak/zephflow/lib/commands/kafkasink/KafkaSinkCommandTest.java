@@ -100,6 +100,9 @@ class KafkaSinkCommandTest {
     if (adminClient != null) {
       adminClient.close();
     }
+    if (KAFKA_CONTAINER.isRunning()) {
+      KAFKA_CONTAINER.stop();
+    }
   }
 
   @Test
