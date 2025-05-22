@@ -365,4 +365,16 @@ str_split("a,b,c", ",")
     assertInstanceOf(RecordFleakData.class, actual);
     assertTrue(actual.getPayload().isEmpty());
   }
+
+  @Test
+  public void testDictKeyWithDot() {
+    String evalExpr = "dict(a.b=5)";
+    FleakData inputEvent = FleakData.wrap(Map.of());
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    FleakData actual = visitor.visit(parser.language());
+    assertInstanceOf(RecordFleakData.class, actual);
+    assertEquals(Map.of("a.b", 5L), actual.unwrap());
+  }
 }
