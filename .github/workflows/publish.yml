@@ -12,7 +12,7 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       checks: write
       pull-requests: write
       id-token: write # Required for keyless signing
@@ -65,41 +65,27 @@ jobs:
       - name: Build SDK fat jar
         # if: github.event_name == 'release'  # Use this for production
         if: github.ref != 'refs/heads/main' && github.event_name != 'release'  # Testing only
+        id: build_jar
         run: |
           ./gradlew clean :sdk:shadowJar
           
-          # Get version and artifact info
-          VERSION=$(./gradlew properties -q | grep "version:" | awk '{print $2}')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
-          
-          # List the built artifacts to verify they exist
+          # List the built artifacts
           echo "=== Listing built artifacts ==="
           ls -la sdk/build/libs/
           
-          # Set the jar path
-          echo "jar_path=./sdk/build/libs/sdk-${VERSION}-all.jar" >> $GITHUB_OUTPUT
-          echo "jar_name=zephflow-sdk-${VERSION}-all.jar" >> $GITHUB_OUTPUT
+          # Find the fat jar
+          JAR_FILE=$(find sdk/build/libs/ -name "*-all.jar" -type f | head -1)
+          echo "jar_path=$JAR_FILE" >> $GITHUB_OUTPUT
+          echo "jar_name=$(basename $JAR_FILE)" >> $GITHUB_OUTPUT
 
-      # For testing in branches - create a draft release
-      - name: Create Test Release and Upload JAR (Testing Only)
+      # For testing - upload as GitHub artifact (no permissions needed)
+      - name: Upload JAR as Artifact (Testing Only)
         if: github.ref != 'refs/heads/main' && github.event_name != 'release'
-        uses: softprops/action-gh-release@v1
+        uses: actions/upload-artifact@v4
         with:
-          name: Test Release ${{ steps.artifact_info.outputs.version }}
-          draft: true
-          prerelease: true
-          body: |
-            🧪 **Test Release**
-            - Branch: `${{ github.ref }}`
-            - Version: `${{ steps.artifact_info.outputs.version }}`
-            - Commit: `${{ github.sha }}`
-            - Run: `${{ github.run_number }}`
-            
-            ⚠️ This is a draft release for testing purposes and should be deleted after verification.
-          files: |
-            ${{ steps.artifact_info.outputs.jar_path }}
-          tag_name: test-${{ github.run_number }}
+          name: zephflow-sdk-fatjar-${{ github.run_number }}
+          path: ${{ steps.build_jar.outputs.jar_path }}
+          retention-days: 7
 
       # For actual releases - upload to existing release
       - name: Upload Fat JAR to Release
@@ -107,7 +93,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ${{ steps.artifact_info.outputs.jar_path }}
+            ${{ steps.build_jar.outputs.jar_path }}
           tag_name: ${{ github.event.release.tag_name }}
 
       # Publish Release to Maven Central
