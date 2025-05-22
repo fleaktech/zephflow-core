@@ -66,7 +66,7 @@ jobs:
       - name: Test SDK fat jar to GitHub Releases (NO Maven Central)
         # if: github.event_name == 'release'
         if: github.ref != 'refs/heads/main' && github.event_name != 'release'
-        run: ./gradlew clean :sdk:shadowJar -Djreleaser.deployers.maven.mavenCentral.active=NEVER jreleaserDeploy
+        run: ./gradlew clean :sdk:shadowJar -Djreleaser.deployers.maven.mavenCentral.active=NEVER jreleaserRelease
         env:
           JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
           JRELEASER_GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -76,7 +76,7 @@ jobs:
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish -PenableMavenCentralDeploy=true jreleaserDeploy
+        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish jreleaserDeploy
         env:
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
