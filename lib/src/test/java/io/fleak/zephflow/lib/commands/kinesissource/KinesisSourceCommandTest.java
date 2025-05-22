@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.localstack.LocalStackContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -59,12 +60,11 @@ public class KinesisSourceCommandTest {
             AwsBasicCredentials.create("test", "test")
     );
 
-    public static LocalStackContainer LOCALSTACK = new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
-            .withServices(
-                    KINESIS,
+    @Container
+    static public LocalStackContainer LOCALSTACK = new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.5.0"))
+            .withServices(KINESIS,
                     LocalStackContainer.Service.DYNAMODB,
-                    LocalStackContainer.Service.CLOUDWATCH
-            );
+                    LocalStackContainer.Service.CLOUDWATCH);
 
     private static KinesisClient kinesisClient;
 
