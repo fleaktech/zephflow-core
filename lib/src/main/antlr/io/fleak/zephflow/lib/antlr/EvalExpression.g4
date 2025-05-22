@@ -556,7 +556,11 @@ grokArg
     ;
 
 kvPair
-    : IDENTIFIER '=' expression
+    : idWithDot '=' expression
+    ;
+
+idWithDot
+    : IDENTIFIER('.'IDENTIFIER)*
     ;
 
 /*
