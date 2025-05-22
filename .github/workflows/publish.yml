@@ -62,21 +62,58 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      # Test Publish SDK fat jar to GitHub Releases (and skip Maven Central)
-      - name: Test SDK fat jar to GitHub Releases (NO Maven Central)
-        # if: github.event_name == 'release'
+      - name: Build SDK fat jar
+        # if: github.event_name == 'release'  # Use this for production
+        if: github.ref != 'refs/heads/main' && github.event_name != 'release'  # Testing only
+        run: |
+          ./gradlew clean :sdk:shadowJar
+          
+          # Get version and artifact info
+          VERSION=$(./gradlew properties -q | grep "version:" | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+          
+          # List the built artifacts to verify they exist
+          echo "=== Listing built artifacts ==="
+          ls -la sdk/build/libs/
+          
+          # Set the jar path
+          echo "jar_path=./sdk/build/libs/sdk-${VERSION}-all.jar" >> $GITHUB_OUTPUT
+          echo "jar_name=zephflow-sdk-${VERSION}-all.jar" >> $GITHUB_OUTPUT
+
+      # For testing in branches - create a draft release
+      - name: Create Test Release and Upload JAR (Testing Only)
         if: github.ref != 'refs/heads/main' && github.event_name != 'release'
-        run: ./gradlew clean :sdk:shadowJar -Djreleaser.deployers.maven.mavenCentral.active=NEVER jreleaserRelease
-        env:
-          JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
-          JRELEASER_GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          JRELEASER_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Test Release ${{ steps.artifact_info.outputs.version }}
+          draft: true
+          prerelease: true
+          body: |
+            🧪 **Test Release**
+            - Branch: `${{ github.ref }}`
+            - Version: `${{ steps.artifact_info.outputs.version }}`
+            - Commit: `${{ github.sha }}`
+            - Run: `${{ github.run_number }}`
+            
+            ⚠️ This is a draft release for testing purposes and should be deleted after verification.
+          files: |
+            ${{ steps.artifact_info.outputs.jar_path }}
+          tag_name: test-${{ github.run_number }}
+
+      # For actual releases - upload to existing release
+      - name: Upload Fat JAR to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ steps.artifact_info.outputs.jar_path }}
+          tag_name: ${{ github.event.release.tag_name }}
 
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish -PenableMavenCentralDeploy=true jreleaserDeploy
+        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish jreleaserDeploy
         env:
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
