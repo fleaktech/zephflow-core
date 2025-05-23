@@ -13,27 +13,56 @@
  */
 package io.fleak.zephflow.lib.commands.kinesissource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
+
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.jetbrains.annotations.Nullable;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 @Slf4j
 public class KinesisSourceCommandPartsFactory extends SourceCommandPartsFactory<SerializedEvent> {
 
-  public KinesisSourceCommandPartsFactory(MetricClientProvider metricClientProvider) {
+  private final JobContext jobContext;
+
+  public KinesisSourceCommandPartsFactory(
+      MetricClientProvider metricClientProvider, JobContext jobContext) {
     super(metricClientProvider);
+    this.jobContext = jobContext;
   }
 
   @Override
   public Fetcher<SerializedEvent> createFetcher(CommandConfig commandConfig) {
     KinesisSourceDto.Config config = (KinesisSourceDto.Config) commandConfig;
-
-    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(config);
+    AwsCredentialsProvider credentialsProvider = getAwsCredentialsProvider(config);
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(config, credentialsProvider);
     fetcher.start();
     return fetcher;
+  }
+
+  private @Nullable AwsCredentialsProvider getAwsCredentialsProvider(
+      KinesisSourceDto.Config config) {
+    AwsCredentialsProvider credentialsProvider = null;
+    var credentialId = StringUtils.trimToNull(config.getCredentialId());
+    if (credentialId != null) {
+      var credentialsOpt =
+          lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+      if (credentialsOpt.isPresent()) {
+        var credentials = credentialsOpt.get();
+        credentialsProvider =
+            StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(credentials.getUsername(), credentials.getPassword()));
+      }
+    }
+    return credentialsProvider;
   }
 
   @Override

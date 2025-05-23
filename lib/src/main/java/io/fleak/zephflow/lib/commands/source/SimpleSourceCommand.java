@@ -108,7 +108,6 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   }
 
   private List<T> doFetch(Fetcher<T> fetcher) {
-
     if (!finished.get()) {
       List<T> fetchedData = fetcher.fetch();
       log.trace("fetched {} records from source", CollectionUtils.size(fetchedData));

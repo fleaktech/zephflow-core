@@ -43,8 +43,6 @@ public interface KinesisSourceDto {
     private URI kinesisEndpoint;
     private URI cloudWatchEndpoint;
 
-    private StaticCredentials staticCredentials;
+    private String credentialId;
   }
-
-  record StaticCredentials(String key, String secret) {}
 }

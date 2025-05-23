@@ -29,9 +29,7 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
@@ -69,16 +67,8 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
           });
 
   @SneakyThrows
-  public KinesisSourceFetcher(@NonNull KinesisSourceDto.Config config) {
-    AwsCredentialsProvider credentialsProvider = null;
-
-    if (config.getStaticCredentials() != null) {
-      credentialsProvider =
-          StaticCredentialsProvider.create(
-              AwsBasicCredentials.create(
-                  config.getStaticCredentials().key(), config.getStaticCredentials().secret()));
-    }
-
+  public KinesisSourceFetcher(
+      @NonNull KinesisSourceDto.Config config, AwsCredentialsProvider credentialsProvider) {
     KinesisAsyncClient kinesisClient =
         AwsClientFactory.getKinesisAsyncClient(
             Region.of(config.getRegionStr()), config.getKinesisEndpoint(), credentialsProvider);
@@ -199,6 +189,12 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     metadata.put(METADATA_KINESIS_PARTITION_KEY, r.partitionKey());
     metadata.put(METADATA_KINESIS_SEQUENCE_NUMBER, r.sequenceNumber());
     metadata.put(METADATA_KINESIS_HASH_KEY, r.explicitHashKey());
+    var schema = r.schema();
+    if (schema != null) {
+      metadata.put(METADATA_KINESIS_SCHEMA_DATA_FORMAT, schema.getDataFormat());
+      metadata.put(METADATA_KINESIS_SCHEMA_DEFINITION, schema.getSchemaDefinition());
+      metadata.put(METADATA_KINESIS_SCHEMA_NAME, schema.getSchemaName());
+    }
     return metadata;
   }
 
