@@ -13,6 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.kinesissource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.enforceCredentials;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
+
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
@@ -51,6 +54,10 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
       Preconditions.checkState(
           initialTS == null,
           "Timestamp must not be provided unless initial position is AT_TIMESTAMP");
+    }
+    if (StringUtils.trimToNull(config.getCredentialId()) != null
+        && enforceCredentials(jobContext)) {
+      lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
     }
   }
 }

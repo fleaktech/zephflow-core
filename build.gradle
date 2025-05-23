@@ -65,6 +65,7 @@ allprojects {
   test {
     environment "AWS_ACCESS_KEY_ID", "test"
     environment "AWS_SECRET_ACCESS_KEY", "test"
+    systemProperty "testcontainers.reuse.enable", "false"
   }
 
   jacocoTestReport {
@@ -195,6 +196,9 @@ subprojects {
     testImplementation group: 'org.testcontainers', name: 'postgresql', version: testContainersVersion
     testImplementation group: 'org.testcontainers', name: 'minio', version: testContainersVersion
     testImplementation group: 'org.testcontainers', name: 'kafka', version: testContainersVersion
+    testImplementation group: 'org.testcontainers', name: 'localstack', version: testContainersVersion
+    testImplementation group: 'org.apache.logging.log4j', name: 'log4j-core', version: log4j2Version
+    testImplementation group: 'org.apache.logging.log4j', name: 'log4j-slf4j2-impl', version: log4j2Version
 
     constraints {
       implementation("commons-codec:commons-codec:${commonsCodecVersion}")
@@ -223,8 +227,4 @@ subprojects {
     include '**/*.java'
     exclude '**/build/generated/**/*.java'
   }
-}
-
-test {
-  systemProperty "testcontainers.reuse.enable", "false"
 }

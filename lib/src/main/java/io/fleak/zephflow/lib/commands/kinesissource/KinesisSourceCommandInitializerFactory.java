@@ -29,6 +29,6 @@ public class KinesisSourceCommandInitializerFactory
       JobContext jobContext,
       CommandConfig commandConfig,
       String nodeId) {
-    return new KinesisSourceCommandPartsFactory(metricClientProvider);
+    return new KinesisSourceCommandPartsFactory(metricClientProvider, jobContext);
   }
 }

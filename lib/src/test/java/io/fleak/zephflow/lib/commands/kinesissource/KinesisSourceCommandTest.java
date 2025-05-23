@@ -17,6 +17,7 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -39,10 +40,7 @@ import software.amazon.awssdk.services.kinesis.model.PutRecordRequest;
 import software.amazon.kinesis.common.InitialPositionInStream;
 
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.Executors;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
@@ -70,6 +68,14 @@ public class KinesisSourceCommandTest {
 
     @Test
     public void testFetcher() throws Exception {
+
+        var localStackCreds =  new UsernamePasswordCredential(LOCALSTACK.getAccessKey(), LOCALSTACK.getSecretKey());
+        var jobContext = TestUtils.buildJobContext(new HashMap<>(
+                Map.of(
+                        "kinesis-creds",
+                        localStackCreds)));
+
+
         var config = KinesisSourceDto.Config.builder()
                 .encodingType(EncodingType.TEXT)
                 .streamName(STREAM_NAME)
@@ -78,13 +84,13 @@ public class KinesisSourceCommandTest {
                 .cloudWatchEndpoint(new URI(LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.CLOUDWATCH).toString()))
                 .kinesisEndpoint(new URI(LOCALSTACK.getEndpointOverride(KINESIS).toString()))
                 .dynamoEndpoint(new URI(LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.DYNAMODB).toString()))
-                .staticCredentials(new KinesisSourceDto.StaticCredentials(LOCALSTACK.getAccessKey(), LOCALSTACK.getSecretKey()))
+                .credentialId("kinesis-creds")
                 .initialPosition(InitialPositionInStream.TRIM_HORIZON)
                 .disableMetrics(true)
                 .build();
 
         var commandFactory = new KinesisSourceCommandFactory();
-        var command = commandFactory.createCommand("my_note", TestUtils.JOB_CONTEXT);
+        var command = commandFactory.createCommand("my_node", jobContext);
 
         var eventConsumer = new TestSourceEventAcceptor();
 
