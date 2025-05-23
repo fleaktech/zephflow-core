@@ -18,6 +18,9 @@ provides an intuitive way to create and execute stateless data processing pipeli
 
 For detailed documentation about ZephFlow, please visit our [doc site](https://docs.fleak.ai/zephflow).
 
+## Slack Community
+Join the Slack Workspace [here](https://join.slack.com/t/fleak-hq/shared_invite/zt-361k9cnhf-9~mmjpOH1IbZfRxeXplfKA).
+
 ---
 
 © 2025 Fleak Tech Inc.
