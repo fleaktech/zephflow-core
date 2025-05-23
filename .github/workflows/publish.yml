@@ -103,7 +103,7 @@ jobs:
         if: github.event_name == 'release'
         run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish jreleaserDeploy
         env:
-          GRADLE_OPTS: "-Xmx4g -Xms2g -XX:MaxMetaspaceSize=512m"
+          GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
           JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.GPG_PUBLIC_KEY }}
