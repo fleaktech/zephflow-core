@@ -17,18 +17,69 @@ import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.Serializable;
 import java.net.URI;
 import java.util.Optional;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /** Created by bolei on 8/6/24 */
 @Slf4j
 public class AwsClientFactory implements Serializable {
+
+  public static CloudWatchAsyncClient getCloudWatchAsyncClient(
+      @Nonnull Region region,
+      @Nullable URI endpoint,
+      @Nullable AwsCredentialsProvider credentialsProvider) {
+    var cloudWatchClientBuilder = CloudWatchAsyncClient.builder().region(region);
+    if (endpoint != null) {
+      log.info("Using CloudWatch endpoint {}", endpoint);
+      cloudWatchClientBuilder = cloudWatchClientBuilder.endpointOverride(endpoint);
+    }
+    if (credentialsProvider != null) {
+      cloudWatchClientBuilder = cloudWatchClientBuilder.credentialsProvider(credentialsProvider);
+    }
+    return cloudWatchClientBuilder.build();
+  }
+
+  public static DynamoDbAsyncClient getDynamoDbAsyncClient(
+      @Nonnull Region region,
+      @Nullable URI endpoint,
+      @Nullable AwsCredentialsProvider credentialsProvider) {
+    var dynamoClientBuilder = DynamoDbAsyncClient.builder().region(region);
+    if (endpoint != null) {
+      log.info("Using DynamoDB endpoint {}", endpoint);
+      dynamoClientBuilder = dynamoClientBuilder.endpointOverride(endpoint);
+    }
+    if (credentialsProvider != null) {
+      dynamoClientBuilder = dynamoClientBuilder.credentialsProvider(credentialsProvider);
+    }
+
+    return dynamoClientBuilder.build();
+  }
+
+  public static KinesisAsyncClient getKinesisAsyncClient(
+      Region region, @Nullable URI endpoint, @Nullable AwsCredentialsProvider credentialsProvider) {
+    var kinesisClientBuilder = KinesisAsyncClient.builder();
+    if (endpoint != null) {
+      log.info("Using Kinesis endpoint {}", endpoint);
+      kinesisClientBuilder = kinesisClientBuilder.endpointOverride(endpoint);
+    }
+    if (credentialsProvider != null) {
+      kinesisClientBuilder = kinesisClientBuilder.credentialsProvider(credentialsProvider);
+    }
+
+    return kinesisClientBuilder.region(region).build();
+  }
 
   public KinesisClient createKinesisClient(
       String regionStr, UsernamePasswordCredential usernamePasswordCredential) {

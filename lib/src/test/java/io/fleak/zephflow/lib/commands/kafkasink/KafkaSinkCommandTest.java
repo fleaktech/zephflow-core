@@ -41,7 +41,6 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /** Created by bolei on 3/17/25 */
 @Testcontainers
@@ -49,8 +48,7 @@ class KafkaSinkCommandTest {
   private static final String TOPIC_NAME = "test_topic";
 
   @Container
-  private static final KafkaContainer KAFKA_CONTAINER =
-      new KafkaContainer(DockerImageName.parse("apache/kafka:latest"));
+  private static final KafkaContainer KAFKA_CONTAINER = new KafkaContainer("apache/kafka-native:3.8.0");
 
   private static AdminClient adminClient;
   private static KafkaConsumer<byte[], byte[]> consumer;
@@ -101,6 +99,9 @@ class KafkaSinkCommandTest {
     }
     if (adminClient != null) {
       adminClient.close();
+    }
+    if (KAFKA_CONTAINER.isRunning()) {
+      KAFKA_CONTAINER.stop();
     }
   }
 
