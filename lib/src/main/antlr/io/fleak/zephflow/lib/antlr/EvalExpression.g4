@@ -556,11 +556,11 @@ grokArg
     ;
 
 kvPair
-    : idWithDot '=' expression
+    : dictKey '=' expression
     ;
 
-idWithDot
-    : IDENTIFIER('.'IDENTIFIER)*
+dictKey
+    : IDENTIFIER(('.'|'::')IDENTIFIER)*
     ;
 
 /*
