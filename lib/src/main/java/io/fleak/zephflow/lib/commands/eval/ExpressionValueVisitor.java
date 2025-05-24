@@ -275,7 +275,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   @Override
   public FleakData visitKvPair(EvalExpressionParser.KvPairContext ctx) {
-    String key = ctx.idWithDot().getText();
+    String key = ctx.dictKey().getText();
     FleakData val = visit(ctx.expression());
     HashMap<String, FleakData> payload = new HashMap<>();
     payload.put(key, val);
