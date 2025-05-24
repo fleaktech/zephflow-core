@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
 import java.util.ArrayList;
 import java.util.List;
@@ -388,5 +389,32 @@ str_split("a,b,c", ",")
     FleakData actual = visitor.visit(parser.language());
     assertInstanceOf(RecordFleakData.class, actual);
     assertEquals(Map.of("a::b", 5L), actual.unwrap());
+  }
+
+  @Test
+  public void testProblematicPython() {
+    String evalExpr =
+"""
+dict(
+  pyData=python(
+    'invalid python script',
+    $.k
+  )
+)
+""";
+
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    EvalExpressionParser.LanguageContext languageContext = parser.language();
+    Exception exception =
+        assertThrows(
+            Exception.class,
+            () -> {
+              try (PythonExecutor ignored = PythonExecutor.createPythonExecutor(languageContext)) {
+                fail("should not reach here");
+              }
+            });
+    assertEquals(
+        "SyntaxError: invalid syntax (compileTimeScript.py, line 1)", exception.getMessage());
   }
 }

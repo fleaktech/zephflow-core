@@ -42,7 +42,14 @@ public class EvalCommandInitializer extends DefaultCommandInitializer {
         (EvalExpressionParser)
             AntlrUtils.parseInput(config.expression(), AntlrUtils.GrammarType.EVAL);
     EvalExpressionParser.LanguageContext languageContext = parser.language();
-    PythonExecutor pythonExecutor = PythonExecutor.createPythonExecutor(languageContext);
+    PythonExecutor pythonExecutor = null;
+    try {
+      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext);
+    } catch (Exception e) {
+      log.error(
+          "An unexpected error occurred during Python support initialization. Python execution will be disabled.",
+          e);
+    }
     return new EvalInitializedConfig(
         inputMessageCounter,
         outputMessageCounter,
