@@ -68,7 +68,7 @@ jobs:
         id: build_jar
         run: |
           echo "Building SDK fat jar for release ${{ github.event.release.tag_name }}..."
-          ./gradlew clean :sdk:buildFatJar -Prelease.useLastTag=true
+          ./gradlew clean :sdk:shadowJar -Prelease.useLastTag=true
           
           # Get version for logging
           VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
