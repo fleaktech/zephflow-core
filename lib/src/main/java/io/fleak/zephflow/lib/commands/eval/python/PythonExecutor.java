@@ -51,28 +51,20 @@ public class PythonExecutor implements AutoCloseable {
       EvalExpressionParser.LanguageContext languageContext) {
 
     // Attempt to create GraalVM resources
-    try {
-      PythonFunctionCollector collector = new PythonFunctionCollector(new HashMap<>());
-      ParseTreeWalker walker = new ParseTreeWalker();
-      walker.walk(collector, languageContext); // Walk the parsed tree
+    PythonFunctionCollector collector = new PythonFunctionCollector(new HashMap<>());
+    ParseTreeWalker walker = new ParseTreeWalker();
+    walker.walk(collector, languageContext); // Walk the parsed tree
 
-      Map<ParserRuleContext, CompiledPythonFunction> compiledFunctions =
-          collector.getCompiledFunctions();
-      log.debug(
-          "Python function pre-compilation complete. Found {} Python function nodes.",
-          compiledFunctions.size());
+    Map<ParserRuleContext, CompiledPythonFunction> compiledFunctions =
+        collector.getCompiledFunctions();
+    log.debug(
+        "Python function pre-compilation complete. Found {} Python function nodes.",
+        compiledFunctions.size());
 
-      // Create the executor *only if* context creation and collection were successful.
-      // We allow an empty compiledFunctions map here, assuming the executor might be needed
-      // even if this particular expression has no python calls.
-      log.info("PythonExecutor created successfully.");
-      return new PythonExecutor(compiledFunctions);
-
-    } catch (Exception e) {
-      log.error(
-          "An unexpected error occurred during Python support initialization. Python execution will be disabled.",
-          e);
-    }
-    return null;
+    // Create the executor *only if* context creation and collection were successful.
+    // We allow an empty compiledFunctions map here, assuming the executor might be needed
+    // even if this particular expression has no python calls.
+    log.info("PythonExecutor created successfully.");
+    return new PythonExecutor(compiledFunctions);
   }
 }
