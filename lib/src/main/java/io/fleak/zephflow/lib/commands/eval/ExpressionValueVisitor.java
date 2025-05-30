@@ -898,15 +898,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
       return null;
     }
 
-    int index;
-    if (ctx.arrIdx().INT_LITERAL() != null) {
-
-      String indexText = ctx.arrIdx().INT_LITERAL().getText();
-      index = Integer.parseInt(indexText);
-    } else {
-      index = evalArgAsInt(ctx.arrIdx().expression(), "expression");
-    }
-
+    int index = evalArgAsInt(ctx.expression(), "expression");
     if (!validArrayIndex(value.getArrayPayload(), index)) {
       return null;
     }

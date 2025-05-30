@@ -644,9 +644,5 @@ fieldAccess
     ;
 
 arrayAccess
-    : '[' arrIdx ']'
-    ;
-
-arrIdx
-    :  INT_LITERAL | expression
+    : '[' expression ']'
     ;
