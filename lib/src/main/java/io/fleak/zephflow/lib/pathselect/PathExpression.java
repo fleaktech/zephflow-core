@@ -14,21 +14,13 @@
 package io.fleak.zephflow.lib.pathselect;
 
 import static io.fleak.zephflow.lib.utils.AntlrUtils.*;
-import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.google.common.base.Preconditions;
-import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
-import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
-import java.io.Serializable;
-import java.util.ArrayList;
+import io.fleak.zephflow.lib.commands.eval.ExpressionValueVisitor;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -37,10 +29,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class PathExpression {
 
-  private List<Step> path;
+  private EvalExpressionParser.PathSelectExprContext pathSelectExprContext;
 
-  public PathExpression(List<Step> path) {
-    this.path = path;
+  public PathExpression(EvalExpressionParser.PathSelectExprContext pathSelectExprContext) {
+    this.pathSelectExprContext = pathSelectExprContext;
   }
 
   public static PathExpression fromString(String jsonPathString) {
@@ -60,81 +52,31 @@ public class PathExpression {
         (EvalExpressionParser) parseInput(jsonPathString, GrammarType.EVAL);
     EvalExpressionParser.PathSelectExprContext ctx = expressionParser.pathSelectExpr();
     ensureConsumedAllTokens(expressionParser);
-    List<Step> steps =
-        ctx.step().stream()
-            .map(
-                stepContext -> {
-                  if (stepContext.fieldAccess() != null) { // field name
-                    EvalExpressionParser.FieldAccessContext fieldAccessContext =
-                        stepContext.fieldAccess();
-                    return fieldAccessContext.IDENTIFIER() == null
-                        ? new BracketFieldNameStep(
-                            unescapeStrLiteral(fieldAccessContext.QUOTED_IDENTIFIER().getText()))
-                        : new IdFieldNameStep(fieldAccessContext.IDENTIFIER().getText());
-                  } else { // array access
-                    String indexStr = stepContext.arrayAccess().INT_LITERAL().getText();
-                    int index = Integer.parseInt(indexStr);
-                    return new ArrayAccessStep(index);
-                  }
-                })
-            .toList();
-    List<Step> path = new ArrayList<>();
-    path.add(new RootStep());
-    path.addAll(steps);
-    return new PathExpression(path);
+
+    return new PathExpression(ctx);
   }
 
   public FleakData calculateValue(FleakData input) {
-    return evaluateContent(
-        input,
-        0,
-        (data, step) -> {
-          if (data == null) {
-            return null;
-          }
-          if (step instanceof RootStep) {
-            return data;
-          }
-          if (step instanceof FieldNameStep) {
-            return handleFieldNameStepValue(data, ((FieldNameStep) step).name());
-          }
-
-          ArrayAccessStep arrayAccessStep = ((ArrayAccessStep) step);
-          if (!(data instanceof ArrayFleakData)) {
-            return null;
-          }
-          List<FleakData> arrayPayload = data.getArrayPayload();
-          int idx = arrayAccessStep.getIndex();
-          if (idx >= arrayPayload.size()) {
-            return null;
-          }
-          return data.getArrayPayload().get(idx);
-        });
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(input, null);
+    return visitor.visit(pathSelectExprContext);
   }
 
   @Override
   public String toString() {
-    return path.stream().map(Step::toString).collect(Collectors.joining());
+    return pathSelectExprContext.getText();
   }
 
-  private FleakData handleFieldNameStepValue(FleakData data, String fieldName) {
-    if (!(data instanceof RecordFleakData)) {
-      return null;
-    }
-    if (data.getPayload() == null) {
-      return null;
-    }
-    return data.getPayload().get(fieldName);
+  @Override
+  public int hashCode() {
+    return pathSelectExprContext.getText().hashCode();
   }
 
-  private <T> T evaluateContent(T currentContent, int level, ValueCalculator<T> valueCalculator) {
-    Preconditions.checkArgument(validArrayIndex(path, level));
-    Step step = path.get(level);
-    T value = valueCalculator.calculateValue(currentContent, step);
-    if (level >= path.size() - 1) {
-      return value;
+  @Override
+  public boolean equals(Object obj) {
+    if (obj instanceof PathExpression that) {
+      return Objects.equals(pathSelectExprContext.getText(), that.pathSelectExprContext.getText());
     }
-    return evaluateContent(value, level + 1, valueCalculator);
+    return false;
   }
 
   public String getStringValueFromEventOrDefault(FleakData inputEvent, String defaultValue) {
@@ -142,6 +84,7 @@ public class PathExpression {
         inputEvent, new ValueExtractor.StringValueExtractor(defaultValue, null));
   }
 
+  @SuppressWarnings("unused")
   public String getStringValueFromEventOrThrow(
       FleakData inputEvent, String errorMessageTemplate, Object... args) {
     return getValueFromEvent(
@@ -150,6 +93,7 @@ public class PathExpression {
             null, new RuntimeExceptionSupplier(errorMessageTemplate, args)));
   }
 
+  @SuppressWarnings("unused")
   public List<Float> getFloatArrayFromEventOrThrow(
       FleakData inputEvent, String errorMessageTemplate, Object... args) {
     Supplier<RuntimeException> exceptionSupplier =
@@ -174,75 +118,6 @@ public class PathExpression {
       return extractor.handleError();
     }
     return extractor.extractValue(value);
-  }
-
-  @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "stepType")
-  @JsonSubTypes({
-    @JsonSubTypes.Type(value = RootStep.class, name = "root"),
-    @JsonSubTypes.Type(value = IdFieldNameStep.class, name = "fieldName"),
-    @JsonSubTypes.Type(value = ArrayAccessStep.class, name = "index"),
-  })
-  public interface Step extends Serializable {}
-
-  interface FieldNameStep extends Step {
-    String name();
-  }
-
-  public interface ValueCalculator<T> {
-    T calculateValue(T currentContent, Step s);
-  }
-
-  @Data
-  public static class RootStep implements Step {
-    public String toString() {
-      return "$";
-    }
-  }
-
-  @Data
-  @AllArgsConstructor
-  @NoArgsConstructor
-  public static class IdFieldNameStep implements FieldNameStep {
-    String name;
-
-    @Override
-    public String toString() {
-      return "." + name;
-    }
-
-    @Override
-    public String name() {
-      return name;
-    }
-  }
-
-  @Data
-  @AllArgsConstructor
-  @NoArgsConstructor
-  public static class BracketFieldNameStep implements FieldNameStep {
-    String name;
-
-    @Override
-    public String toString() {
-      return "[" + escapeStrLiteral(name) + "]";
-    }
-
-    @Override
-    public String name() {
-      return name;
-    }
-  }
-
-  @Data
-  @AllArgsConstructor
-  @NoArgsConstructor
-  public static class ArrayAccessStep implements Step {
-    int index;
-
-    @Override
-    public String toString() {
-      return String.format("[%d]", index);
-    }
   }
 
   public record RuntimeExceptionSupplier(String errorMessageTemplate, Object[] args)
