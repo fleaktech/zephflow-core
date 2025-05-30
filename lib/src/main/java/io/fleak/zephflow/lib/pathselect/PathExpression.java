@@ -72,7 +72,11 @@ public class PathExpression {
                             unescapeStrLiteral(fieldAccessContext.QUOTED_IDENTIFIER().getText()))
                         : new IdFieldNameStep(fieldAccessContext.IDENTIFIER().getText());
                   } else { // array access
-                    String indexStr = stepContext.arrayAccess().INT_LITERAL().getText();
+                    if (stepContext.arrayAccess().arrIdx().INT_LITERAL() == null) {
+                      throw new IllegalArgumentException(
+                          "Path expression only supports const value as array index");
+                    }
+                    String indexStr = stepContext.arrayAccess().arrIdx().INT_LITERAL().getText();
                     int index = Integer.parseInt(indexStr);
                     return new ArrayAccessStep(index);
                   }
