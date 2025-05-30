@@ -134,6 +134,52 @@ function
     | strContainsFunction
     | sizeFunction
     | pythonFunction
+    | rangeFunction
+    ;
+
+/*
+rangeFunction:
+Generates an array of integer numbers based on the provided arguments.
+The 'end' parameter in all variations is exclusive (the range goes up to,
+but does not include, 'end').
+
+Syntax and Behavior:
+
+1. range(count)
+   - Generates integers from 0 up to (but not including) 'count', with a step of 1.
+   - Equivalent to range(0, count, 1).
+   - Example: range(5) produces [0, 1, 2, 3, 4].
+   - If 'count' is 0 or negative, an empty array is generated.
+   - Example: range(-2) produces [].
+
+2. range(start, end)
+   - Generates integers from 'start' up to (but not including) 'end', with a step of 1.
+   - Equivalent to range(start, end, 1).
+   - Example: range(2, 5) produces [2, 3, 4].
+   - If 'start' is greater than or equal to 'end', an empty array is generated.
+   - Example: range(5, 2) produces [].
+
+3. range(start, end, step)
+   - Generates integers starting from 'start', incrementing by 'step', and stopping
+     before reaching 'end'.
+   - 'step' can be positive (to count up) or negative (to count down).
+   - 'step' cannot be zero.
+   - If 'step' is positive: numbers 'x' are generated as long as 'x < end'.
+     Example: range(0, 10, 2) produces [0, 2, 4, 6, 8].
+   - If 'step' is negative: numbers 'x' are generated as long as 'x > end'.
+     Example: range(10, 0, -2) produces [10, 8, 6, 4, 2].
+   - An empty array is generated if the conditions for generation are not met
+     from the start (e.g., if 'start >= end' with a positive 'step', or
+     if 'start <= end' with a negative 'step').
+     Example: range(0, 5, -1) produces [].
+     Example: range(5, 0, 1) produces [].
+*/
+rangeFunction
+    : 'range' '(' rangeArgs ')'
+    ;
+
+rangeArgs
+    : expression (',' expression)? (',' expression)? // For range(count), range(start, end), or range(start, end, step)
     ;
 
 /*
@@ -592,9 +638,11 @@ pathSelectExpr
 step
     : fieldAccess | arrayAccess
     ;
+
 fieldAccess
     : '[' QUOTED_IDENTIFIER ']' |'.' IDENTIFIER
     ;
+
 arrayAccess
-    : '['INT_LITERAL']'
+    : '[' expression ']'
     ;

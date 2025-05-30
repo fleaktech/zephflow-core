@@ -417,4 +417,50 @@ dict(
     assertEquals(
         "SyntaxError: invalid syntax (compileTimeScript.py, line 1)", exception.getMessage());
   }
+
+  @Test
+  public void testRangeFunc() {
+    String evalExpr;
+    FleakData outputEvent;
+    FleakData inputEvent = FleakData.wrap(Map.of());
+
+    evalExpr = "range(5)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(0, 1, 2, 3, 4), outputEvent.unwrap());
+
+    evalExpr = "range(-2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(), outputEvent.unwrap());
+
+    evalExpr = "range(2, 5)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(2, 3, 4), outputEvent.unwrap());
+
+    evalExpr = "range(0, 10, 2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(0, 2, 4, 6, 8), outputEvent.unwrap());
+
+    evalExpr = "range(10, 0, -2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(10, 8, 6, 4, 2), outputEvent.unwrap());
+
+    evalExpr = "range(5, 0, -1)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(5, 4, 3, 2, 1), outputEvent.unwrap());
+
+    evalExpr = "range(0, 5, -1)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(), outputEvent.unwrap());
+
+    evalExpr = "range(0, -5, -1)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(List.of(0, -1, -2, -3, -4), outputEvent.unwrap());
+  }
+
+  private FleakData evaluate(String evalExpr, FleakData inputEvent) {
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    return visitor.visit(parser.language());
+  }
 }
