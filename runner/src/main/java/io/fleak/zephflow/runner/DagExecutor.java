@@ -104,7 +104,7 @@ public class DagExecutor {
         CollectionUtils.size(entryNodesDagAndRest.getKey().getNodes()) == 1,
         "dag executor only supports dag with exactly one entry node");
     OperatorCommand command =
-        new ArrayList<>(entryNodesDagAndRest.getKey().getNodes()).getFirst().getNodeContent();
+        new ArrayList<>(entryNodesDagAndRest.getKey().getNodes()).get(0).getNodeContent();
     Preconditions.checkArgument(command instanceof SourceCommand);
     SimpleSourceCommand<?> sourceCommand = (SimpleSourceCommand<?>) command;
     List<Edge> edgesFromSource = new ArrayList<>(entryNodesDagAndRest.getKey().getEdges());

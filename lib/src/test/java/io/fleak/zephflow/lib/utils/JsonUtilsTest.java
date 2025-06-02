@@ -153,10 +153,10 @@ class JsonUtilsTest {
             JsonUtils.fromJsonResource("/json/arr_num_event.json", new TypeReference<>() {}));
     Assertions.assertNotNull(arrayFleakData);
     Assertions.assertEquals(4, arrayFleakData.getArrayPayload().size());
-    Assertions.assertEquals(100, arrayFleakData.getArrayPayload().getFirst().getNumberValue());
+    Assertions.assertEquals(100, arrayFleakData.getArrayPayload().get(0).getNumberValue());
     Assertions.assertEquals(
         NumberPrimitiveFleakData.NumberType.INT,
-        arrayFleakData.getArrayPayload().getFirst().getNumberType());
+        arrayFleakData.getArrayPayload().get(0).getNumberType());
   }
 
   @Test

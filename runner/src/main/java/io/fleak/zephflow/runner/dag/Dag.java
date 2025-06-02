@@ -195,7 +195,7 @@ public class Dag<T> {
       if (outgoingEdges.isEmpty()) {
         continue;
       }
-      String downstream = outgoingEdges.getFirst().getTo();
+      String downstream = outgoingEdges.get(0).getTo();
       throw new IllegalStateException(
           "Invalid DAG: Sink node '"
               + node.getId()
@@ -213,7 +213,7 @@ public class Dag<T> {
       if (incomingEdges.isEmpty()) {
         continue;
       }
-      String upstream = incomingEdges.getFirst().getFrom();
+      String upstream = incomingEdges.get(0).getFrom();
       throw new IllegalStateException(
           "Invalid DAG: Source node '"
               + node.getId()
@@ -257,7 +257,7 @@ public class Dag<T> {
       if (cyclePath != null) return cyclePath;
     }
 
-    path.removeLast(); // Remove the last element, which is nodeId
+    path.remove(path.size() - 1); // Remove the last element, which is nodeId
     return null;
   }
 

@@ -1045,12 +1045,12 @@ dict(
             List.of(inputEvent), "test_user", new MetricClientProvider.NoopMetricClientProvider());
     System.out.println(
         processResult.getFailureEvents().stream().map(ErrorOutput::errorMessage).toList());
-    System.out.println(toJsonString(processResult.getOutput().getFirst().unwrap()));
+    System.out.println(toJsonString(processResult.getOutput().get(0).unwrap()));
     assertTrue(processResult.getFailureEvents().isEmpty());
     assertEquals(1, processResult.getOutput().size());
 
     assertEquals(
         toJsonString(expected.unwrap()),
-        toJsonString(processResult.getOutput().getFirst().unwrap()));
+        toJsonString(processResult.getOutput().get(0).unwrap()));
   }
 }

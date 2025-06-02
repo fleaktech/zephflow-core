@@ -107,7 +107,7 @@ class KafkaSinkFlusherTest {
     assertEquals(0, result.successCount());
     assertEquals(0, result.flushedDataSize());
     assertEquals(1, errorOutputs.size());
-    assertEquals("Send failed", errorOutputs.getFirst().errorMessage());
-    assertEquals(testEvent, errorOutputs.getFirst().inputEvent());
+    assertEquals("Send failed", errorOutputs.get(0).errorMessage());
+    assertEquals(testEvent, errorOutputs.get(0).inputEvent());
   }
 }

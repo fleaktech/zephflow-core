@@ -434,8 +434,8 @@ public class ZephFlowTest {
     assertEquals(1, oddFilterNode.getOutputs().size());
 
     // Get the eval nodes that each filter connects to
-    String evenEvalId = evenFilterNode.getOutputs().getFirst();
-    String oddEvalId = oddFilterNode.getOutputs().getFirst();
+    String evenEvalId = evenFilterNode.getOutputs().get(0);
+    String oddEvalId = oddFilterNode.getOutputs().get(0);
 
     AdjacencyListDagDefinition.DagNode evenEvalNode = nodeMap.get(evenEvalId);
     AdjacencyListDagDefinition.DagNode oddEvalNode = nodeMap.get(oddEvalId);

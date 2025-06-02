@@ -758,7 +758,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
     if (argExprs.size() == 1) {
       // range(count) => equivalent to range(0, count, 1)
-      end = evalArgAsInt(argExprs.getFirst(), "count");
+      end = evalArgAsInt(argExprs.get(0), "count");
       // If count is negative, end will be negative. Start is 0, step is 1.
       // Loop condition `i < end` (e.g. `0 < -5`) will be false, resulting in empty list. Correct.
     } else if (argExprs.size() == 2) {
