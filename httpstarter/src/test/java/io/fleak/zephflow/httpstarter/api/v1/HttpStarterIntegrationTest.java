@@ -103,7 +103,7 @@ class HttpStarterIntegrationTest {
     List<WorkflowDto.Response> listWorkflowResp =
         fromJsonString(result.getResponse().getContentAsString(), new TypeReference<>() {});
     assertEquals(1, Objects.requireNonNull(listWorkflowResp).size());
-    assertEquals(createWorkflowResp, listWorkflowResp.getFirst());
+    assertEquals(createWorkflowResp, listWorkflowResp.get(0));
 
     // send event to workflow
     int eventCount = 10;

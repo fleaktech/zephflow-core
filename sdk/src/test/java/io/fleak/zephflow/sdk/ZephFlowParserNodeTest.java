@@ -118,7 +118,7 @@ public class ZephFlowParserNodeTest {
     assertEquals(1, objects.size());
 
     var parsedStr =
-        """
+"""
   {
     "level": "6",
     "message_number": "305011",
@@ -138,6 +138,6 @@ public class ZephFlowParserNodeTest {
   }
 """;
     Map<String, Object> expected = fromJsonString(parsedStr, new TypeReference<>() {});
-    assertEquals(expected, objects.getFirst());
+    assertEquals(expected, objects.get(0));
   }
 }

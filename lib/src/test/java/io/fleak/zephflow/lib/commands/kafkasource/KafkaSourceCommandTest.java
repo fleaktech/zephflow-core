@@ -49,7 +49,8 @@ public class KafkaSourceCommandTest {
   private static final String TOPIC_NAME = "test_topic";
 
   @Container
-  private static final KafkaContainer KAFKA_CONTAINER = new KafkaContainer("apache/kafka-native:3.8.0");
+  private static final KafkaContainer KAFKA_CONTAINER =
+      new KafkaContainer("apache/kafka-native:3.8.0");
 
   private static AdminClient adminClient;
   private static KafkaProducer<byte[], byte[]> producer;
@@ -146,7 +147,7 @@ public class KafkaSourceCommandTest {
 
       // Verify that messages were consumed
       assertEquals(3, eventConsumer.getReceivedEvents().size());
-      assertEquals(2, eventConsumer.getReceivedEvents().getFirst().unwrap().get("batch"));
+      assertEquals(2, eventConsumer.getReceivedEvents().get(0).unwrap().get("batch"));
     } finally {
       executor.shutdownNow();
       //noinspection ResultOfMethodCallIgnored

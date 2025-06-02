@@ -116,7 +116,7 @@ public class S3DlqWriterTest {
     List<String> objectKeys = listS3Objects(dlqWriter.s3Commiter.getS3Client());
     assertEquals(1, objectKeys.size(), "Expected one object in S3.");
 
-    String objectKey = objectKeys.getFirst();
+    String objectKey = objectKeys.get(0);
     String regex = "\\d{4}/\\d{2}/\\d{2}/\\d{2}/dead-letters-\\d+\\.avro";
     assertTrue(objectKey.matches(regex), "Object key does not match expected format.");
   }
@@ -135,7 +135,7 @@ public class S3DlqWriterTest {
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after batch size reached.");
 
     List<SerializedEvent> readDeadLetters =
-        readDeadLettersFromS3(dlqWriter.s3Commiter.getS3Client(), objectKeys.getFirst());
+        readDeadLettersFromS3(dlqWriter.s3Commiter.getS3Client(), objectKeys.get(0));
 
     assertEquals(
         writtenDeadLetters.size(), readDeadLetters.size(), "Mismatch in number of dead letters.");

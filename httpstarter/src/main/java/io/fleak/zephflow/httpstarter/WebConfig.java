@@ -45,13 +45,16 @@ public class WebConfig implements WebMvcConfigurer {
   @Override
   public void extendMessageConverters(List<HttpMessageConverter<?>> converters) {
     // always addFirst to make sure these converters take precedence over default ones.
-    converters.addFirst(
+    converters.add(
+        0,
         new EventsReqHttpMessageConverter(
             APPLICATION_JSON, jsonArrayDeserializerFactory.createDeserializer()));
-    converters.addFirst(
+    converters.add(
+        0,
         new EventsReqHttpMessageConverter(
             new MediaType("text", "csv"), csvDeserializerFactory.createDeserializer()));
-    converters.addFirst(
+    converters.add(
+        0,
         new EventsReqHttpMessageConverter(
             new MediaType("text", "plain"), stringLineDeserializerFactory.createDeserializer()));
   }
