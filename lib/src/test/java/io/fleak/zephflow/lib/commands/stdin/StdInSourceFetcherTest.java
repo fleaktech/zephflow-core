@@ -64,7 +64,7 @@ class StdInSourceFetcherTest {
     assertNotNull(result);
     assertEquals(1, result.size());
 
-    var firstResult = result.getFirst();
+    var firstResult = result.get(0);
     assertNotNull(firstResult);
 
     // Verify the raw data in serialized event

@@ -116,10 +116,7 @@ public class S3SinkCommandTest {
     assertEquals(1, resp.contents().size());
 
     GetObjectRequest getObjectRequest =
-        GetObjectRequest.builder()
-            .bucket(BUCKET_NAME)
-            .key(resp.contents().getFirst().key())
-            .build();
+        GetObjectRequest.builder().bucket(BUCKET_NAME).key(resp.contents().get(0).key()).build();
 
     ResponseBytes<GetObjectResponse> s3ObjectBytes = s3Client.getObjectAsBytes(getObjectRequest);
     byte[] data = s3ObjectBytes.asByteArray();

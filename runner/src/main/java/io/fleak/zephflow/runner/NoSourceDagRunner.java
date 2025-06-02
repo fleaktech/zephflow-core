@@ -53,7 +53,7 @@ public record NoSourceDagRunner(
         sourceNodeIds.size() == 1,
         String.format(
             "Only single source DAG is supported but found %d sources", sourceNodeIds.size()));
-    var sourceNodeId = sourceNodeIds.getFirst();
+    var sourceNodeId = sourceNodeIds.get(0);
     String commandName = "source_node";
 
     Map<String, String> callingUserTag = getCallingUserTag(callingUser);

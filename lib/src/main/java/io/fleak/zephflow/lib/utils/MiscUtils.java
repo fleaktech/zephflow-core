@@ -118,9 +118,9 @@ public interface MiscUtils {
   static <T> T getOneValueFromMapEnsureExactlyOne(Map<?, T> map) {
     Preconditions.checkArgument(
         MapUtils.isNotEmpty(map)
-            && (map.size() == 1 && new ArrayList<>(map.values()).getFirst() != null),
+            && (map.size() == 1 && new ArrayList<>(map.values()).get(0) != null),
         "The map doesn't contain exactly one entry");
-    return new ArrayList<>(map.values()).getFirst();
+    return new ArrayList<>(map.values()).get(0);
   }
 
   static <T> T getOneValueFromCollectionEnsureExactlyOne(Collection<T> c) {
