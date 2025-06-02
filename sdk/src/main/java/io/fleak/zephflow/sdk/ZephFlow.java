@@ -19,6 +19,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_WORKFLOW_CONTROLLER_PATH;
 import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.api.CommandFactory;
@@ -34,6 +35,8 @@ import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
 import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.utils.JsonUtils;
+import io.fleak.zephflow.lib.utils.YamlUtils;
 import io.fleak.zephflow.runner.*;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition.DagNode;
@@ -548,6 +551,56 @@ public class ZephFlow {
             .jobId(jobId)
             .dagDefinition(adjacencyListDagDefinition)
             .build();
+    DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
+    dagExecutor.executeDag();
+  }
+
+  /**
+   * Executes the defined ZephFlow DAG locally.
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param dagStr string content of a workflow in json
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeFromJson(String jobId, String env, String service, String dagStr) throws Exception {
+    AdjacencyListDagDefinition adjacencyListDagDefinition = JsonUtils.fromJsonString(dagStr, new TypeReference<>() {
+    });
+    executeDag(jobId, env, service, adjacencyListDagDefinition);
+  }
+  /**
+   * Executes the defined ZephFlow DAG locally.
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param dagStr string content of a workflow in yaml
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeFromYaml(String jobId, String env, String service, String dagStr) throws Exception {
+    AdjacencyListDagDefinition adjacencyListDagDefinition = YamlUtils.fromYamlString(dagStr, new TypeReference<>() {
+    });
+    executeDag(jobId, env, service, adjacencyListDagDefinition);
+  }
+  /**
+   * Executes the defined ZephFlow DAG locally.
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param adjacencyListDagDefinition AdjacencyListDagDefinition
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeDag(
+          @NonNull String jobId, @NonNull String env, @NonNull String service,
+          AdjacencyListDagDefinition adjacencyListDagDefinition) throws Exception {
+
+    JobConfig jobConfig =
+            JobConfig.builder()
+                    .environment(env)
+                    .service(service)
+                    .jobId(jobId)
+                    .dagDefinition(adjacencyListDagDefinition)
+                    .build();
+    MetricClientProvider metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
     DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
     dagExecutor.executeDag();
   }
