@@ -26,6 +26,8 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.utils.JsonUtils;
+import io.fleak.zephflow.lib.utils.YamlUtils;
 import io.fleak.zephflow.runner.DagCompilationException;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.*;
@@ -623,6 +625,36 @@ public class ZephFlowTest {
     ZephFlow merge2 = ZephFlow.merge(merge1, inputFlow);
     ZephFlow outputFlow = merge2.stdoutSink(EncodingType.JSON_OBJECT);
     runTestWithStdIO(outputFlow, "/expected_output_stdio.json");
+  }
+
+  @Test
+  public void testExecuteWithYaml() throws Exception{
+    ZephFlow flow = ZephFlow.startFlow();
+
+    ZephFlow inputFlow = flow.stdinSource(EncodingType.JSON_ARRAY);
+    ZephFlow outputFlow = inputFlow.stdoutSink(EncodingType.JSON_OBJECT);
+    AdjacencyListDagDefinition dagDefinition = outputFlow.buildDag();
+
+    String dagStr = YamlUtils.toYamlString(dagDefinition);
+    assertNotNull(dagStr);
+    ZephFlow.executeYamlDag("test_id", "test_env", "test_service", dagStr, null);
+    String output = testOut.toString();
+    assertTrue(output.contains("{\"num\":0}"));
+  }
+
+  @Test
+  public void testExecuteWithJson() throws Exception{
+    ZephFlow flow = ZephFlow.startFlow();
+
+    ZephFlow inputFlow = flow.stdinSource(EncodingType.JSON_ARRAY);
+    ZephFlow outputFlow = inputFlow.stdoutSink(EncodingType.JSON_OBJECT);
+    AdjacencyListDagDefinition dagDefinition = outputFlow.buildDag();
+
+    String dagStr = JsonUtils.toJsonString(dagDefinition);
+    assertNotNull(dagStr);
+    ZephFlow.executeJsonDag("test_id", "test_env", "test_service", dagStr, null);
+    String output = testOut.toString();
+    assertTrue(output.contains("{\"num\":0}"));
   }
 
   private void runTestWithStdIO(ZephFlow outputFlow, String expectedOutputResource)
