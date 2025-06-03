@@ -631,9 +631,9 @@ public class ZephFlowTest {
     ZephFlow outputFlow = inputFlow.stdoutSink(EncodingType.JSON_OBJECT);
     AdjacencyListDagDefinition dagDefinition = outputFlow.buildDag();
 
-    String dagStr = YamlUtils.toYamlString(dagDefinition.getDag());
+    String dagStr = YamlUtils.toYamlString(dagDefinition);
     assertNotNull(dagStr);
-    ZephFlow.executeYamlDag("test_id", "test_env", "test_service", dagStr);
+    ZephFlow.executeYamlDag("test_id", "test_env", "test_service", dagStr, null);
     String output = testOut.toString();
     assertTrue(output.contains("{\"num\":0}"));
   }
@@ -646,9 +646,9 @@ public class ZephFlowTest {
     ZephFlow outputFlow = inputFlow.stdoutSink(EncodingType.JSON_OBJECT);
     AdjacencyListDagDefinition dagDefinition = outputFlow.buildDag();
 
-    String dagStr = JsonUtils.toJsonString(dagDefinition.getDag());
+    String dagStr = JsonUtils.toJsonString(dagDefinition);
     assertNotNull(dagStr);
-    ZephFlow.executeJsonDag("test_id", "test_env", "test_service", dagStr);
+    ZephFlow.executeJsonDag("test_id", "test_env", "test_service", dagStr, null);
     String output = testOut.toString();
     assertTrue(output.contains("{\"num\":0}"));
   }
