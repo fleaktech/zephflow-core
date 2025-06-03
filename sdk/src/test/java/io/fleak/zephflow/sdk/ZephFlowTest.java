@@ -648,7 +648,7 @@ public class ZephFlowTest {
 
     String dagStr = JsonUtils.toJsonString(dagDefinition.getDag());
     assertNotNull(dagStr);
-    ZephFlow.executeFromJson("test_id", "test_env", "test_service", dagStr);
+    ZephFlow.executeJsonDag("test_id", "test_env", "test_service", dagStr);
     String output = testOut.toString();
     assertTrue(output.contains("{\"num\":0}"));
   }
