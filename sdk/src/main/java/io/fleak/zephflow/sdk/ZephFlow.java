@@ -16,9 +16,11 @@ package io.fleak.zephflow.sdk;
 import static io.fleak.zephflow.lib.commands.SimpleHttpClient.MAX_RESPONSE_SIZE_BYTES;
 import static io.fleak.zephflow.lib.utils.JsonUtils.*;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
+import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_WORKFLOW_CONTROLLER_PATH;
 import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.api.CommandFactory;
@@ -42,6 +44,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -540,16 +543,95 @@ public class ZephFlow {
    */
   public void execute(@NonNull String jobId, @NonNull String env, @NonNull String service)
       throws Exception {
-    AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag();
+    executeDag(jobId, env, service, buildDag(), metricClientProvider);
+  }
+
+  /**
+   * Executes the defined ZephFlow DAG locally.
+   *
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param dagDefinition The dag definition and job context.
+   * @param metricClientProvider Optional MetricClientProvider, if null, defaults to
+   *     NoopMetricClientProvider.
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeDag(
+      @NonNull String jobId,
+      @NonNull String env,
+      @NonNull String service,
+      @NonNull AdjacencyListDagDefinition dagDefinition,
+      @Nullable MetricClientProvider metricClientProvider)
+      throws Exception {
+
+    if (metricClientProvider == null) {
+      metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
+    }
+
     JobConfig jobConfig =
         JobConfig.builder()
             .environment(env)
             .service(service)
             .jobId(jobId)
-            .dagDefinition(adjacencyListDagDefinition)
+            .dagDefinition(dagDefinition)
             .build();
     DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
     dagExecutor.executeDag();
+  }
+
+  /**
+   * Parses a JSON-based ZephFlow DAG definition and executes it locally.
+   *
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param dagJsonContent The JSON content representing a DAG definition.
+   * @param metricClientProvider Optional MetricClientProvider.
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeJsonDag(
+      @NonNull String jobId,
+      @NonNull String env,
+      @NonNull String service,
+      @NonNull String dagJsonContent,
+      @Nullable MetricClientProvider metricClientProvider)
+      throws Exception {
+    if (dagJsonContent.isBlank()) {
+      throw new IllegalArgumentException("dagJsonContent cannot be null or blank");
+    }
+    AdjacencyListDagDefinition dag = fromJsonString(dagJsonContent, new TypeReference<>() {});
+    if (dag == null) {
+      throw new IllegalArgumentException("Parsed DAG is null (JSON might be malformed)");
+    }
+    executeDag(jobId, env, service, dag, metricClientProvider);
+  }
+
+  /**
+   * Parses a YAML-based ZephFlow DAG definition and executes it locally.
+   *
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param dagYamlContent The YAML content representing a DAG definition.
+   * @param metricClientProvider Optional MetricClientProvider
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeYamlDag(
+      @NonNull String jobId,
+      @NonNull String env,
+      @NonNull String service,
+      @NonNull String dagYamlContent,
+      @Nullable MetricClientProvider metricClientProvider)
+      throws Exception {
+    if (dagYamlContent.isBlank()) {
+      throw new IllegalArgumentException("dagYamlContent cannot be null or blank");
+    }
+    AdjacencyListDagDefinition dag = fromYamlString(dagYamlContent, new TypeReference<>() {});
+    if (dag == null) {
+      throw new IllegalArgumentException("Parsed DAG is null (YAML might be malformed)");
+    }
+    executeDag(jobId, env, service, dag, metricClientProvider);
   }
 
   /**
