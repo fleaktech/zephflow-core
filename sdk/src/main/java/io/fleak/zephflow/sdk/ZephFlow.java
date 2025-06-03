@@ -593,7 +593,7 @@ public class ZephFlow {
    * @param dagStr string content of a workflow in json.
    * @throws Exception if DAG execution fails.
    */
-  public static void executeFromJson(
+  public static void executeJsonDag(
       @NonNull String jobId, @NonNull String env, @NonNull String service, @NonNull String dagStr)
       throws Exception {
     if (dagStr.isBlank()) {
