@@ -557,52 +557,82 @@ public class ZephFlow {
 
   /**
    * Executes the defined ZephFlow DAG locally.
+   *
    * @param jobId A unique identifier for this job execution.
    * @param env The environment identifier (e.g., "dev", "prod").
    * @param service The service identifier.
-   * @param dagStr string content of a workflow in json
+   * @param jobContext The job context to use during the workflow execution.
+   * @param nodes list of nodes representing the workflow.
    * @throws Exception if DAG execution fails.
    */
-  public static void executeFromJson(String jobId, String env, String service, String dagStr) throws Exception {
-    AdjacencyListDagDefinition adjacencyListDagDefinition = JsonUtils.fromJsonString(dagStr, new TypeReference<>() {
-    });
-    executeDag(jobId, env, service, adjacencyListDagDefinition);
+  public static void executeDag(
+      @NonNull String jobId,
+      @NonNull String env,
+      @NonNull String service,
+      @NonNull JobContext jobContext,
+      @NonNull List<DagNode> nodes,
+      @NonNull MetricClientProvider metricClientProvider)
+      throws Exception {
+    JobConfig jobConfig =
+        JobConfig.builder()
+            .environment(env)
+            .service(service)
+            .jobId(jobId)
+            .dagDefinition(new AdjacencyListDagDefinition(jobContext, nodes))
+            .build();
+    DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
+    dagExecutor.executeDag();
   }
+
   /**
-   * Executes the defined ZephFlow DAG locally.
+   * Parses a JSON-based ZephFlow DAG definition and executes it locally.
+   *
+   * @param jobId A unique identifier for this job execution.
+   * @param env The environment identifier (e.g., "dev", "prod").
+   * @param service The service identifier.
+   * @param dagStr string content of a workflow in json.
+   * @throws Exception if DAG execution fails.
+   */
+  public static void executeFromJson(
+      @NonNull String jobId, @NonNull String env, @NonNull String service, @NonNull String dagStr)
+      throws Exception {
+    if (dagStr.isBlank()) {
+      throw new IllegalArgumentException("dagStr cannot be null or blank");
+    }
+    executeDag(jobId, env, service, JsonUtils.fromJsonString(dagStr, new TypeReference<>() {}));
+  }
+
+  /**
+   * Parses a YAML-based ZephFlow DAG definition and executes it locally.
+   *
    * @param jobId A unique identifier for this job execution.
    * @param env The environment identifier (e.g., "dev", "prod").
    * @param service The service identifier.
    * @param dagStr string content of a workflow in yaml
    * @throws Exception if DAG execution fails.
    */
-  public static void executeFromYaml(String jobId, String env, String service, String dagStr) throws Exception {
-    AdjacencyListDagDefinition adjacencyListDagDefinition = YamlUtils.fromYamlString(dagStr, new TypeReference<>() {
-    });
-    executeDag(jobId, env, service, adjacencyListDagDefinition);
+  public static void executeYamlDag(
+      @NonNull String jobId, @NonNull String env, @NonNull String service, @NonNull String dagStr)
+      throws Exception {
+    if (dagStr.isBlank()) {
+      throw new IllegalArgumentException("dagStr cannot be null or blank");
+    }
+    executeDag(jobId, env, service, YamlUtils.fromYamlString(dagStr, new TypeReference<>() {}));
   }
-  /**
-   * Executes the defined ZephFlow DAG locally.
-   * @param jobId A unique identifier for this job execution.
-   * @param env The environment identifier (e.g., "dev", "prod").
-   * @param service The service identifier.
-   * @param adjacencyListDagDefinition AdjacencyListDagDefinition
-   * @throws Exception if DAG execution fails.
-   */
-  public static void executeDag(
-          @NonNull String jobId, @NonNull String env, @NonNull String service,
-          AdjacencyListDagDefinition adjacencyListDagDefinition) throws Exception {
 
-    JobConfig jobConfig =
-            JobConfig.builder()
-                    .environment(env)
-                    .service(service)
-                    .jobId(jobId)
-                    .dagDefinition(adjacencyListDagDefinition)
-                    .build();
-    MetricClientProvider metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
-    DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
-    dagExecutor.executeDag();
+  private static void executeDag(
+      @NonNull String jobId, @NonNull String env, @NonNull String service, List<DagNode> nodes)
+      throws Exception {
+    if (nodes == null || nodes.isEmpty()) {
+      throw new IllegalArgumentException("dagStr must be a valid dag and not empty");
+    }
+    executeDag(
+        jobId,
+        env,
+        service,
+        JobContext.builder().build(),
+        nodes,
+        new MetricClientProvider.NoopMetricClientProvider());
   }
 
   /**
