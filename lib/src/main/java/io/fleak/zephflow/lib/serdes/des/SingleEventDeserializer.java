@@ -26,10 +26,10 @@ public class SingleEventDeserializer<T> extends FleakDeserializer<T> {
   private final SingleEventTypedDeserializer<T> singleEventTypedDeserializer;
 
   public SingleEventDeserializer(
-      List<EncodingType> encodingTypes,
+      EncodingType encodingType,
       TypedEventConverter<T> typedEventConverter,
       SingleEventTypedDeserializer<T> singleEventTypedDeserializer) {
-    super(encodingTypes, typedEventConverter);
+    super(encodingType, typedEventConverter);
     this.singleEventTypedDeserializer = singleEventTypedDeserializer;
   }
 

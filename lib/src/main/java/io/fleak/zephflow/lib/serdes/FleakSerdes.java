@@ -14,18 +14,16 @@
 package io.fleak.zephflow.lib.serdes;
 
 import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
-import java.util.List;
 import lombok.Getter;
 
 /** Created by bolei on 9/16/24 */
 public abstract class FleakSerdes<T> {
-  @Getter private final List<EncodingType> encodingTypes;
+  @Getter private final EncodingType encodingType;
 
   protected final TypedEventConverter<T> typedEventConverter;
 
-  protected FleakSerdes(
-      List<EncodingType> encodingTypes, TypedEventConverter<T> typedEventConverter) {
-    this.encodingTypes = encodingTypes;
+  protected FleakSerdes(EncodingType encodingType, TypedEventConverter<T> typedEventConverter) {
+    this.encodingType = encodingType;
     this.typedEventConverter = typedEventConverter;
   }
 }

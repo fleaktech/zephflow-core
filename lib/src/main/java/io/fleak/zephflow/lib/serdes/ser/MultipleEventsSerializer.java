@@ -25,10 +25,10 @@ public class MultipleEventsSerializer<T> extends FleakSerializer<T> {
   private final MultipleEventsTypedSerializer<T> multipleEventsTypedSerializer;
 
   public MultipleEventsSerializer(
-      List<EncodingType> encodingTypes,
+      EncodingType encodingType,
       TypedEventConverter<T> typedEventConverter,
       MultipleEventsTypedSerializer<T> multipleEventsTypedSerializer) {
-    super(encodingTypes, typedEventConverter);
+    super(encodingType, typedEventConverter);
     this.multipleEventsTypedSerializer = multipleEventsTypedSerializer;
   }
 
