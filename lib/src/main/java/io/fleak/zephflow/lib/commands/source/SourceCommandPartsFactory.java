@@ -18,6 +18,7 @@ import io.fleak.zephflow.api.CommandPartsFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.LoggingDlqWriter;
 import io.fleak.zephflow.lib.dlq.S3DlqWriter;
 
 /** Created by bolei on 9/24/24 */
@@ -37,6 +38,9 @@ public abstract class SourceCommandPartsFactory<T> extends CommandPartsFactory {
 
     if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
       return S3DlqWriter.createS3DlqWriter(s3DlqConfig);
+    }
+    if (dlqConfig instanceof JobContext.LoggingDlqConfig logging) {
+      return LoggingDlqWriter.create(logging);
     }
 
     // TODO

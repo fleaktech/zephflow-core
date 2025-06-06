@@ -26,8 +26,8 @@ public interface KinesisSinkDto {
   class Config implements CommandConfig {
     @NonNull private String regionStr;
     @NonNull private String streamName;
-    @NonNull private String credentialId;
-    @NonNull private String partitionKeyFieldExpressionStr;
+    private String credentialId;
+    private String partitionKeyFieldExpressionStr;
     @NonNull private String encodingType;
   }
 }

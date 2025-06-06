@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.compression.DecompressorFactory;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -70,9 +71,11 @@ public class KinesisSourceCommandPartsFactory extends SourceCommandPartsFactory<
     if (!(commandConfig instanceof KinesisSourceDto.Config config)) {
       throw new IllegalArgumentException("Expected KinesisSourceDto.Config");
     }
+
     return new BytesRawDataConverter(
         DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer());
+            .createDeserializer(),
+        DecompressorFactory.getDecompressor(config.getCompressionTypes()));
   }
 
   @Override

@@ -18,6 +18,7 @@ import io.fleak.zephflow.lib.serdes.converters.ObjectMapTypedEventConverter;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsDeserializer;
+import java.util.List;
 import java.util.Map;
 
 /** Created by bolei on 9/16/24 */
@@ -27,6 +28,6 @@ public class CsvDeserializerFactory implements DeserializerFactory<Map<String, O
     var typedEventConverter = new ObjectMapTypedEventConverter();
     var csvTypedDeserializer = new CsvTypedDeserializer();
     return new MultipleEventsDeserializer<>(
-        EncodingType.CSV, typedEventConverter, csvTypedDeserializer);
+        List.of(EncodingType.CSV), typedEventConverter, csvTypedDeserializer);
   }
 }

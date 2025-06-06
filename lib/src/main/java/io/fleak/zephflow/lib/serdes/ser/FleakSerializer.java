@@ -23,8 +23,9 @@ import java.util.List;
 /** Created by bolei on 9/16/24 */
 public abstract class FleakSerializer<T> extends FleakSerdes<T> {
 
-  protected FleakSerializer(EncodingType encodingType, TypedEventConverter<T> typedEventConverter) {
-    super(encodingType, typedEventConverter);
+  protected FleakSerializer(
+      List<EncodingType> encodingTypes, TypedEventConverter<T> typedEventConverter) {
+    super(encodingTypes, typedEventConverter);
   }
 
   public abstract SerializedEvent serialize(List<RecordFleakData> events) throws Exception;

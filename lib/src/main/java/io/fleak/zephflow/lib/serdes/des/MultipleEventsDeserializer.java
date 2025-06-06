@@ -25,10 +25,10 @@ public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
   private final MultipleEventsTypedDeserializer<T> multipleEventsTypedDeserializer;
 
   public MultipleEventsDeserializer(
-      EncodingType encodingType,
+      List<EncodingType> encodingTypes,
       TypedEventConverter<T> typedEventConverter,
       MultipleEventsTypedDeserializer<T> multipleEventsTypedDeserializer) {
-    super(encodingType, typedEventConverter);
+    super(encodingTypes, typedEventConverter);
     this.multipleEventsTypedDeserializer = multipleEventsTypedDeserializer;
   }
 
