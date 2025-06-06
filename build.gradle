@@ -28,7 +28,7 @@ allprojects {
     licenseName = 'Apache License, Version 2.0'
     licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
 
-    javaVersion = '21'
+    javaVersion = '17'
     avroVersion = '1.12.0'
     junitVersion = '5.10.2' // make sure the version is the same as spring boot
     guavaVersion = '33.4.0-jre'

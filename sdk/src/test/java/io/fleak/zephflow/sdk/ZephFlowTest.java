@@ -144,9 +144,9 @@ public class ZephFlowTest {
         inputFlow
             .eval("dict(value=$.num, category=case($.num%2==0 => 'even', _ => 'odd'))")
             .eval(
-                "dict(origValue=$.value, category=$.category, range=case($.value<3 => 'low', $.value<7 => 'medium', _ => 'high'))")
+                "dict(origValue=$.value, category=$.category, valueRange=case($.value<3 => 'low', $.value<7 => 'medium', _ => 'high'))")
             .eval(
-                "dict(summary=dict(value=$.origValue, category=$.category, range=$.range), meta=dict(processed=true))");
+                "dict(summary=dict(value=$.origValue, category=$.category, valueRange=$.valueRange), meta=dict(processed=true))");
 
     // Output to stdout
     ZephFlow outputFlow = transformedFlow.stdoutSink(EncodingType.JSON_OBJECT);
@@ -245,17 +245,21 @@ public class ZephFlowTest {
 
     // Second level branching for low range: by evenness
     ZephFlow lowEven =
-        lowRange.filter("$.num % 2 == 0").eval("dict(value=$.num, range='low', category='A')");
+        lowRange.filter("$.num % 2 == 0").eval("dict(value=$.num, valueRange='low', category='A')");
 
     ZephFlow lowOdd =
-        lowRange.filter("$.num % 2 == 1").eval("dict(value=$.num, range='low', category='B')");
+        lowRange.filter("$.num % 2 == 1").eval("dict(value=$.num, valueRange='low', category='B')");
 
     // Second level branching for high range: by divisibility by 3
     ZephFlow highDiv3 =
-        highRange.filter("$.num % 3 == 0").eval("dict(value=$.num, range='high', category='C')");
+        highRange
+            .filter("$.num % 3 == 0")
+            .eval("dict(value=$.num, valueRange='high', category='C')");
 
     ZephFlow highNotDiv3 =
-        highRange.filter("$.num % 3 != 0").eval("dict(value=$.num, range='high', category='D')");
+        highRange
+            .filter("$.num % 3 != 0")
+            .eval("dict(value=$.num, valueRange='high', category='D')");
 
     // Merge all leaf paths
     ZephFlow mergedFlow = ZephFlow.merge(lowEven, lowOdd, highDiv3, highNotDiv3);
@@ -263,7 +267,7 @@ public class ZephFlowTest {
     // Add final processing
     ZephFlow finalFlow =
         mergedFlow.eval(
-            "dict(original=$.value, metadata=dict(range=$.range, category=$.category))");
+            "dict(original=$.value, metadata=dict(valueRange=$.valueRange, category=$.category))");
 
     // Output to stdout
     ZephFlow outputFlow = finalFlow.stdoutSink(EncodingType.JSON_OBJECT);
@@ -432,8 +436,8 @@ public class ZephFlowTest {
     assertEquals(1, oddFilterNode.getOutputs().size());
 
     // Get the eval nodes that each filter connects to
-    String evenEvalId = evenFilterNode.getOutputs().getFirst();
-    String oddEvalId = oddFilterNode.getOutputs().getFirst();
+    String evenEvalId = evenFilterNode.getOutputs().get(0);
+    String oddEvalId = oddFilterNode.getOutputs().get(0);
 
     AdjacencyListDagDefinition.DagNode evenEvalNode = nodeMap.get(evenEvalId);
     AdjacencyListDagDefinition.DagNode oddEvalNode = nodeMap.get(oddEvalId);

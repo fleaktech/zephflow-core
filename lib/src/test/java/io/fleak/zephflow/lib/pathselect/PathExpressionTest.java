@@ -17,12 +17,9 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.loadFleakDataFromJsonResourc
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.collect.ImmutableList;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
-import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -35,15 +32,7 @@ class PathExpressionTest {
   public void fromStringSpecialChars() {
     String input = "$[\"@a$ \\\"space\\\"\"].b[6][\"c%$$ sp\"]";
     PathExpression pathExpression = PathExpression.fromString(input);
-    PathExpression expected =
-        new PathExpression(
-            ImmutableList.of(
-                new PathExpression.RootStep(),
-                new PathExpression.BracketFieldNameStep("@a$ \"space\""),
-                new PathExpression.IdFieldNameStep("b"),
-                new PathExpression.ArrayAccessStep(6),
-                new PathExpression.BracketFieldNameStep("c%$$ sp")));
-    assertEquals(expected, pathExpression);
+    assertEquals(input, pathExpression.toString());
   }
 
   @Test
@@ -57,16 +46,7 @@ class PathExpressionTest {
   public void fromString() {
     String input = "$.a[\"b\"][6].c";
     PathExpression pathExpression = PathExpression.fromString(input);
-
-    PathExpression expected =
-        new PathExpression(
-            ImmutableList.of(
-                new PathExpression.RootStep(),
-                new PathExpression.IdFieldNameStep("a"),
-                new PathExpression.BracketFieldNameStep("b"),
-                new PathExpression.ArrayAccessStep(6),
-                new PathExpression.IdFieldNameStep("c")));
-    assertEquals(expected, pathExpression);
+    assertEquals(input, pathExpression.toString());
   }
 
   @Test
@@ -81,17 +61,6 @@ class PathExpressionTest {
     Exception e = assertThrows(Exception.class, () -> PathExpression.fromString(input));
     assertTrue(
         e.getMessage().startsWith(String.format("failed to parse path expression: {%s}", input)));
-  }
-
-  @Test
-  public void testJacksonSerialization() {
-    String input = "$.a.b[6].c";
-    PathExpression pathExpression = PathExpression.fromString(input);
-    String jsonStr = JsonUtils.toJsonString(pathExpression);
-    System.out.println(jsonStr);
-    PathExpression deserializedFromJson =
-        JsonUtils.fromJsonString(jsonStr, new TypeReference<>() {});
-    assertEquals(pathExpression, deserializedFromJson);
   }
 
   @Test

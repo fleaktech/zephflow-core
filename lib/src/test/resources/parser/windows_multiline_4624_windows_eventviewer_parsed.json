@@ -1,0 +1,56 @@
+{
+  "Keywords": "Audit Success",
+  "User": "N/A",
+  "Description": "An account was successfully logged on.",
+  "Network Information": {
+    "Source Port": "-",
+    "Workstation Name": "-",
+    "Source Network Address": "-"
+  },
+  "Event Xml": "<Event xmlns=\"http://schemas.microsoft.com/win/2004/08/events/event\">\n  <System>\n    <Provider Name=\"Microsoft-Windows-Security-Auditing\" Guid=\"{54849625-5478-4994-a5ba-3e3b0328c30d}\" />\n    <EventID>4624</EventID>\n    <Version>3</Version>\n    <Level>0</Level>\n    <Task>12544</Task>\n    <Opcode>0</Opcode>\n    <Keywords>0x8020000000000000</Keywords>\n    <TimeCreated SystemTime=\"2025-06-02T23:24:49.9218559Z\" />\n    <EventRecordID>315062</EventRecordID>\n    <Correlation ActivityID=\"{7e10529c-d414-0002-9860-107e14d4db01}\" />\n    <Execution ProcessID=\"1868\" ThreadID=\"1984\" />\n    <Channel>Security</Channel>\n    <Computer>xing</Computer>\n    <Security />\n  </System>\n  <EventData>\n    <Data Name=\"SubjectUserSid\">S-1-5-18</Data>\n    <Data Name=\"SubjectUserName\">XING$</Data>\n    <Data Name=\"SubjectDomainName\">WORKGROUP</Data>\n    <Data Name=\"SubjectLogonId\">0x3e7</Data>\n    <Data Name=\"TargetUserSid\">S-1-5-18</Data>\n    <Data Name=\"TargetUserName\">SYSTEM</Data>\n    <Data Name=\"TargetDomainName\">NT AUTHORITY</Data>\n    <Data Name=\"TargetLogonId\">0x3e7</Data>\n    <Data Name=\"LogonType\">5</Data>\n    <Data Name=\"LogonProcessName\">Advapi  </Data>\n    <Data Name=\"AuthenticationPackageName\">Negotiate</Data>\n    <Data Name=\"WorkstationName\">-</Data>\n    <Data Name=\"LogonGuid\">{00000000-0000-0000-0000-000000000000}</Data>\n    <Data Name=\"TransmittedServices\">-</Data>\n    <Data Name=\"LmPackageName\">-</Data>\n    <Data Name=\"KeyLength\">0</Data>\n    <Data Name=\"ProcessId\">0x72c</Data>\n    <Data Name=\"ProcessName\">C:\\Windows\\System32\\services.exe</Data>\n    <Data Name=\"IpAddress\">-</Data>\n    <Data Name=\"IpPort\">-</Data>\n    <Data Name=\"ImpersonationLevel\">%%1833</Data>\n    <Data Name=\"RestrictedAdminMode\">-</Data>\n    <Data Name=\"RemoteCredentialGuard\">-</Data>\n    <Data Name=\"TargetOutboundUserName\">-</Data>\n    <Data Name=\"TargetOutboundDomainName\">-</Data>\n    <Data Name=\"VirtualAccount\">%%1843</Data>\n    <Data Name=\"TargetLinkedLogonId\">0x0</Data>\n    <Data Name=\"ElevatedToken\">%%1842</Data>\n  </EventData>\n</Event>",
+  "__raw__": "Log Name:      Security\nSource:        Microsoft-Windows-Security-Auditing\nDate:          6/3/2025 7:24:49 AM\nEvent ID:      4624\nTask Category: Logon\nLevel:         Information\nKeywords:      Audit Success\nUser:          N/A\nComputer:      xing\nDescription:\nAn account was successfully logged on.\n\nSubject:\n\tSecurity ID:\t\tSYSTEM\n\tAccount Name:\t\tXING$\n\tAccount Domain:\t\tWORKGROUP\n\tLogon ID:\t\t0x3E7\n\nLogon Information:\n\tLogon Type:\t\t5\n\tRestricted Admin Mode:\t-\n\tRemote Credential Guard:\t-\n\tVirtual Account:\t\tNo\n\tElevated Token:\t\tYes\n\nImpersonation Level:\t\tImpersonation\n\nNew Logon:\n\tSecurity ID:\t\tSYSTEM\n\tAccount Name:\t\tSYSTEM\n\tAccount Domain:\t\tNT AUTHORITY\n\tLogon ID:\t\t0x3E7\n\tLinked Logon ID:\t\t0x0\n\tNetwork Account Name:\t-\n\tNetwork Account Domain:\t-\n\tLogon GUID:\t\t{00000000-0000-0000-0000-000000000000}\n\nProcess Information:\n\tProcess ID:\t\t0x72c\n\tProcess Name:\t\tC:\\Windows\\System32\\services.exe\n\nNetwork Information:\n\tWorkstation Name:\t-\n\tSource Network Address:\t-\n\tSource Port:\t\t-\n\nDetailed Authentication Information:\n\tLogon Process:\t\tAdvapi\n\tAuthentication Package:\tNegotiate\n\tTransited Services:\t-\n\tPackage Name (NTLM only):\t-\n\tKey Length:\t\t0\n\nThis event is generated when a logon session is created. It is generated on the computer that was accessed.\n\nThe subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.\n\nThe logon type field indicates the kind of logon that occurred. The most common types are 2 (interactive) and 3 (network).\n\nThe New Logon fields indicate the account for whom the new logon was created, i.e. the account that was logged on.\n\nThe network fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.\n\nThe impersonation level field indicates the extent to which a process in the logon session can impersonate.\n\nThe authentication information fields provide detailed information about this specific logon request.\n\t- Logon GUID is a unique identifier that can be used to correlate this event with a KDC event.\n\t- Transited services indicate which intermediate services have participated in this logon request.\n\t- Package name indicates which sub-protocol was used among the NTLM protocols.\n\t- Key length indicates the length of the generated session key. This will be 0 if no session key was requested.\nEvent Xml:\n<Event xmlns=\"http://schemas.microsoft.com/win/2004/08/events/event\">\n  <System>\n    <Provider Name=\"Microsoft-Windows-Security-Auditing\" Guid=\"{54849625-5478-4994-a5ba-3e3b0328c30d}\" />\n    <EventID>4624</EventID>\n    <Version>3</Version>\n    <Level>0</Level>\n    <Task>12544</Task>\n    <Opcode>0</Opcode>\n    <Keywords>0x8020000000000000</Keywords>\n    <TimeCreated SystemTime=\"2025-06-02T23:24:49.9218559Z\" />\n    <EventRecordID>315062</EventRecordID>\n    <Correlation ActivityID=\"{7e10529c-d414-0002-9860-107e14d4db01}\" />\n    <Execution ProcessID=\"1868\" ThreadID=\"1984\" />\n    <Channel>Security</Channel>\n    <Computer>xing</Computer>\n    <Security />\n  </System>\n  <EventData>\n    <Data Name=\"SubjectUserSid\">S-1-5-18</Data>\n    <Data Name=\"SubjectUserName\">XING$</Data>\n    <Data Name=\"SubjectDomainName\">WORKGROUP</Data>\n    <Data Name=\"SubjectLogonId\">0x3e7</Data>\n    <Data Name=\"TargetUserSid\">S-1-5-18</Data>\n    <Data Name=\"TargetUserName\">SYSTEM</Data>\n    <Data Name=\"TargetDomainName\">NT AUTHORITY</Data>\n    <Data Name=\"TargetLogonId\">0x3e7</Data>\n    <Data Name=\"LogonType\">5</Data>\n    <Data Name=\"LogonProcessName\">Advapi  </Data>\n    <Data Name=\"AuthenticationPackageName\">Negotiate</Data>\n    <Data Name=\"WorkstationName\">-</Data>\n    <Data Name=\"LogonGuid\">{00000000-0000-0000-0000-000000000000}</Data>\n    <Data Name=\"TransmittedServices\">-</Data>\n    <Data Name=\"LmPackageName\">-</Data>\n    <Data Name=\"KeyLength\">0</Data>\n    <Data Name=\"ProcessId\">0x72c</Data>\n    <Data Name=\"ProcessName\">C:\\Windows\\System32\\services.exe</Data>\n    <Data Name=\"IpAddress\">-</Data>\n    <Data Name=\"IpPort\">-</Data>\n    <Data Name=\"ImpersonationLevel\">%%1833</Data>\n    <Data Name=\"RestrictedAdminMode\">-</Data>\n    <Data Name=\"RemoteCredentialGuard\">-</Data>\n    <Data Name=\"TargetOutboundUserName\">-</Data>\n    <Data Name=\"TargetOutboundDomainName\">-</Data>\n    <Data Name=\"VirtualAccount\">%%1843</Data>\n    <Data Name=\"TargetLinkedLogonId\">0x0</Data>\n    <Data Name=\"ElevatedToken\">%%1842</Data>\n  </EventData>\n</Event>",
+  "description": "This event is generated when a logon session is created. It is generated on the computer that was accessed.\nThe subject fields indicate the account on the local system which requested the logon. This is most commonly a service such as the Server service, or a local process such as Winlogon.exe or Services.exe.\nThe logon type field indicates the kind of logon that occurred. The most common types are 2 (interactive) and 3 (network).\nThe New Logon fields indicate the account for whom the new logon was created, i.e. the account that was logged on.\nThe network fields indicate where a remote logon request originated. Workstation name is not always available and may be left blank in some cases.\nThe impersonation level field indicates the extent to which a process in the logon session can impersonate.\nThe authentication information fields provide detailed information about this specific logon request.\n\t- Logon GUID is a unique identifier that can be used to correlate this event with a KDC event.\n\t- Transited services indicate which intermediate services have participated in this logon request.\n\t- Package name indicates which sub-protocol was used among the NTLM protocols.\n\t- Key length indicates the length of the generated session key. This will be 0 if no session key was requested.",
+  "Detailed Authentication Information": {
+    "Package Name (NTLM only)": "-",
+    "Logon Process": "Advapi",
+    "Transited Services": "-",
+    "Authentication Package": "Negotiate",
+    "Key Length": "0"
+  },
+  "Event ID": "4624",
+  "Source": "Microsoft-Windows-Security-Auditing",
+  "Date": "6/3/2025 7:24:49 AM",
+  "Subject": {
+    "Account Name": "XING$",
+    "Security ID": "SYSTEM",
+    "Logon ID": "0x3E7",
+    "Account Domain": "WORKGROUP"
+  },
+  "Logon Information": {
+    "Logon Type": "5",
+    "Remote Credential Guard": "-",
+    "Virtual Account": "No",
+    "Elevated Token": "Yes",
+    "Restricted Admin Mode": "-"
+  },
+  "__ts__": "6/3/2025 7:24:49 AM",
+  "Process Information": {
+    "Process ID": "0x72c",
+    "Process Name": "C:\\Windows\\System32\\services.exe"
+  },
+  "Impersonation Level": "Impersonation",
+  "New Logon": {
+    "Linked Logon ID": "0x0",
+    "Account Name": "SYSTEM",
+    "Network Account Name": "-",
+    "Security ID": "SYSTEM",
+    "Logon ID": "0x3E7",
+    "Logon GUID": "{00000000-0000-0000-0000-000000000000}",
+    "Network Account Domain": "-",
+    "Account Domain": "NT AUTHORITY"
+  },
+  "Computer": "xing",
+  "Level": "Information",
+  "Task Category": "Logon",
+  "Log Name": "Security"
+}

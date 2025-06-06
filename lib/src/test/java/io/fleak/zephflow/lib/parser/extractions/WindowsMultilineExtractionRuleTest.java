@@ -59,4 +59,16 @@ class WindowsMultilineExtractionRuleTest {
         loadFleakDataFromJsonResource("/parser/windows_multiline_4624_no_timestamp_parsed.json");
     assertEquals(expected, result);
   }
+
+  @Test
+  public void testExtract_windowsEventViewer() throws Exception {
+    String rawLog = loadStringFromResource("/parser/windows_multiline_4624_windows_eventviewer.txt");
+    WindowsMultilineExtractionRule rule =
+            new WindowsMultilineExtractionRule(
+                    new WindowsMultilineExtractionRule.FromFieldTimestampExtractor("Date"));
+    FleakData result = rule.extract(rawLog);
+    FleakData expected =
+            loadFleakDataFromJsonResource("/parser/windows_multiline_4624_windows_eventviewer_parsed.json");
+    assertEquals(expected, result);
+  }
 }

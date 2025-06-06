@@ -144,6 +144,6 @@ class KafkaSourceFetcherTest {
             .put(METADATA_KEY, toBase64String(key))
             .build();
 
-    assertEquals(FleakData.wrap(payload), result.getFirst());
+    assertEquals(FleakData.wrap(payload), result.get(0));
   }
 }

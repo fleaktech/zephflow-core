@@ -97,10 +97,9 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
       // 5. Validate discovery results based on DEFINED functions
       if (definedFunctions.size() == 1) {
         System.out.println(
-            "Found function defined by script: "
-                + definedFunctionNames.getFirst()); // Optional logging
+            "Found function defined by script: " + definedFunctionNames.get(0)); // Optional logging
         return new CompiledPythonFunction(
-            definedFunctionNames.getFirst(), definedFunctions.getFirst(), pythonContext);
+            definedFunctionNames.get(0), definedFunctions.get(0), pythonContext);
       }
 
       // Log or handle error: 0 or >1 functions *defined by the script* found
