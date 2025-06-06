@@ -11,23 +11,27 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.kinesis;
+package io.fleak.zephflow.lib.dlq;
 
-import io.fleak.zephflow.api.CommandConfig;
-import lombok.*;
+import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.deadletter.DeadLetter;
+import lombok.extern.slf4j.Slf4j;
 
-/** Created by bolei on 9/3/24 */
-public interface KinesisSinkDto {
+@Slf4j
+public class LoggingDlqWriter extends DlqWriter {
 
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String regionStr;
-    @NonNull private String streamName;
-    private String credentialId;
-    private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
+  public static LoggingDlqWriter create(JobContext.LoggingDlqConfig loggingDlqConfig) {
+    return new LoggingDlqWriter();
   }
+
+  @Override
+  public void open() {}
+
+  @Override
+  protected void doWrite(DeadLetter deadLetter) {
+    log.error("event error: {}", deadLetter);
+  }
+
+  @Override
+  public void close() {}
 }

@@ -22,6 +22,8 @@ import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import javax.annotation.Nullable;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
@@ -29,6 +31,7 @@ import software.amazon.awssdk.services.kinesis.model.PutRecordsRequest;
 import software.amazon.awssdk.services.kinesis.model.PutRecordsRequestEntry;
 import software.amazon.awssdk.services.kinesis.model.PutRecordsResponse;
 
+@Slf4j
 public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
   final KinesisClient kinesisClient;
   final String streamName;
@@ -38,7 +41,7 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
   public KinesisFlusher(
       KinesisClient kinesisClient,
       String streamName,
-      PathExpression partitionKeyPathExpression,
+      @Nullable PathExpression partitionKeyPathExpression,
       FleakSerializer<?> fleakSerializer) {
     this.kinesisClient = kinesisClient;
     this.streamName = streamName;
@@ -49,9 +52,14 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
   @Override
   public SimpleSinkCommand.FlushResult flush(
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
+    log.warn(
+        "Kinesis flushing started for {}, list {}",
+        streamName,
+        preparedInputEvents.preparedList().size());
     List<PutRecordsRequestEntry> records = new ArrayList<>();
     List<ErrorOutput> errorOutputs = new ArrayList<>();
     List<Integer> recordSizes = new ArrayList<>();
+
     for (Pair<RecordFleakData, RecordFleakData> pair : preparedInputEvents.rawAndPreparedList()) {
       try {
         RecordFleakData recordFleakData = pair.getRight();
@@ -62,8 +70,10 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
         }
         recordSizes.add(serializedEvent.value().length);
         String partitionKey =
-            partitionKeyPathExpression.getStringValueFromEventOrDefault(
-                pair.getRight(), UUID.randomUUID().toString());
+            partitionKeyPathExpression == null
+                ? UUID.randomUUID().toString()
+                : partitionKeyPathExpression.getStringValueFromEventOrDefault(
+                    pair.getRight(), UUID.randomUUID().toString());
 
         PutRecordsRequestEntry entry =
             PutRecordsRequestEntry.builder()
@@ -93,6 +103,8 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
 
       int successCount =
           putRecordsResponse.records().size() - putRecordsResponse.failedRecordCount();
+
+      log.warn("2 Kinesis flushing started for {}, successCount {}", streamName, successCount);
 
       long flushedDataSize = 0;
       for (int i = 0; i < putRecordsResponse.records().size(); i++) {
