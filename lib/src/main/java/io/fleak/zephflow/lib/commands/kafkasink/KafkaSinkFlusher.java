@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
@@ -64,7 +66,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
                   .getStringValueFromEventOrDefault(event, null)
                   .getBytes(StandardCharsets.UTF_8);
 
-        log.debug("kafka send event: {}", event);
+        log.debug("kafka send event: {}", toJsonString(event));
         var eventValue = serializedEvent.value();
 
         if (eventValue != null && eventValue.length > 0) {

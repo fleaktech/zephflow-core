@@ -700,6 +700,141 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
     return FleakData.wrap(contains);
   }
 
+  /**
+   * Evaluates a range function call, generating a sequence of numbers.
+   *
+   * <p>Supported forms:
+   *
+   * <ul>
+   *   <li>{@code range(count)}: Generates numbers from 0 up to (but not including) {@code count}.
+   *       This is equivalent to {@code range(0, count, 1)}. If {@code count} is 0 or negative, an
+   *       empty sequence is produced. Example: {@code range(5)} produces {@code [0, 1, 2, 3, 4]}.
+   *       {@code range(-2)} produces {@code []}.
+   *   <li>{@code range(start, end)}: Generates numbers from {@code start} up to (but not including)
+   *       {@code end}, incrementing by 1. This is equivalent to {@code range(start, end, 1)}. If
+   *       {@code start} is greater than or equal to {@code end}, an empty sequence is produced.
+   *       Example: {@code range(2, 5)} produces {@code [2, 3, 4]}. {@code range(5, 2)} produces
+   *       {@code []}.
+   *   <li>{@code range(start, end, step)}: Generates a sequence of numbers starting from {@code
+   *       start}. The generation of numbers continues as long as the current number meets the
+   *       condition relative to {@code end}, based on the sign of {@code step}:
+   *       <ul>
+   *         <li>If {@code step} is positive, numbers are generated as long as they are less than
+   *             {@code end}.
+   *         <li>If {@code step} is negative, numbers are generated as long as they are greater than
+   *             {@code end}.
+   *       </ul>
+   *       The {@code step} argument cannot be zero. If the conditions for generation are not met
+   *       initially (e.g., {@code start >= end} with a positive step, or {@code start <= end} with
+   *       a negative step), an empty sequence is produced. Examples:
+   *       <ul>
+   *         <li>{@code range(0, 10, 2)} produces {@code [0, 2, 4, 6, 8]}
+   *         <li>{@code range(10, 0, -2)} produces {@code [10, 8, 6, 4, 2]}
+   *         <li>{@code range(5, 0, -1)} produces {@code [5, 4, 3, 2, 1]}
+   *         <li>{@code range(0, 5, -1)} produces {@code []} (start is not greater than end for
+   *             negative step)
+   *         <li>{@code range(0, -5, -1)} produces {@code [0, -1, -2, -3, -4]}
+   *       </ul>
+   * </ul>
+   *
+   * @param ctx The context for the range function call from the ANTLR parser.
+   * @return An {@code ArrayFleakData} instance containing the generated sequence of numbers. Each
+   *     number in the sequence is a {@code NumberPrimitiveFleakData} of type LONG.
+   * @throws IllegalArgumentException if arguments are invalid (e.g., non-numeric types, step is
+   *     zero, or incorrect number of arguments).
+   */
+  @Override
+  public FleakData visitRangeFunction(EvalExpressionParser.RangeFunctionContext ctx) {
+    EvalExpressionParser.RangeArgsContext rangeArgsCtx = ctx.rangeArgs();
+    List<EvalExpressionParser.ExpressionContext> argExprs = rangeArgsCtx.expression();
+
+    int start = 0;
+    int end;
+    int step = 1;
+
+    if (argExprs.isEmpty()) {
+      throw new IllegalArgumentException("range() function expects at least one argument.");
+    }
+
+    if (argExprs.size() == 1) {
+      // range(count) => equivalent to range(0, count, 1)
+      end = evalArgAsInt(argExprs.get(0), "count");
+      // If count is negative, end will be negative. Start is 0, step is 1.
+      // Loop condition `i < end` (e.g. `0 < -5`) will be false, resulting in empty list. Correct.
+    } else if (argExprs.size() == 2) {
+      // range(start, end) => equivalent to range(start, end, 1)
+      start = evalArgAsInt(argExprs.get(0), "start");
+      end = evalArgAsInt(argExprs.get(1), "end");
+    } else if (argExprs.size() == 3) {
+      // range(start, end, step)
+      start = evalArgAsInt(argExprs.get(0), "start");
+      end = evalArgAsInt(argExprs.get(1), "end");
+      step = evalArgAsInt(argExprs.get(2), "step");
+    } else {
+      throw new IllegalArgumentException(
+          String.format(
+              "range() function called with %d arguments, expects 1, 2, or 3.", argExprs.size()));
+    }
+
+    if (step == 0) {
+      throw new IllegalArgumentException("range() step argument cannot be zero.");
+    }
+
+    List<FleakData> resultNumbers = new ArrayList<>();
+    if (step > 0) {
+      for (long i = start; i < end; i += step) {
+        resultNumbers.add(new NumberPrimitiveFleakData(i, NumberPrimitiveFleakData.NumberType.INT));
+      }
+    } else { // step < 0
+      for (long i = start; i > end; i += step) {
+        resultNumbers.add(new NumberPrimitiveFleakData(i, NumberPrimitiveFleakData.NumberType.INT));
+      }
+    }
+
+    return new ArrayFleakData(resultNumbers);
+  }
+
+  private int evalArgAsInt(EvalExpressionParser.ExpressionContext exprCtx, String argName) {
+    if (exprCtx == null) {
+      throw new IllegalArgumentException(String.format("Argument '%s' is missing", argName));
+    }
+
+    FleakData fleakData = visit(exprCtx);
+    if (!(fleakData instanceof NumberPrimitiveFleakData)) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Argument '%s' (%s) must be a number, but got: %s",
+              argName,
+              exprCtx.getText(),
+              fleakData != null ? fleakData.getClass().getSimpleName() : "null"));
+    }
+
+    NumberPrimitiveFleakData.NumberType numberType = fleakData.getNumberType();
+    double doubleValue = fleakData.getNumberValue();
+
+    if (doubleValue > Integer.MAX_VALUE || doubleValue < Integer.MIN_VALUE) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Argument '%s' (%s) value '%s' is out of the valid integer range [%d, %d].",
+              argName, exprCtx.getText(), doubleValue, Integer.MIN_VALUE, Integer.MAX_VALUE));
+    }
+
+    // Check if the number is an integer (e.g., 3.0 is okay, 3.5 is not)
+    if (numberType == NumberPrimitiveFleakData.NumberType.DOUBLE
+        || numberType == NumberPrimitiveFleakData.NumberType.FLOAT
+        || numberType == NumberPrimitiveFleakData.NumberType.UNKNOWN) {
+
+      if (doubleValue % 1 != 0) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Argument '%s' (%s) must be a whole number, but got: %s with a fractional part.",
+                argName, exprCtx.getText(), doubleValue));
+      }
+    }
+
+    return (int) doubleValue;
+  }
+
   private FleakData visitBinaryNode(ParserRuleContext ctx) {
     FleakData value = visit(ctx.getChild(0));
     if (ctx.getChildCount() == 1) {
@@ -763,9 +898,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
       return null;
     }
 
-    String indexText = ctx.INT_LITERAL().getText();
-    int index = Integer.parseInt(indexText);
-
+    int index = evalArgAsInt(ctx.expression(), "expression");
     if (!validArrayIndex(value.getArrayPayload(), index)) {
       return null;
     }

@@ -988,6 +988,54 @@ def process_req(req_value, factor):
     testEval(inputEvent, evalExpr, expected);
   }
 
+  @Test
+  public void testArrayZip() {
+    String inputEventStr =
+"""
+{
+  "TTLs": [
+    300,
+    140
+  ],
+  "answers": [
+    "s3-1-w.amazonaws.com",
+    "s3-w.us-east-1.amazonaws.com"
+  ],
+  "trans_id": 60300
+}
+""";
+    RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
+    String expectedOutputEventStr =
+"""
+{
+  "answers": [
+    {
+      "rdata": "s3-1-w.amazonaws.com",
+      "ttl": 300,
+      "packet_uid": 60300
+    },
+    {
+      "rdata": "s3-w.us-east-1.amazonaws.com",
+      "ttl": 140,
+      "packet_uid": 60300
+    }
+  ]
+}
+""";
+    FleakData expected = loadFleakDataFromJsonString(expectedOutputEventStr);
+    String evalExpr =
+"""
+dict(
+  answers=arr_foreach(range(size_of($.TTLs)), idx, dict(
+    rdata=$.answers[idx],
+    ttl=$.TTLs[idx],
+    packet_uid=$.trans_id
+  ))
+)
+""";
+    testEval(inputEvent, evalExpr, expected);
+  }
+
   private void testEval(RecordFleakData inputEvent, String evalExpr, FleakData expected) {
     EvalCommand evalCommand =
         (EvalCommand) new EvalCommandFactory().createCommand("my_node_id", JOB_CONTEXT);
@@ -997,12 +1045,12 @@ def process_req(req_value, factor):
             List.of(inputEvent), "test_user", new MetricClientProvider.NoopMetricClientProvider());
     System.out.println(
         processResult.getFailureEvents().stream().map(ErrorOutput::errorMessage).toList());
-    System.out.println(toJsonString(processResult.getOutput().getFirst().unwrap()));
+    System.out.println(toJsonString(processResult.getOutput().get(0).unwrap()));
     assertTrue(processResult.getFailureEvents().isEmpty());
     assertEquals(1, processResult.getOutput().size());
 
     assertEquals(
         toJsonString(expected.unwrap()),
-        toJsonString(processResult.getOutput().getFirst().unwrap()));
+        toJsonString(processResult.getOutput().get(0).unwrap()));
   }
 }

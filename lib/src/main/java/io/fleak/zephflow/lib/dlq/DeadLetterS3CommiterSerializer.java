@@ -29,7 +29,7 @@ public class DeadLetterS3CommiterSerializer implements S3CommiterSerializer<Dead
     SpecificDatumWriter<DeadLetter> datumWriter = new SpecificDatumWriter<>(DeadLetter.class);
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
     try (DataFileWriter<DeadLetter> dataFileWriter = new DataFileWriter<>(datumWriter)) {
-      dataFileWriter.create(events.getFirst().getSchema(), outputStream);
+      dataFileWriter.create(events.get(0).getSchema(), outputStream);
       for (DeadLetter deadLetter : events) {
         dataFileWriter.append(deadLetter);
       }

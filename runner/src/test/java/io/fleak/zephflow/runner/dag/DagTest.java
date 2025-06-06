@@ -185,7 +185,7 @@ class DagTest {
     List<Node<String>> entryNodes = testDag.getEntryNodes();
 
     assertEquals(1, entryNodes.size());
-    assertEquals("A", entryNodes.getFirst().getId());
+    assertEquals("A", entryNodes.get(0).getId());
   }
 
   @Test
@@ -292,7 +292,7 @@ class DagTest {
     // Verify edge
     List<Edge> downstreamEdgesA = dag.downstreamEdges("A");
     assertEquals(1, downstreamEdgesA.size());
-    Edge edgeAB = downstreamEdgesA.getFirst();
+    Edge edgeAB = downstreamEdgesA.get(0);
     assertEquals("B", edgeAB.getTo());
   }
 

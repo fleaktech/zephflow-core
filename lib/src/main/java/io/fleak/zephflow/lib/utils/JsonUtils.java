@@ -198,18 +198,31 @@ public abstract class JsonUtils {
   }
 
   public static JsonNode toJsonNode(FleakData data) {
-    return switch (data) {
-      case null -> null;
-      case RecordFleakData recordFleakData -> toJsonPayload(recordFleakData);
-      case ArrayFleakData arrayFleakData -> toArrayNode(arrayFleakData);
-      case StringPrimitiveFleakData ignored -> new TextNode(data.getStringValue());
-      case BooleanPrimitiveFleakData ignored -> BooleanNode.valueOf(data.isTrueValue());
-      case NumberPrimitiveFleakData numberPrimitiveFleakData ->
-          toJsonNumber(numberPrimitiveFleakData);
-      default ->
-          throw new RuntimeException(
-              String.format("value (%s) is unsupported fleak data type", data));
-    };
+    if (data == null) {
+      return null;
+    }
+
+    if (data instanceof RecordFleakData recordFleakData) {
+      return toJsonPayload(recordFleakData);
+    }
+
+    if (data instanceof ArrayFleakData arrayFleakData) {
+      return toArrayNode(arrayFleakData);
+    }
+
+    if (data instanceof StringPrimitiveFleakData) {
+      return new TextNode(data.getStringValue());
+    }
+
+    if (data instanceof BooleanPrimitiveFleakData) {
+      return BooleanNode.valueOf(data.isTrueValue());
+    }
+
+    if (data instanceof NumberPrimitiveFleakData numberPrimitiveFleakData) {
+      return toJsonNumber(numberPrimitiveFleakData);
+    }
+
+    throw new RuntimeException(String.format("value (%s) is unsupported fleak data type", data));
   }
 
   static NumericNode toJsonNumber(NumberPrimitiveFleakData data) {

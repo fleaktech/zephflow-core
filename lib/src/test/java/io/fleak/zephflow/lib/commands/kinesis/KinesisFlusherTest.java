@@ -150,7 +150,7 @@ class KinesisFlusherTest {
 
     assertEquals(1, result.successCount());
     assertEquals(1, result.errorOutputList().size());
-    assertEquals("Internal error", result.errorOutputList().getFirst().errorMessage());
+    assertEquals("Internal error", result.errorOutputList().get(0).errorMessage());
   }
 
   @Test
@@ -177,11 +177,11 @@ class KinesisFlusherTest {
 
     assertEquals(0, result.successCount());
     assertEquals(1, result.errorOutputList().size());
-    assertTrue(result.errorOutputList().getFirst().errorMessage().contains("Kinesis client error"));
+    assertTrue(result.errorOutputList().get(0).errorMessage().contains("Kinesis client error"));
     assertTrue(
         result
             .errorOutputList()
-            .getFirst()
+            .get(0)
             .errorMessage()
             .contains("Received null response from Kinesis client"));
 
