@@ -44,7 +44,7 @@ public class OnDemandS3Commiter extends S3Commiter<RecordFleakData> {
             "%s/%s.%s",
             keyName,
             Instant.now().toEpochMilli(),
-            fleakSerializer.getEncodingTypes().getFirst().getFileExtension());
+            fleakSerializer.getEncodingType().getFileExtension());
     PutObjectRequest putObjectRequest =
         PutObjectRequest.builder().bucket(bucketName).key(fileKey).build();
     s3Client.putObject(putObjectRequest, RequestBody.fromBytes(serializedEvent.value()));

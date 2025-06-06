@@ -27,10 +27,10 @@ public class SingleEventSerializer<T> extends FleakSerializer<T> {
   private final SingleEventTypedSerializer<T> singleEventTypedSerializer;
 
   public SingleEventSerializer(
-      List<EncodingType> encodingTypes,
+      EncodingType encodingType,
       TypedEventConverter<T> typedEventConverter,
       SingleEventTypedSerializer<T> singleEventTypedSerializer) {
-    super(encodingTypes, typedEventConverter);
+    super(encodingType, typedEventConverter);
     this.singleEventTypedSerializer = singleEventTypedSerializer;
   }
 

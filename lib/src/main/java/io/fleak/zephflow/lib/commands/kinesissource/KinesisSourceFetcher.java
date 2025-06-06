@@ -18,7 +18,6 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.utils.CompressionUtils;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -206,7 +205,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       return null;
     }
 
-    var value = autoDecompress(SdkBytes.fromByteBuffer(data).asByteArray());
+    var value = SdkBytes.fromByteBuffer(data).asByteArray();
 
     byte[] key = null;
     var hashKey = r.explicitHashKey();
@@ -215,13 +214,6 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     }
 
     return new SerializedEvent(key, value, metadata);
-  }
-
-  private static byte[] autoDecompress(byte[] data) {
-    if (CompressionUtils.isGzipped(data)) {
-      return CompressionUtils.gunzip(data);
-    }
-    return data;
   }
 
   @Override
