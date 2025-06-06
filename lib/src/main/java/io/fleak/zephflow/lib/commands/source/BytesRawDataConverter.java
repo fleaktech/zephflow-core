@@ -17,6 +17,8 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.compression.Decompressor;
+import io.fleak.zephflow.lib.serdes.compression.DecompressorFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.List;
 import java.util.Map;
@@ -27,9 +29,15 @@ import lombok.extern.slf4j.Slf4j;
 public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> {
 
   private final FleakDeserializer<?> fleakDeserializer;
+  private final Decompressor decompressor;
 
   public BytesRawDataConverter(FleakDeserializer<?> fleakDeserializer) {
+    this(fleakDeserializer, DecompressorFactory.getDecompressor(List.of()));
+  }
+
+  public BytesRawDataConverter(FleakDeserializer<?> fleakDeserializer, Decompressor decompressor) {
     this.fleakDeserializer = fleakDeserializer;
+    this.decompressor = decompressor;
   }
 
   @Override
@@ -37,7 +45,8 @@ public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> 
       SerializedEvent sourceRecord, SourceInitializedConfig<?> sourceInitializedConfig) {
     try {
       sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, Map.of());
-      List<RecordFleakData> events = fleakDeserializer.deserialize(sourceRecord);
+      List<RecordFleakData> events =
+          fleakDeserializer.deserialize(decompressor.decompress(sourceRecord));
       sourceInitializedConfig.inputEventCounter().increase(events.size(), Map.of());
       if (log.isDebugEnabled()) {
         events.forEach(e -> log.debug("got message: {}", toJsonString(e)));

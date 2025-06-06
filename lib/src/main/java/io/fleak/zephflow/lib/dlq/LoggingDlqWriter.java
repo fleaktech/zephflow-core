@@ -11,21 +11,27 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.serdes;
+package io.fleak.zephflow.lib.dlq;
 
-import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
-import java.util.List;
-import lombok.Getter;
+import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.deadletter.DeadLetter;
+import lombok.extern.slf4j.Slf4j;
 
-/** Created by bolei on 9/16/24 */
-public abstract class FleakSerdes<T> {
-  @Getter private final List<EncodingType> encodingTypes;
+@Slf4j
+public class LoggingDlqWriter extends DlqWriter {
 
-  protected final TypedEventConverter<T> typedEventConverter;
-
-  protected FleakSerdes(
-      List<EncodingType> encodingTypes, TypedEventConverter<T> typedEventConverter) {
-    this.encodingTypes = encodingTypes;
-    this.typedEventConverter = typedEventConverter;
+  public static LoggingDlqWriter create(JobContext.LoggingDlqConfig loggingDlqConfig) {
+    return new LoggingDlqWriter();
   }
+
+  @Override
+  public void open() {}
+
+  @Override
+  protected void doWrite(DeadLetter deadLetter) {
+    log.error("event error: {}", deadLetter);
+  }
+
+  @Override
+  public void close() {}
 }

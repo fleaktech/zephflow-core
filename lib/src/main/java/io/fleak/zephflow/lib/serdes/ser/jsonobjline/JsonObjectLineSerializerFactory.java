@@ -19,6 +19,7 @@ import io.fleak.zephflow.lib.serdes.converters.JsonObjectTypedEventConverter;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.MultipleEventsSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.List;
 
 /** Created by bolei on 9/16/24 */
 public class JsonObjectLineSerializerFactory implements SerializerFactory<ObjectNode> {
@@ -27,6 +28,6 @@ public class JsonObjectLineSerializerFactory implements SerializerFactory<Object
     var typedEventConverter = new JsonObjectTypedEventConverter();
     var jsonObjectLineTypedSerializer = new JsonObjectLineTypedSerializer();
     return new MultipleEventsSerializer<>(
-        EncodingType.JSON_OBJECT_LINE, typedEventConverter, jsonObjectLineTypedSerializer);
+        List.of(EncodingType.JSON_OBJECT_LINE), typedEventConverter, jsonObjectLineTypedSerializer);
   }
 }

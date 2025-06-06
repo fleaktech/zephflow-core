@@ -18,6 +18,7 @@ import io.fleak.zephflow.lib.serdes.converters.StringTypedEventConverter;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsDeserializer;
+import java.util.List;
 
 /** Created by bolei on 10/16/24 */
 public class StringLineDeserializerFactory implements DeserializerFactory<String> {
@@ -26,6 +27,6 @@ public class StringLineDeserializerFactory implements DeserializerFactory<String
     var typedEventConverter = new StringTypedEventConverter();
     var strTypedDeserializer = new StringLineTypedDeserializer();
     return new MultipleEventsDeserializer<>(
-        EncodingType.STRING_LINE, typedEventConverter, strTypedDeserializer);
+        List.of(EncodingType.STRING_LINE), typedEventConverter, strTypedDeserializer);
   }
 }

@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.utils.CompressionUtils;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -205,7 +206,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       return null;
     }
 
-    var value = SdkBytes.fromByteBuffer(data).asByteArray();
+    var value = autoDecompress(SdkBytes.fromByteBuffer(data).asByteArray());
 
     byte[] key = null;
     var hashKey = r.explicitHashKey();
@@ -214,6 +215,13 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     }
 
     return new SerializedEvent(key, value, metadata);
+  }
+
+  private static byte[] autoDecompress(byte[] data) {
+    if (CompressionUtils.isGzipped(data)) {
+      return CompressionUtils.gunzip(data);
+    }
+    return data;
   }
 
   @Override
@@ -295,9 +303,11 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       // pull based.
       // To bridge this we push data to a blocking queue which Zephflow will pull from as it
       // processes the records.
-      lastSeenCheckpointer.set(processRecordsInput.checkpointer());
+      //      lastSeenCheckpointer.set(processRecordsInput.checkpointer());
+      log.error("Got proces recors: {}", processRecordsInput.millisBehindLatest());
       for (var record : processRecordsInput.records()) {
         try {
+          log.error("Got record: {}", record);
           records.put(record);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
