@@ -21,4 +21,8 @@ public class CompressionUtils {
       return bos.toByteArray();
     }
   }
+
+  public static boolean isGzipped(byte[] data) {
+    return data != null && data.length >= 2 && (data[0] & 0xFF) == 0x1F && (data[1] & 0xFF) == 0x8B;
+  }
 }
