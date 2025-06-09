@@ -52,7 +52,7 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
   @Override
   public SimpleSinkCommand.FlushResult flush(
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
-    log.warn(
+    log.debug(
         "Kinesis flushing started for {}, list {}",
         streamName,
         preparedInputEvents.preparedList().size());
@@ -103,8 +103,6 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
 
       int successCount =
           putRecordsResponse.records().size() - putRecordsResponse.failedRecordCount();
-
-      log.warn("2 Kinesis flushing started for {}, successCount {}", streamName, successCount);
 
       long flushedDataSize = 0;
       for (int i = 0; i < putRecordsResponse.records().size(); i++) {

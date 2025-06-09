@@ -30,7 +30,7 @@ public class KinesisSinkConfigValidator implements ConfigValidator {
     if (enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
     }
-    if (StringUtils.trimToNull(config.getCredentialId()) != null) {
+    if (StringUtils.trimToNull(config.getPartitionKeyFieldExpressionStr()) != null) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }
   }
