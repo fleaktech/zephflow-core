@@ -43,7 +43,6 @@ public abstract class SourceCommandPartsFactory<T> extends CommandPartsFactory {
       return LoggingDlqWriter.create(logging);
     }
 
-    // TODO
     throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
   }
 }
