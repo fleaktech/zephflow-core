@@ -295,7 +295,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       // pull based.
       // To bridge this we push data to a blocking queue which Zephflow will pull from as it
       // processes the records.
-      //      lastSeenCheckpointer.set(processRecordsInput.checkpointer());
+      lastSeenCheckpointer.set(processRecordsInput.checkpointer());
       for (var record : processRecordsInput.records()) {
         try {
           log.trace("Got record: {}", record);
