@@ -34,12 +34,11 @@ public class JobContext implements Serializable {
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();
 
-  private @Builder.Default DlqConfig dlqConfig = new LoggingDlqConfig();
+  private DlqConfig dlqConfig;
 
   @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
   @JsonSubTypes({
     @JsonSubTypes.Type(value = S3DlqConfig.class, name = "s3"),
-    @JsonSubTypes.Type(value = LoggingDlqConfig.class, name = "logging"),
   })
   public interface DlqConfig {}
 
@@ -54,8 +53,4 @@ public class JobContext implements Serializable {
     private int batchSize;
     private int flushIntervalMillis;
   }
-
-  @Data
-  @Builder
-  public static class LoggingDlqConfig implements DlqConfig {}
 }
