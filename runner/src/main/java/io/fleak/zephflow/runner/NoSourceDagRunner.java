@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.runner;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
@@ -33,6 +34,7 @@ import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.slf4j.MDC;
 
 /** Created by bolei on 3/4/25 */
@@ -75,6 +77,9 @@ public record NoSourceDagRunner(
     counters.stopStopWatch(callingUserTag);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
+    if (MapUtils.isNotEmpty(dagResult.getErrorByStep())) {
+      log.error("failed to process events: {}", toJsonString(dagResult.errorByStep));
+    }
     return dagResult;
   }
 
