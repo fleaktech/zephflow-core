@@ -11,23 +11,8 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.kinesis;
+package io.fleak.zephflow.lib.serdes;
 
-import io.fleak.zephflow.api.CommandConfig;
-import lombok.*;
-
-/** Created by bolei on 9/3/24 */
-public interface KinesisSinkDto {
-
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String regionStr;
-    @NonNull private String streamName;
-    private String credentialId;
-    private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
-  }
+public enum CompressionType {
+  GZIP
 }

@@ -11,23 +11,27 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.kinesis;
+package io.fleak.zephflow.lib.utils;
 
-import io.fleak.zephflow.api.CommandConfig;
-import lombok.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.GZIPInputStream;
+import lombok.SneakyThrows;
 
-/** Created by bolei on 9/3/24 */
-public interface KinesisSinkDto {
+public class CompressionUtils {
 
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String regionStr;
-    @NonNull private String streamName;
-    private String credentialId;
-    private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
+  @SneakyThrows
+  public static byte[] gunzip(byte[] data) {
+    try (var bis = new ByteArrayInputStream(data);
+        var gis = new GZIPInputStream(bis);
+        var bos = new ByteArrayOutputStream()) {
+
+      byte[] buffer = new byte[4096];
+      int len;
+      while ((len = gis.read(buffer)) != -1) {
+        bos.write(buffer, 0, len);
+      }
+      return bos.toByteArray();
+    }
   }
 }

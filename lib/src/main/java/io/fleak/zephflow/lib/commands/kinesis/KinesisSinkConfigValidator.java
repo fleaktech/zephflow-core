@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
+import org.apache.commons.lang3.StringUtils;
 
 /** Created by bolei on 9/3/24 */
 public class KinesisSinkConfigValidator implements ConfigValidator {
@@ -29,6 +30,8 @@ public class KinesisSinkConfigValidator implements ConfigValidator {
     if (enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
     }
-    PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+    if (StringUtils.trimToNull(config.getPartitionKeyFieldExpressionStr()) != null) {
+      PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+    }
   }
 }

@@ -11,23 +11,15 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.kinesis;
+package io.fleak.zephflow.lib.serdes.compression;
 
-import io.fleak.zephflow.api.CommandConfig;
-import lombok.*;
+import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
 
-/** Created by bolei on 9/3/24 */
-public interface KinesisSinkDto {
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
 
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String regionStr;
-    @NonNull private String streamName;
-    private String credentialId;
-    private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
+public class GzipDecompressor implements Decompressor {
+  @Override
+  public SerializedEvent decompress(SerializedEvent serializedEvent) {
+    return serializedEvent.copyWithValue(gunzip(serializedEvent.value()));
   }
 }

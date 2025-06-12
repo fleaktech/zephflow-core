@@ -39,7 +39,6 @@ public abstract class SourceCommandPartsFactory<T> extends CommandPartsFactory {
       return S3DlqWriter.createS3DlqWriter(s3DlqConfig);
     }
 
-    // TODO
     throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
   }
 }

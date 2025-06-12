@@ -133,7 +133,7 @@ public class DagExecutor {
               noSourceDagRunner.run(
                   recordFleakData,
                   jobConfig.getJobId(),
-                  new NoSourceDagRunner.DagRunConfig(false, false));
+                  new NoSourceDagRunner.DagRunConfig(true, false));
             }
           });
     } finally {
