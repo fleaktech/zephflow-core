@@ -28,6 +28,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
+import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
 
 /** Created by bolei on 9/3/24 */
@@ -55,8 +56,11 @@ public class KinesisSinkPartsFactory extends SinkCommandPartsFactory<RecordFleak
         awsClientFactory.createKinesisClient(
             config.getRegionStr(), usernamePasswordCredentialOpt.orElse(null));
 
-    PathExpression partitionKeyPathExpression =
-        PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+    PathExpression partitionKeyPathExpression = null;
+    if (StringUtils.trimToNull(config.getPartitionKeyFieldExpressionStr()) != null) {
+      partitionKeyPathExpression =
+          PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+    }
 
     EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
     SerializerFactory<?> serializerFactory =

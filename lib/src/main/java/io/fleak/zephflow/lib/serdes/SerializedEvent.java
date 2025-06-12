@@ -22,6 +22,10 @@ import java.util.Map;
 /** Created by bolei on 9/16/24 */
 public record SerializedEvent(byte[] key, byte[] value, Map<String, String> metadata) {
 
+  public SerializedEvent copyWithValue(byte[] value) {
+    return new SerializedEvent(key, value, metadata);
+  }
+
   public static Map<String, String> metadataWithKey(SerializedEvent serializedEvent) {
     if (serializedEvent.metadata == null) {
       return Map.of();

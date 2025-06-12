@@ -298,6 +298,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       lastSeenCheckpointer.set(processRecordsInput.checkpointer());
       for (var record : processRecordsInput.records()) {
         try {
+          log.trace("Got record: {}", record);
           records.put(record);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
