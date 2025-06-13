@@ -54,9 +54,7 @@ public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> 
       return ConvertedResult.success(events, sourceRecord);
     } catch (Exception e) {
       sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
-      if (log.isDebugEnabled()) {
-        log.debug("failed to deserialize event {}", sourceRecord);
-      }
+      log.error("failed to deserialize event:\n{}", sourceRecord);
       return ConvertedResult.failure(e, sourceRecord);
     }
   }
