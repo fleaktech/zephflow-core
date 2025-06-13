@@ -48,7 +48,7 @@ public class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
     log.trace("KafkaSourceFetcher: fetch()");
     ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(100));
 
-    log.trace("Got records: {}", records.count());
+    log.debug("Got records: {}", records.count());
 
     List<SerializedEvent> rawEvents = new ArrayList<>();
 

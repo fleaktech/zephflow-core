@@ -158,7 +158,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     recordQueue.drainTo(recordEvents, 500);
 
     var events = new ArrayList<SerializedEvent>(recordEvents.size());
-    log.trace("Got record: {}", recordEvents.size());
+    log.debug("Got record: {}", recordEvents.size());
 
     for (var r : recordEvents) {
       var serializedEvent = getSerializedEvent(r, getMetadata(r));
@@ -298,7 +298,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       lastSeenCheckpointer.set(processRecordsInput.checkpointer());
       for (var record : processRecordsInput.records()) {
         try {
-          log.trace("Got record: {}", record);
+          log.debug("Got record: {}", record);
           records.put(record);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();

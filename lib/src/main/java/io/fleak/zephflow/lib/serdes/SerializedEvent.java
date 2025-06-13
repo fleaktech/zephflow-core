@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import lombok.NonNull;
 
 /** Created by bolei on 9/16/24 */
 public record SerializedEvent(byte[] key, byte[] value, Map<String, String> metadata) {
@@ -56,9 +57,9 @@ public record SerializedEvent(byte[] key, byte[] value, Map<String, String> meta
   }
 
   @Override
-  public String toString() {
+  public @NonNull String toString() {
     return String.format(
-        "key(base64):%n%s%n value(base64):%n%s%nmetadata:%n%s",
+        "key(base64):%n%s%nvalue(base64):%n%s%nmetadata:%n%s",
         toBase64String(key), toBase64String(value), toJsonString(metadata));
   }
 }
