@@ -211,16 +211,7 @@ public class ZephFlow {
     // which might be required by other methods like buildDag().
     Map<String, DagNode> nodeMap = new HashMap<>();
     for (DagNode node : dagDef.getDag()) {
-      DagNode mutableNode =
-          DagNode.builder()
-              .id(node.getId())
-              .commandName(node.getCommandName())
-              .config(node.getConfig())
-              .outputs(
-                  new ArrayList<>(
-                      Optional.ofNullable(node.getOutputs())
-                          .orElse(List.of()))) // Ensure mutability
-              .build();
+      DagNode mutableNode = node.duplicate();
       nodeMap.put(mutableNode.getId(), mutableNode);
     }
 

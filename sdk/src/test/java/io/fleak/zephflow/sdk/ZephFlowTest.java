@@ -26,10 +26,13 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.lib.utils.YamlUtils;
 import io.fleak.zephflow.runner.DagCompilationException;
+import io.fleak.zephflow.runner.DagResult;
+import io.fleak.zephflow.runner.NoSourceDagRunner;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.*;
 import java.util.*;
@@ -157,6 +160,24 @@ public class ZephFlowTest {
     outputFlow =
         ZephFlow.fromYamlDag(dagYamlContent, new MetricClientProvider.NoopMetricClientProvider());
     runTestWithStdIO(outputFlow, "/expected_output_complex_transformations.json");
+  }
+
+  @Test
+  void testProcessTransformations() {
+    ZephFlow flow =
+        ZephFlow.startFlow()
+            .eval("dict(value=$.num, category=case($.num%2==0 => 'even', _ => 'odd'))");
+    var dag = flow.buildDag();
+    ZephFlow flowFromDag = ZephFlow.fromDagDefinition(dag, null);
+    DagResult dagResult =
+        flowFromDag.process(
+            List.of(Map.of("num", 1), Map.of("num", 2)),
+            new NoSourceDagRunner.DagRunConfig(false, false));
+    List<RecordFleakData> actual =
+        dagResult.getOutputEvents().values().stream().findFirst().orElseThrow();
+    assertEquals(
+        List.of(Map.of("value", 1, "category", "odd"), Map.of("value", 2, "category", "even")),
+        actual.stream().map(RecordFleakData::unwrap).toList());
   }
 
   @Test
