@@ -23,6 +23,7 @@ import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -64,8 +65,9 @@ public class ZephFlow {
   // Can be null for intermediate merge flows.
   @Getter private final DagNode node;
 
+  @VisibleForTesting
   // List of upstream flows that feed data into this flow's node.
-  private final List<ZephFlow> upstreamFlows;
+  final List<ZephFlow> upstreamFlows;
 
   // Job-level context (e.g., metrics tags, properties).
   @Getter private final JobContext jobContext;
@@ -135,6 +137,180 @@ public class ZephFlow {
                 Map.of(METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
             .build(),
         metricClientProvider);
+  }
+
+  /**
+   * Creates a ZephFlow instance from a YAML string representation of a DAG.
+   *
+   * @param dagYamlContent The YAML content defining the DAG structure.
+   * @param metricClientProvider The metric client provider to associate with the reconstructed
+   *     flow.
+   * @return A new {@code ZephFlow} instance representing the final sink(s) of the parsed DAG.
+   * @throws IllegalArgumentException if the YAML content is blank or cannot be parsed into a valid
+   *     DAG definition.
+   */
+  public static ZephFlow fromYamlDag(
+      String dagYamlContent, MetricClientProvider metricClientProvider) {
+    if (dagYamlContent.isBlank()) {
+      throw new IllegalArgumentException("dagYamlContent cannot be null or blank");
+    }
+    AdjacencyListDagDefinition dag = fromYamlString(dagYamlContent, new TypeReference<>() {});
+    if (dag == null) {
+      throw new IllegalArgumentException("Parsed DAG is null (YAML might be malformed)");
+    }
+    return fromDagDefinition(dag, metricClientProvider);
+  }
+
+  /**
+   * Creates a ZephFlow instance from a JSON string representation of a DAG.
+   *
+   * @param dagJsonContent The JSON content defining the DAG structure.
+   * @param metricClientProvider The metric client provider to associate with the reconstructed
+   *     flow.
+   * @return A new {@code ZephFlow} instance representing the final sink(s) of the parsed DAG.
+   * @throws IllegalArgumentException if the JSON content is blank or cannot be parsed into a valid
+   *     DAG definition.
+   */
+  public static ZephFlow fromJsonDag(
+      String dagJsonContent, MetricClientProvider metricClientProvider) {
+    if (dagJsonContent.isBlank()) {
+      throw new IllegalArgumentException("dagJsonContent cannot be null or blank");
+    }
+    AdjacencyListDagDefinition dag = fromJsonString(dagJsonContent, new TypeReference<>() {});
+    if (dag == null) {
+      throw new IllegalArgumentException("Parsed DAG is null (JSON might be malformed)");
+    }
+    return fromDagDefinition(dag, metricClientProvider);
+  }
+
+  /**
+   * Reconstructs a ZephFlow object from a DAG definition. This is the inverse of the {@link
+   * #buildDag()} method.
+   *
+   * @param dagDef The complete DAG definition.
+   * @param metricClientProvider The metric client provider to associate with the flow.
+   * @return A ZephFlow instance that represents the final sink(s) of the DAG.
+   */
+  public static ZephFlow fromDagDefinition(
+      AdjacencyListDagDefinition dagDef, MetricClientProvider metricClientProvider) {
+    MetricClientProvider mcp =
+        Optional.ofNullable(metricClientProvider)
+            .orElse(new MetricClientProvider.NoopMetricClientProvider());
+
+    // Validate input DAG definition.
+    if (dagDef == null) {
+      throw new IllegalArgumentException("DAG definition cannot be null.");
+    }
+    if (dagDef.getDag() == null || dagDef.getDag().isEmpty()) {
+      // If the DAG is empty, return a base flow with the associated job context.
+      return startFlow(dagDef.getJobContext(), mcp);
+    }
+
+    // Create a lookup map for nodes by their ID.
+    // A defensive copy of each node is made to ensure its 'outputs' list is mutable,
+    // which might be required by other methods like buildDag().
+    Map<String, DagNode> nodeMap = new HashMap<>();
+    for (DagNode node : dagDef.getDag()) {
+      DagNode mutableNode =
+          DagNode.builder()
+              .id(node.getId())
+              .commandName(node.getCommandName())
+              .config(node.getConfig())
+              .outputs(
+                  new ArrayList<>(
+                      Optional.ofNullable(node.getOutputs())
+                          .orElse(List.of()))) // Ensure mutability
+              .build();
+      nodeMap.put(mutableNode.getId(), mutableNode);
+    }
+
+    // Build a reverse lookup map to find parent nodes for any given child node.
+    // Map format: <childId, List<parentId>>
+    Map<String, List<String>> parentMap = new HashMap<>();
+    nodeMap.forEach(
+        (parentId, parentNode) -> {
+          for (String childId : parentNode.getOutputs()) {
+            parentMap.computeIfAbsent(childId, k -> new ArrayList<>()).add(parentId);
+          }
+        });
+
+    // Identify all sink nodes (nodes with no outputs).
+    List<String> sinkNodeIds =
+        nodeMap.keySet().stream()
+            .filter(nodeId -> nodeMap.get(nodeId).getOutputs().isEmpty())
+            .toList();
+
+    if (sinkNodeIds.isEmpty() && !nodeMap.isEmpty()) {
+      throw new IllegalStateException("Invalid DAG: No sink nodes found, possibly a cycle exists.");
+    }
+
+    // Recursively reconstruct the ZephFlow object graph starting from the sinks.
+    Map<String, ZephFlow> flowCache = new HashMap<>();
+    List<ZephFlow> sinkFlows = new ArrayList<>();
+    for (String sinkId : sinkNodeIds) {
+      sinkFlows.add(
+          reconstructFlowRecursive(
+              sinkId, nodeMap, parentMap, flowCache, dagDef.getJobContext(), mcp));
+    }
+
+    // If there is only one sink, return its flow directly.
+    // If there are multiple sinks, merge them into a single ZephFlow object.
+    if (sinkFlows.size() == 1) {
+      return sinkFlows.get(0);
+    } else {
+      return ZephFlow.merge(sinkFlows.toArray(new ZephFlow[0]));
+    }
+  }
+
+  /**
+   * Recursively reconstructs a ZephFlow object for a given node ID.
+   *
+   * @param nodeId The ID of the node to construct a flow for.
+   * @param nodeMap A map of all nodes in the DAG, keyed by ID.
+   * @param parentMap A map where the key is a node ID and the value is a list of its parent IDs.
+   * @param flowCache A cache to store already constructed ZephFlow objects to avoid re-computation.
+   * @param jobContext The job context for the entire DAG.
+   * @param metricClientProvider The metric client provider.
+   * @return The reconstructed ZephFlow object for the given node ID.
+   */
+  private static ZephFlow reconstructFlowRecursive(
+      String nodeId,
+      Map<String, DagNode> nodeMap,
+      Map<String, List<String>> parentMap,
+      Map<String, ZephFlow> flowCache,
+      JobContext jobContext,
+      MetricClientProvider metricClientProvider) {
+
+    // 1. Memoization: If the flow for this node is already in the cache, return it.
+    if (flowCache.containsKey(nodeId)) {
+      return flowCache.get(nodeId);
+    }
+
+    // 2. Get the definition for the current node.
+    DagNode currentNode = nodeMap.get(nodeId);
+    if (currentNode == null) {
+      throw new IllegalStateException(
+          "DAG definition is inconsistent. Node ID not found: " + nodeId);
+    }
+
+    // 3. Find all parent nodes (upstreams) for the current node.
+    List<String> parentNodeIds = parentMap.getOrDefault(nodeId, Collections.emptyList());
+
+    // 4. Recursively build the ZephFlow objects for all parent nodes.
+    List<ZephFlow> upstreamFlows =
+        parentNodeIds.stream()
+            .map(
+                parentId ->
+                    reconstructFlowRecursive(
+                        parentId, nodeMap, parentMap, flowCache, jobContext, metricClientProvider))
+            .collect(Collectors.toList());
+
+    // 5. Construct the ZephFlow for the current node using its definition and its upstream flows.
+    ZephFlow newFlow = new ZephFlow(currentNode, upstreamFlows, jobContext, metricClientProvider);
+
+    // 6. Cache the newly created flow before returning.
+    flowCache.put(nodeId, newFlow);
+    return newFlow;
   }
 
   /**

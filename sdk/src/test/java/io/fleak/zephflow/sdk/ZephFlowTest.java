@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -134,6 +135,42 @@ public class ZephFlowTest {
    */
   @Test
   public void testComplexTransformations() throws Exception {
+    ZephFlow outputFlow = complexTransformationDag();
+    // Run the test
+    runTestWithStdIO(outputFlow, "/expected_output_complex_transformations.json");
+  }
+
+  @Test
+  public void testComplexTransformations_fromDag() throws Exception {
+    ZephFlow outputFlow = complexTransformationDag();
+    var dag = outputFlow.buildDag();
+    outputFlow =
+        ZephFlow.fromDagDefinition(dag, new MetricClientProvider.NoopMetricClientProvider());
+    runTestWithStdIO(outputFlow, "/expected_output_complex_transformations.json");
+  }
+
+  @Test
+  public void testComplexTransformations_fromYamlDag() throws Exception {
+    ZephFlow outputFlow = complexTransformationDag();
+    var dag = outputFlow.buildDag();
+    String dagYamlContent = dag.toString();
+    outputFlow =
+        ZephFlow.fromYamlDag(dagYamlContent, new MetricClientProvider.NoopMetricClientProvider());
+    runTestWithStdIO(outputFlow, "/expected_output_complex_transformations.json");
+  }
+
+  @Test
+  public void testComplexTransformations_fromJsonDag() throws Exception {
+    ZephFlow outputFlow = complexTransformationDag();
+    var dag = outputFlow.buildDag();
+    String dagJsonContent = toJsonString(dag);
+    assertNotNull(dagJsonContent);
+    outputFlow =
+        ZephFlow.fromJsonDag(dagJsonContent, new MetricClientProvider.NoopMetricClientProvider());
+    runTestWithStdIO(outputFlow, "/expected_output_complex_transformations.json");
+  }
+
+  private ZephFlow complexTransformationDag() {
     ZephFlow flow = ZephFlow.startFlow();
 
     // Create input flow
@@ -149,10 +186,7 @@ public class ZephFlowTest {
                 "dict(summary=dict(value=$.origValue, category=$.category, valueRange=$.valueRange), meta=dict(processed=true))");
 
     // Output to stdout
-    ZephFlow outputFlow = transformedFlow.stdoutSink(EncodingType.JSON_OBJECT);
-
-    // Run the test
-    runTestWithStdIO(outputFlow, "/expected_output_complex_transformations.json");
+    return transformedFlow.stdoutSink(EncodingType.JSON_OBJECT);
   }
 
   /**
@@ -489,6 +523,12 @@ public class ZephFlowTest {
     assertTrue(ex.getMessage().contains("Sink nodes must be terminal nodes."));
   }
 
+  @Test
+  public void testSingleSource() throws Exception {
+    ZephFlow flow = ZephFlow.startFlow().stdinSource(EncodingType.JSON_ARRAY);
+    runTestWithStdIO(flow, Set.of());
+  }
+
   /**
    * Test case: Source after source This should fail because a node cannot receive input from
    * multiple source nodes
@@ -628,7 +668,7 @@ public class ZephFlowTest {
   }
 
   @Test
-  public void testExecuteWithYaml() throws Exception{
+  public void testExecuteWithYaml() throws Exception {
     ZephFlow flow = ZephFlow.startFlow();
 
     ZephFlow inputFlow = flow.stdinSource(EncodingType.JSON_ARRAY);
@@ -643,7 +683,7 @@ public class ZephFlowTest {
   }
 
   @Test
-  public void testExecuteWithJson() throws Exception{
+  public void testExecuteWithJson() throws Exception {
     ZephFlow flow = ZephFlow.startFlow();
 
     ZephFlow inputFlow = flow.stdinSource(EncodingType.JSON_ARRAY);
@@ -657,7 +697,204 @@ public class ZephFlowTest {
     assertTrue(output.contains("{\"num\":0}"));
   }
 
+  /** Test that an empty DAG definition results in an empty ZephFlow object. */
+  @Test
+  public void testFromDag_EmptyDag() {
+    AdjacencyListDagDefinition emptyDagDef =
+        AdjacencyListDagDefinition.builder()
+            .dag(Collections.emptyList())
+            .jobContext(
+                JobContext.builder()
+                    .metricTags(
+                        Map.of(
+                            METRIC_TAG_SERVICE, "default_service", METRIC_TAG_ENV, "default_env"))
+                    .build())
+            .build();
+
+    ZephFlow flow =
+        ZephFlow.fromDagDefinition(
+            emptyDagDef, new MetricClientProvider.NoopMetricClientProvider());
+
+    assertNull(flow.getNode(), "Flow from empty DAG should have no node.");
+    assertTrue(flow.upstreamFlows.isEmpty(), "Flow from empty DAG should have no upstreams.");
+
+    // Building the DAG again should result in an empty DAG.
+    AdjacencyListDagDefinition reconstructedDag = flow.buildDag();
+    assertTrue(
+        reconstructedDag.getDag().isEmpty(),
+        "Reconstructed DAG from an empty flow should be empty.");
+  }
+
+  /** Test a DAG with only a single node. */
+  @Test
+  public void testFromDag_SingleNodeDag() {
+    AdjacencyListDagDefinition.DagNode singleNode =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("node1")
+            .commandName("stdin_source")
+            .outputs(new ArrayList<>())
+            .build();
+    AdjacencyListDagDefinition singleNodeDef =
+        AdjacencyListDagDefinition.builder()
+            .dag(List.of(singleNode))
+            .jobContext(JobContext.builder().build())
+            .build();
+
+    ZephFlow flow =
+        ZephFlow.fromDagDefinition(
+            singleNodeDef, new MetricClientProvider.NoopMetricClientProvider());
+    assertNotNull(flow.getNode(), "Flow should have a node.");
+    assertEquals("node1", flow.getNode().getId());
+    assertTrue(flow.upstreamFlows.isEmpty(), "Single node flow should have no upstreams.");
+
+    // Verify reconstruction
+    AdjacencyListDagDefinition reconstructedDag = flow.buildDag();
+    assertDagEquals(singleNodeDef, reconstructedDag);
+  }
+
+  /**
+   * Tests that a definition with multiple, completely separate flows is reconstructed correctly by
+   * merging the two sinks.
+   */
+  @Test
+  public void testFromDag_DisconnectedComponents() {
+    // Component 1: nodeA -> nodeB
+    AdjacencyListDagDefinition.DagNode nodeA =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("nodeA")
+            .commandName("source")
+            .outputs(List.of("nodeB"))
+            .build();
+    AdjacencyListDagDefinition.DagNode nodeB =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("nodeB")
+            .commandName("sink")
+            .outputs(new ArrayList<>())
+            .build();
+
+    // Component 2: nodeC -> nodeD
+    AdjacencyListDagDefinition.DagNode nodeC =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("nodeC")
+            .commandName("source")
+            .outputs(List.of("nodeD"))
+            .build();
+    AdjacencyListDagDefinition.DagNode nodeD =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("nodeD")
+            .commandName("sink")
+            .outputs(new ArrayList<>())
+            .build();
+
+    AdjacencyListDagDefinition disconnectedDef =
+        AdjacencyListDagDefinition.builder()
+            .dag(List.of(nodeA, nodeB, nodeC, nodeD))
+            .jobContext(JobContext.builder().build())
+            .build();
+
+    ZephFlow flow =
+        ZephFlow.fromDagDefinition(
+            disconnectedDef, new MetricClientProvider.NoopMetricClientProvider());
+
+    // The resulting flow should be a merge point (no node) with two upstream flows (the sinks).
+    assertNull(flow.getNode(), "Merged flow from disconnected components should not have a node.");
+    assertEquals(
+        2, flow.upstreamFlows.size(), "Merged flow should have two upstreams, one for each sink.");
+
+    // Verify reconstruction
+    AdjacencyListDagDefinition reconstructedDag = flow.buildDag();
+    assertDagEquals(disconnectedDef, reconstructedDag);
+  }
+
+  /**
+   * A full circle test: build a complex DAG, then reconstruct it with fromDagDefinition, then build
+   * it again and verify it's identical.
+   */
+  @Test
+  public void testFromDag_ReconstructionIntegrity() {
+    // 1. Build a complex flow using the fluent API.
+    ZephFlow source = ZephFlow.startFlow().stdinSource(EncodingType.JSON_ARRAY);
+
+    ZephFlow lowBranch = source.filter("$.num < 5").eval("dict(val=$.num, branch='low')");
+    ZephFlow highBranch = source.filter("$.num >= 5").eval("dict(val=$.num, branch='high')");
+
+    ZephFlow merged = ZephFlow.merge(lowBranch, highBranch);
+    ZephFlow finalFlow = merged.stdoutSink(EncodingType.JSON_OBJECT);
+
+    // 2. Build the initial DAG definition.
+    AdjacencyListDagDefinition originalDag = finalFlow.buildDag();
+    assertFalse(originalDag.getDag().isEmpty());
+
+    // 3. Reconstruct the ZephFlow object from the definition.
+    ZephFlow reconstructedFlow =
+        ZephFlow.fromDagDefinition(
+            originalDag, new MetricClientProvider.NoopMetricClientProvider());
+
+    // 4. Build a new DAG from the reconstructed flow.
+    AdjacencyListDagDefinition newDag = reconstructedFlow.buildDag();
+
+    // 5. Assert that the original and new DAGs are structurally identical.
+    assertDagEquals(originalDag, newDag);
+  }
+
+  /**
+   * Tests a diamond shape graph: A -> (B, C) -> D. This ensures that a node with multiple parents
+   * is handled correctly.
+   */
+  @Test
+  public void testFromDag_DiamondShape() {
+    // A -> B
+    // A -> C
+    // B -> D
+    // C -> D
+    AdjacencyListDagDefinition.DagNode nodeA =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("A")
+            .commandName("source")
+            .outputs(List.of("B", "C"))
+            .build();
+    AdjacencyListDagDefinition.DagNode nodeB =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("B")
+            .commandName("filter")
+            .outputs(List.of("D"))
+            .build();
+    AdjacencyListDagDefinition.DagNode nodeC =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("C")
+            .commandName("filter")
+            .outputs(List.of("D"))
+            .build();
+    AdjacencyListDagDefinition.DagNode nodeD =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("D")
+            .commandName("sink")
+            .outputs(new ArrayList<>())
+            .build();
+
+    AdjacencyListDagDefinition diamondDef =
+        AdjacencyListDagDefinition.builder()
+            .dag(List.of(nodeA, nodeB, nodeC, nodeD))
+            .jobContext(JobContext.builder().build())
+            .build();
+
+    // Reconstruct and build it again
+    ZephFlow reconstructedFlow =
+        ZephFlow.fromDagDefinition(diamondDef, new MetricClientProvider.NoopMetricClientProvider());
+    AdjacencyListDagDefinition newDag = reconstructedFlow.buildDag();
+
+    // Assert structural equality
+    assertDagEquals(diamondDef, newDag);
+  }
+
   private void runTestWithStdIO(ZephFlow outputFlow, String expectedOutputResource)
+      throws Exception {
+    Set<Map<String, Object>> expected =
+        fromJsonResource(expectedOutputResource, new TypeReference<>() {});
+    runTestWithStdIO(outputFlow, expected);
+  }
+
+  private void runTestWithStdIO(ZephFlow outputFlow, Set<Map<String, Object>> expected)
       throws Exception {
     outputFlow.execute("test_id", "test_env", "test_service");
     String output = testOut.toString();
@@ -667,8 +904,62 @@ public class ZephFlowTest {
             .filter(l -> l.startsWith("{"))
             .map(l -> fromJsonString(l, new TypeReference<Map<String, Object>>() {}))
             .collect(Collectors.toSet());
-    Set<Map<String, Object>> expected =
-        fromJsonResource(expectedOutputResource, new TypeReference<>() {});
+
     assertEquals(expected, objects);
+  }
+
+  public static void assertDagEquals(
+      AdjacencyListDagDefinition expected, AdjacencyListDagDefinition actual) {
+    assertNotNull(expected, "Expected DAG definition cannot be null.");
+    assertNotNull(actual, "Actual DAG definition cannot be null.");
+    assertEquals(
+        expected.getDag().size(),
+        actual.getDag().size(),
+        "DAGs should have the same number of nodes.");
+
+    Map<String, AdjacencyListDagDefinition.DagNode> expectedNodeMap =
+        expected.getDag().stream()
+            .collect(Collectors.toMap(AdjacencyListDagDefinition.DagNode::getId, node -> node));
+    Map<String, AdjacencyListDagDefinition.DagNode> actualNodeMap =
+        actual.getDag().stream()
+            .collect(Collectors.toMap(AdjacencyListDagDefinition.DagNode::getId, node -> node));
+
+    assertEquals(
+        expectedNodeMap.keySet(),
+        actualNodeMap.keySet(),
+        "DAGs should have the same set of node IDs.");
+
+    for (String nodeId : expectedNodeMap.keySet()) {
+      AdjacencyListDagDefinition.DagNode expectedNode = expectedNodeMap.get(nodeId);
+      AdjacencyListDagDefinition.DagNode actualNode = actualNodeMap.get(nodeId);
+
+      assertEquals(
+          expectedNode.getCommandName(),
+          actualNode.getCommandName(),
+          "Nodes with ID '" + nodeId + "' should have the same command name.");
+      assertEquals(
+          expectedNode.getConfig(),
+          actualNode.getConfig(),
+          "Nodes with ID '" + nodeId + "' should have the same config.");
+
+      List<String> expectedOutputs = expectedNode.getOutputs();
+      List<String> actualOutputs = actualNode.getOutputs();
+      assertNotNull(expectedOutputs, "Expected outputs should not be null for node " + nodeId);
+      assertNotNull(actualOutputs, "Actual outputs should not be null for node " + nodeId);
+      assertEquals(
+          expectedOutputs.size(),
+          actualOutputs.size(),
+          "Nodes with ID '" + nodeId + "' should have the same number of outputs.");
+
+      // Compare outputs while ignoring order
+      assertTrue(
+          expectedOutputs.containsAll(actualOutputs) && actualOutputs.containsAll(expectedOutputs),
+          "Nodes with ID '"
+              + nodeId
+              + "' should have the same set of outputs. Expected: "
+              + expectedOutputs
+              + ", Actual: "
+              + actualOutputs);
+    }
   }
 }
