@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.clistarter;
 
+import io.fleak.zephflow.api.metric.InfluxDBMetricClientProvider;
+import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
@@ -25,9 +27,11 @@ public class Main {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
 
+      InfluxDBMetricSender influxDBMetricSender = new InfluxDBMetricSender();
+
       // TODO
       MetricClientProvider metricClientProvider =
-          new MetricClientProvider.NoopMetricClientProvider();
+          new InfluxDBMetricClientProvider(influxDBMetricSender);
 
       DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
       dagExecutor.executeDag();
