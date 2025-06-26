@@ -13,12 +13,12 @@
  */
 package io.fleak.zephflow.api.metric;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import com.influxdb.client.InfluxDBClient;
+import com.influxdb.client.InfluxDBClientFactory;
+import com.influxdb.client.WriteApiBlocking;
+import com.influxdb.client.domain.WritePrecision;
+import com.influxdb.client.write.Point;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.Getter;
@@ -26,29 +26,35 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class InfluxDBMetricSender {
+public class InfluxDBMetricSender implements AutoCloseable {
 
-  private final String influxdbToken;
+  private final InfluxDBClient influxDBClient;
+  private final WriteApiBlocking writeApi;
   private final String measurementName;
 
-  private final HttpClient httpClient;
-  private final String writeUrl;
-
   public InfluxDBMetricSender(InfluxDBConfig config) {
-    String influxdbUrl = config.getUrl();
-    this.influxdbToken = config.getToken();
-    String influxdbOrg = config.getOrg();
-    String influxdbBucket = config.getBucket();
-    this.measurementName = config.getMeasurement();
-
-    if (influxdbToken.isEmpty()) {
+    if (config.getToken() == null || config.getToken().isEmpty()) {
       throw new IllegalStateException("InfluxDB token is required. Use --influxdb-token parameter");
     }
 
-    this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-    this.writeUrl = influxdbUrl + "/api/v2/write?org=" + influxdbOrg + "&bucket=" + influxdbBucket;
+    String bucket = config.getBucket();
+    String org = config.getOrg();
+    this.measurementName = config.getMeasurement();
+
+    // Initialize InfluxDB client
+    this.influxDBClient =
+        InfluxDBClientFactory.create(config.getUrl(), config.getToken().toCharArray(), org, bucket);
+    this.writeApi = influxDBClient.getWriteApiBlocking();
 
     log.info("InfluxDB Metric Sender initialized with config: {}", config);
+
+    // Test connection
+    try {
+      influxDBClient.health();
+      log.info("InfluxDB connection test successful");
+    } catch (Exception e) {
+      log.warn("InfluxDB connection test failed: {}", e.getMessage());
+    }
   }
 
   public void sendMetric(
@@ -60,60 +66,34 @@ public class InfluxDBMetricSender {
     try {
       Map<String, String> allTags = mergeTags(tags, additionalTags);
       addEnvironmentTags(allTags);
-      String lineProtocol = buildLineProtocol(allTags, type + "_" + name, value);
-      sendToInfluxDB(lineProtocol);
+
+      Point point = buildPoint(type + "_" + name, value, allTags);
+      writeApi.writePoint(point);
+
       log.debug("Sent {} metric: {} = {}", type, name, value);
     } catch (Exception e) {
       log.warn("Error sending metric to InfluxDB: {} = {}", name, value, e);
     }
   }
 
-  private void sendToInfluxDB(String lineProtocol) throws IOException, InterruptedException {
-    HttpRequest request =
-        HttpRequest.newBuilder()
-            .uri(URI.create(writeUrl))
-            .header("Authorization", "Token " + influxdbToken)
-            .header("Content-Type", "text/plain; charset=utf-8")
-            .POST(HttpRequest.BodyPublishers.ofString(lineProtocol))
-            .timeout(Duration.ofSeconds(30))
-            .build();
+  private Point buildPoint(String fieldName, Object value, Map<String, String> tags) {
+    Point point = Point.measurement(measurementName).time(Instant.now(), WritePrecision.MS);
 
-    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-    if (response.statusCode() != 204) {
-      log.warn("Unexpected InfluxDB response: {} - {}", response.statusCode(), response.body());
-    }
-  }
-
-  private String buildLineProtocol(Map<String, String> tags, String fieldName, Object value) {
-    StringBuilder sb = new StringBuilder();
-
-    // Measurement
-    sb.append(measurementName);
-
+    // Add tags
     for (Map.Entry<String, String> tag : tags.entrySet()) {
-      sb.append(",")
-          .append(escapeValue(tag.getKey()))
-          .append("=")
-          .append(escapeValue(tag.getValue()));
+      point.addTag(tag.getKey(), tag.getValue());
     }
 
-    sb.append(" ");
-
-    // Field
-    sb.append(escapeValue(fieldName)).append("=");
+    // Add field - simplified version
     if (value instanceof Number) {
-      sb.append(value).append("i");
+      point.addField(fieldName, (Number) value);
+    } else if (value instanceof Boolean) {
+      point.addField(fieldName, (Boolean) value);
     } else {
-      sb.append("\"").append(value).append("\"");
+      point.addField(fieldName, value.toString());
     }
 
-    return sb.toString();
-  }
-
-  private String escapeValue(String value) {
-    if (value == null) return "";
-    return value.replace(",", "\\,").replace(" ", "\\ ").replace("=", "\\=");
+    return point;
   }
 
   private Map<String, String> mergeTags(
@@ -129,18 +109,29 @@ public class InfluxDBMetricSender {
     String podName = System.getenv("HOSTNAME");
     String namespace = System.getenv("POD_NAMESPACE");
 
-    if (podName != null) {
+    if (podName != null && !podName.isEmpty()) {
       tags.put("pod", podName);
     }
-    if (namespace != null) {
+    if (namespace != null && !namespace.isEmpty()) {
       tags.put("namespace", namespace);
+    }
+  }
+
+  @Override
+  public void close() {
+    try {
+      if (influxDBClient != null) {
+        influxDBClient.close();
+        log.debug("InfluxDB client closed");
+      }
+    } catch (Exception e) {
+      log.warn("Error closing InfluxDB client", e);
     }
   }
 
   @Setter
   @Getter
   public static class InfluxDBConfig {
-    // Getters and Setters
     private String url;
     private String token;
     private String org;
@@ -153,9 +144,6 @@ public class InfluxDBMetricSender {
           + "url='"
           + url
           + '\''
-          + ", token='"
-          + token
-          + '\''
           + ", org='"
           + org
           + '\''
@@ -164,6 +152,9 @@ public class InfluxDBMetricSender {
           + '\''
           + ", measurement='"
           + measurement
+          + '\''
+          + ", token='"
+          + (token != null && !token.isEmpty() ? "[REDACTED]" : "null")
           + '\''
           + '}';
     }

@@ -54,6 +54,7 @@ allprojects {
     hamcrestVersion = '2.2'
     log4j2Version = '2.24.3'
     graalvmVersion = '24.2.1'
+    influxDBClientVersion = '7.3.0'
   }
 
   sourceCompatibility = javaVersion
@@ -181,6 +182,7 @@ subprojects {
     implementation "org.apache.logging.log4j:log4j-api:${log4j2Version}"
     implementation "org.apache.logging.log4j:log4j-core:${log4j2Version}"
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:$log4j2Version")
+    implementation "com.influxdb:influxdb-client-java:${influxDBClientVersion}"
 
 
     compileOnly group: 'org.projectlombok', name: 'lombok', version: lombokVersion
