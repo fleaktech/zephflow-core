@@ -41,7 +41,6 @@ import org.apache.commons.lang3.StringUtils;
 public interface MiscUtils {
 
   String FIELD_NAME_RAW = "__raw__";
-  String FIELD_NAME_ERR = "__err__";
   String FIELD_NAME_TS = "__ts__";
 
   String METADATA_PREFIX = "__md_";
