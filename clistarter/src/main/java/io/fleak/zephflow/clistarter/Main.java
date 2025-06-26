@@ -18,20 +18,33 @@ import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.ParseException;
 
 /** Created by bolei on 9/26/24 */
+@Slf4j
 public class Main {
 
   public static void main(String[] args) throws Exception {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
 
-      InfluxDBMetricSender influxDBMetricSender = new InfluxDBMetricSender();
-
-      // TODO
-      MetricClientProvider metricClientProvider =
-          new InfluxDBMetricClientProvider(influxDBMetricSender);
+      MetricClientProvider metricClientProvider;
+      if (JobCliParser.hasInfluxDBFlag(args)) {
+        try {
+          InfluxDBMetricSender.InfluxDBConfig influxDBConfig =
+              JobCliParser.parseInfluxDBConfig(args);
+          log.info("Start Initialize InfluxDB metric client, InfluxDB config: {}", influxDBConfig);
+          InfluxDBMetricSender influxDBMetricSender = new InfluxDBMetricSender(influxDBConfig);
+          metricClientProvider = new InfluxDBMetricClientProvider(influxDBMetricSender);
+          log.info("Initialized InfluxDB metric client, InfluxDB config: {}", influxDBConfig);
+        } catch (Exception e) {
+          log.error("Failed to initialize InfluxDB metric client: {}", e.getMessage());
+          metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
+        }
+      } else {
+        metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
+      }
 
       DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
       dagExecutor.executeDag();

@@ -8,31 +8,34 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class InfluxDBMetricSender {
 
-  private static final String INFLUXDB_URL = "http://influxdb2.fleak.svc.cluster.local:8086";
-  private static final String INFLUXDB_TOKEN =
-      "wiIOZ1C-CS3jmTDynQ-6G_J-EaqCec21kgabQjLvp_x1Vo0pjoUo2xkVA6NCY7hdv26RJ26h9TNQodlnQ9dMqA==";
-  private static final String INFLUXDB_ORG = "377782f14a2b645d";
-  private static final String INFLUXDB_BUCKET = "data_critical";
-  private static final String MEASUREMENT_NAME = "fleak_mapping_runtime";
+  private final String influxdbToken;
+  private final String measurementName;
 
   private final HttpClient httpClient;
   private final String writeUrl;
 
-  public InfluxDBMetricSender() {
-    this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-    this.writeUrl =
-        INFLUXDB_URL + "/api/v2/write?org=" + INFLUXDB_ORG + "&bucket=" + INFLUXDB_BUCKET;
+  public InfluxDBMetricSender(InfluxDBConfig config) {
+    String influxdbUrl = config.getUrl();
+    this.influxdbToken = config.getToken();
+    String influxdbOrg = config.getOrg();
+    String influxdbBucket = config.getBucket();
+    this.measurementName = config.getMeasurement();
 
-    log.info(
-        "InfluxDB Metric Sender initialized - URL: {}, Org: {}, Bucket: {}",
-        INFLUXDB_URL,
-        INFLUXDB_ORG,
-        INFLUXDB_BUCKET);
+    if (influxdbToken.isEmpty()) {
+      throw new IllegalStateException("InfluxDB token is required. Use --influxdb-token parameter");
+    }
+
+    this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    this.writeUrl = influxdbUrl + "/api/v2/write?org=" + influxdbOrg + "&bucket=" + influxdbBucket;
+
+    log.info("InfluxDB Metric Sender initialized with config: {}", config);
   }
 
   public void sendMetric(
@@ -56,7 +59,7 @@ public class InfluxDBMetricSender {
     HttpRequest request =
         HttpRequest.newBuilder()
             .uri(URI.create(writeUrl))
-            .header("Authorization", "Token " + INFLUXDB_TOKEN)
+            .header("Authorization", "Token " + influxdbToken)
             .header("Content-Type", "text/plain; charset=utf-8")
             .POST(HttpRequest.BodyPublishers.ofString(lineProtocol))
             .timeout(Duration.ofSeconds(30))
@@ -73,7 +76,7 @@ public class InfluxDBMetricSender {
     StringBuilder sb = new StringBuilder();
 
     // Measurement
-    sb.append(MEASUREMENT_NAME);
+    sb.append(measurementName);
 
     for (Map.Entry<String, String> tag : tags.entrySet()) {
       sb.append(",")
@@ -118,6 +121,38 @@ public class InfluxDBMetricSender {
     }
     if (namespace != null) {
       tags.put("namespace", namespace);
+    }
+  }
+
+  @Setter
+  @Getter
+  public static class InfluxDBConfig {
+    // Getters and Setters
+    private String url;
+    private String token;
+    private String org;
+    private String bucket;
+    private String measurement;
+
+    @Override
+    public String toString() {
+      return "InfluxDBConfig{"
+          + "url='"
+          + url
+          + '\''
+          + ", token='"
+          + token
+          + '\''
+          + ", org='"
+          + org
+          + '\''
+          + ", bucket='"
+          + bucket
+          + '\''
+          + ", measurement='"
+          + measurement
+          + '\''
+          + '}';
     }
   }
 }
