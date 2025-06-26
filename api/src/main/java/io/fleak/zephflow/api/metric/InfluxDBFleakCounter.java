@@ -22,14 +22,12 @@ public class InfluxDBFleakCounter implements FleakCounter {
   private final String name;
   private final Map<String, String> tags;
   private final InfluxDBMetricSender metricSender;
-  private Long counter;
 
   public InfluxDBFleakCounter(
       String name, Map<String, String> tags, InfluxDBMetricSender metricSender) {
     this.name = name;
     this.tags = tags;
     this.metricSender = metricSender;
-    this.counter = 0L;
   }
 
   @Override
@@ -39,7 +37,6 @@ public class InfluxDBFleakCounter implements FleakCounter {
 
   @Override
   public void increase(long n, Map<String, String> additionalTags) {
-    counter += n;
-    metricSender.sendMetric("counter", name, counter, tags, additionalTags);
+    metricSender.sendMetric("counter", name, n, tags, additionalTags);
   }
 }
