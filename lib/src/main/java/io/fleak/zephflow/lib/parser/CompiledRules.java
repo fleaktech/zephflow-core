@@ -13,13 +13,10 @@
  */
 package io.fleak.zephflow.lib.parser;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_ERR;
-
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.parser.extractions.ExtractionRule;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import lombok.NonNull;
 
@@ -46,8 +43,7 @@ public interface CompiledRules {
       try {
         parsedData = extractionRule.extract(strVal);
       } catch (Exception e) {
-        return input.copyAndMerge(
-            Map.of(FIELD_NAME_ERR, Objects.requireNonNull(FleakData.wrap(e.getMessage()))));
+        throw new RuntimeException("failed to parse input: " + e.getMessage(), e);
       }
       RecordFleakData mergedRecord = input.copyAndMerge(parsedData.getPayload());
       if (removeTargetField) {
