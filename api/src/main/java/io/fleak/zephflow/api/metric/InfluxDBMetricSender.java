@@ -21,7 +21,6 @@ import com.influxdb.client.write.Point;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
