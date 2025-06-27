@@ -32,11 +32,13 @@ public class InfluxDBMetricClientProvider implements MetricClientProvider {
 
   @Override
   public <T> FleakGauge<T> gauge(String name, Map<String, String> tags, T monitoredValue) {
+    // TODO: Implement InfluxDB gauge functionality
     return new NoopMetricClientProvider.NoopFleakGauge<>();
   }
 
   @Override
   public FleakStopWatch stopWatch(String name, Map<String, String> tags) {
+    // TODO: Implement InfluxDB stopwatch functionality
     return new NoopMetricClientProvider.NoopStopWatch();
   }
 }

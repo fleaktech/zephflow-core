@@ -21,8 +21,8 @@ import com.influxdb.client.write.Point;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.Getter;
-import lombok.Setter;
+
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -50,7 +50,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
 
     // Test connection
     try {
-      influxDBClient.health();
+      influxDBClient.ping();
       log.info("InfluxDB connection test successful");
     } catch (Exception e) {
       log.warn("InfluxDB connection test failed: {}", e.getMessage());
@@ -129,8 +129,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
     }
   }
 
-  @Setter
-  @Getter
+  @Data
   public static class InfluxDBConfig {
     private String url;
     private String token;
