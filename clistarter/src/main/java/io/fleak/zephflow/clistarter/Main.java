@@ -43,15 +43,12 @@ public class Main {
     try {
       JobCliParser.MetricClientType metricClientType = JobCliParser.getMetricClientType(args);
 
-      switch (metricClientType) {
-        case INFLUXDB:
-          return createInfluxDBMetricClientProvider(args);
-        case NOOP:
-        default:
-          return new MetricClientProvider.NoopMetricClientProvider();
-      }
+      return switch (metricClientType) {
+        case INFLUXDB -> createInfluxDBMetricClientProvider(args);
+        case NOOP -> new MetricClientProvider.NoopMetricClientProvider();
+      };
     } catch (Exception e) {
-      System.err.println("Failed to create metric client provider: " + e.getMessage());
+      log.error("Failed to create metric client provider: {}", e.getMessage());
       return new MetricClientProvider.NoopMetricClientProvider();
     }
   }
@@ -70,7 +67,7 @@ public class Main {
           new InfluxDBMetricSender(influxDBConfig, influxDBClient);
       return new InfluxDBMetricClientProvider(influxDBMetricSender);
     } catch (Exception e) {
-      System.err.println("Failed to initialize InfluxDB: " + e.getMessage());
+      log.error("Failed to initialize InfluxDB: {}", e.getMessage());
       throw e;
     }
   }
