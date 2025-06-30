@@ -30,10 +30,6 @@ public class InfluxDBMetricSender implements AutoCloseable {
   private final WriteApiBlocking writeApi;
   private final String measurementName;
 
-  //  public InfluxDBMetricSender(InfluxDBConfig config) {
-  //    this(config, null);
-  //  }
-
   public InfluxDBMetricSender(InfluxDBConfig config, InfluxDBClient influxDBClient) {
     this.influxDBClient = influxDBClient;
     if (config.getToken() == null || config.getToken().isEmpty()) {
