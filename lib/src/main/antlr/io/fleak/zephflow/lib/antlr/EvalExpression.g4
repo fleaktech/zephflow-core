@@ -6,7 +6,7 @@ INT_LITERAL
     ;
 
 NUMBER_LITERAL
-    : '-'? (INT_LITERAL ('.' [0-9]+)? | '.' [0-9]+)
+    : INT_LITERAL ('.' [0-9]+)? | '.' [0-9]+
     ;
 
 
