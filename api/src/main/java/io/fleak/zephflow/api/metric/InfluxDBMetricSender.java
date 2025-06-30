@@ -14,7 +14,6 @@
 package io.fleak.zephflow.api.metric;
 
 import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.InfluxDBClientFactory;
 import com.influxdb.client.WriteApiBlocking;
 import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.client.write.Point;
@@ -31,18 +30,18 @@ public class InfluxDBMetricSender implements AutoCloseable {
   private final WriteApiBlocking writeApi;
   private final String measurementName;
 
-  public InfluxDBMetricSender(InfluxDBConfig config) {
+  //  public InfluxDBMetricSender(InfluxDBConfig config) {
+  //    this(config, null);
+  //  }
+
+  public InfluxDBMetricSender(InfluxDBConfig config, InfluxDBClient influxDBClient) {
+    this.influxDBClient = influxDBClient;
     if (config.getToken() == null || config.getToken().isEmpty()) {
       throw new IllegalStateException("InfluxDB token is required. Use --influxdb-token parameter");
     }
-
-    String bucket = config.getBucket();
-    String org = config.getOrg();
     this.measurementName = config.getMeasurement();
 
     // Initialize InfluxDB client
-    this.influxDBClient =
-        InfluxDBClientFactory.create(config.getUrl(), config.getToken().toCharArray(), org, bucket);
     this.writeApi = influxDBClient.getWriteApiBlocking();
 
     log.info("InfluxDB Metric Sender initialized with config: {}", config);

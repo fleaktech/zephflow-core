@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.clistarter;
 
+import com.influxdb.client.InfluxDBClient;
+import com.influxdb.client.InfluxDBClientFactory;
 import io.fleak.zephflow.api.metric.InfluxDBMetricClientProvider;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -35,7 +37,15 @@ public class Main {
           InfluxDBMetricSender.InfluxDBConfig influxDBConfig =
               JobCliParser.parseInfluxDBConfig(args);
           log.info("Start Initialize InfluxDB metric client, InfluxDB config: {}", influxDBConfig);
-          InfluxDBMetricSender influxDBMetricSender = new InfluxDBMetricSender(influxDBConfig);
+
+          InfluxDBClient influxDBClient =
+              InfluxDBClientFactory.create(
+                  influxDBConfig.getUrl(),
+                  influxDBConfig.getToken().toCharArray(),
+                  influxDBConfig.getOrg(),
+                  influxDBConfig.getBucket());
+          InfluxDBMetricSender influxDBMetricSender =
+              new InfluxDBMetricSender(influxDBConfig, influxDBClient);
           metricClientProvider = new InfluxDBMetricClientProvider(influxDBMetricSender);
           log.info("Initialized InfluxDB metric client, InfluxDB config: {}", influxDBConfig);
         } catch (Exception e) {
