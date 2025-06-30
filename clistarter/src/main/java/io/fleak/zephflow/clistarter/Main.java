@@ -30,37 +30,48 @@ public class Main {
   public static void main(String[] args) throws Exception {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
-
-      MetricClientProvider metricClientProvider;
-      if (JobCliParser.hasInfluxDBFlag(args)) {
-        try {
-          InfluxDBMetricSender.InfluxDBConfig influxDBConfig =
-              JobCliParser.parseInfluxDBConfig(args);
-          log.info("Start Initialize InfluxDB metric client, InfluxDB config: {}", influxDBConfig);
-
-          InfluxDBClient influxDBClient =
-              InfluxDBClientFactory.create(
-                  influxDBConfig.getUrl(),
-                  influxDBConfig.getToken().toCharArray(),
-                  influxDBConfig.getOrg(),
-                  influxDBConfig.getBucket());
-          InfluxDBMetricSender influxDBMetricSender =
-              new InfluxDBMetricSender(influxDBConfig, influxDBClient);
-          metricClientProvider = new InfluxDBMetricClientProvider(influxDBMetricSender);
-          log.info("Initialized InfluxDB metric client, InfluxDB config: {}", influxDBConfig);
-        } catch (Exception e) {
-          log.error("Failed to initialize InfluxDB metric client: {}", e.getMessage());
-          metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
-        }
-      } else {
-        metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
-      }
-
+      MetricClientProvider metricClientProvider = createMetricClientProvider(args);
       DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
       dagExecutor.executeDag();
     } catch (ParseException cliParseException) {
       JobCliParser.printUsage("pipelinejob");
       System.exit(1);
+    }
+  }
+
+  private static MetricClientProvider createMetricClientProvider(String[] args) {
+    try {
+      JobCliParser.MetricClientType metricClientType = JobCliParser.getMetricClientType(args);
+
+      switch (metricClientType) {
+        case INFLUXDB:
+          return createInfluxDBMetricClientProvider(args);
+        case NOOP:
+        default:
+          return new MetricClientProvider.NoopMetricClientProvider();
+      }
+    } catch (Exception e) {
+      System.err.println("Failed to create metric client provider: " + e.getMessage());
+      return new MetricClientProvider.NoopMetricClientProvider();
+    }
+  }
+
+  private static MetricClientProvider createInfluxDBMetricClientProvider(String[] args)
+      throws ParseException {
+    try {
+      InfluxDBMetricSender.InfluxDBConfig influxDBConfig = JobCliParser.parseInfluxDBConfig(args);
+      InfluxDBClient influxDBClient =
+          InfluxDBClientFactory.create(
+              influxDBConfig.getUrl(),
+              influxDBConfig.getToken().toCharArray(),
+              influxDBConfig.getOrg(),
+              influxDBConfig.getBucket());
+      InfluxDBMetricSender influxDBMetricSender =
+          new InfluxDBMetricSender(influxDBConfig, influxDBClient);
+      return new InfluxDBMetricClientProvider(influxDBMetricSender);
+    } catch (Exception e) {
+      System.err.println("Failed to initialize InfluxDB: " + e.getMessage());
+      throw e;
     }
   }
 }

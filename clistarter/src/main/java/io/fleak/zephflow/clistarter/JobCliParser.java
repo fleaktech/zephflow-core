@@ -23,6 +23,9 @@ import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.*;
 import org.apache.commons.lang3.StringUtils;
@@ -47,8 +50,12 @@ public class JobCliParser {
       Option.builder("e").longOpt("environment").desc("environment").hasArg().build();
 
   // InfluxDB related options
-  private static final Option ENABLE_INFLUXDB_OPT =
-      Option.builder().longOpt("enable-influxdb").desc("Enable InfluxDB metrics").build();
+  private static final Option METRIC_CLIENT_TYPE_OPT =
+      Option.builder()
+          .longOpt("metric-client-type")
+          .desc("Metric client type (" + MetricClientType.getAllValues() + ")")
+          .hasArg()
+          .build();
 
   private static final Option INFLUXDB_URL_OPT =
       Option.builder().longOpt("influxdb-url").desc("InfluxDB URL").hasArg().build();
@@ -77,7 +84,7 @@ public class JobCliParser {
         .addOption(DAG_FILE_OPT)
         .addOption(SERVICE_OPT)
         .addOption(ENV_OPT)
-        .addOption(ENABLE_INFLUXDB_OPT)
+        .addOption(METRIC_CLIENT_TYPE_OPT)
         .addOption(INFLUXDB_URL_OPT)
         .addOption(INFLUXDB_TOKEN_OPT)
         .addOption(INFLUXDB_ORG_OPT)
@@ -166,20 +173,24 @@ public class JobCliParser {
     formatter.printHelp(prog, header, CLI_OPTIONS, footer, true);
   }
 
-  public static boolean hasInfluxDBFlag(String[] args) {
+  public static MetricClientType getMetricClientType(String[] args) {
     CommandLineParser commandLineParser = new DefaultParser();
     try {
       CommandLine commandLine = commandLineParser.parse(CLI_OPTIONS, args);
-      return commandLine.hasOption("enable-influxdb");
+      String value = commandLine.getOptionValue("metric-client-type");
+      return MetricClientType.fromValue(value);
     } catch (ParseException e) {
-      // If parsing fails, fallback to the original method
-      for (String arg : args) {
-        if ("--enable-influxdb".equals(arg)) {
-          return true;
+      for (int i = 0; i < args.length - 1; i++) {
+        if ("--metric-client-type".equals(args[i])) {
+          return MetricClientType.fromValue(args[i + 1]);
         }
       }
-      return false;
+      return MetricClientType.NOOP;
     }
+  }
+
+  public static boolean hasInfluxDBFlag(String[] args) {
+    return getMetricClientType(args) == MetricClientType.INFLUXDB;
   }
 
   public static InfluxDBMetricSender.InfluxDBConfig parseInfluxDBConfig(String[] args)
@@ -207,5 +218,52 @@ public class JobCliParser {
     }
 
     return config;
+  }
+
+  @Getter
+  public enum MetricClientType {
+    INFLUXDB("influxdb"),
+    NOOP("noop");
+
+    private final String value;
+
+    MetricClientType(String value) {
+      this.value = value;
+    }
+
+    /**
+     * Parse string value to MetricClientType enum
+     *
+     * @param value the string value
+     * @return MetricClientType enum, defaults to NOOP if not found
+     */
+    public static MetricClientType fromValue(String value) {
+      if (value == null || value.trim().isEmpty()) {
+        return NOOP;
+      }
+
+      for (MetricClientType type : MetricClientType.values()) {
+        if (type.value.equalsIgnoreCase(value.trim())) {
+          return type;
+        }
+      }
+      return NOOP;
+    }
+
+    /**
+     * Get all supported values as comma-separated string for help text
+     *
+     * @return comma-separated string of all values
+     */
+    public static String getAllValues() {
+      return Arrays.stream(MetricClientType.values())
+          .map(MetricClientType::getValue)
+          .collect(Collectors.joining(", "));
+    }
+
+    @Override
+    public String toString() {
+      return value;
+    }
   }
 }
