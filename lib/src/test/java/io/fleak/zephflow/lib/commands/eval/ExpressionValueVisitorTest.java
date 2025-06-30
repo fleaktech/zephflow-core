@@ -473,6 +473,27 @@ dict(
     FleakData actual = visitor.visit(parser.language());
     assertInstanceOf(RecordFleakData.class, actual);
     assertEquals(Map.of("a", 0.0d), actual.unwrap());
+
+    FleakData outputEvent;
+    evalExpr = "5-1";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(4.0d, outputEvent.unwrap());
+
+    evalExpr = "-42";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(-42L, outputEvent.unwrap());
+
+    evalExpr = "-3.14";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(-3.14d, outputEvent.unwrap());
+
+    evalExpr = "10 - -5";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(15d, outputEvent.unwrap());
+
+    evalExpr = "-(5+3)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(-8d, outputEvent.unwrap());
   }
 
   private FleakData evaluate(String evalExpr, FleakData inputEvent) {
