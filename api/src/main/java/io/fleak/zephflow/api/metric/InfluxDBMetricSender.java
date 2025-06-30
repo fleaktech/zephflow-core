@@ -130,26 +130,5 @@ public class InfluxDBMetricSender implements AutoCloseable {
     private String org;
     private String bucket;
     private String measurement;
-
-    @Override
-    public String toString() {
-      return "InfluxDBConfig{"
-          + "url='"
-          + url
-          + '\''
-          + ", org='"
-          + org
-          + '\''
-          + ", bucket='"
-          + bucket
-          + '\''
-          + ", measurement='"
-          + measurement
-          + '\''
-          + ", token='"
-          + (token != null && !token.isEmpty() ? "[REDACTED]" : "null")
-          + '\''
-          + '}';
-    }
   }
 }
