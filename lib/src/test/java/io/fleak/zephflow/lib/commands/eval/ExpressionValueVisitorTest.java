@@ -457,6 +457,24 @@ dict(
     assertEquals(List.of(0, -1, -2, -3, -4), outputEvent.unwrap());
   }
 
+  @Test
+  public void testExpressionWithoutSpaces() {
+    // 1-1 should be a valid expression
+    String evalExpr =
+"""
+dict(
+  a= 1-1
+)
+""";
+    FleakData inputEvent = FleakData.wrap(Map.of());
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    FleakData actual = visitor.visit(parser.language());
+    assertInstanceOf(RecordFleakData.class, actual);
+    assertEquals(Map.of("a", 0.0d), actual.unwrap());
+  }
+
   private FleakData evaluate(String evalExpr, FleakData inputEvent) {
     ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
     EvalExpressionParser parser =
