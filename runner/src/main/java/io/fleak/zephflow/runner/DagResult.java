@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +83,9 @@ public class DagResult {
     }
     Map<String, List<T>> upstreamIdAndDebugInfo =
         debugDataByStep.computeIfAbsent(currentNodeId, k -> new HashMap<>());
-    upstreamIdAndDebugInfo.put(upstreamNodeId, data);
+    List<T> outputs =
+        upstreamIdAndDebugInfo.computeIfAbsent(upstreamNodeId, uId -> new ArrayList<>());
+    outputs.addAll(data);
   }
 
   static RecordFleakData sinkResultToOutputEvent(ScalarSinkCommand.SinkResult sinkResult) {
