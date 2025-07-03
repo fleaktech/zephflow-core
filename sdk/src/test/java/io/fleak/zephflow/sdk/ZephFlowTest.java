@@ -181,6 +181,29 @@ public class ZephFlowTest {
   }
 
   @Test
+  public void testProcess() {
+    ZephFlow zephFlow = ZephFlow.startFlow();
+    ZephFlow br1 = zephFlow.sql("select * from events");
+    ZephFlow br2 = zephFlow.sql("select test1 from events");
+    ZephFlow output =
+        ZephFlow.merge(br1, br2).sql("select * from events").sql("select * from events");
+    DagResult dagResult =
+        output.process(
+            List.of(
+                Map.of(
+                    "test", "test",
+                    "test1", "test1")),
+            new NoSourceDagRunner.DagRunConfig(true, true));
+
+    assertEquals(1, dagResult.getOutputEvents().size());
+    var outputEvents = dagResult.getOutputEvents().entrySet().stream().findFirst().orElseThrow();
+    var outputByUpstream = dagResult.getOutputByStep().get(outputEvents.getKey());
+    assertEquals(1, outputByUpstream.size());
+    assertEquals(
+        outputEvents.getValue(), outputByUpstream.values().stream().findFirst().orElseThrow());
+  }
+
+  @Test
   public void testComplexTransformations_fromJsonDag() throws Exception {
     ZephFlow outputFlow = complexTransformationDag();
     var dag = outputFlow.buildDag();
