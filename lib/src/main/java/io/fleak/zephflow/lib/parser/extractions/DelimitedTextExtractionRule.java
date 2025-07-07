@@ -93,7 +93,7 @@ public class DelimitedTextExtractionRule implements ExtractionRule {
    * @param separator The character used to separate values.
    * @param columns The list of column names corresponding to the values.
    */
-  private DelimitedTextExtractionRule(@NonNull String separator, @NonNull List<String> columns) {
+  public DelimitedTextExtractionRule(@NonNull String separator, @NonNull List<String> columns) {
     this.columns = columns.toArray(new String[0]);
 
     // Define the CSV format once to reuse it

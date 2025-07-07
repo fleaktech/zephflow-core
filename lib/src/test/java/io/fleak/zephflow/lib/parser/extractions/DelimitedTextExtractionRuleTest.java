@@ -23,7 +23,6 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import org.apache.logging.log4j.util.Strings;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.shaded.com.google.common.collect.ImmutableMap;
@@ -35,29 +34,27 @@ class DelimitedTextExtractionRuleTest {
   void extract() throws Exception {
     String log = MiscUtils.loadStringFromResource("/parser/snare_windows.txt");
 
-    String columnStr =
-        Strings.join(
-            List.of(
-                "Hostname",
-                "SnareLogType",
-                "Criticality",
-                "EventLogSource",
-                "SnareEventCounter",
-                "SubmitTime",
-                "EventCode",
-                "SourceName",
-                "UserName",
-                "SIDType",
-                "WindowsLogType",
-                "ComputerName",
-                "CategoryString",
-                "DataString",
-                "Message",
-                "EventLogCounter"),
-            ',');
+    List<String> columns =
+        List.of(
+            "Hostname",
+            "SnareLogType",
+            "Criticality",
+            "EventLogSource",
+            "SnareEventCounter",
+            "SubmitTime",
+            "EventCode",
+            "SourceName",
+            "UserName",
+            "SIDType",
+            "WindowsLogType",
+            "ComputerName",
+            "CategoryString",
+            "DataString",
+            "Message",
+            "EventLogCounter");
 
     DelimitedTextExtractionRule delimitedTextExtractionRule =
-        DelimitedTextExtractionRule.createDelimitedTextExtractionRule("\t", columnStr);
+        new DelimitedTextExtractionRule("\t", columns);
     RecordFleakData parsed = delimitedTextExtractionRule.extract(log);
     assertEquals(
         ImmutableMap.builder()

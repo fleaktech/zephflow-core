@@ -86,9 +86,8 @@ public class ParserConfigCompiler {
     }
 
     if (extractionConfig instanceof DelimitedTextExtractionConfig delimitedTextExtractionConfig) {
-      return DelimitedTextExtractionRule.createDelimitedTextExtractionRule(
-          delimitedTextExtractionConfig.getDelimiter(),
-          delimitedTextExtractionConfig.getColumnsStr());
+      return new DelimitedTextExtractionRule(
+          delimitedTextExtractionConfig.getDelimiter(), delimitedTextExtractionConfig.getColumns());
     }
 
     throw new IllegalArgumentException("unsupported extraction config: " + extractionConfig);

@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.parser.extractions;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.List;
 import lombok.*;
 
 /** Created by bolei on 5/8/25 */
@@ -20,7 +22,8 @@ import lombok.*;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DelimitedTextExtractionConfig implements ExtractionConfig {
   @NonNull private String delimiter;
-  @NonNull private String columnsStr;
+  @NonNull private List<String> columns;
 }
