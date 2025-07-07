@@ -87,6 +87,7 @@ jreleaser {
         sonatype {
           active = 'ALWAYS'
           url = 'https://central.sonatype.com/api/v1/publisher'
+          stagingRepository('build/staging-deploy')
           maxRetries = 150
           connectTimeout = 300 // Timeout in seconds
           readTimeout = 1200    // Timeout in seconds
@@ -175,9 +176,9 @@ subprojects {
     implementation group: 'org.apache.commons', name: 'commons-text', version: commonsTextVersion
     implementation group: 'org.apache.commons', name: 'commons-collections4', version: commonsCollections4Version
     implementation group: 'com.google.guava', name: 'guava', version: guavaVersion
-    implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jsr310'
-    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-xml'
-    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml'
+    implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jsr310', version: jacksonVersion
+    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-xml', version: jacksonVersion
+    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
     implementation group: 'org.opensearch', name: 'opensearch-grok', version: opensearchGrok
     implementation "org.apache.logging.log4j:log4j-api:${log4j2Version}"
     implementation "org.apache.logging.log4j:log4j-core:${log4j2Version}"
