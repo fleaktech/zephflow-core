@@ -15,7 +15,6 @@ dependencies {
   implementation group: 'software.amazon.awssdk', name: 'dynamodb', version: awsVersion
   implementation group: 'software.amazon.awssdk', name: 'cloudwatch', version: awsVersion
 
-  implementation group: 'com.opencsv', name: 'opencsv', version: opencsvVersion
   implementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
 
   implementation group: 'org.graalvm.sdk', name: 'graal-sdk', version: graalvmVersion
