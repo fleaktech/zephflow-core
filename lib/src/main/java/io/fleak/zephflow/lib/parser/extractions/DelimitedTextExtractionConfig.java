@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.parser.extractions;
 
-import java.util.List;
 import lombok.*;
 
 /** Created by bolei on 5/8/25 */
@@ -23,5 +22,5 @@ import lombok.*;
 @NoArgsConstructor
 public class DelimitedTextExtractionConfig implements ExtractionConfig {
   @NonNull private String delimiter;
-  @NonNull private List<String> columns;
+  @NonNull private String columnsStr;
 }

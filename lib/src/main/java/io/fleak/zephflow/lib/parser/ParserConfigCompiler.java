@@ -18,7 +18,6 @@ import static io.fleak.zephflow.lib.parser.extractions.WindowsMultilineExtractio
 import io.fleak.zephflow.lib.parser.extractions.*;
 import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionConfig;
 import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionRule;
-import java.util.ArrayList;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -87,9 +86,9 @@ public class ParserConfigCompiler {
     }
 
     if (extractionConfig instanceof DelimitedTextExtractionConfig delimitedTextExtractionConfig) {
-      return new DelimitedTextExtractionRule(
+      return DelimitedTextExtractionRule.createDelimitedTextExtractionRule(
           delimitedTextExtractionConfig.getDelimiter(),
-          new ArrayList<>(delimitedTextExtractionConfig.getColumns()));
+          delimitedTextExtractionConfig.getColumnsStr());
     }
 
     throw new IllegalArgumentException("unsupported extraction config: " + extractionConfig);
