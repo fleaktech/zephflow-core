@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.serdes.des.csv;
 
-import com.opencsv.CSVReader;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsTypedDeserializer;
 import java.io.ByteArrayInputStream;
 import java.io.InputStreamReader;
@@ -22,36 +21,42 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 
 /** Created by bolei on 9/16/24 */
 public class CsvTypedDeserializer extends MultipleEventsTypedDeserializer<Map<String, Object>> {
+
+  private static final CSVFormat CSV_FORMAT =
+      CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build();
+
   @Override
   protected List<Map<String, Object>> deserializeToMultipleTypedEvent(byte[] value)
       throws Exception {
 
     List<Map<String, Object>> typedEvents = new ArrayList<>();
 
-    try (CSVReader reader =
-        new CSVReader(
-            new InputStreamReader(new ByteArrayInputStream(value), StandardCharsets.UTF_8))) {
-      String[] headerLine = null;
-      String[] nextLine;
-      while ((nextLine = reader.readNext()) != null) {
-        if (headerLine == null) {
-          headerLine = nextLine;
-          continue;
-        }
-        Map<String, Object> payload = new HashMap<>();
-        for (int i = 0; i < nextLine.length; ++i) {
-          String key = headerLine[i];
-          if (nextLine[i] == null) {
-            continue;
+    try (InputStreamReader reader =
+            new InputStreamReader(new ByteArrayInputStream(value), StandardCharsets.UTF_8);
+        CSVParser parser = CSV_FORMAT.parse(reader)) {
+
+      int headerCount = parser.getHeaderNames().size();
+
+      for (CSVRecord record : parser) {
+        Map<String, Object> payload = new HashMap<>(headerCount);
+
+        for (String headerName : parser.getHeaderNames()) {
+          String cellValue = record.get(headerName);
+          if (cellValue != null) {
+            payload.put(headerName, cellValue);
           }
-          payload.put(key, nextLine[i]);
         }
+
         typedEvents.add(payload);
       }
     }
+
     return typedEvents;
   }
 }
