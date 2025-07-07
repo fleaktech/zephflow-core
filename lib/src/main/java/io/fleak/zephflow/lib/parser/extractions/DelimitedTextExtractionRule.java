@@ -90,13 +90,10 @@ public class DelimitedTextExtractionRule implements ExtractionRule {
   /**
    * Constructs the rule with a specified separator and column headers.
    *
-   * @param separator The character used to separate values. Must be a single character string.
+   * @param separator The character used to separate values.
    * @param columns The list of column names corresponding to the values.
    */
   private DelimitedTextExtractionRule(@NonNull String separator, @NonNull List<String> columns) {
-    if (separator.length() != 1) {
-      throw new IllegalArgumentException("Separator must be a single character.");
-    }
     this.columns = columns.toArray(new String[0]);
 
     // Define the CSV format once to reuse it
