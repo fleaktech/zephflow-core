@@ -25,11 +25,11 @@ Join the Slack Workspace [here](https://join.slack.com/t/fleak-hq/shared_invite/
 Java 17
 
 ## Current Version
-v0.2.2
+v0.2.3
 
 Import Zephflow from Gradle
 ```groovy
-implementation 'io.fleak.zephflow:sdk:0.2.2'
+implementation 'io.fleak.zephflow:sdk:0.2.3'
 ```
 
 Import Zephflow from Maven
@@ -38,7 +38,7 @@ Import Zephflow from Maven
 <dependency>
   <groupId>io.fleak.zephflow</groupId>
   <artifactId>sdk</artifactId>
-  <version>0.2.2</version>
+  <version>0.2.3</version>
 </dependency>
 ```
 
