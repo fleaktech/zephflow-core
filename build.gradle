@@ -88,9 +88,9 @@ jreleaser {
           active = 'ALWAYS'
           url = 'https://central.sonatype.com/api/v1/publisher'
           stagingRepository('build/staging-deploy')
-          maxRetries = 150
-          connectTimeout = 300 // Timeout in seconds
-          readTimeout = 1200    // Timeout in seconds
+          maxRetries = 300
+          connectTimeout = 600 // Timeout in seconds
+          readTimeout = 1800    // Timeout in seconds
         }
       }
     }
