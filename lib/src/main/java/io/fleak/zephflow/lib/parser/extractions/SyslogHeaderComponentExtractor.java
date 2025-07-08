@@ -37,7 +37,7 @@ public abstract class SyslogHeaderComponentExtractor {
       boolean lastComponent,
       Character messageBodyDelimiter,
       String timestampPattern) {
-    int pos = calculateComponentEnd(logEntry, startPosition);
+    int pos = calculateComponentEnd(logEntry, startPosition, messageBodyDelimiter);
     Preconditions.checkArgument(pos > startPosition);
     if (lastComponent
         && messageBodyDelimiter != null
@@ -58,7 +58,8 @@ public abstract class SyslogHeaderComponentExtractor {
   }
 
   // end position is exclusive
-  abstract int calculateComponentEnd(String logEntry, int startPosition);
+  abstract int calculateComponentEnd(
+      String logEntry, int startPosition, Character messageBodyDelimiter);
 
   void validateComponent(String logEntry, int startPosition, int pos) {
     // no-op
@@ -72,13 +73,24 @@ public abstract class SyslogHeaderComponentExtractor {
     return position;
   }
 
-  static int skipNonWhitespace(String str, int startIndex) {
+  static int skipNonWhitespaceAndNonDelimiter(
+      String str, int startIndex, Character messageBodyDelimiter) {
     int position = startIndex;
-    // Find the end of the token (next whitespace)
-    while (position < str.length() && !Character.isWhitespace(str.charAt(position))) {
+    // Find the end of the token (next whitespace or delimiter char)
+    while (position < str.length() && !isEndOfToken(str.charAt(position), messageBodyDelimiter)) {
       position++;
     }
     return position;
+  }
+
+  private static boolean isEndOfToken(char currentChar, Character messageBodyDelimiter) {
+    if (Character.isWhitespace(currentChar)) {
+      return true;
+    }
+    if (messageBodyDelimiter == null) {
+      return false;
+    }
+    return messageBodyDelimiter == currentChar;
   }
 
   static class PriorityComponentExtractor extends SyslogHeaderComponentExtractor {
@@ -112,7 +124,7 @@ public abstract class SyslogHeaderComponentExtractor {
     }
 
     @Override
-    int calculateComponentEnd(String logEntry, int startPosition) {
+    int calculateComponentEnd(String logEntry, int startPosition, Character messageBodyDelimiter) {
       return logEntry.indexOf('>') + 1;
     }
   }
@@ -174,7 +186,7 @@ public abstract class SyslogHeaderComponentExtractor {
     }
 
     @Override
-    int calculateComponentEnd(String logEntry, int startPosition) {
+    int calculateComponentEnd(String logEntry, int startPosition, Character messageBodyDelimiter) {
       return endPos;
     }
   }
@@ -186,8 +198,8 @@ public abstract class SyslogHeaderComponentExtractor {
     }
 
     @Override
-    int calculateComponentEnd(String logEntry, int startPosition) {
-      return skipNonWhitespace(logEntry, startPosition);
+    int calculateComponentEnd(String logEntry, int startPosition, Character messageBodyDelimiter) {
+      return skipNonWhitespaceAndNonDelimiter(logEntry, startPosition, messageBodyDelimiter);
     }
   }
 
@@ -198,7 +210,7 @@ public abstract class SyslogHeaderComponentExtractor {
     }
 
     @Override
-    int calculateComponentEnd(String logEntry, int startPosition) {
+    int calculateComponentEnd(String logEntry, int startPosition, Character messageBodyDelimiter) {
       // Check if we have a valid starting position
       if (startPosition >= logEntry.length()) {
         throw new IllegalArgumentException("Start position is beyond the end of the log entry");

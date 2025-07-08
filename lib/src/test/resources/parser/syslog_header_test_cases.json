@@ -229,5 +229,26 @@
       },
       "content": "Multiple structured data"
     }
+  },
+  {
+    "logEntry": "<134>Jul 25 11:47:52 f5networks.asm.test ASM:abc",
+    "config": {
+      "type": "syslog",
+      "componentList": [
+        "PRIORITY",
+        "TIMESTAMP",
+        "DEVICE",
+        "APP"
+      ],
+      "timestampPattern": "MMM dd HH:mm:ss",
+      "messageBodyDelimiter": ":"
+    },
+    "expected": {
+      "priority": 134,
+      "timestamp": "Jul 25 11:47:52",
+      "deviceId": "f5networks.asm.test",
+      "appName": "ASM",
+      "content": "abc"
+    }
   }
 ]
