@@ -203,15 +203,25 @@ dict(
 
   @Test
   public void testParseFloat() {
-    String floatStr = "parse_float('-3.14')";
-    EvalExpressionParser parser =
-        (EvalExpressionParser) AntlrUtils.parseInput(floatStr, AntlrUtils.GrammarType.EVAL);
-    ExpressionValueVisitor visitor =
-        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), null);
+    String evalExpr;
+    FleakData inputEvent = FleakData.wrap(Map.of());
+    FleakData outputEvent;
 
-    FleakData output = visitor.visit(parser.language());
-    double expected = -3.14d;
-    assertEquals(expected, output.unwrap());
+    evalExpr = "parse_float('-3.14')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(-3.14d, outputEvent.unwrap());
+
+    evalExpr = "parse_float('1,997.99')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(1997.99d, outputEvent.unwrap());
+
+    evalExpr = "parse_float('1,999.00')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(1999.00d, outputEvent.unwrap());
+
+    evalExpr = "parse_float('3,498.00')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(3498.00d, outputEvent.unwrap());
   }
 
   @Test
