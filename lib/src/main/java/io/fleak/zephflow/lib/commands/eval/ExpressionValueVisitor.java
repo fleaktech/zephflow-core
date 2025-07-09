@@ -26,6 +26,7 @@ import io.fleak.zephflow.lib.antlr.EvalExpressionBaseVisitor;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.python.CompiledPythonFunction;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
+import java.text.NumberFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -497,9 +498,11 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
         "parse_float: argument to be parsed is not a string: %s",
         valueFd);
     String numberStr = valueFd.getStringValue();
+    NumberFormat format = NumberFormat.getInstance(Locale.US);
     try {
-      double value = Double.parseDouble(numberStr);
-      return new NumberPrimitiveFleakData(value, NumberPrimitiveFleakData.NumberType.DOUBLE);
+      Number number = format.parse(numberStr);
+      return new NumberPrimitiveFleakData(
+          number.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
     } catch (Exception e) {
       throw new RuntimeException("parse_float: failed to parse float string: " + numberStr);
     }
