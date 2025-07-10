@@ -1,0 +1,22 @@
+{
+  "Keywords": "Audit Success",
+  "User": "N/A",
+  "Description": "Special privileges assigned to new logon.",
+  "Event Xml": "<Event xmlns=\"http://schemas.microsoft.com/win/2004/08/events/event\">\n  <System>\n    <Provider Name=\"Microsoft-Windows-Security-Auditing\" Guid=\"{54849625-5478-4994-a5ba-3e3b0328c30d}\" />\n    <EventID>4672</EventID>\n    <Version>0</Version>\n    <Level>0</Level>\n    <Task>12548</Task>\n    <Opcode>0</Opcode>\n    <Keywords>0x8020000000000000</Keywords>\n    <TimeCreated SystemTime=\"2025-06-06T00:58:06.2413410Z\" />\n    <EventRecordID>338307</EventRecordID>\n    <Correlation ActivityID=\"{3e4a8471-d67c-0002-e698-4a3e7cd6db01}\" />\n    <Execution ProcessID=\"1800\" ThreadID=\"18348\" />\n    <Channel>Security</Channel>\n    <Computer>xing</Computer>\n    <Security />\n  </System>\n  <EventData>\n    <Data Name=\"SubjectUserSid\">S-1-5-18</Data>\n    <Data Name=\"SubjectUserName\">SYSTEM</Data>\n    <Data Name=\"SubjectDomainName\">NT AUTHORITY</Data>\n    <Data Name=\"SubjectLogonId\">0x3e7</Data>\n    <Data Name=\"PrivilegeList\">SeAssignPrimaryTokenPrivilege\n\t\t\tSeTcbPrivilege\n\t\t\tSeSecurityPrivilege\n\t\t\tSeTakeOwnershipPrivilege\n\t\t\tSeLoadDriverPrivilege\n\t\t\tSeBackupPrivilege\n\t\t\tSeRestorePrivilege\n\t\t\tSeDebugPrivilege\n\t\t\tSeAuditPrivilege\n\t\t\tSeSystemEnvironmentPrivilege\n\t\t\tSeImpersonatePrivilege\n\t\t\tSeDelegateSessionUserImpersonatePrivilege</Data>\n  </EventData>\n</Event>",
+  "__raw__": "Log Name:      Security\nSource:        Microsoft-Windows-Security-Auditing\nDate:          6/6/2025 8:58:06 AM\nEvent ID:      4672\nTask Category: Special Logon\nLevel:         Information\nKeywords:      Audit Success\nUser:          N/A\nComputer:      xing\nDescription:\nSpecial privileges assigned to new logon.\n\nSubject:\n\tSecurity ID:\t\tSYSTEM\n\tAccount Name:\t\tSYSTEM\n\tAccount Domain:\t\tNT AUTHORITY\n\tLogon ID:\t\t0x3E7\n\nPrivileges:\t\tSeAssignPrimaryTokenPrivilege\n\t\t\tSeTcbPrivilege\n\t\t\tSeSecurityPrivilege\n\t\t\tSeTakeOwnershipPrivilege\n\t\t\tSeLoadDriverPrivilege\n\t\t\tSeBackupPrivilege\n\t\t\tSeRestorePrivilege\n\t\t\tSeDebugPrivilege\n\t\t\tSeAuditPrivilege\n\t\t\tSeSystemEnvironmentPrivilege\n\t\t\tSeImpersonatePrivilege\n\t\t\tSeDelegateSessionUserImpersonatePrivilege\nEvent Xml:\n<Event xmlns=\"http://schemas.microsoft.com/win/2004/08/events/event\">\n  <System>\n    <Provider Name=\"Microsoft-Windows-Security-Auditing\" Guid=\"{54849625-5478-4994-a5ba-3e3b0328c30d}\" />\n    <EventID>4672</EventID>\n    <Version>0</Version>\n    <Level>0</Level>\n    <Task>12548</Task>\n    <Opcode>0</Opcode>\n    <Keywords>0x8020000000000000</Keywords>\n    <TimeCreated SystemTime=\"2025-06-06T00:58:06.2413410Z\" />\n    <EventRecordID>338307</EventRecordID>\n    <Correlation ActivityID=\"{3e4a8471-d67c-0002-e698-4a3e7cd6db01}\" />\n    <Execution ProcessID=\"1800\" ThreadID=\"18348\" />\n    <Channel>Security</Channel>\n    <Computer>xing</Computer>\n    <Security />\n  </System>\n  <EventData>\n    <Data Name=\"SubjectUserSid\">S-1-5-18</Data>\n    <Data Name=\"SubjectUserName\">SYSTEM</Data>\n    <Data Name=\"SubjectDomainName\">NT AUTHORITY</Data>\n    <Data Name=\"SubjectLogonId\">0x3e7</Data>\n    <Data Name=\"PrivilegeList\">SeAssignPrimaryTokenPrivilege\n\t\t\tSeTcbPrivilege\n\t\t\tSeSecurityPrivilege\n\t\t\tSeTakeOwnershipPrivilege\n\t\t\tSeLoadDriverPrivilege\n\t\t\tSeBackupPrivilege\n\t\t\tSeRestorePrivilege\n\t\t\tSeDebugPrivilege\n\t\t\tSeAuditPrivilege\n\t\t\tSeSystemEnvironmentPrivilege\n\t\t\tSeImpersonatePrivilege\n\t\t\tSeDelegateSessionUserImpersonatePrivilege</Data>\n  </EventData>\n</Event>",
+  "Event ID": "4672",
+  "Source": "Microsoft-Windows-Security-Auditing",
+  "Date": "6/6/2025 8:58:06 AM",
+  "Subject": {
+    "Account Name": "SYSTEM",
+    "Security ID": "SYSTEM",
+    "Logon ID": "0x3E7",
+    "Account Domain": "NT AUTHORITY"
+  },
+  "__ts__": "6/6/2025 8:58:06 AM",
+  "Privileges": "SeAssignPrimaryTokenPrivilege\nSeTcbPrivilege\nSeSecurityPrivilege\nSeTakeOwnershipPrivilege\nSeLoadDriverPrivilege\nSeBackupPrivilege\nSeRestorePrivilege\nSeDebugPrivilege\nSeAuditPrivilege\nSeSystemEnvironmentPrivilege\nSeImpersonatePrivilege\nSeDelegateSessionUserImpersonatePrivilege",
+  "Computer": "xing",
+  "Level": "Information",
+  "Task Category": "Special Logon",
+  "Log Name": "Security"
+}
