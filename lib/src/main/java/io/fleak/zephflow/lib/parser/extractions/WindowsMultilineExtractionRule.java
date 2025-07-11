@@ -21,6 +21,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.parser.TimestampExtractor;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.StringReader;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Windows multiline extraction rule for parsing structured Windows event logs. Supports nested
@@ -39,45 +41,56 @@ import org.apache.commons.lang3.tuple.Pair;
 public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtractor)
     implements ExtractionRule {
 
-  // Enhanced regex patterns to handle different Windows log formats
+  // Regex patterns for different Windows log formats
   private static final String REGEX_KEY = "[\\w\\s().-]+";
   private static final String REGEX_VALUE = ".+";
-
-  // Pattern for key-value pairs with flexible separators
   private static final String REGEX_KV_PAIR =
       String.format("(%s)[:=]\\s*(%s)", REGEX_KEY, REGEX_VALUE);
 
+  // Compiled patterns for performance
   private static final Pattern PATTERN_KV_PAIR = Pattern.compile(REGEX_KV_PAIR);
-
-  // Patterns for different line types
   private static final Pattern PATTERN_LINE_NON_INDENTED_KV_PAIR = Pattern.compile(REGEX_KV_PAIR);
   private static final Pattern PATTERN_LINE_INDENTED_KV_PAIR =
       Pattern.compile("\\s+" + REGEX_KV_PAIR);
-
-  // Enhanced pattern for key-only lines
   private static final Pattern PATTERN_LINE_KEY_ONLY = Pattern.compile("(" + REGEX_KEY + "):\\s*$");
-
-  // Pattern to detect Windows Event Viewer format lines
   private static final Pattern PATTERN_WINDOWS_EVENTVIEWER_KV =
       Pattern.compile("([\\w\\s]+):\\s+(.+)");
+  private static final Pattern PATTERN_MULTILINE_VALUE_CONTINUATION =
+      Pattern.compile("\\s{3,}\\S.*");
 
-  // Constants for special field names
+  // Patterns for value type detection
+  private static final Pattern PATTERN_PRIVILEGE_NAME =
+      Pattern.compile("Se[A-Z][a-zA-Z]*Privilege");
+  private static final Pattern PATTERN_SINGLE_WORD = Pattern.compile("[A-Z][a-zA-Z]*");
+  private static final Pattern PATTERN_NUMBER = Pattern.compile("\\d+");
+  private static final Pattern PATTERN_HEX = Pattern.compile("0x[0-9a-fA-F]+");
+  private static final Pattern PATTERN_SID = Pattern.compile("S-\\d+-\\d+.*");
+  private static final Pattern PATTERN_GUID = Pattern.compile("\\{[0-9a-fA-F-]+}");
+
+  // Field name constants
   private static final String FIELD_DESCRIPTION = "Description";
   private static final String FIELD_DESCRIPTION_LOWER = "description";
   private static final String FIELD_EVENT_XML = "Event Xml";
 
+  // String constants to avoid magic strings
+  private static final String BACKSLASH = "\\";
+  private static final String AT_SYMBOL = "@";
+  private static final String PROTOCOL_SEPARATOR = "://";
+  private static final String EQUALS = "=";
+  private static final String COLON = ":";
+
+  // Length thresholds
+  private static final int MULTILINE_VALUE_MAX_LENGTH = 30;
+  private static final int COMPLETE_VALUE_MAX_LENGTH = 50;
+
   /** Parser states for handling different sections of Windows event logs. */
   enum ParserState {
-    /** Initial state when starting to parse */
     INIT,
-    /** Parsing root-level key-value pairs */
     ROOT,
-    /** Parsing nested/indented key-value pairs */
     NESTED,
-    /** Gathering description text */
     GATHER_DESCRIPTION,
-    /** Gathering XML content */
-    GATHER_XML
+    GATHER_XML,
+    GATHER_MULTILINE_VALUE
   }
 
   /** Context class to maintain parser state between line processing. */
@@ -86,7 +99,25 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
     Map<String, Object> nested = null;
     final StringBuilder descBuilder = new StringBuilder();
     final StringBuilder xmlBuilder = new StringBuilder();
+    final StringBuilder multilineValueBuilder = new StringBuilder();
     String currentDescriptionKey = null;
+    String currentMultilineKey = null;
+    Map<String, Object> currentMultilineTarget = null;
+
+    void clearMultilineState() {
+      multilineValueBuilder.setLength(0);
+      currentMultilineKey = null;
+      currentMultilineTarget = null;
+    }
+
+    void clearDescriptionState() {
+      descBuilder.setLength(0);
+      currentDescriptionKey = null;
+    }
+
+    void clearXmlState() {
+      xmlBuilder.setLength(0);
+    }
   }
 
   @Override
@@ -101,12 +132,11 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
       while ((line = reader.readLine()) != null) {
         processLine(line, context, root);
       }
+    } catch (IOException e) {
+      throw new Exception("Failed to parse input", e);
     }
 
-    // Handle any remaining content
     finalizeContent(root, context);
-
-    // Add metadata
     addMetadata(root, raw);
 
     return (RecordFleakData) FleakData.wrap(root);
@@ -120,15 +150,14 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
           case NESTED -> handleNestedState(line, root, context);
           case GATHER_DESCRIPTION -> handleGatherDescriptionState(line, root, context);
           case GATHER_XML -> handleGatherXmlState(line, root, context);
+          case GATHER_MULTILINE_VALUE -> handleGatherMultilineValueState(line, root, context);
         };
   }
 
   private ParserState handleInitState(
       String line, Map<String, Object> root, ParserContext context) {
     if (isKvPair(line)) {
-      Pair<String, String> kv = parseKv(line);
-      root.put(kv.getKey(), kv.getValue());
-      return ParserState.ROOT;
+      return handleKvPairLine(line, root, context, ParserState.ROOT);
     } else if (isKeyOnly(line)) {
       String key = parseKeyName(line);
       return handleKeyOnlyLine(key, root, context);
@@ -139,17 +168,12 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
   private ParserState handleRootState(
       String line, Map<String, Object> root, ParserContext context) {
     if (isKvPair(line)) {
-      Pair<String, String> kv = parseKv(line);
-      root.put(kv.getKey(), kv.getValue());
-      return ParserState.ROOT;
+      return handleKvPairLine(line, root, context, ParserState.ROOT);
     } else if (isKeyOnly(line)) {
       String key = parseKeyName(line);
       return handleKeyOnlyLine(key, root, context);
-    } else if (!StringUtils.isBlank(line)) {
-      // If we encounter unstructured text, treat as description
-      context.descBuilder.append(line).append("\n");
-      context.currentDescriptionKey = FIELD_DESCRIPTION_LOWER;
-      return ParserState.GATHER_DESCRIPTION;
+    } else if (StringUtils.isNotBlank(line)) {
+      return startDescriptionGathering(line, context);
     }
     return ParserState.ROOT;
   }
@@ -160,29 +184,18 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
       return ParserState.NESTED;
     }
 
-    if (context.nested == null) {
-      throw new IllegalStateException("Nested map should not be null in NESTED state");
-    }
+    validateNestedContext(context);
 
     if (isIndentedKvPair(line)) {
-      Pair<String, String> kv = parseKv(line);
-      context.nested.put(kv.getKey(), kv.getValue());
-      return ParserState.NESTED;
+      return handleKvPairLine(line, context.nested, context, ParserState.NESTED);
     } else if (isNonIndentedKvPair(line)) {
-      // Switch back to root level
       context.nested = null;
-      Pair<String, String> kv = parseKv(line);
-      root.put(kv.getKey(), kv.getValue());
-      return ParserState.ROOT;
+      return handleKvPairLine(line, root, context, ParserState.ROOT);
     } else if (isKeyOnly(line)) {
-      String key = parseKeyName(line);
-      return handleKeyOnlyLine(key, root, context);
+      return handleKeyOnlyInNestedState(line, root, context);
     } else {
-      // This is unstructured text, gather as description
       context.nested = null;
-      context.descBuilder.append(line).append("\n");
-      context.currentDescriptionKey = FIELD_DESCRIPTION_LOWER;
-      return ParserState.GATHER_DESCRIPTION;
+      return startDescriptionGathering(line, context);
     }
   }
 
@@ -190,44 +203,118 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
       String line, Map<String, Object> root, ParserContext context) {
     if (isKeyOnly(line)) {
       String key = parseKeyName(line);
-      // Save current description
       saveDescription(root, context);
       return handleKeyOnlyLine(key, root, context);
     } else if (isNonIndentedKvPair(line)) {
-      // Save current description and switch to root level
       saveDescription(root, context);
-      Pair<String, String> kv = parseKv(line);
-      root.put(kv.getKey(), kv.getValue());
-      return ParserState.ROOT;
-    } else {
-      // Continue gathering description
-      if (!StringUtils.isBlank(line)) {
-        context.descBuilder.append(line).append("\n");
-      }
-      return ParserState.GATHER_DESCRIPTION;
+      return handleKvPairLine(line, root, context, ParserState.ROOT);
+    } else if (StringUtils.isNotBlank(line)) {
+      context.descBuilder.append(line).append("\n");
     }
+    return ParserState.GATHER_DESCRIPTION;
   }
 
   private ParserState handleGatherXmlState(
       String line, Map<String, Object> root, ParserContext context) {
-    // Check if we encounter a new section (not part of XML)
     if (isKeyOnly(line) && !line.trim().startsWith("<")) {
       String key = parseKeyName(line);
-      // Save current XML
       saveXmlContent(root, context);
       return handleKeyOnlyLine(key, root, context);
     } else if (isNonIndentedKvPair(line) && !line.trim().startsWith("<")) {
-      // Save current XML and switch to root level
       saveXmlContent(root, context);
-      Pair<String, String> kv = parseKv(line);
-      root.put(kv.getKey(), kv.getValue());
-      return ParserState.ROOT;
+      return handleKvPairLine(line, root, context, ParserState.ROOT);
+    } else if (StringUtils.isNotBlank(line)) {
+      context.xmlBuilder.append(line).append("\n");
+    }
+    return ParserState.GATHER_XML;
+  }
+
+  private ParserState handleGatherMultilineValueState(
+      String line, Map<String, Object> root, ParserContext context) {
+    if (isMultilineValueContinuation(line)) {
+      context.multilineValueBuilder.append("\n").append(line.trim());
+      return ParserState.GATHER_MULTILINE_VALUE;
+    } else if (isIndentedKvPair(line)) {
+      return handleIndentedKvInMultilineState(line, context);
+    } else if (isKeyOnly(line)) {
+      saveMultilineValue(context);
+      String key = parseKeyName(line);
+      return handleKeyOnlyLine(key, root, context);
+    } else if (isNonIndentedKvPair(line)) {
+      saveMultilineValue(context);
+      context.nested = null;
+      return handleKvPairLine(line, root, context, ParserState.ROOT);
+    } else if (StringUtils.isBlank(line)) {
+      return ParserState.GATHER_MULTILINE_VALUE;
     } else {
-      // Continue gathering XML
-      if (!StringUtils.isBlank(line)) {
-        context.xmlBuilder.append(line).append("\n");
-      }
+      saveMultilineValue(context);
+      context.nested = null;
+      return startDescriptionGathering(line, context);
+    }
+  }
+
+  // Extracted common methods to reduce duplication
+  private ParserState handleKvPairLine(
+      String line, Map<String, Object> target, ParserContext context, ParserState nextState) {
+    Pair<String, String> kv = parseKv(line);
+    target.put(kv.getKey(), kv.getValue());
+
+    if (isPotentialMultilineValue(kv.getValue())) {
+      setupMultilineValue(context, kv.getKey(), kv.getValue(), target);
+      return ParserState.GATHER_MULTILINE_VALUE;
+    }
+
+    return nextState;
+  }
+
+  private ParserState startDescriptionGathering(String line, ParserContext context) {
+    context.descBuilder.append(line).append("\n");
+    context.currentDescriptionKey = FIELD_DESCRIPTION_LOWER;
+    return ParserState.GATHER_DESCRIPTION;
+  }
+
+  private ParserState handleKeyOnlyInNestedState(
+      String line, Map<String, Object> root, ParserContext context) {
+    String key = parseKeyName(line);
+    if (isDescriptionField(key)) {
+      context.nested = null;
+      context.currentDescriptionKey = key;
+      return ParserState.GATHER_DESCRIPTION;
+    } else {
+      return getParserState(root, context, key);
+    }
+  }
+
+  @NotNull
+  private WindowsMultilineExtractionRule.ParserState getParserState(
+      Map<String, Object> root, ParserContext context, String key) {
+    if (FIELD_EVENT_XML.equals(key)) {
+      context.nested = null;
       return ParserState.GATHER_XML;
+    } else {
+      Map<String, Object> nestedMap = new HashMap<>();
+      root.put(key, nestedMap);
+      context.nested = nestedMap;
+      return ParserState.NESTED;
+    }
+  }
+
+  private ParserState handleIndentedKvInMultilineState(String line, ParserContext context) {
+    saveMultilineValue(context);
+    Pair<String, String> kv = parseKv(line);
+
+    if (context.nested != null) {
+      context.nested.put(kv.getKey(), kv.getValue());
+      if (isPotentialMultilineValue(kv.getValue())) {
+        setupMultilineValue(context, kv.getKey(), kv.getValue(), context.nested);
+        return ParserState.GATHER_MULTILINE_VALUE;
+      }
+      return ParserState.NESTED;
+    } else {
+      // No nested context, treat as description
+      context.descBuilder.append(line).append("\n");
+      context.currentDescriptionKey = FIELD_DESCRIPTION_LOWER;
+      return ParserState.GATHER_DESCRIPTION;
     }
   }
 
@@ -237,56 +324,68 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
       context.currentDescriptionKey = key;
       context.nested = null;
       return ParserState.GATHER_DESCRIPTION;
-    } else if (FIELD_EVENT_XML.equals(key)) {
-      context.nested = null;
-      return ParserState.GATHER_XML;
-    } else {
-      // Create new nested section
-      Map<String, Object> nestedMap = new HashMap<>();
-      root.put(key, nestedMap);
-      context.nested = nestedMap;
-      return ParserState.NESTED;
+    } else return getParserState(root, context, key);
+  }
+
+  private void validateNestedContext(ParserContext context) {
+    if (context.nested == null) {
+      throw new IllegalStateException("Nested map should not be null in NESTED state");
     }
   }
 
-  private void saveDescription(Map<String, Object> root, ParserContext context) {
-    if (!context.descBuilder.isEmpty()) {
-      String key =
-          context.currentDescriptionKey != null
-              ? context.currentDescriptionKey
-              : FIELD_DESCRIPTION_LOWER;
-      String existingDesc = (String) root.get(key);
-      String newDesc = context.descBuilder.toString().trim();
+  private void setupMultilineValue(
+      ParserContext context, String key, String value, Map<String, Object> target) {
+    context.currentMultilineKey = key;
+    context.currentMultilineTarget = target;
+    context.multilineValueBuilder.setLength(0);
+    context.multilineValueBuilder.append(value);
+  }
 
-      if (existingDesc != null && !existingDesc.isEmpty()) {
-        root.put(key, existingDesc + "\n" + newDesc);
-      } else {
-        root.put(key, newDesc);
-      }
-      context.descBuilder.setLength(0); // Clear the builder
+  private void saveDescription(Map<String, Object> root, ParserContext context) {
+    if (context.descBuilder.isEmpty()) {
+      return;
     }
+
+    String key =
+        context.currentDescriptionKey != null
+            ? context.currentDescriptionKey
+            : FIELD_DESCRIPTION_LOWER;
+    String existingDesc = (String) root.get(key);
+    String newDesc = context.descBuilder.toString().trim();
+
+    if (StringUtils.isNotBlank(existingDesc)) {
+      root.put(key, existingDesc + "\n" + newDesc);
+    } else {
+      root.put(key, newDesc);
+    }
+    context.clearDescriptionState();
   }
 
   private void saveXmlContent(Map<String, Object> root, ParserContext context) {
     if (!context.xmlBuilder.isEmpty()) {
       root.put(FIELD_EVENT_XML, context.xmlBuilder.toString().trim());
-      context.xmlBuilder.setLength(0); // Clear the builder
+      context.clearXmlState();
+    }
+  }
+
+  private void saveMultilineValue(ParserContext context) {
+    if (!context.multilineValueBuilder.isEmpty()
+        && context.currentMultilineTarget != null
+        && context.currentMultilineKey != null) {
+      context.currentMultilineTarget.put(
+          context.currentMultilineKey, context.multilineValueBuilder.toString());
+      context.clearMultilineState();
     }
   }
 
   private void finalizeContent(Map<String, Object> root, ParserContext context) {
-    // Handle any remaining description content
+    saveMultilineValue(context);
     saveDescription(root, context);
-
-    // Handle any remaining XML content
     saveXmlContent(root, context);
   }
 
   private void addMetadata(Map<String, Object> root, String raw) {
-    // Add raw data
     root.put(FIELD_NAME_RAW, raw);
-
-    // Extract timestamp if extractor is provided
     if (timestampExtractor != null) {
       String tsStr = timestampExtractor.extractTimestampString(root);
       if (tsStr != null) {
@@ -295,6 +394,7 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
     }
   }
 
+  // Pattern matching methods
   private boolean isDescriptionField(String key) {
     return FIELD_DESCRIPTION.equals(key) || FIELD_DESCRIPTION_LOWER.equals(key);
   }
@@ -304,8 +404,6 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
   }
 
   private boolean isNonIndentedKvPair(String line) {
-    // Handle both formats: "Key=Value" and "Key:      Value"
-    // But exclude lines that are key-only (end with colon and whitespace only)
     if (PATTERN_LINE_KEY_ONLY.matcher(line).matches()) {
       return false;
     }
@@ -319,6 +417,39 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
 
   private boolean isKeyOnly(String line) {
     return PATTERN_LINE_KEY_ONLY.matcher(line).matches();
+  }
+
+  private boolean isMultilineValueContinuation(String line) {
+    return PATTERN_MULTILINE_VALUE_CONTINUATION.matcher(line).matches();
+  }
+
+  private boolean isPotentialMultilineValue(String value) {
+    if (StringUtils.isBlank(value)) {
+      return false;
+    }
+
+    // Check for patterns that indicate complete values
+    if (containsCompleteValueIndicators(value)) {
+      return false;
+    }
+
+    // Check for patterns that suggest multi-line values
+    return PATTERN_PRIVILEGE_NAME.matcher(value).matches()
+        || PATTERN_SINGLE_WORD.matcher(value).matches()
+        || value.length() < MULTILINE_VALUE_MAX_LENGTH;
+  }
+
+  private boolean containsCompleteValueIndicators(String value) {
+    return value.contains(BACKSLASH)
+        || value.contains(AT_SYMBOL)
+        || value.contains(PROTOCOL_SEPARATOR)
+        || value.contains(EQUALS)
+        || value.contains(COLON)
+        || PATTERN_NUMBER.matcher(value).matches()
+        || PATTERN_HEX.matcher(value).matches()
+        || PATTERN_SID.matcher(value).matches()
+        || PATTERN_GUID.matcher(value).matches()
+        || value.length() > COMPLETE_VALUE_MAX_LENGTH;
   }
 
   private String parseKeyName(String line) {
@@ -344,24 +475,28 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
     }
 
     // Fallback: split on first colon or equals
-    int colonIndex = trimmedLine.indexOf(':');
-    int equalsIndex = trimmedLine.indexOf('=');
-    int splitIndex = -1;
-
-    if (colonIndex >= 0 && equalsIndex >= 0) {
-      splitIndex = Math.min(colonIndex, equalsIndex);
-    } else if (colonIndex >= 0) {
-      splitIndex = colonIndex;
-    } else if (equalsIndex >= 0) {
-      splitIndex = equalsIndex;
-    }
-
+    int splitIndex = findSplitIndex(trimmedLine);
     Preconditions.checkArgument(splitIndex >= 0, "Cannot parse key-value pair: %s", line);
 
     String key = trimmedLine.substring(0, splitIndex).trim();
     String value = trimmedLine.substring(splitIndex + 1).trim();
 
     return Pair.of(key, value);
+  }
+
+  private int findSplitIndex(String line) {
+    int colonIndex = line.indexOf(COLON);
+    int equalsIndex = line.indexOf(EQUALS);
+
+    if (colonIndex >= 0 && equalsIndex >= 0) {
+      return Math.min(colonIndex, equalsIndex);
+    } else if (colonIndex >= 0) {
+      return colonIndex;
+    } else if (equalsIndex >= 0) {
+      return equalsIndex;
+    } else {
+      return -1;
+    }
   }
 
   public static TimestampExtractor createTimestampExtractor(
@@ -372,20 +507,22 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
 
     return switch (extractionConfig.timestampLocationType) {
       case FIRST_LINE -> new FirstLineTimestampExtractor();
-      case FROM_FIELD -> {
-        Objects.requireNonNull(
-            extractionConfig.config, "Config map cannot be null for FROM_FIELD type");
-        String targetField =
-            (String) extractionConfig.config.get(FromFieldTimestampExtractor.CONFIG_TARGET_FIELD);
-        Objects.requireNonNull(targetField, "Target field cannot be null for FROM_FIELD type");
-        yield new FromFieldTimestampExtractor(targetField);
-      }
+      case FROM_FIELD -> createFromFieldExtractor(extractionConfig);
       case NO_TIMESTAMP -> null;
     };
   }
 
-  static class FirstLineTimestampExtractor implements TimestampExtractor {
+  private static FromFieldTimestampExtractor createFromFieldExtractor(
+      WindowsMultilineExtractionConfig extractionConfig) {
+    Objects.requireNonNull(
+        extractionConfig.config, "Config map cannot be null for FROM_FIELD type");
+    String targetField =
+        (String) extractionConfig.config.get(FromFieldTimestampExtractor.CONFIG_TARGET_FIELD);
+    Objects.requireNonNull(targetField, "Target field cannot be null for FROM_FIELD type");
+    return new FromFieldTimestampExtractor(targetField);
+  }
 
+  static class FirstLineTimestampExtractor implements TimestampExtractor {
     @Override
     public String extractTimestampString(Map<String, Object> payload) {
       Objects.requireNonNull(payload, "Payload cannot be null");
@@ -400,9 +537,7 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
   }
 
   static class FromFieldTimestampExtractor implements TimestampExtractor {
-
     static final String CONFIG_TARGET_FIELD = "target_field";
-
     private final String fieldName;
 
     FromFieldTimestampExtractor(String fieldName) {
@@ -412,12 +547,8 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
     @Override
     public String extractTimestampString(Map<String, Object> payload) {
       Objects.requireNonNull(payload, "Payload cannot be null");
-
       Object val = payload.get(fieldName);
-      if (val instanceof String stringVal) {
-        return stringVal;
-      }
-      return null;
+      return val instanceof String stringVal ? stringVal : null;
     }
   }
 }
