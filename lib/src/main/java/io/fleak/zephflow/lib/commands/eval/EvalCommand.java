@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_EVAL;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTag;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.List;
@@ -49,8 +50,26 @@ public class EvalCommand extends ScalarCommand {
         evalInitializedConfig.getOutputMessageCounter().increase(callingUserTag);
         return List.of((RecordFleakData) fleakData);
       }
+      if (fleakData instanceof ArrayFleakData) {
+        List<RecordFleakData> outputEvents =
+            fleakData.getArrayPayload().stream()
+                .map(
+                    fd -> {
+                      try {
+                        return ((RecordFleakData) fd);
+                      } catch (ClassCastException e) {
+                        throw new IllegalArgumentException(
+                            String.format("failed to cast %s into RecordFleakData", fd));
+                      }
+                    })
+                .toList();
+        evalInitializedConfig
+            .getOutputMessageCounter()
+            .increase(outputEvents.size(), callingUserTag);
+        return outputEvents;
+      }
       throw new IllegalArgumentException(
-          "eval result must be an object but found: " + toJsonString(fleakData.unwrap()));
+          "Illegal result type: " + toJsonString(fleakData.unwrap()));
     } catch (Exception e) {
       evalInitializedConfig.getErrorCounter().increase(callingUserTag);
       throw e;
