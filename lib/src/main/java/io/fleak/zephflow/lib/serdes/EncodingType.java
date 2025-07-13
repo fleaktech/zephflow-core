@@ -23,7 +23,8 @@ public enum EncodingType {
   JSON_ARRAY("json"),
   JSON_OBJECT_LINE("jsonl"),
   STRING_LINE("txt"),
-  TEXT("txt");
+  TEXT("txt"),
+  XML("xml");
   private final String fileExtension;
 
   EncodingType(String fileExtension) {

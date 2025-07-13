@@ -1,0 +1,25 @@
+{
+  "product": [
+    {
+      "id": "123",
+      "name": "Wireless Mouse",
+      "description": "A comfortable and responsive wireless mouse.",
+      "price": "29.99",
+      "inStock": "true"
+    },
+    {
+      "id": "456",
+      "name": "Mechanical Keyboard",
+      "description": "A durable keyboard with satisfying tactile feedback.",
+      "price": "79.99",
+      "inStock": "false"
+    },
+    {
+      "id": "789",
+      "name": "4K Monitor",
+      "description": "A 27-inch monitor with stunning 4K resolution.",
+      "price": "349.99",
+      "inStock": "true"
+    }
+  ]
+}
