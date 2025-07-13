@@ -20,10 +20,11 @@ import io.fleak.zephflow.api.structure.FleakData;
 import java.util.Map;
 
 public class XmlUtils {
+  public static final XmlMapper XML_MAPPER = new XmlMapper();
+
   public static FleakData loadFleakDataFromXMLString(String xml) {
-    var mapper = new XmlMapper();
     try {
-      var map = mapper.readValue(xml, new TypeReference<Map>() {});
+      var map = XML_MAPPER.readValue(xml, new TypeReference<Map<String, Object>>() {});
       return FleakData.wrap(map);
     } catch (JsonProcessingException e) {
       throw new RuntimeException(e);

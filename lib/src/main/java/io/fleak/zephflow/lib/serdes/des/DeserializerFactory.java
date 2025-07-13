@@ -20,6 +20,7 @@ import io.fleak.zephflow.lib.serdes.des.jsonobj.JsonObjectDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.jsonobjline.JsonObjectLineDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.strline.StringLineDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.text.TextDeserializerFactory;
+import io.fleak.zephflow.lib.serdes.des.xml.XmlDeserializerFactory;
 
 /** Created by bolei on 9/16/24 */
 public interface DeserializerFactory<T> {
@@ -33,6 +34,7 @@ public interface DeserializerFactory<T> {
       case JSON_OBJECT_LINE -> new JsonObjectLineDeserializerFactory();
       case STRING_LINE -> new StringLineDeserializerFactory();
       case TEXT -> new TextDeserializerFactory();
+      case XML -> new XmlDeserializerFactory();
     };
   }
 }
