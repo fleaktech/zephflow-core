@@ -1036,7 +1036,62 @@ dict(
     testEval(inputEvent, evalExpr, expected);
   }
 
+  @Test
+  public void testOutputMultipleEvents() {
+    String inputEventStr =
+        """
+        {
+          "foo": 100,
+          "arr":[
+            {"k": 1},
+            {"k": 2}
+          ]
+        }
+        """;
+
+    String evalExpr = "$.arr";
+    RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
+
+    testEval(
+        inputEvent,
+        evalExpr,
+        List.of(
+            (RecordFleakData) FleakData.wrap(Map.of("k", 1)),
+            (RecordFleakData) FleakData.wrap(Map.of("k", 2))));
+  }
+
+  @Test
+  public void testOutputMultipleEvents_castFailure() {
+    String inputEventStr =
+        """
+        {
+          "foo": 100,
+          "arr":[
+            {"k": 1},
+            1
+          ]
+        }
+        """;
+
+    String evalExpr = "$.arr";
+    RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
+    ScalarCommand.ProcessResult processResult = runEval(inputEvent, evalExpr);
+    assertEquals(1, processResult.getFailureEvents().size());
+    assertEquals("failed to cast NumberPrimitiveFleakData(numberValue=1.0, numberType=INT) into RecordFleakData", processResult.getFailureEvents().get(0).errorMessage());
+  }
+
   private void testEval(RecordFleakData inputEvent, String evalExpr, FleakData expected) {
+    testEval(inputEvent, evalExpr, List.of((RecordFleakData) expected));
+  }
+
+  private void testEval(
+      RecordFleakData inputEvent, String evalExpr, List<RecordFleakData> expected) {
+    ScalarCommand.ProcessResult processResult = runEval(inputEvent, evalExpr);
+    assertTrue(processResult.getFailureEvents().isEmpty());
+    assertEquals(toJsonString(expected), toJsonString(processResult.getOutput()));
+  }
+
+  private ScalarCommand.ProcessResult runEval(RecordFleakData inputEvent, String evalExpr) {
     EvalCommand evalCommand =
         (EvalCommand) new EvalCommandFactory().createCommand("my_node_id", JOB_CONTEXT);
     evalCommand.parseAndValidateArg(evalExpr);
@@ -1045,12 +1100,7 @@ dict(
             List.of(inputEvent), "test_user", new MetricClientProvider.NoopMetricClientProvider());
     System.out.println(
         processResult.getFailureEvents().stream().map(ErrorOutput::errorMessage).toList());
-    System.out.println(toJsonString(processResult.getOutput().get(0).unwrap()));
-    assertTrue(processResult.getFailureEvents().isEmpty());
-    assertEquals(1, processResult.getOutput().size());
-
-    assertEquals(
-        toJsonString(expected.unwrap()),
-        toJsonString(processResult.getOutput().get(0).unwrap()));
+    System.out.println(toJsonString(processResult.getOutput()));
+    return processResult;
   }
 }
