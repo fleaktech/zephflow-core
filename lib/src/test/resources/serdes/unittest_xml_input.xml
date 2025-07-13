@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<products>
+  <product id="123">
+    <name>Wireless Mouse</name>
+    <description>A comfortable and responsive wireless mouse.</description>
+    <price>29.99</price>
+    <inStock>true</inStock>
+  </product>
+  <product id="456">
+    <name>Mechanical Keyboard</name>
+    <description>A durable keyboard with satisfying tactile feedback.</description>
+    <price>79.99</price>
+    <inStock>false</inStock>
+  </product>
+  <product id="789">
+    <name>4K Monitor</name>
+    <description>A 27-inch monitor with stunning 4K resolution.</description>
+    <price>349.99</price>
+    <inStock>true</inStock>
+  </product>
+</products>

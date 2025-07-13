@@ -11,23 +11,17 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.serdes;
+package io.fleak.zephflow.lib.serdes.des.xml;
 
-import lombok.Getter;
+import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.lib.serdes.des.SingleEventTypedDeserializer;
+import io.fleak.zephflow.lib.utils.XmlUtils;
+import java.util.Map;
 
-/** Created by bolei on 9/16/24 */
-@Getter
-public enum EncodingType {
-  CSV("csv"),
-  JSON_OBJECT("json"),
-  JSON_ARRAY("json"),
-  JSON_OBJECT_LINE("jsonl"),
-  STRING_LINE("txt"),
-  TEXT("txt"),
-  XML("xml");
-  private final String fileExtension;
-
-  EncodingType(String fileExtension) {
-    this.fileExtension = fileExtension;
+/** Created by bolei on 7/11/25 */
+public class XmlTypedDeserializer extends SingleEventTypedDeserializer<Map<String, Object>> {
+  @Override
+  protected Map<String, Object> deserializeOne(byte[] value) throws Exception {
+    return XmlUtils.XML_MAPPER.readValue(value, new TypeReference<>() {});
   }
 }
