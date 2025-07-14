@@ -475,20 +475,32 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
   }
 
   @Override
+  public FleakData visitParseIntFunction(EvalExpressionParser.ParseIntFunctionContext ctx) {
+    return visit(ctx.parseIntArg());
+  }
+
+  @Override
   public FleakData visitParseIntArg(EvalExpressionParser.ParseIntArgContext ctx) {
     FleakData valueFd = visit(ctx.expression());
     Preconditions.checkArgument(
         valueFd instanceof StringPrimitiveFleakData,
         "parse_int: argument to be parsed is not a string: %s",
         valueFd);
+
     String intStr = valueFd.getStringValue();
-    String radixStr = ctx.INT_LITERAL().getText();
-    int radix = Integer.parseInt(radixStr);
+
+    int radix = 10;
+    if (ctx.INT_LITERAL() != null) {
+      String radixStr = ctx.INT_LITERAL().getText();
+      radix = Integer.parseInt(radixStr);
+    }
+
     try {
       long value = Long.parseLong(intStr, radix);
       return new NumberPrimitiveFleakData(value, NumberPrimitiveFleakData.NumberType.LONG);
     } catch (Exception e) {
-      throw new RuntimeException("parse_int: failed to parse int string: " + intStr);
+      throw new RuntimeException(
+          "parse_int: failed to parse int string: " + intStr + " with radix: " + radix);
     }
   }
 
