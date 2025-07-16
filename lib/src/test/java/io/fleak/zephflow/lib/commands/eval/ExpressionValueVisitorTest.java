@@ -84,12 +84,12 @@ dict(
             List.of(
                 Map.of(
                     "r_id",
-                    ">>> Evaluation error: parse_int: failed to parse int string: abc",
+                    ">>> Evaluation error: parse_int: failed to parse int string: abc with radix: 10",
                     "r_type",
                     "foo"),
                 Map.of(
                     "r_id",
-                    ">>> Evaluation error: parse_int: failed to parse int string: def",
+                    ">>> Evaluation error: parse_int: failed to parse int string: def with radix: 10",
                     "r_type",
                     "bar")));
     assertEquals(expected, output.unwrap());
