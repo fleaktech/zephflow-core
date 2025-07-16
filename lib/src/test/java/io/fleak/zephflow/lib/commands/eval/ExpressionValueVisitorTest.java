@@ -84,12 +84,12 @@ dict(
             List.of(
                 Map.of(
                     "r_id",
-                    ">>> Evaluation error: parse_int: failed to parse int string: abc",
+                    ">>> Evaluation error: parse_int: failed to parse int string: abc with radix: 10",
                     "r_type",
                     "foo"),
                 Map.of(
                     "r_id",
-                    ">>> Evaluation error: parse_int: failed to parse int string: def",
+                    ">>> Evaluation error: parse_int: failed to parse int string: def with radix: 10",
                     "r_type",
                     "bar")));
     assertEquals(expected, output.unwrap());
@@ -222,6 +222,49 @@ dict(
     evalExpr = "parse_float('3,498.00')";
     outputEvent = evaluate(evalExpr, inputEvent);
     assertEquals(3498.00d, outputEvent.unwrap());
+  }
+
+  @Test
+  public void testParseInt() {
+    String evalExpr;
+    FleakData inputEvent = FleakData.wrap(Map.of());
+    FleakData outputEvent;
+
+    evalExpr = "parse_int('123')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(123L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('-456')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(-456L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('0')";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(0L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('789', 10)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(789L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('1010', 2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(10L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('77', 8)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(63L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('FF', 16)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(255L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('abc', 16)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(2748L, outputEvent.unwrap());
+
+    evalExpr = "parse_int('ZZ', 36)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(1295L, outputEvent.unwrap());
   }
 
   @Test

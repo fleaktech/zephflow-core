@@ -538,7 +538,7 @@ parseIntFunction
     : 'parse_int' '('parseIntArg')'
     ;
 parseIntArg
-    : expression
+    : expression (',' INT_LITERAL)?
     ;
 
 /*
