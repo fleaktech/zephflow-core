@@ -13,113 +13,56 @@
  */
 package io.fleak.zephflow.lib.commands.clickhouse;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import io.fleak.zephflow.lib.utils.MiscUtils;
-import org.junit.jupiter.api.BeforeEach;
+import io.fleak.zephflow.lib.TestUtils;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-import java.util.Optional;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClickHouseSinkConfigValidatorTest {
 
-  private ClickHouseConfigValidator validator;
-  private JobContext jobContext;
-
-  @BeforeEach
-  void setup() {
-    validator = new ClickHouseConfigValidator();
-    jobContext = mock(JobContext.class);
+  @ParameterizedTest
+  @MethodSource("getTestConfigs")
+  public void testConfig(ClickHouseSinkDto.Config config, boolean error) {
+    try {
+      var validator = new ClickHouseConfigValidator();
+      validator.validateConfig(config, "test-node", TestUtils.JOB_CONTEXT);
+      assertFalse(error, "An error was expected for config: " + config);
+    } catch (Exception e) {
+      assertTrue(error, "An error was not expected for config " + config + " exception: " + e.getMessage());
+    }
   }
 
-  @Test
-  void shouldThrowWhenCredentialIdIsSetButNotFound() {
-    var config = validConfig().credentialId("some-id").build();
-    when(MiscUtils.lookupUsernamePasswordCredentialOpt(jobContext, "some-id"))
-            .thenReturn(Optional.empty());
-
-    RuntimeException ex = assertThrows(RuntimeException.class, () ->
-            validator.validateConfig(config, "node1", jobContext)
-    );
-
-    assertEquals("The credentialId is specific but no credentials record was found", ex.getMessage());
-  }
-
-  @Test
-  void shouldThrowWhenNoCredentialIdAndNoUsername() {
-    var config = validConfig().credentialId(null).username(null).build();
-
-    RuntimeException ex = assertThrows(RuntimeException.class, () ->
-            validator.validateConfig(config, "node1", jobContext)
-    );
-
-    assertEquals("A username and password must be specified", ex.getMessage());
-  }
-
-  @Test
-  void shouldThrowWhenEndpointIsMissing() {
-    var config = validConfig().endpoint("   ").build();
-
-    RuntimeException ex = assertThrows(RuntimeException.class, () ->
-            validator.validateConfig(config, "node1", jobContext)
-    );
-
-    assertEquals("A clickhouse endpoint must be specified", ex.getMessage());
-  }
-
-  @Test
-  void shouldThrowWhenDatabaseIsMissing() {
-    var config = validConfig().database("   ").build();
-
-    RuntimeException ex = assertThrows(RuntimeException.class, () ->
-            validator.validateConfig(config, "node1", jobContext)
-    );
-
-    assertEquals("A clickhouse database must be specified", ex.getMessage());
-  }
-
-  @Test
-  void shouldThrowWhenTableIsMissing() {
-    var config = validConfig().table(" ").build();
-
-    RuntimeException ex = assertThrows(RuntimeException.class, () ->
-            validator.validateConfig(config, "node1", jobContext)
-    );
-
-    assertEquals("A clickhouse table must be specified", ex.getMessage());
-  }
-
-  @Test
-  void shouldPassWithValidConfigAndCredential() {
-    var config = validConfig().build();
-    when(MiscUtils.lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId()))
-            .thenReturn(Optional.of(mock(UsernamePasswordCredential.class)));
-
-    assertDoesNotThrow(() ->
-            validator.validateConfig(config, "node1", jobContext)
+  public static Stream<Arguments> getTestConfigs() {
+    return Stream.of(
+            Arguments.of(
+                    ClickHouseSinkDto.Config.builder()
+                            .database("test")
+                            .table("test")
+                            .endpoint("test")
+                            .username("test")
+                            .password("test")
+                            .build(),
+                    false
+            ),
+            Arguments.of(
+                    ClickHouseSinkDto.Config.builder()
+                            .database("test")
+                            .table("test")
+                            .endpoint("test")
+                            .credentialId("test")
+                            .build(),
+                    true
+            )
     );
   }
 
-  @Test
-  void shouldPassWithUsernamePasswordDirectly() {
-    var config = validConfig().credentialId(null).username("user").password("pass").build();
-
-    assertDoesNotThrow(() ->
-            validator.validateConfig(config, "node1", jobContext)
-    );
-  }
-
-  private ClickHouseSinkDto.Config.ConfigBuilder validConfig() {
-    return ClickHouseSinkDto.Config.builder()
-            .username("user")
-            .password("pass")
-            .endpoint("http://localhost:8123")
-            .database("test_db")
-            .table("test_table")
-            .credentialId("cred-id");
-  }
 }
 

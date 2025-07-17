@@ -1,9 +1,21 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.fleak.zephflow.lib.commands.clickhouse;
 
 import com.clickhouse.client.api.Client;
 import com.clickhouse.client.api.data_formats.RowBinaryFormatWriter;
 import com.clickhouse.client.api.insert.InsertSettings;
-import com.clickhouse.client.api.internal.ServerSettings;
 import com.clickhouse.client.api.metadata.TableSchema;
 import com.clickhouse.data.ClickHouseFormat;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
@@ -11,6 +23,7 @@ import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -26,14 +39,22 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
         new Client.Builder()
             .addEndpoint(config.getEndpoint())
             .setClientName(config.getClientName())
-            .disableNativeCompression(false)
+            .disableNativeCompression(config.isDisableNativeCompression())
             .setUsername(credentials.getUsername())
             .setPassword(credentials.getPassword())
-            .compressServerResponse(true)
-            .serverSetting("allow_experimental_json_type", "1")
-            .serverSetting(ServerSettings.INPUT_FORMAT_BINARY_READ_JSON_AS_STRING, "1")
-            .serverSetting(ServerSettings.OUTPUT_FORMAT_BINARY_WRITE_JSON_AS_STRING, "1")
+            .compressServerResponse(config.isCompressServerResponse())
             .setDefaultDatabase(config.getDatabase());
+
+    config.serverSettings.forEach(
+        (k, v) -> {
+          if (v != null) {
+            if (v instanceof Collection) {
+              clientBuilder.serverSetting(k, (Collection<String>) v);
+            } else {
+              clientBuilder.serverSetting(k, v.toString());
+            }
+          }
+        });
 
     this.client = clientBuilder.build();
     this.config = config;
@@ -42,6 +63,10 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
   public TableSchema registerSchema(String db, String table) {
     this.tableSchema = client.getTableSchema(table, db);
     return tableSchema;
+  }
+
+  public Client getClient() {
+    return client;
   }
 
   private SimpleSinkCommand.FlushResult write(String table, List<Map<String, Object>> data)
