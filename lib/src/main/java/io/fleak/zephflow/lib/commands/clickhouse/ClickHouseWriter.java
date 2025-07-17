@@ -32,7 +32,6 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
 
   private final Client client;
   private TableSchema tableSchema;
-  private ClickHouseSinkDto.Config config;
 
   public ClickHouseWriter(ClickHouseSinkDto.Config config, UsernamePasswordCredential credentials) {
     var clientBuilder =
@@ -43,13 +42,19 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
             .setUsername(credentials.getUsername())
             .setPassword(credentials.getPassword())
             .compressServerResponse(config.isCompressServerResponse())
+            .compressClientRequest(config.isCompressClientRequest())
             .setDefaultDatabase(config.getDatabase());
 
     config.serverSettings.forEach(
         (k, v) -> {
           if (v != null) {
             if (v instanceof Collection) {
-              clientBuilder.serverSetting(k, (Collection<String>) v);
+              try {
+                clientBuilder.serverSetting(k, (Collection<String>) v);
+              } catch (ClassCastException e) {
+                throw new ClassCastException(
+                    "Server setting " + k + " is not a collection of type string");
+              }
             } else {
               clientBuilder.serverSetting(k, v.toString());
             }
@@ -57,16 +62,10 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
         });
 
     this.client = clientBuilder.build();
-    this.config = config;
   }
 
-  public TableSchema registerSchema(String db, String table) {
+  public void downloadAndSetSchema(String db, String table) {
     this.tableSchema = client.getTableSchema(table, db);
-    return tableSchema;
-  }
-
-  public Client getClient() {
-    return client;
   }
 
   private SimpleSinkCommand.FlushResult write(String table, List<Map<String, Object>> data)
@@ -85,23 +84,24 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
                 ? ClickHouseFormat.RowBinaryWithDefaults
                 : ClickHouseFormat.RowBinary);
 
+    final Object defaultVal = new Object();
     for (Map<String, Object> dataItem : data) {
       for (var column : tableSchema.getColumns()) {
-        var val = dataItem.get(column.getColumnName());
-        writer.setValue(column.getColumnName(), val);
+        // using defaultVal avoids having to check for key and then get.
+        var val = dataItem.getOrDefault(column.getColumnName(), defaultVal);
+        if (defaultVal != val) {
+          writer.setValue(column.getColumnName(), val);
+        }
       }
       writer.commitRow();
     }
 
-    out.close();
     var input = new ByteArrayInputStream(out.toByteArray());
 
     try (var response =
         client.insert(table, input, writer.getFormat(), new InsertSettings()).get()) {
       return new SimpleSinkCommand.FlushResult(
           (int) response.getWrittenRows(), response.getWrittenBytes(), List.of());
-    } finally {
-      out.close();
     }
   }
 

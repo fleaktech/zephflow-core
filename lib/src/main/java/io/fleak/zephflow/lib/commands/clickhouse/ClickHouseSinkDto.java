@@ -35,5 +35,6 @@ public class ClickHouseSinkDto {
     private String credentialId;
     @Builder.Default private boolean compressServerResponse = true;
     @Builder.Default private boolean disableNativeCompression = false;
+    @Builder.Default private boolean compressClientRequest = false;
   }
 }

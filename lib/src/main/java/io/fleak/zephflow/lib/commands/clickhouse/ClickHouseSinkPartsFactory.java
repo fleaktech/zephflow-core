@@ -37,7 +37,7 @@ public class ClickHouseSinkPartsFactory extends SinkCommandPartsFactory<Map<Stri
   @Override
   public SimpleSinkCommand.Flusher<Map<String, Object>> createFlusher() {
     var writer = new ClickHouseWriter(config, getCredentials(config, jobContext));
-    writer.registerSchema(config.getDatabase(), config.getTable());
+    writer.downloadAndSetSchema(config.getDatabase(), config.getTable());
     return writer;
   }
 
