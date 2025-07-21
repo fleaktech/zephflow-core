@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhouse;
+package io.fleak.zephflow.lib.commands.clickhousesink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_CLICK_HOUSE_SINK;
 

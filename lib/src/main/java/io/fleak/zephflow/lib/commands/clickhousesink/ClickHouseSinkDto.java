@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhouse;
+package io.fleak.zephflow.lib.commands.clickhousesink;
 
 import io.fleak.zephflow.api.CommandConfig;
 import java.util.HashMap;
@@ -25,8 +25,6 @@ public class ClickHouseSinkDto {
   @NoArgsConstructor
   @AllArgsConstructor
   public static class Config implements CommandConfig {
-    private String username;
-    private String password;
     @NonNull private String database;
     @NonNull private String table;
     @NonNull private String endpoint;

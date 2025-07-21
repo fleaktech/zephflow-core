@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhouse;
+package io.fleak.zephflow.lib.commands.clickhousesink;
 
 import com.clickhouse.client.api.Client;
 import com.clickhouse.client.api.data_formats.RowBinaryFormatWriter;
@@ -26,30 +26,35 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
+import javax.annotation.Nullable;
 
 public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, Object>> {
 
   private final Client client;
   private TableSchema tableSchema;
 
-  public ClickHouseWriter(ClickHouseSinkDto.Config config, UsernamePasswordCredential credentials) {
+  public ClickHouseWriter(
+      ClickHouseSinkDto.Config config, @Nullable UsernamePasswordCredential credentials) {
     var clientBuilder =
         new Client.Builder()
             .addEndpoint(config.getEndpoint())
             .setClientName(config.getClientName())
             .disableNativeCompression(config.isDisableNativeCompression())
-            .setUsername(credentials.getUsername())
-            .setPassword(credentials.getPassword())
             .compressServerResponse(config.isCompressServerResponse())
             .compressClientRequest(config.isCompressClientRequest())
             .setDefaultDatabase(config.getDatabase());
+
+    if (credentials != null) {
+      clientBuilder.setUsername(credentials.getUsername());
+      clientBuilder.setPassword(credentials.getPassword());
+    }
 
     config.serverSettings.forEach(
         (k, v) -> {
           if (v != null) {
             if (v instanceof Collection) {
               try {
+                //noinspection unchecked
                 clientBuilder.serverSetting(k, (Collection<String>) v);
               } catch (ClassCastException e) {
                 throw new ClassCastException(
@@ -68,12 +73,17 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
     this.tableSchema = client.getTableSchema(table, db);
   }
 
-  private SimpleSinkCommand.FlushResult write(String table, List<Map<String, Object>> data)
-      throws IOException, ExecutionException, InterruptedException {
+  @Override
+  public SimpleSinkCommand.FlushResult flush(
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents)
+      throws Exception {
+
     if (tableSchema == null) {
       throw new IOException("First register schema is required");
     }
 
+    var table = tableSchema.getTableName();
+    var data = preparedInputEvents.preparedList();
     var out = new ByteArrayOutputStream();
 
     var writer =
@@ -103,13 +113,6 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
       return new SimpleSinkCommand.FlushResult(
           (int) response.getWrittenRows(), response.getWrittenBytes(), List.of());
     }
-  }
-
-  @Override
-  public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents)
-      throws Exception {
-    return write(tableSchema.getTableName(), preparedInputEvents.preparedList());
   }
 
   @Override

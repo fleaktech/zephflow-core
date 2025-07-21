@@ -11,12 +11,14 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhouse;
+package io.fleak.zephflow.lib.commands.clickhousesink;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import lombok.SneakyThrows;
 import org.junit.jupiter.api.*;
@@ -44,6 +46,7 @@ class ClickHouseSinkCommandTest {
   static final String TABLE = "test_table";
 
   static final List<RecordFleakData> SOURCE_EVENTS = new ArrayList<>();
+  static final JobContext JOB_CONTEXT = new JobContext();
 
   @BeforeAll
   static void setupSchema() {
@@ -56,6 +59,12 @@ class ClickHouseSinkCommandTest {
     for (int i = 0; i < 10; i++) {
       SOURCE_EVENTS.add((RecordFleakData) FleakData.wrap(Map.of("num", i)));
     }
+
+    JOB_CONTEXT.setMetricTags(TestUtils.JOB_CONTEXT.getMetricTags());
+    JOB_CONTEXT.setOtherProperties(Map.of(
+            "clickhouse_credentials", new UsernamePasswordCredential(
+                    clickHouseContainer.getUsername(), clickHouseContainer.getPassword()
+            )));
   }
 
   @AfterAll
@@ -100,16 +109,14 @@ class ClickHouseSinkCommandTest {
   @Test
   void testWriteToSink() {
     ClickHouseSinkCommand command = (ClickHouseSinkCommand) new ClickHouseSinkCommandFactory()
-            .createCommand("test-node", TestUtils.JOB_CONTEXT);
+            .createCommand("test-node", JOB_CONTEXT);
 
     ClickHouseSinkDto.Config config =
             ClickHouseSinkDto.Config.builder()
                     .endpoint("http://" + clickHouseContainer.getHost() + ":" + clickHouseContainer.getMappedPort(8123))
                     .database(DATABASE)
                     .table(TABLE)
-                    .username(clickHouseContainer.getUsername())
-                    .password(clickHouseContainer.getPassword())
-                    .credentialId(null)
+                    .credentialId("clickhouse_credentials")
                     .build();
 
     command.parseAndValidateArg(JsonUtils.toJsonString(config));

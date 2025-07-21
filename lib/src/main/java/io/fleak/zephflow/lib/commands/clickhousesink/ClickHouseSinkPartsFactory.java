@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhouse;
+package io.fleak.zephflow.lib.commands.clickhousesink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
 
@@ -19,7 +19,6 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkCommandPartsFactory;
-import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.util.Map;
 
 public class ClickHouseSinkPartsFactory extends SinkCommandPartsFactory<Map<String, Object>> {
@@ -36,17 +35,12 @@ public class ClickHouseSinkPartsFactory extends SinkCommandPartsFactory<Map<Stri
 
   @Override
   public SimpleSinkCommand.Flusher<Map<String, Object>> createFlusher() {
-    var writer = new ClickHouseWriter(config, getCredentials(config, jobContext));
+    var writer =
+        new ClickHouseWriter(
+            config,
+            lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId()).orElse(null));
     writer.downloadAndSetSchema(config.getDatabase(), config.getTable());
     return writer;
-  }
-
-  private static UsernamePasswordCredential getCredentials(
-      ClickHouseSinkDto.Config config, JobContext jobContext) {
-    var usernamePasswordCredential =
-        lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
-    return usernamePasswordCredential.orElseGet(
-        () -> new UsernamePasswordCredential(config.getUsername(), config.getPassword()));
   }
 
   @Override

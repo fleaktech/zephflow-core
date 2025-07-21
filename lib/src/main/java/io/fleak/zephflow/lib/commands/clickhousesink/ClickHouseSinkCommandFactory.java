@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhouse;
+package io.fleak.zephflow.lib.commands.clickhousesink;
 
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.CommandType;
@@ -24,9 +24,8 @@ public class ClickHouseSinkCommandFactory extends CommandFactory {
   public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
     JsonConfigParser<ClickHouseSinkDto.Config> configParser =
         new JsonConfigParser<>(ClickHouseSinkDto.Config.class);
-    ClickHouseConfigValidator validator = new ClickHouseConfigValidator();
-    ClickHouseSinkCommandInitializerFactory initializerFactory =
-        new ClickHouseSinkCommandInitializerFactory();
+    var validator = new ClickHouseConfigValidator();
+    var initializerFactory = new ClickHouseSinkCommandInitializerFactory();
     return new ClickHouseSinkCommand(
         nodeId, jobContext, configParser, validator, initializerFactory);
   }

@@ -18,7 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
-import io.fleak.zephflow.lib.commands.clickhouse.ClickHouseSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
