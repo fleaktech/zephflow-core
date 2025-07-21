@@ -58,7 +58,7 @@ allprojects {
     slf4jVersion = '2.0.17'
     mockitoVersion = '5.7.0'
     antlrVersion = '4.13.2'
-    jacksonVersion = '2.18.2'
+    jacksonVersion = '2.19.1'
     awsVersion = '2.32.1'
     awsKensisClientVersion = '3.1.1'
     opensearchGrok = '2.17.1'
