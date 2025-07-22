@@ -40,6 +40,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_STDOUT)
             .add(COMMAND_NAME_PARSER)
             .add(COMMAND_NAME_FILE_SOURCE)
+            .add(COMMAND_NAME_CLICK_HOUSE_SINK)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }

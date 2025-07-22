@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
+import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
@@ -50,5 +51,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_STDOUT, new StdOutSinkCommandFactory())
           .put(COMMAND_NAME_PARSER, new ParserCommandFactory())
           .put(COMMAND_NAME_FILE_SOURCE, new FileSourceCommandFactory())
+          .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
           .build();
 }

@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
   api project(":api")
+
   implementation group: 'commons-io', name: 'commons-io', version: commonsIoVersion
   implementation group: 'commons-cli', name: 'commons-cli', version: commonsCliVersion
   implementation group: 'org.apache.commons', name: 'commons-csv', version: commonsCsvVersion
@@ -16,11 +17,14 @@ dependencies {
   implementation group: 'software.amazon.awssdk', name: 'cloudwatch', version: awsVersion
 
   implementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
+  implementation group: 'com.clickhouse', name: 'client-v2', version: clickHouseVersion
 
   implementation group: 'org.graalvm.sdk', name: 'graal-sdk', version: graalvmVersion
   runtimeOnly group: 'org.graalvm.polyglot', name: 'python', version: graalvmVersion
 
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
+  testImplementation group: 'org.testcontainers', name: 'clickhouse', version: testContainersVersion
+  implementation group: 'com.clickhouse', name: 'clickhouse-jdbc', version: clickHouseVersion
 
   antlr "org.antlr:antlr4:${antlrVersion}"
 }

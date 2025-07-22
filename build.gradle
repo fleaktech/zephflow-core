@@ -69,6 +69,7 @@ allprojects {
     log4j2Version = '2.24.3'
     graalvmVersion = '24.2.1'
     influxDBClientVersion = '7.3.0'
+    clickHouseVersion = '0.9.0'
   }
 
   sourceCompatibility = javaVersion
