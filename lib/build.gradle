@@ -24,9 +24,9 @@ dependencies {
 
   implementation group: 'com.clickhouse', name: 'clickhouse-jdbc', version: clickHouseVersion
 
-  implementation "org.apache.hadoop:hadoop-common:3.4.1"
-  implementation "org.apache.hadoop:hadoop-client:3.4.1"
-  implementation "org.apache.hadoop:hadoop-aws:3.4.1"
+  implementation group: 'org.apache.hadoop', name: 'hadoop-common', version: hadoopVersion
+  implementation group: 'org.apache.hadoop', name: 'hadoop-client', version: hadoopVersion
+  implementation group: 'org.apache.hadoop', name: 'hadoop-aws', version: hadoopVersion
 
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
   testImplementation group: 'org.testcontainers', name: 'clickhouse', version: testContainersVersion

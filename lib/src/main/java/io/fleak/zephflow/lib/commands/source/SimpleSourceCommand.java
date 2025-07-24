@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.source;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
-import com.google.common.collect.Streams;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -23,6 +22,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.utils.StreamUtils;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -75,32 +75,27 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     try {
       int sleep = SLEEP_INIT;
       while (!finished.get()) {
-        // 1. Fetch source-specific records
-        Stream<T> fetchedData = doFetch(sourceInitializedConfig.fetcher());
-        if (singleEventSource) {
-          finished.set(true);
-        }
-        // get the first item to see if anything exist in the stream
-        Optional<T> firstItem = fetchedData == null ? Optional.empty() : fetchedData.findFirst();
-        if (firstItem.isEmpty()) {
-          log.trace("No fetched data found, sleeping for {} ms", sleep);
-          threadSleep(sleep);
-          sleep = Math.min(sleep + SLEEP_INC, SLEEP_MAX);
-          continue;
-        }
-        // if we have data, put the firs item back on the stream again
-        var convertedResults =
-            Streams.concat(Stream.of(firstItem.get()), fetchedData)
-                .map(fd -> converter.convert(fd, sourceInitializedConfig));
-
         var internalBatchSize = 500;
-        // partition the results so we pull batches and not everything at once
-        StreamUtils.partition(convertedResults, internalBatchSize)
+        var recordsSeen = new AtomicInteger(0);
+        StreamUtils.partition(
+                doFetch(sourceInitializedConfig.fetcher())
+                    .map(fd -> converter.convert(fd, sourceInitializedConfig)),
+                internalBatchSize)
             .forEach(
                 results -> {
+                  recordsSeen.incrementAndGet();
                   // for each internal batch, we run process fetched data
                   processFetchedData(results, sourceEventAcceptor, committer, dlqWriter, encoder);
                 });
+
+        if (recordsSeen.get() == 0) {
+          log.trace("No fetched data found, sleeping for {} ms", sleep);
+          threadSleep(sleep);
+          sleep = Math.min(sleep + SLEEP_INC, SLEEP_MAX);
+        }
+        if (singleEventSource) {
+          finished.set(true);
+        }
       }
     } catch (Exception e) {
       log.error("Fleak Source unexpected exception", e);

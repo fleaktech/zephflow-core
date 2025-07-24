@@ -80,7 +80,7 @@ public class ReaderFetcher implements Fetcher<SerializedEvent> {
   public Stream<SerializedEvent> fetchLazy() {
     open();
     // for each file, we read it and return the records as java maps
-    return getFiles(fs).flatMap(s -> streamFile(fs, s)).parallel();
+    return getFiles(fs).flatMap(s -> streamFile(fs, s));
   }
 
   @SneakyThrows
