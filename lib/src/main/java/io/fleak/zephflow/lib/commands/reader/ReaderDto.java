@@ -11,27 +11,24 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.source;
+package io.fleak.zephflow.lib.commands.reader;
 
-import java.io.Closeable;
-import java.util.List;
-import java.util.stream.Stream;
+import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.util.HashMap;
+import java.util.Map;
+import lombok.*;
 
-/** Created by bolei on 11/5/24 */
-public interface Fetcher<T> extends Closeable {
-
-  List<T> fetch();
-
-  default Stream<T> fetchLazy() {
-    return fetch().stream();
-  }
-
-  default Fetcher.Committer commiter() {
-    return null;
-  }
-
-  @FunctionalInterface
-  interface Committer {
-    void commit() throws Exception;
+public interface ReaderDto {
+  @Data
+  @Builder
+  @NoArgsConstructor
+  @AllArgsConstructor
+  class Config implements CommandConfig {
+    private String path;
+    private Map<String, Object> config = new HashMap<>();
+    private String credentialId;
+    @NonNull @Builder.Default private EncodingType encodingType = EncodingType.JSON_OBJECT;
+    @Builder.Default private int batchSize = 1000;
   }
 }

@@ -11,27 +11,17 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.source;
+package io.fleak.zephflow.lib.commands.reader;
 
-import java.io.Closeable;
-import java.util.List;
-import java.util.stream.Stream;
+import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.JobContext;
 
-/** Created by bolei on 11/5/24 */
-public interface Fetcher<T> extends Closeable {
-
-  List<T> fetch();
-
-  default Stream<T> fetchLazy() {
-    return fetch().stream();
-  }
-
-  default Fetcher.Committer commiter() {
-    return null;
-  }
-
-  @FunctionalInterface
-  interface Committer {
-    void commit() throws Exception;
+public class ReaderConfigValidator implements ConfigValidator {
+  @Override
+  public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
+    var config = (ReaderDto.Config) commandConfig;
+    Preconditions.checkNotNull(config.getPath(), "path is missing");
   }
 }
