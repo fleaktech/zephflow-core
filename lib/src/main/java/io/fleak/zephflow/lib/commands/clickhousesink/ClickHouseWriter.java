@@ -17,7 +17,7 @@ import com.clickhouse.client.api.Client;
 import com.clickhouse.client.api.data_formats.RowBinaryFormatWriter;
 import com.clickhouse.client.api.insert.InsertSettings;
 import com.clickhouse.client.api.metadata.TableSchema;
-import com.clickhouse.data.ClickHouseFormat;
+import com.clickhouse.data.*;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.ByteArrayInputStream;
@@ -27,7 +27,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, Object>> {
 
   private final Client client;
@@ -44,6 +46,7 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
             .compressClientRequest(config.isCompressClientRequest())
             .setDefaultDatabase(config.getDatabase());
 
+    log.error("Click ouse writer 1");
     if (credentials != null) {
       clientBuilder.setUsername(credentials.getUsername());
       clientBuilder.setPassword(credentials.getPassword());
@@ -65,11 +68,14 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
             }
           }
         });
+    log.error("Click ouse writer 2");
 
     this.client = clientBuilder.build();
   }
 
   public void downloadAndSetSchema(String db, String table) {
+    log.error("Click ouse writer 3");
+
     this.tableSchema = client.getTableSchema(table, db);
   }
 
@@ -100,7 +106,7 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
         // using defaultVal avoids having to check for key and then get.
         var val = dataItem.getOrDefault(column.getColumnName(), defaultVal);
         if (defaultVal != val) {
-          writer.setValue(column.getColumnName(), val);
+          writeValue(writer, column, val);
         }
       }
       writer.commitRow();
@@ -110,13 +116,49 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
 
     try (var response =
         client.insert(table, input, writer.getFormat(), new InsertSettings()).get()) {
+      log.info("Successfully wrote to {} {}", tableSchema, response);
       return new SimpleSinkCommand.FlushResult(
           (int) response.getWrittenRows(), response.getWrittenBytes(), List.of());
+    } catch (Exception e) {
+      log.error("Error writing clickhouse data to {}", tableSchema, e);
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static void writeValue(
+      RowBinaryFormatWriter writer, ClickHouseColumn column, Object value) {
+    ClickHouseDataType type = column.getDataType();
+
+    if (value == null) return;
+
+    switch (type) {
+      case UInt8:
+      case UInt16:
+      case UInt32:
+      case UInt64:
+      case Int8:
+      case Int16:
+      case Int32:
+        writer.setInteger(column.getColumnName(), ((Number) value).intValue());
+      case Int64:
+        writer.setLong(column.getColumnName(), ((Number) value).longValue());
+      case Float32:
+        writer.setFloat(column.getColumnName(), ((Number) value).floatValue());
+      case Float64:
+        writer.setDouble(column.getColumnName(), ((Number) value).doubleValue());
+      case String:
+      case FixedString:
+        writer.setString(column.getColumnName(), value.toString());
+      default:
+        log.error("Unsupported type {}, {}", column.getDataType(), value);
+        writer.setValue(column.getColumnName(), value);
     }
   }
 
   @Override
   public void close() throws IOException {
+    log.error("Click ouse writer 5");
+
     client.close();
   }
 }

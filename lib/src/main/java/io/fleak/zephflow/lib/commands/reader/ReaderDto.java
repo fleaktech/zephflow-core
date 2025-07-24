@@ -29,6 +29,6 @@ public interface ReaderDto {
     private Map<String, Object> config = new HashMap<>();
     private String credentialId;
     @NonNull @Builder.Default private EncodingType encodingType = EncodingType.JSON_OBJECT;
-    @Builder.Default private int batchSize = 1000;
+    @Builder.Default int batchSize = 1000;
   }
 }

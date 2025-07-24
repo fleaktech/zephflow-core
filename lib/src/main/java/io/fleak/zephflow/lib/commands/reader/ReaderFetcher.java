@@ -6,6 +6,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.sql.exec.utils.Streams;
+import io.fleak.zephflow.lib.utils.StreamUtils;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,8 +28,12 @@ public class ReaderFetcher implements Fetcher<SerializedEvent> {
   private final Path path;
   private final Configuration hadoopConf;
   private FileSystem fs;
+  private final int batchSize;
+
+  private Iterator<List<SerializedEvent>> eventsIterator;
 
   public ReaderFetcher(JobContext context, ReaderDto.Config config) {
+    batchSize = config.getBatchSize();
     this.path =
         new Path(
             Objects.requireNonNull(
@@ -71,16 +76,17 @@ public class ReaderFetcher implements Fetcher<SerializedEvent> {
 
   @Override
   public List<SerializedEvent> fetch() {
-    // this method is not used, see fetchLazy
-    return List.of();
-  }
-
-  @SneakyThrows
-  @Override
-  public Stream<SerializedEvent> fetchLazy() {
     open();
-    // for each file, we read it and return the records as java maps
-    return getFiles(fs).flatMap(s -> streamFile(fs, s));
+    if (eventsIterator == null) {
+      // for each file, we read it and return the records as java maps
+      var records = getFiles(fs).flatMap(s -> streamFile(fs, s));
+      eventsIterator = StreamUtils.partition(records, batchSize).iterator();
+    }
+
+    if (eventsIterator.hasNext()) {
+      return eventsIterator.next();
+    }
+    return Collections.emptyList();
   }
 
   @SneakyThrows

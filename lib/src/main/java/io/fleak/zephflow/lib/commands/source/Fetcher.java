@@ -15,16 +15,11 @@ package io.fleak.zephflow.lib.commands.source;
 
 import java.io.Closeable;
 import java.util.List;
-import java.util.stream.Stream;
 
 /** Created by bolei on 11/5/24 */
 public interface Fetcher<T> extends Closeable {
 
   List<T> fetch();
-
-  default Stream<T> fetchLazy() {
-    return fetch().stream();
-  }
 
   default Fetcher.Committer commiter() {
     return null;

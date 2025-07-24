@@ -41,7 +41,6 @@ public class ReaderCommandPartsFactory extends SourceCommandPartsFactory<Seriali
     if (!(commandConfig instanceof ReaderDto.Config config)) {
       throw new IllegalArgumentException("Expected KinesisSourceDto.Config");
     }
-
     return new BytesRawDataConverter(
         DeserializerFactory.createDeserializerFactory(config.getEncodingType())
             .createDeserializer());

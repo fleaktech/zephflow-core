@@ -12,7 +12,7 @@ public class StreamUtils {
   public static <T> Stream<List<T>> partition(Stream<T> stream, int size) {
     Iterator<T> iterator = stream.iterator();
     return StreamSupport.stream(
-        new Spliterators.AbstractSpliterator<List<T>>(Long.MAX_VALUE, 0) {
+        new Spliterators.AbstractSpliterator<>(Long.MAX_VALUE, 0) {
           @Override
           public boolean tryAdvance(Consumer<? super List<T>> action) {
             List<T> batch = new ArrayList<>(size);

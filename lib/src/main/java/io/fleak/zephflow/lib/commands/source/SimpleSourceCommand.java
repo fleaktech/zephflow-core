@@ -19,12 +19,10 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.utils.StreamUtils;
-import java.util.*;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 /** Created by bolei on 9/23/24 */
@@ -75,27 +73,22 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     try {
       int sleep = SLEEP_INIT;
       while (!finished.get()) {
-        var internalBatchSize = 500;
-        var recordsSeen = new AtomicInteger(0);
-        StreamUtils.partition(
-                doFetch(sourceInitializedConfig.fetcher())
-                    .map(fd -> converter.convert(fd, sourceInitializedConfig)),
-                internalBatchSize)
-            .forEach(
-                results -> {
-                  recordsSeen.incrementAndGet();
-                  // for each internal batch, we run process fetched data
-                  processFetchedData(results, sourceEventAcceptor, committer, dlqWriter, encoder);
-                });
-
-        if (recordsSeen.get() == 0) {
-          log.trace("No fetched data found, sleeping for {} ms", sleep);
-          threadSleep(sleep);
-          sleep = Math.min(sleep + SLEEP_INC, SLEEP_MAX);
-        }
+        // 1. Fetch source-specific records
+        List<T> fetchedData = doFetch(sourceInitializedConfig.fetcher());
         if (singleEventSource) {
           finished.set(true);
         }
+        if (CollectionUtils.isEmpty(fetchedData)) {
+          log.trace("No fetched data found, sleeping for {} ms", sleep);
+          threadSleep(sleep);
+          sleep = Math.min(sleep + SLEEP_INC, SLEEP_MAX);
+          continue;
+        }
+        // 2. Convert raw input into internal data structure
+        List<ConvertedResult<T>> convertedResults =
+            fetchedData.stream().map(fd -> converter.convert(fd, sourceInitializedConfig)).toList();
+
+        processFetchedData(convertedResults, sourceEventAcceptor, committer, dlqWriter, encoder);
       }
     } catch (Exception e) {
       log.error("Fleak Source unexpected exception", e);
@@ -114,9 +107,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     }
   }
 
-  private Stream<T> doFetch(Fetcher<T> fetcher) {
+  private List<T> doFetch(Fetcher<T> fetcher) {
     if (!finished.get()) {
-      return fetcher.fetchLazy();
+      List<T> fetchedData = fetcher.fetch();
+      log.debug("fetched {} records from source", CollectionUtils.size(fetchedData));
+      return fetchedData;
     }
     return null;
   }
@@ -133,6 +128,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
             if (convertedResult.getTransformedData() == null) {
               throw convertedResult.getError();
             }
+            log.trace("Transformed data: {}", convertedResult.getTransformedData().size());
             sourceEventAcceptor.accept(convertedResult.getTransformedData());
           } catch (Exception e) {
             log.debug("failed to process data: {}", convertedResult.getTransformedData(), e);

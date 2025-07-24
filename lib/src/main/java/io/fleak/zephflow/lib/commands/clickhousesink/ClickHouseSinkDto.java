@@ -31,7 +31,7 @@ public class ClickHouseSinkDto {
     @Builder.Default Map<String, Object> serverSettings = new HashMap<>();
     @Builder.Default private String clientName = "zephflow";
     private String credentialId;
-    @Builder.Default private boolean compressServerResponse = true;
+    @Builder.Default private boolean compressServerResponse = false;
     @Builder.Default private boolean disableNativeCompression = false;
     @Builder.Default private boolean compressClientRequest = false;
   }
