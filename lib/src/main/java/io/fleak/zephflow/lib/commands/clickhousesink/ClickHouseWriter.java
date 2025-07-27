@@ -37,6 +37,7 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
   private final Client client;
   private TableSchema tableSchema;
   private ClickHouseFormat clickHouseFormat;
+  private static Object NOT_PRESENT = new Object();
 
   public ClickHouseWriter(
       ClickHouseSinkDto.Config config, @Nullable UsernamePasswordCredential credentials) {
@@ -97,14 +98,27 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
 
     for (Map<String, Object> dataItem : data) {
       for (var column : tableSchema.getColumns()) {
-        var val = dataItem.get(column.getColumnName());
+        var val = dataItem.getOrDefault(column.getColumnName(), NOT_PRESENT);
+        if (val == NOT_PRESENT) {
+          // avoids writing tons of nulls
+          continue;
+        }
+
+        if (val == null && !column.isNullable()) {
+          continue;
+        }
+
         // Type helpers, till we have Eval LocalDate and Date Parsing support
         // convert Long to LocalDate
-        if (val != null
-            && column.getDataType() == ClickHouseDataType.Date
-            && val instanceof Long v) {
-          val = Instant.ofEpochMilli(v).atZone(ZoneOffset.UTC).toLocalDate();
+        if (val instanceof Long v) {
+          val =
+              switch (column.getDataType()) {
+                case Date, Date32 -> Instant.ofEpochMilli(v).atZone(ZoneOffset.UTC).toLocalDate();
+                case DateTime, DateTime64 -> Instant.ofEpochMilli(v);
+                default -> val;
+              };
         }
+
         writer.setValue(column.getColumnName(), val);
       }
       writer.commitRow();
@@ -118,7 +132,6 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
       return new SimpleSinkCommand.FlushResult(
           (int) response.getWrittenRows(), response.getWrittenBytes(), List.of());
     } catch (Exception e) {
-      log.error("Error writing clickhouse data to {}", tableSchema, e);
       throw new RuntimeException(e);
     }
   }
