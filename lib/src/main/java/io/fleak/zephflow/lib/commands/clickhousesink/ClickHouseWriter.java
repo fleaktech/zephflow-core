@@ -37,7 +37,7 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
   private final Client client;
   private TableSchema tableSchema;
   private ClickHouseFormat clickHouseFormat;
-  private static Object NOT_PRESENT = new Object();
+  private static final Object NOT_PRESENT = new Object();
 
   public ClickHouseWriter(
       ClickHouseSinkDto.Config config, @Nullable UsernamePasswordCredential credentials) {
