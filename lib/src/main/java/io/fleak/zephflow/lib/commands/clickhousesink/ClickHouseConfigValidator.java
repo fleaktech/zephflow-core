@@ -31,6 +31,7 @@ public class ClickHouseConfigValidator implements ConfigValidator {
       throw new RuntimeException(
           "The credentialId is specific but no credentials record was found");
     }
+
     Objects.requireNonNull(
         StringUtils.trimToNull(config.getEndpoint()), "A clickhouse endpoint must be specified");
     Objects.requireNonNull(

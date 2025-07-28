@@ -22,12 +22,23 @@ dependencies {
   implementation group: 'org.graalvm.sdk', name: 'graal-sdk', version: graalvmVersion
   runtimeOnly group: 'org.graalvm.polyglot', name: 'python', version: graalvmVersion
 
+  implementation group: 'com.clickhouse', name: 'clickhouse-jdbc', version: clickHouseVersion
+
+  implementation group: 'org.apache.hadoop', name: 'hadoop-common', version: hadoopVersion
+  implementation group: 'org.apache.hadoop', name: 'hadoop-client', version: hadoopVersion
+  implementation group: 'org.apache.hadoop', name: 'hadoop-aws', version: hadoopVersion
+
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
   testImplementation group: 'org.testcontainers', name: 'clickhouse', version: testContainersVersion
-  implementation group: 'com.clickhouse', name: 'clickhouse-jdbc', version: clickHouseVersion
 
   antlr "org.antlr:antlr4:${antlrVersion}"
 }
+
+configurations.all {
+  exclude group: 'log4j', module: 'log4j'
+  exclude group: 'dnsjava', module: 'dnsjava'
+}
+
 
 generateGrammarSource {
   arguments << "-lib" << "src/main/antlr/io/fleak/zephflow/lib/antlr"

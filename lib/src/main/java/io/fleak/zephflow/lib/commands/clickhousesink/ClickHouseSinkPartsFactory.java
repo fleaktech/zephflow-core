@@ -20,7 +20,9 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkCommandPartsFactory;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class ClickHouseSinkPartsFactory extends SinkCommandPartsFactory<Map<String, Object>> {
 
   private final ClickHouseSinkDto.Config config;
@@ -39,7 +41,12 @@ public class ClickHouseSinkPartsFactory extends SinkCommandPartsFactory<Map<Stri
         new ClickHouseWriter(
             config,
             lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId()).orElse(null));
-    writer.downloadAndSetSchema(config.getDatabase(), config.getTable());
+    try {
+      writer.downloadAndSetSchema(config.getDatabase(), config.getTable());
+    } catch (Exception e) {
+      log.error("Error downloading schema", e);
+      throw new IllegalArgumentException(e);
+    }
     return writer;
   }
 
