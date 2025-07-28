@@ -32,9 +32,13 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
+        env:
+          GRADLE_OPTS: -Xmx2g -Xms1g -XX:MaxMetaspaceSize=512m
         run: ./gradlew build
 
       - name: Run tests
+        env:
+          GRADLE_OPTS: -Xmx2g -Xms1g -XX:MaxMetaspaceSize=512m
         run: ./gradlew test
 
       - name: Test Report
