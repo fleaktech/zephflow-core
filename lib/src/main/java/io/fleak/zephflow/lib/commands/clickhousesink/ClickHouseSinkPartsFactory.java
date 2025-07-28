@@ -45,7 +45,7 @@ public class ClickHouseSinkPartsFactory extends SinkCommandPartsFactory<Map<Stri
       writer.downloadAndSetSchema(config.getDatabase(), config.getTable());
     } catch (Exception e) {
       log.error("Error downloading schema", e);
-      throw new RuntimeException(e);
+      throw new IllegalArgumentException(e);
     }
     return writer;
   }

@@ -87,7 +87,7 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents)
       throws Exception {
     if (tableSchema == null) {
-      throw new IOException("First register schema is required");
+      throw new IllegalArgumentException("First register schema is required");
     }
 
     var table = tableSchema.getTableName();

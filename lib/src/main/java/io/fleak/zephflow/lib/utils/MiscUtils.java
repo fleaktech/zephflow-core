@@ -280,8 +280,7 @@ public interface MiscUtils {
       var k = lookupUsernamePasswordCredential(jobContext, credentialId);
       return StringUtils.isEmpty(k.getUsername()) ? Optional.empty() : Optional.of(k);
     } catch (Exception e) {
-      throw new RuntimeException(e);
-      //      return Optional.empty();
+      return Optional.empty();
     }
   }
 
