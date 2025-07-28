@@ -78,6 +78,7 @@ public interface MiscUtils {
   String COMMAND_NAME_STDOUT = "stdout";
   String COMMAND_NAME_PARSER = "parser";
   String COMMAND_NAME_FILE_SOURCE = "filesource";
+  String COMMAND_NAME_READER_SOURCE = "reader";
 
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";

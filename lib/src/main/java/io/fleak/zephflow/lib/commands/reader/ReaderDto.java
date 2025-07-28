@@ -11,28 +11,24 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.clickhousesink;
+package io.fleak.zephflow.lib.commands.reader;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.*;
 
-public class ClickHouseSinkDto {
-
+public interface ReaderDto {
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class Config implements CommandConfig {
-    @NonNull private String database;
-    @NonNull private String table;
-    @NonNull private String endpoint;
-    @Builder.Default Map<String, Object> serverSettings = new HashMap<>();
-    @Builder.Default private String clientName = "zephflow";
+  class Config implements CommandConfig {
+    private String path;
+    private Map<String, Object> config = new HashMap<>();
     private String credentialId;
-    @Builder.Default private boolean compressServerResponse = false;
-    @Builder.Default private boolean disableNativeCompression = false;
-    @Builder.Default private boolean compressClientRequest = false;
+    @NonNull @Builder.Default private EncodingType encodingType = EncodingType.JSON_OBJECT;
+    @Builder.Default int batchSize = 1000;
   }
 }

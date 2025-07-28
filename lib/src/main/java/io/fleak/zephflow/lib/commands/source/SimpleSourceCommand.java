@@ -128,6 +128,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
             if (convertedResult.getTransformedData() == null) {
               throw convertedResult.getError();
             }
+            log.trace("Transformed data: {}", convertedResult.getTransformedData().size());
             sourceEventAcceptor.accept(convertedResult.getTransformedData());
           } catch (Exception e) {
             log.debug("failed to process data: {}", convertedResult.getTransformedData(), e);
