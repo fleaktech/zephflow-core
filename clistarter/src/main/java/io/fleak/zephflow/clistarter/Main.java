@@ -60,28 +60,11 @@ public class Main {
       InfluxDBMetricSender.InfluxDBConfig influxDBConfig = JobCliParser.parseInfluxDBConfig(args);
       log.info("influxDB config:{}", influxDBConfig);
 
-      InfluxDB influxDB = InfluxDBFactory.connect(influxDBConfig.getUrl());
+      // Create InfluxDB client with optional authentication
+      InfluxDB influxDB = createInfluxDBClient(influxDBConfig);
 
       // Set database and create if it doesn't exist
-      if (influxDBConfig.getDatabase() != null && !influxDBConfig.getDatabase().isEmpty()) {
-        String databaseName = influxDBConfig.getDatabase();
-        log.debug("Setting up InfluxDB database: {}", databaseName);
-
-        try {
-          log.info("Creating database '{}' if it doesn't exist", databaseName);
-          influxDB.query(new Query("CREATE DATABASE " + databaseName));
-          log.info("Successfully created/verified database: {}", databaseName);
-
-          log.info("Setting active database to: {}", databaseName);
-          influxDB.setDatabase(databaseName);
-          log.info("Successfully set active database to: {}", databaseName);
-
-        } catch (Exception e) {
-          log.error("Failed to setup InfluxDB database '{}': {}", databaseName, e.getMessage(), e);
-        }
-      } else {
-        log.warn("InfluxDB database name is null or empty, skipping database setup");
-      }
+      setupDatabase(influxDB, influxDBConfig);
 
       InfluxDBMetricSender influxDBMetricSender =
           new InfluxDBMetricSender(influxDBConfig, influxDB);
@@ -89,6 +72,55 @@ public class Main {
     } catch (Exception e) {
       log.error("Failed to initialize InfluxDB: {}", e.getMessage());
       throw e;
+    }
+  }
+
+  private static InfluxDB createInfluxDBClient(InfluxDBMetricSender.InfluxDBConfig config) {
+    log.debug("Creating InfluxDB client for URL: {}", config.getUrl());
+
+    InfluxDB client;
+    if (hasCredentials(config)) {
+      log.debug("Using username/password authentication");
+      client = InfluxDBFactory.connect(config.getUrl(), config.getUsername(), config.getPassword());
+    } else {
+      log.debug("Using connection without authentication");
+      client = InfluxDBFactory.connect(config.getUrl());
+    }
+
+    // Configure client for better performance
+    client.setLogLevel(InfluxDB.LogLevel.NONE);
+    client.enableBatch(100, 200, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+    return client;
+  }
+
+  private static boolean hasCredentials(InfluxDBMetricSender.InfluxDBConfig config) {
+    return config.getUsername() != null
+        && !config.getUsername().trim().isEmpty()
+        && config.getPassword() != null
+        && !config.getPassword().trim().isEmpty();
+  }
+
+  private static void setupDatabase(InfluxDB influxDB, InfluxDBMetricSender.InfluxDBConfig config) {
+    if (config.getDatabase() != null && !config.getDatabase().trim().isEmpty()) {
+      String databaseName = config.getDatabase().trim();
+      log.info("Setting up InfluxDB database: {}", databaseName);
+
+      try {
+        log.debug("Creating database '{}' if it doesn't exist", databaseName);
+        influxDB.query(new Query("CREATE DATABASE \"" + databaseName + "\""));
+        log.info("Successfully created/verified database: {}", databaseName);
+
+        log.debug("Setting active database to: {}", databaseName);
+        influxDB.setDatabase(databaseName);
+        log.info("Successfully set active database to: {}", databaseName);
+
+      } catch (Exception e) {
+        log.error("Failed to setup InfluxDB database '{}': {}", databaseName, e.getMessage(), e);
+        throw e;
+      }
+    } else {
+      log.warn("InfluxDB database name is null or empty, skipping database setup");
     }
   }
 }

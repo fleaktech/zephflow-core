@@ -70,6 +70,12 @@ public class JobCliParser {
           .hasArg()
           .build();
 
+  private static final Option INFLUXDB_USERNAME_OPT =
+      Option.builder().longOpt("influxdb-username").desc("InfluxDB username").hasArg().build();
+
+  private static final Option INFLUXDB_PASSWORD_OPT =
+      Option.builder().longOpt("influxdb-password").desc("InfluxDB password").hasArg().build();
+
   static {
     CLI_OPTIONS = new Options();
     CLI_OPTIONS
@@ -81,7 +87,9 @@ public class JobCliParser {
         .addOption(METRIC_CLIENT_TYPE_OPT)
         .addOption(INFLUXDB_URL_OPT)
         .addOption(INFLUXDB_DATABASE_OPT)
-        .addOption(INFLUXDB_MEASUREMENT_OPT);
+        .addOption(INFLUXDB_MEASUREMENT_OPT)
+        .addOption(INFLUXDB_USERNAME_OPT)
+        .addOption(INFLUXDB_PASSWORD_OPT);
   }
 
   public static JobConfig parseArgs(String[] args) throws ParseException {
@@ -197,6 +205,12 @@ public class JobCliParser {
     }
     if (commandLine.hasOption("influxdb-measurement")) {
       config.setMeasurement(commandLine.getOptionValue("influxdb-measurement"));
+    }
+    if (commandLine.hasOption("influxdb-username")) {
+      config.setUsername(commandLine.getOptionValue("influxdb-username"));
+    }
+    if (commandLine.hasOption("influxdb-password")) {
+      config.setPassword(commandLine.getOptionValue("influxdb-password"));
     }
 
     return config;

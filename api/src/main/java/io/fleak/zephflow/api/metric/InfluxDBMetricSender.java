@@ -117,5 +117,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
     private String url;
     private String database;
     private String measurement;
+    private String username;
+    private String password;
   }
 }
