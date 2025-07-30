@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.ParseException;
 import org.influxdb.InfluxDB;
 import org.influxdb.InfluxDBFactory;
+import org.influxdb.dto.Query;
 
 /** Created by bolei on 9/26/24 */
 @Slf4j
@@ -57,12 +58,29 @@ public class Main {
       throws ParseException {
     try {
       InfluxDBMetricSender.InfluxDBConfig influxDBConfig = JobCliParser.parseInfluxDBConfig(args);
+      log.info("influxDB config:{}", influxDBConfig);
+
       InfluxDB influxDB = InfluxDBFactory.connect(influxDBConfig.getUrl());
 
       // Set database and create if it doesn't exist
       if (influxDBConfig.getDatabase() != null && !influxDBConfig.getDatabase().isEmpty()) {
-        influxDB.createDatabase(influxDBConfig.getDatabase());
-        influxDB.setDatabase(influxDBConfig.getDatabase());
+        String databaseName = influxDBConfig.getDatabase();
+        log.debug("Setting up InfluxDB database: {}", databaseName);
+
+        try {
+          log.info("Creating database '{}' if it doesn't exist", databaseName);
+          influxDB.query(new Query("CREATE DATABASE " + databaseName));
+          log.info("Successfully created/verified database: {}", databaseName);
+
+          log.info("Setting active database to: {}", databaseName);
+          influxDB.setDatabase(databaseName);
+          log.info("Successfully set active database to: {}", databaseName);
+
+        } catch (Exception e) {
+          log.error("Failed to setup InfluxDB database '{}': {}", databaseName, e.getMessage(), e);
+        }
+      } else {
+        log.warn("InfluxDB database name is null or empty, skipping database setup");
       }
 
       InfluxDBMetricSender influxDBMetricSender =

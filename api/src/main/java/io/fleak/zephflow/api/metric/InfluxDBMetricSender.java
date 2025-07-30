@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.influxdb.InfluxDB;
-import org.influxdb.InfluxDBFactory;
 import org.influxdb.dto.BatchPoints;
 import org.influxdb.dto.Point;
 
@@ -33,17 +32,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
   public InfluxDBMetricSender(InfluxDBConfig config, InfluxDB influxDB) {
     this.database = config.getDatabase();
     this.measurementName = config.getMeasurement();
-
-    if (influxDB != null) {
-      this.influxDB = influxDB;
-    } else {
-      this.influxDB = InfluxDBFactory.connect(config.getUrl());
-      if (database != null && !database.isEmpty()) {
-        this.influxDB.createDatabase(database);
-        this.influxDB.setDatabase(database);
-      }
-    }
-
+    this.influxDB = influxDB;
     log.info("InfluxDB Metric Sender initialized with config: {}", config);
   }
 
@@ -71,7 +60,9 @@ public class InfluxDBMetricSender implements AutoCloseable {
 
     // Add tags
     for (Map.Entry<String, String> tag : tags.entrySet()) {
-      pointBuilder.tag(tag.getKey(), tag.getValue());
+      String tagKey = tag.getKey() != null ? tag.getKey() : "";
+      String tagValue = tag.getValue() != null ? tag.getValue() : "";
+      pointBuilder.tag(tagKey, tagValue);
     }
 
     // Add field
