@@ -13,42 +13,27 @@
  */
 package io.fleak.zephflow.api.metric;
 
-import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.WriteApiBlocking;
-import com.influxdb.client.domain.WritePrecision;
-import com.influxdb.client.write.Point;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.influxdb.InfluxDB;
+import org.influxdb.dto.BatchPoints;
+import org.influxdb.dto.Point;
 
 @Slf4j
 public class InfluxDBMetricSender implements AutoCloseable {
 
-  private final InfluxDBClient influxDBClient;
-  private final WriteApiBlocking writeApi;
+  private final InfluxDB influxDB;
+  private final String database;
   private final String measurementName;
 
-  public InfluxDBMetricSender(InfluxDBConfig config, InfluxDBClient influxDBClient) {
-    this.influxDBClient = influxDBClient;
-    if (config.getToken() == null || config.getToken().isEmpty()) {
-      throw new IllegalStateException("InfluxDB token is required. Use --influxdb-token parameter");
-    }
+  public InfluxDBMetricSender(InfluxDBConfig config, InfluxDB influxDB) {
+    this.database = config.getDatabase();
     this.measurementName = config.getMeasurement();
-
-    // Initialize InfluxDB client
-    this.writeApi = influxDBClient.getWriteApiBlocking();
-
+    this.influxDB = influxDB;
     log.info("InfluxDB Metric Sender initialized with config: {}", config);
-
-    // Test connection
-    try {
-      influxDBClient.ping();
-      log.info("InfluxDB connection test successful");
-    } catch (Exception e) {
-      log.warn("InfluxDB connection test failed: {}", e.getMessage());
-    }
   }
 
   public void sendMetric(
@@ -61,8 +46,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
       Map<String, String> allTags = mergeTags(tags, additionalTags);
       addEnvironmentTags(allTags);
 
-      Point point = buildPoint(type + "_" + name, value, allTags);
-      writeApi.writePoint(point);
+      writePointToInfluxDB(type + "_" + name, value, allTags);
 
       log.debug("Sent {} metric: {} = {}", type, name, value);
     } catch (Exception e) {
@@ -70,24 +54,29 @@ public class InfluxDBMetricSender implements AutoCloseable {
     }
   }
 
-  private Point buildPoint(String fieldName, Object value, Map<String, String> tags) {
-    Point point = Point.measurement(measurementName).time(Instant.now(), WritePrecision.MS);
+  private void writePointToInfluxDB(String fieldName, Object value, Map<String, String> tags) {
+    Point.Builder pointBuilder =
+        Point.measurement(measurementName).time(System.currentTimeMillis(), TimeUnit.MILLISECONDS);
 
     // Add tags
     for (Map.Entry<String, String> tag : tags.entrySet()) {
-      point.addTag(tag.getKey(), tag.getValue());
+      String tagKey = tag.getKey() != null ? tag.getKey() : "";
+      String tagValue = tag.getValue() != null ? tag.getValue() : "";
+      pointBuilder.tag(tagKey, tagValue);
     }
 
-    // Add field - simplified version
+    // Add field
     if (value instanceof Number) {
-      point.addField(fieldName, (Number) value);
+      pointBuilder.addField(fieldName, (Number) value);
     } else if (value instanceof Boolean) {
-      point.addField(fieldName, (Boolean) value);
+      pointBuilder.addField(fieldName, (Boolean) value);
     } else {
-      point.addField(fieldName, value.toString());
+      pointBuilder.addField(fieldName, value.toString());
     }
 
-    return point;
+    BatchPoints batchPoints = BatchPoints.database(database).build();
+    batchPoints.point(pointBuilder.build());
+    influxDB.write(batchPoints);
   }
 
   private Map<String, String> mergeTags(
@@ -114,8 +103,8 @@ public class InfluxDBMetricSender implements AutoCloseable {
   @Override
   public void close() {
     try {
-      if (influxDBClient != null) {
-        influxDBClient.close();
+      if (influxDB != null) {
+        influxDB.close();
         log.debug("InfluxDB client closed");
       }
     } catch (Exception e) {
@@ -126,9 +115,9 @@ public class InfluxDBMetricSender implements AutoCloseable {
   @Data
   public static class InfluxDBConfig {
     private String url;
-    private String token;
-    private String org;
-    private String bucket;
+    private String database;
     private String measurement;
+    private String username;
+    private String password;
   }
 }
