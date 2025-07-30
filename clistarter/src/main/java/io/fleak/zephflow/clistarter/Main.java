@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.clistarter;
 
-import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.InfluxDBClientFactory;
 import io.fleak.zephflow.api.metric.InfluxDBMetricClientProvider;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -22,6 +20,8 @@ import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.ParseException;
+import org.influxdb.InfluxDB;
+import org.influxdb.InfluxDBFactory;
 
 /** Created by bolei on 9/26/24 */
 @Slf4j
@@ -57,14 +57,16 @@ public class Main {
       throws ParseException {
     try {
       InfluxDBMetricSender.InfluxDBConfig influxDBConfig = JobCliParser.parseInfluxDBConfig(args);
-      InfluxDBClient influxDBClient =
-          InfluxDBClientFactory.create(
-              influxDBConfig.getUrl(),
-              influxDBConfig.getToken().toCharArray(),
-              influxDBConfig.getOrg(),
-              influxDBConfig.getBucket());
+      InfluxDB influxDB = InfluxDBFactory.connect(influxDBConfig.getUrl());
+
+      // Set database and create if it doesn't exist
+      if (influxDBConfig.getDatabase() != null && !influxDBConfig.getDatabase().isEmpty()) {
+        influxDB.createDatabase(influxDBConfig.getDatabase());
+        influxDB.setDatabase(influxDBConfig.getDatabase());
+      }
+
       InfluxDBMetricSender influxDBMetricSender =
-          new InfluxDBMetricSender(influxDBConfig, influxDBClient);
+          new InfluxDBMetricSender(influxDBConfig, influxDB);
       return new InfluxDBMetricClientProvider(influxDBMetricSender);
     } catch (Exception e) {
       log.error("Failed to initialize InfluxDB: {}", e.getMessage());
