@@ -549,6 +549,46 @@ dict(
     assertEquals(-8d, outputEvent.unwrap());
   }
 
+  @Test
+  public void testSubStr() {
+    String evalExpr;
+    FleakData outputEvent;
+    FleakData inputEvent = FleakData.wrap("hello");
+
+    evalExpr = "substr(\"hello\", 1)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("ello", outputEvent.unwrap());
+    evalExpr = "substr(\"hello\", -2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("lo", outputEvent.unwrap());
+    evalExpr = "substr(\"hello\", 1, 2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("el", outputEvent.unwrap());
+    evalExpr = "substr(\"hello\", -3, 2)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("ll", outputEvent.unwrap());
+    evalExpr = "substr(\"hello\", 10)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("", outputEvent.unwrap());
+    evalExpr = "substr(\"hello\", -10)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("hello", outputEvent.unwrap());
+    evalExpr = "substr(\"hello\", 2, 100)";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals("llo", outputEvent.unwrap());
+  }
+
+  @Test
+  public void testBooleanExpr(){
+    String evalExpr;
+    FleakData outputEvent;
+    FleakData inputEvent = FleakData.wrap(Map.of("foo", 100));
+
+    evalExpr = "$.a == null";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    System.out.println(outputEvent);
+  }
+
   private FleakData evaluate(String evalExpr, FleakData inputEvent) {
     ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
     EvalExpressionParser parser =
