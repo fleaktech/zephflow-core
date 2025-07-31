@@ -26,7 +26,9 @@ dependencies {
 
   implementation group: 'org.apache.hadoop', name: 'hadoop-common', version: hadoopVersion
   implementation group: 'org.apache.hadoop', name: 'hadoop-client', version: hadoopVersion
-  implementation group: 'org.apache.hadoop', name: 'hadoop-aws', version: hadoopVersion
+  implementation('org.apache.hadoop:hadoop-aws:' + hadoopVersion) {
+    exclude group: 'software.amazon.awssdk', module: 'bundle'
+  }
 
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
   testImplementation group: 'org.testcontainers', name: 'clickhouse', version: testContainersVersion
