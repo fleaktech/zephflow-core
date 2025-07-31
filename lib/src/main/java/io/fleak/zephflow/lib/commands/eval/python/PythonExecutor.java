@@ -64,7 +64,7 @@ public class PythonExecutor implements AutoCloseable {
     // Create the executor *only if* context creation and collection were successful.
     // We allow an empty compiledFunctions map here, assuming the executor might be needed
     // even if this particular expression has no python calls.
-    log.info("PythonExecutor created successfully.");
+    log.info("PythonExecutor created.");
     return new PythonExecutor(compiledFunctions);
   }
 }

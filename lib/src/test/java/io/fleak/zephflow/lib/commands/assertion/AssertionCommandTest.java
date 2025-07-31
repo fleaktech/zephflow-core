@@ -124,4 +124,25 @@ class AssertionCommandTest {
     verify(outputMessageCounter).increase(any());
     verify(errorCounter, never()).increase(any());
   }
+
+  @Test
+  public void testFilterWithError() {
+    // should result in a false valuation
+    AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(false);
+    AssertionCommand assertionCommand =
+        (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
+    // $.foo is number, str_split() on it will cause issue
+    assertionCommand.parseAndValidateArg("str_split($.foo, '\\+') ");
+    RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
+    assert r0 != null;
+    ScalarCommand.ProcessResult processResult =
+        assertionCommand.process(List.of(r0), "test_user", metricClientProvider);
+
+    assertTrue(processResult.getOutput().isEmpty());
+    assertTrue(processResult.getFailureEvents().isEmpty());
+
+    verify(inputMessageCounter, times(1)).increase(any());
+    verify(outputMessageCounter, never()).increase(any());
+    verify(errorCounter, never()).increase(any());
+  }
 }

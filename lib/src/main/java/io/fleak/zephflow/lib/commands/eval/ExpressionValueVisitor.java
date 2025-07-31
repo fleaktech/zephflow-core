@@ -390,6 +390,89 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
   }
 
   @Override
+  public FleakData visitSubStrFunction(EvalExpressionParser.SubStrFunctionContext ctx) {
+    return visit(ctx.subStrArg());
+  }
+
+  @Override
+  public FleakData visitSubStrArg(EvalExpressionParser.SubStrArgContext ctx) {
+    List<EvalExpressionParser.ExpressionContext> expressionContexts = ctx.expression();
+
+    FleakData strFd = visit(expressionContexts.get(0));
+    FleakData startFd = visit(expressionContexts.get(1));
+    FleakData lengthFd = null;
+
+    if (expressionContexts.size() == 3) {
+      lengthFd = visit(expressionContexts.get(2));
+    }
+
+    // normalize args
+    String str = strFd.getStringValue();
+    NumberPrimitiveFleakData.NumberType startNumType = startFd.getNumberType();
+    Preconditions.checkArgument(
+        startNumType == NumberPrimitiveFleakData.NumberType.INT
+            || startNumType == NumberPrimitiveFleakData.NumberType.LONG,
+        "start position is not a valid integer number: %s",
+        startFd);
+    int start = (int) startFd.getNumberValue();
+    int length = Integer.MAX_VALUE;
+    if (lengthFd != null) {
+      NumberPrimitiveFleakData.NumberType lengthNumType = lengthFd.getNumberType();
+      Preconditions.checkArgument(
+          lengthNumType == NumberPrimitiveFleakData.NumberType.INT
+              || lengthNumType == NumberPrimitiveFleakData.NumberType.LONG,
+          "start position is not a valid integer number: %s",
+          lengthFd);
+      length = (int) lengthFd.getNumberValue();
+    }
+    String subStr = subStr(str, start, length);
+    return FleakData.wrap(subStr);
+  }
+
+  String subStr(String str, int start, int length) {
+    if (str == null) {
+      throw new IllegalArgumentException("Input string cannot be null");
+    }
+
+    if (length < 0) {
+      throw new IllegalArgumentException("Length cannot be negative");
+    }
+
+    int strLen = str.length();
+
+    // Handle negative start indices (Python-style: -1 is last character)
+    if (start < 0) {
+      start = strLen + start;
+
+      // If still negative after adjustment, clamp to 0
+      if (start < 0) {
+        start = 0;
+      }
+    }
+
+    // Start beyond string length: return empty string
+    if (start >= strLen) {
+      return "";
+    }
+
+    // Calculate the end position, handling potential overflow
+    int endPos;
+    if (length == Integer.MAX_VALUE || start > Integer.MAX_VALUE - length) {
+      // Would overflow, so just use string length
+      endPos = strLen;
+    } else {
+      endPos = start + length;
+      // If end position exceeds string length, truncate to string length
+      if (endPos > strLen) {
+        endPos = strLen;
+      }
+    }
+
+    // Extract and return the substring
+    return str.substring(start, endPos);
+  }
+
+  @Override
   public FleakData visitTsStrToEpochFunction(EvalExpressionParser.TsStrToEpochFunctionContext ctx) {
     return visit(ctx.tsStrToEpochArg());
   }
