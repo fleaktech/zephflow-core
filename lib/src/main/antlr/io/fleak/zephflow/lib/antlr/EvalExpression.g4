@@ -122,6 +122,7 @@ function
     | arrForEachFunction
     | arrFlattenFunction
     | strSplitFunction
+    | subStrFunction
     | tsStrToEpochFunction
     | epochToTsStrFunction
     | durationStrToMillsFunction
@@ -470,6 +471,47 @@ strSplitFunction
 strSplitArg
     : expression ',' expression
     ;
+
+
+/*
+substrFunction:
+Extract a substring from a string using SQL or Python style syntax.
+
+Supports multiple overloads:
+1. substr(string, start) - Extract from start position to end of string
+   - Positive start: 0-based index from beginning
+   - Negative start: Index from end (-1 is last character)
+
+2. substr(string, start, length) - SQL style: Extract 'length' characters starting at 'start'
+   - Positive start: 0-based index from beginning
+   - Negative start: Index from end
+   - length: Number of characters to extract
+
+Edge cases:
+- Start index out of bounds:
+  * start > string length: Returns empty string ""
+  * start < -string length: Treated as 0 (beginning of string)
+- Length exceeds remaining characters: Returns substring up to end of string
+- Invalid argument types (non-integer start/length): Throws error
+- Null string input: Throws error
+- Negative length: Throws error
+
+Examples:
+- substr("hello", 1) returns "ello" (from index 1 to end)
+- substr("hello", -2) returns "lo" (last 2 characters)
+- substr("hello", 1, 2) returns "el" (2 characters starting at index 1)
+- substr("hello", -3, 2) returns "ll" (2 characters starting 3 from end)
+- substr("hello", 10) returns "" (start beyond string length)
+- substr("hello", -10) returns "hello" (negative start clamped to 0)
+- substr("hello", 2, 100) returns "llo" (length truncated to available characters)
+*/
+subStrFunction
+  : 'substr' '(' subStrArg ')'
+  ;
+
+subStrArg
+  : expression ',' expression (',' expression)?
+  ;
 
 /*
 tsStrToEpochFunction:

@@ -45,7 +45,15 @@ public class AssertionCommand extends ScalarCommand {
     evalInitializedConfig.getInputMessageCounter().increase(callingUserTag);
     ExpressionValueVisitor expressionValueVisitor =
         ExpressionValueVisitor.createInstance(event, evalInitializedConfig.getPythonExecutor());
-    FleakData fleakData = expressionValueVisitor.visit(evalInitializedConfig.getLanguageContext());
+    FleakData fleakData = new BooleanPrimitiveFleakData(false);
+    try {
+      fleakData = expressionValueVisitor.visit(evalInitializedConfig.getLanguageContext());
+    } catch (Exception e) {
+      // no-op
+      // any exception thrown during evaluation should be caught here and causing the expression
+      // evaluation to false
+    }
+
     if (fleakData instanceof BooleanPrimitiveFleakData && fleakData.isTrueValue()) {
       evalInitializedConfig.getOutputMessageCounter().increase(callingUserTag);
       return List.of(event);
