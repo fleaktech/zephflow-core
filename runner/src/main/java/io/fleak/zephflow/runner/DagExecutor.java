@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.spi.CommandProvider;
@@ -106,7 +105,7 @@ public class DagExecutor {
     OperatorCommand command =
         new ArrayList<>(entryNodesDagAndRest.getKey().getNodes()).get(0).getNodeContent();
     Preconditions.checkArgument(command instanceof SourceCommand);
-    SimpleSourceCommand<?> sourceCommand = (SimpleSourceCommand<?>) command;
+    SourceCommand sourceCommand = (SourceCommand) command;
     List<Edge> edgesFromSource = new ArrayList<>(entryNodesDagAndRest.getKey().getEdges());
     Dag<OperatorCommand> subDagWithoutSource = entryNodesDagAndRest.getValue();
     DagRunCounters counters = createCounters();
