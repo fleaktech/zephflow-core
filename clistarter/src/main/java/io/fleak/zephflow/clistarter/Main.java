@@ -29,6 +29,9 @@ import org.influxdb.dto.Query;
 public class Main {
 
   public static void main(String[] args) throws Exception {
+    log.info("=== Application Version Information ===");
+    log.info("CLI Starter JAR: {}", System.getenv("CLISTARTER_JAR_FILENAME"));
+    log.info("Commands JAR: {}", System.getenv("COMMANDS_JAR_FILENAME"));
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
       MetricClientProvider metricClientProvider = createMetricClientProvider(args);
