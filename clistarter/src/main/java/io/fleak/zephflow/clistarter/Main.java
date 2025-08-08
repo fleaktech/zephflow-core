@@ -46,6 +46,7 @@ public class Main {
   private static MetricClientProvider createMetricClientProvider(String[] args) {
     try {
       JobCliParser.MetricClientType metricClientType = JobCliParser.getMetricClientType(args);
+      log.info("Selected metric client:  {}", metricClientType.getValue());
 
       return switch (metricClientType) {
         case INFLUXDB -> createInfluxDBMetricClientProvider(args);
