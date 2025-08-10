@@ -14,30 +14,22 @@
 package io.fleak.zephflow.api.metric;
 
 import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
-public class InfluxDBMetricClientProvider implements MetricClientProvider {
+public class InfluxDBStopWatch extends FleakStopWatch {
 
+  private final String name;
+  private final Map<String, String> tags;
   private final InfluxDBMetricSender metricSender;
 
-  public InfluxDBMetricClientProvider(InfluxDBMetricSender metricSender) {
+  public InfluxDBStopWatch(
+      String name, Map<String, String> tags, InfluxDBMetricSender metricSender) {
+    this.name = name;
+    this.tags = tags;
     this.metricSender = metricSender;
   }
 
   @Override
-  public FleakCounter counter(String name, Map<String, String> tags) {
-    return new InfluxDBFleakCounter(name, tags, metricSender);
-  }
-
-  @Override
-  public <T> FleakGauge<T> gauge(String name, Map<String, String> tags, T monitoredValue) {
-    // TODO: Implement InfluxDB gauge functionality
-    return new NoopMetricClientProvider.NoopFleakGauge<>();
-  }
-
-  @Override
-  public FleakStopWatch stopWatch(String name, Map<String, String> tags) {
-    return new InfluxDBStopWatch(name, tags, metricSender);
+  protected void reportDuration(long duration, Map<String, String> additionalTags) {
+    metricSender.sendMetric("timer", name, duration, tags, additionalTags);
   }
 }
