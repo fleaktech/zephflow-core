@@ -62,7 +62,7 @@ public class InfluxDBMetricClientProviderTest {
     }
 
     @Test
-    void stopWatch_ReturnsNoopStopWatch() {
+    void stopWatch_ReturnsInfluxdbStopWatch() {
         Map<String, String> tags = new HashMap<>();
         tags.put("tag1", "value1");
 
@@ -70,7 +70,7 @@ public class InfluxDBMetricClientProviderTest {
 
         assertNotNull(stopWatch);
         // Since stopWatch is not implemented yet, it returns NoopStopWatch
-        assertInstanceOf(MetricClientProvider.NoopMetricClientProvider.NoopStopWatch.class, stopWatch);
+        assertInstanceOf(InfluxDBStopWatch.class, stopWatch);
     }
 
     @Test
