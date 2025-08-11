@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.parser.extractions;
 
-
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.utils.JsonUtils;
