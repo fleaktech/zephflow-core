@@ -74,13 +74,13 @@ class CompiledRulesTest {
     ParserConfigs.ParserConfig parserConfig =
         ParserConfigs.ParserConfig.builder()
             .targetField("k")
-            .extractionConfig(new JsonExtractionConfig())
+            .extractionConfig(new JsonExtractionConfig("my_field"))
             .removeTargetField(true)
             .build();
     ParserConfigCompiler parserConfigCompiler = new ParserConfigCompiler();
     CompiledRules.ParseRule parseRule = parserConfigCompiler.compile(parserConfig);
     assertNotNull(inputEvent);
     RecordFleakData output = parseRule.parse(inputEvent);
-    assertEquals(Map.of("a", 100), output.unwrap());
+    assertEquals(Map.of("my_field", Map.of("a", 100)), output.unwrap());
   }
 }
