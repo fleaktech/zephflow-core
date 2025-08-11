@@ -81,8 +81,8 @@ public class ParserConfigCompiler {
       return new PanwTrafficExtractionRule();
     }
 
-    if (extractionConfig instanceof JsonExtractionConfig) {
-      return new JsonExtractionRule();
+    if (extractionConfig instanceof JsonExtractionConfig jsonExtractionConfig) {
+      return new JsonExtractionRule(jsonExtractionConfig);
     }
 
     if (extractionConfig instanceof DelimitedTextExtractionConfig delimitedTextExtractionConfig) {
