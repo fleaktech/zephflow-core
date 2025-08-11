@@ -8,12 +8,14 @@ dag:
   - id: "a"
     commandName: "testSource"
     config:
+    outputs: [ "b" ]
   - id: "b"
     commandName: "eval"
     config: |
       dict(
         num=$.num * 2
       )
+    outputs: [ "c" ]
   - id: "c"
     commandName: "testSink"
     config:

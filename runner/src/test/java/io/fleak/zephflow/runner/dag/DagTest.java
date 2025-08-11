@@ -297,6 +297,22 @@ class DagTest {
   }
 
   @Test
+  public void testFromAdjacencyList_Regression() {
+    AdjacencyListDagDefinition.DagNode nodeA = new AdjacencyListDagDefinition.DagNode();
+    nodeA.setId("A");
+    nodeA.setCommandName("Command A");
+    nodeA.setConfig("Config A");
+
+    AdjacencyListDagDefinition.DagNode nodeB = new AdjacencyListDagDefinition.DagNode();
+    nodeB.setId("B");
+    nodeB.setCommandName("Command B");
+    nodeB.setConfig("Config B");
+
+    Dag<RawDagNode> dag = Dag.fromAdjacencyList(List.of(nodeA, nodeB));
+    assertTrue(dag.getEdges().isEmpty());
+  }
+
+  @Test
   public void testEmptyNodesValidation() {
     Dag<String> dag = new Dag<>(List.of(), List.of());
 
