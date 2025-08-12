@@ -30,25 +30,17 @@ import org.apache.commons.lang3.StringUtils;
  * contain separators. It leverages the Apache Commons CSV library for robust parsing.
  */
 public class KvPairsExtractionRule implements ExtractionRule {
-  private final char pairSeparator;
-  private final char kvSeparator;
+  private final KvPairExtractionConfig kvPairExtractionConfig;
   private final char quoteChar = '"';
   private final char escapeChar = '\\';
 
-  /**
-   * Constructs a new extraction rule with specified separators.
-   *
-   * @param pairSeparator The character that separates key-value pairs (e.g., ',').
-   * @param kvSeparator The character that separates a key from its value (e.g., '=').
-   * @throws IllegalArgumentException if the pairSeparator and kvSeparator are the same.
-   */
-  public KvPairsExtractionRule(char pairSeparator, char kvSeparator) {
-    if (pairSeparator == kvSeparator) {
+  /** Constructs a new extraction rule with specified separators. */
+  public KvPairsExtractionRule(KvPairExtractionConfig kvPairExtractionConfig) {
+    if (kvPairExtractionConfig.getPairSeparator() == kvPairExtractionConfig.getKvSeparator()) {
       throw new IllegalArgumentException(
           "Pair separator and Key-Value separator cannot be the same.");
     }
-    this.pairSeparator = pairSeparator;
-    this.kvSeparator = kvSeparator;
+    this.kvPairExtractionConfig = kvPairExtractionConfig;
   }
 
   /**
@@ -65,7 +57,7 @@ public class KvPairsExtractionRule implements ExtractionRule {
       return new RecordFleakData();
     }
 
-    List<String> pairs = splitRespectingQuotes(raw, this.pairSeparator);
+    List<String> pairs = splitRespectingQuotes(raw, kvPairExtractionConfig.getPairSeparator());
 
     for (String pair : pairs) {
       if (StringUtils.isBlank(pair)) {
@@ -73,7 +65,8 @@ public class KvPairsExtractionRule implements ExtractionRule {
       }
 
       // For each pair, find the key-value separator, also respecting quotes.
-      int separatorIndex = findSeparatorOutsideQuotes(pair, this.kvSeparator);
+      int separatorIndex =
+          findSeparatorOutsideQuotes(pair, kvPairExtractionConfig.getKvSeparator());
 
       if (separatorIndex == -1) {
         throw new IllegalArgumentException("no valid key-value separator found: " + pair);
