@@ -90,6 +90,10 @@ public class ParserConfigCompiler {
           delimitedTextExtractionConfig.getDelimiter(), delimitedTextExtractionConfig.getColumns());
     }
 
+    if (extractionConfig instanceof KvPairExtractionConfig kvPairExtractionConfig) {
+      return new KvPairsExtractionRule(kvPairExtractionConfig);
+    }
+
     throw new IllegalArgumentException("unsupported extraction config: " + extractionConfig);
   }
 }

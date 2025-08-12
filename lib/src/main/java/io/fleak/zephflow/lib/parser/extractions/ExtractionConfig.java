@@ -25,5 +25,6 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
   @JsonSubTypes.Type(value = PanwTrafficExtractionConfig.class, name = "panw_traffic"),
   @JsonSubTypes.Type(value = JsonExtractionConfig.class, name = "json"),
   @JsonSubTypes.Type(value = DelimitedTextExtractionConfig.class, name = "delimited_text"),
+  @JsonSubTypes.Type(value = KvPairExtractionConfig.class, name = "kv_pair"),
 })
 public interface ExtractionConfig {}
