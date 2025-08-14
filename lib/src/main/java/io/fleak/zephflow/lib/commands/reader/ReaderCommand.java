@@ -33,6 +33,11 @@ public class ReaderCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   @Override
+  public SourceType sourceType() {
+    return SourceType.BATCH;
+  }
+
+  @Override
   public String commandName() {
     return COMMAND_NAME_READER_SOURCE;
   }
