@@ -31,6 +31,11 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   @Override
+  public SourceType sourceType() {
+    return SourceType.STREAMING;
+  }
+
+  @Override
   public String commandName() {
     return COMMAND_NAME_KAFKA_SOURCE;
   }

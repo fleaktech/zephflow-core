@@ -34,6 +34,11 @@ public class StdInSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   @Override
+  public SourceType sourceType() {
+    return SourceType.STREAMING;
+  }
+
+  @Override
   public String commandName() {
     return COMMAND_NAME_STDIN;
   }

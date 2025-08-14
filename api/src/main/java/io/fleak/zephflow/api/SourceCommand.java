@@ -32,4 +32,11 @@ public abstract class SourceCommand extends OperatorCommand {
       MetricClientProvider metricClientProvider,
       SourceEventAcceptor sourceEventAcceptor)
       throws Exception;
+
+  public abstract SourceType sourceType();
+
+  public enum SourceType {
+    BATCH,
+    STREAMING
+  }
 }

@@ -59,6 +59,11 @@ class SimpleSourceCommandTest {
     public String commandName() {
       return commandName;
     }
+
+    @Override
+    public SourceType sourceType() {
+      return SourceType.BATCH;
+    }
   }
 
   private static final String TEST_NODE_ID = "testNode";

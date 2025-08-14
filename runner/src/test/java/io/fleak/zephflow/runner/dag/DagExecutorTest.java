@@ -113,6 +113,11 @@ public class DagExecutorTest {
     }
 
     @Override
+    public SourceType sourceType() {
+      return SourceType.BATCH;
+    }
+
+    @Override
     public String commandName() {
       return "testSource";
     }

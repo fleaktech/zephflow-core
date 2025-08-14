@@ -34,6 +34,11 @@ public class FileSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   @Override
+  public SourceType sourceType() {
+    return SourceType.BATCH;
+  }
+
+  @Override
   public String commandName() {
     return COMMAND_NAME_FILE_SOURCE;
   }
