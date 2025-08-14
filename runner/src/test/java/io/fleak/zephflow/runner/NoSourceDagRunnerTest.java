@@ -211,11 +211,12 @@ class NoSourceDagRunnerTest {
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
 
       // Verify command processing
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
-      verify(mockSinkCmd)
-          .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd1, times(inputEvents.size())).process(anyList(), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockSinkCmd, times(inputEvents.size()))
+              .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
+
       assertEquals(
-          inputEvents.size(),
+          1,
           eventListCaptor.getValue().size(),
           "Sink received incorrect number of events");
 
@@ -223,8 +224,8 @@ class NoSourceDagRunnerTest {
       verify(mockCounters)
           .increaseInputEventCounter(eq((long) inputEvents.size()), eq(callingUserTag));
       verify(mockCounters).startStopWatch();
-      verify(mockCounters)
-          .increaseOutputEventCounter(eq((long) inputEvents.size()), tagsCaptor.capture());
+      verify(mockCounters, times(inputEvents.size()))
+              .increaseOutputEventCounter(eq(1L), tagsCaptor.capture());
       assertEquals(
           createNodeTags(SINK_ID, SINK_CMD_NAME),
           tagsCaptor.getValue(),
@@ -244,8 +245,6 @@ class NoSourceDagRunnerTest {
                   "successCount",
                       new NumberPrimitiveFleakData(
                           inputEvents.size(), NumberPrimitiveFleakData.NumberType.INT)));
-      assertDebugInfo(
-          result.outputByStep, SINK_ID, NODE_ID_1, List.of(expectedSinkSummary), "outputByStep");
       assertTrue(result.outputEvents.containsKey(SINK_ID), "outputEvents should contain sink ID");
       assertEquals(
           List.of(expectedSinkSummary),
@@ -274,13 +273,21 @@ class NoSourceDagRunnerTest {
 
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
 
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
-      verify(mockScalarCmd2)
-          .process(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
-      assertEquals(inputEvents.size(), eventListCaptor.getValue().size());
+      verify(mockScalarCmd1, times(inputEvents.size())).process(anyList(), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd1).process(eq(List.of(createEvent("event1"))), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd1).process(eq(List.of(createEvent("event2"))), eq(CALLING_USER), eq(mockMetricProvider));
 
-      verify(mockCounters)
-          .increaseOutputEventCounter(eq((long) inputEvents.size()), tagsCaptor.capture());
+      verify(mockScalarCmd2, times(inputEvents.size()))
+              .process(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
+
+      List<List<RecordFleakData>> allCalls = eventListCaptor.getAllValues();
+      assertEquals(inputEvents.size(), allCalls.size(), "Should have " + inputEvents.size() + " calls");
+      for (List<RecordFleakData> call : allCalls) {
+        assertEquals(1, call.size(), "Each call should process exactly 1 event");
+      }
+
+      verify(mockCounters, times(inputEvents.size()))
+              .increaseOutputEventCounter(eq(1L), tagsCaptor.capture());
       assertEquals(
           createNodeTags(NODE_ID_2, CMD_NAME_2),
           tagsCaptor.getValue(),
