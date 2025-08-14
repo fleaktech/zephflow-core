@@ -262,7 +262,8 @@ public class Dag<T> {
   }
 
   /**
-   * Converts a DAG from adjacency list representation to a nodes and edges representation.
+   * Converts a DAG from adjacency list representation to a nodes and edges representation. Edges
+   * are created only if they are defined in a node's `outputs` list.
    *
    * @param dagNodes List of DagNode objects in adjacency list representation
    * @return A Dag object with nodes and edges
@@ -273,7 +274,7 @@ public class Dag<T> {
     List<Node<RawDagNode>> nodes = new ArrayList<>();
     List<Edge> edges = new ArrayList<>();
 
-    // Create nodes
+    // 1. Create all nodes first
     for (AdjacencyListDagDefinition.DagNode dagNode : dagNodes) {
       RawDagNode rawDagNode =
           RawDagNode.builder()
@@ -287,40 +288,19 @@ public class Dag<T> {
       nodes.add(node);
     }
 
-    // Check if we need to create a linear DAG (when none of the nodes have defined outputs)
-    boolean isLinearDag = true;
+    // 2. Create edges as defined in the outputs for each node
     for (AdjacencyListDagDefinition.DagNode dagNode : dagNodes) {
-      if (dagNode.getOutputs() != null && !dagNode.getOutputs().isEmpty()) {
-        isLinearDag = false;
-        break;
-      }
-    }
-
-    if (isLinearDag) {
-      // Create edges for a linear DAG based on the order of nodes in the list
-      for (int i = 0; i < dagNodes.size() - 1; i++) {
-        String fromNodeId = dagNodes.get(i).getId();
-        String toNodeId = dagNodes.get(i + 1).getId();
-
-        // Create edge
-        Edge edge = Edge.builder().from(fromNodeId).to(toNodeId).build();
-        edges.add(edge);
-      }
-    } else {
-      // Create edges as defined in the outputs
-      for (AdjacencyListDagDefinition.DagNode dagNode : dagNodes) {
+      // Check if outputs is not null to prevent errors
+      if (dagNode.getOutputs() != null) {
         String fromNodeId = dagNode.getId();
-
         for (String targetId : dagNode.getOutputs()) {
-          // Create a direct edge from the source to the target
           Edge edge = Edge.builder().from(fromNodeId).to(targetId).build();
-
           edges.add(edge);
         }
       }
     }
 
-    // Create the DAG with all nodes and edges at once
+    // 3. Create the DAG with all nodes and edges at once
     return new Dag<>(nodes, edges);
   }
 

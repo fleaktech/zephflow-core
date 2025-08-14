@@ -13,18 +13,17 @@
  */
 package io.fleak.zephflow.lib.parser.extractions;
 
-import io.fleak.zephflow.api.structure.FleakData;
-import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.utils.JsonUtils;
-import java.util.Map;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-/** Created by bolei on 5/6/25 */
-public record JsonExtractionRule(JsonExtractionConfig jsonExtractionConfig)
-    implements ExtractionRule {
-
-  @Override
-  public RecordFleakData extract(String raw) throws Exception {
-    FleakData fleakData = JsonUtils.loadFleakDataFromJsonString(raw);
-    return new RecordFleakData(Map.of(jsonExtractionConfig.getOutputFieldName(), fleakData));
-  }
+/** Created by bolei on 8/11/25 */
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class KvPairExtractionConfig implements ExtractionConfig {
+  private char pairSeparator;
+  private char kvSeparator;
 }

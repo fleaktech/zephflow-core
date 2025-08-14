@@ -81,13 +81,17 @@ public class ParserConfigCompiler {
       return new PanwTrafficExtractionRule();
     }
 
-    if (extractionConfig instanceof JsonExtractionConfig) {
-      return new JsonExtractionRule();
+    if (extractionConfig instanceof JsonExtractionConfig jsonExtractionConfig) {
+      return new JsonExtractionRule(jsonExtractionConfig);
     }
 
     if (extractionConfig instanceof DelimitedTextExtractionConfig delimitedTextExtractionConfig) {
       return new DelimitedTextExtractionRule(
           delimitedTextExtractionConfig.getDelimiter(), delimitedTextExtractionConfig.getColumns());
+    }
+
+    if (extractionConfig instanceof KvPairExtractionConfig kvPairExtractionConfig) {
+      return new KvPairsExtractionRule(kvPairExtractionConfig);
     }
 
     throw new IllegalArgumentException("unsupported extraction config: " + extractionConfig);
