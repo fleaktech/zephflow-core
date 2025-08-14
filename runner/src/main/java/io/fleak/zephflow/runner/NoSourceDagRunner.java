@@ -73,7 +73,17 @@ public record NoSourceDagRunner(
             .metricClientProvider(metricClientProvider)
             .runConfig(runConfig)
             .build();
-    routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
+    for (RecordFleakData event : events) {
+      try {
+        routeToDownstream(sourceNodeId, commandName, event, edgesFromSource, runContext);
+      } catch (Exception e) {
+        log.error("Failed to process single event: {}", event, e);
+        if (useDlq) {
+          throw e;
+        }
+        counters.increaseErrorEventCounter(1, callingUserTag);
+      }
+    }
     counters.stopStopWatch(callingUserTag);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
@@ -86,36 +96,34 @@ public record NoSourceDagRunner(
   void routeToDownstream(
       String currentNodeId,
       String commandName,
-      List<RecordFleakData> events,
+      RecordFleakData event,
       List<Edge> outgoingEdges,
       RunContext runContext) {
     if (CollectionUtils.isEmpty(outgoingEdges)) {
       List<RecordFleakData> currentNodeOutput =
           runContext.dagResult.outputEvents.computeIfAbsent(currentNodeId, k -> new ArrayList<>());
-      currentNodeOutput.addAll(events);
+      currentNodeOutput.add(event);
       Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, currentNodeId);
       tags.put(METRIC_TAG_COMMAND_NAME, commandName);
-      counters.increaseOutputEventCounter(events.size(), tags);
+      counters.increaseOutputEventCounter(1, tags);
       return;
     }
     for (var e : outgoingEdges) {
-      processEvent(e.getTo(), currentNodeId, events, runContext);
+      processEvent(e.getTo(), currentNodeId, event, runContext);
     }
   }
 
   void processEvent(
-      String currentNodeId,
-      String upstreamNodeId,
-      List<RecordFleakData> events,
-      RunContext runContext) {
+      String currentNodeId, String upstreamNodeId, RecordFleakData event, RunContext runContext) {
     Node<OperatorCommand> compiledNode = compiledDagWithoutSource.lookupNode(currentNodeId);
     OperatorCommand command = compiledNode.getNodeContent();
     List<Edge> downstreamEdges = compiledDagWithoutSource.downstreamEdges(currentNodeId);
     if (command instanceof ScalarCommand scalarCommand) {
       // Process the event through a scalar command
       ScalarCommand.ProcessResult result =
-          scalarCommand.process(events, runContext.callingUser, runContext.metricClientProvider);
+          scalarCommand.process(
+              List.of(event), runContext.callingUser, runContext.metricClientProvider);
       runContext.dagResult.handleNodeResult(
           runContext.callingUserTag,
           currentNodeId,
@@ -127,14 +135,17 @@ public record NoSourceDagRunner(
           counters,
           useDlq);
 
-      routeToDownstream(
-          currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
+      for (RecordFleakData outputEvent : result.getOutput()) {
+        routeToDownstream(
+            currentNodeId, command.commandName(), outputEvent, downstreamEdges, runContext);
+      }
       return;
     }
     if (command instanceof ScalarSinkCommand sinkCommand) {
       // Write to sink
       ScalarSinkCommand.SinkResult result =
-          sinkCommand.writeToSink(events, runContext.callingUser, runContext.metricClientProvider);
+          sinkCommand.writeToSink(
+              List.of(event), runContext.callingUser, runContext.metricClientProvider);
       RecordFleakData sinkOutputEvent = sinkResultToOutputEvent(result);
       runContext.dagResult.handleNodeResult(
           runContext.callingUserTag,
@@ -149,7 +160,7 @@ public record NoSourceDagRunner(
       Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, currentNodeId);
       tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
-      counters.increaseOutputEventCounter(events.size(), tags);
+      counters.increaseOutputEventCounter(1, tags);
 
       if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {
         result.merge(runContext.dagResult.sinkResultMap.get(currentNodeId));
