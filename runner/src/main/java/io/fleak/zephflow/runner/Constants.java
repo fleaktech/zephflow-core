@@ -22,6 +22,7 @@ public interface Constants {
   String METRIC_NAME_PIPELINE_ERROR_EVENT = "pipeline_error_event_count";
   String METRIC_NAME_REQUEST_PROCESS_TIME_MILLIS = "request_process_time_millis";
   String METRIC_NAME_NUM_REQUESTS = "num_requests";
+  String TAG_FIELD_NAME = "__tag__";
 
   String HTTP_STARTER_WORKFLOW_CONTROLLER_PATH = "/api/v1/workflows";
   String HTTP_STARTER_EXECUTION_CONTROLLER_PATH = "/api/v1/execution";

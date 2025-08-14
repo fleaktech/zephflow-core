@@ -15,6 +15,7 @@ package io.fleak.zephflow.runner;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
+import static io.fleak.zephflow.runner.Constants.TAG_FIELD_NAME;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
@@ -90,7 +91,7 @@ public record NoSourceDagRunner(
 
     events.stream()
         .findFirst()
-        .map(event -> event.getPayload().get("__tag__"))
+        .map(event -> event.getPayload().get(TAG_FIELD_NAME))
         .map(FleakData::unwrap)
         .filter(Map.class::isInstance)
         .map(obj -> (Map<String, Object>) obj)
