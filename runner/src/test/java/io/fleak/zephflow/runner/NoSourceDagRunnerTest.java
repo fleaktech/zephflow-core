@@ -336,9 +336,9 @@ class NoSourceDagRunnerTest {
 
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
 
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
-      verify(mockScalarCmd2).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
-      verify(mockSinkCmd, times(2))
+      verify(mockScalarCmd1, times(inputEvents.size())).process(anyList(), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd2, times(inputEvents.size())).process(anyList(), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockSinkCmd, times(inputEvents.size() * 2))
           .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
       assertEquals(inputEvents.size(), eventListCaptor.getAllValues().get(0).size());
       assertEquals(inputEvents.size(), eventListCaptor.getAllValues().get(1).size());
