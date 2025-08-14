@@ -33,6 +33,11 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   @Override
+  public SourceType sourceType() {
+    return SourceType.STREAMING;
+  }
+
+  @Override
   public String commandName() {
     return COMMAND_NAME_KINESIS_SOURCE;
   }
