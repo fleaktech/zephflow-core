@@ -105,7 +105,7 @@ class NoSourceDagRunnerTest {
     // Common setup for most tests
     edgesFromSource = List.of(Edge.builder().from(SOURCE_NODE_ID).to(NODE_ID_1).build());
     inputEvents = List.of(createEvent("event1"), createEvent("event2"));
-    callingUserTag = getCallingUserTag(CALLING_USER);
+    callingUserTag = getCallingUserTagAndEventTags(CALLING_USER, null);
     runConfigIncludeAll = new NoSourceDagRunner.DagRunConfig(true, true);
     runConfigExcludeSteps = new NoSourceDagRunner.DagRunConfig(false, false);
 

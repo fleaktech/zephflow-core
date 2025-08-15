@@ -47,10 +47,11 @@ public class SQLEvalCommand extends ScalarCommand {
   public ScalarCommand.ProcessResult process(
       List<RecordFleakData> events, String callingUser, MetricClientProvider metricClientProvider) {
     lazyInitialize(metricClientProvider);
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
+    Map<String, String> callingUserTagAndEventTags =
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
     SqlInitializedConfig sqlParsedConfig =
         (SqlInitializedConfig) initializedConfigThreadLocal.get();
-    sqlParsedConfig.getInputMessageCounter().increase(events.size(), callingUserTag);
+    sqlParsedConfig.getInputMessageCounter().increase(events.size(), callingUserTagAndEventTags);
 
     var typeSystem = sqlParsedConfig.getSqlInterpreter().getTypeSystem();
 
@@ -70,10 +71,10 @@ public class SQLEvalCommand extends ScalarCommand {
               .map(Row::asMap)
               .map(m -> (RecordFleakData) FleakData.wrap(m))
               .toList();
-      sqlParsedConfig.getOutputMessageCounter().increase(output.size(), callingUserTag);
+      sqlParsedConfig.getOutputMessageCounter().increase(output.size(), callingUserTagAndEventTags);
       return new ProcessResult(output, List.of());
     } catch (Exception e) {
-      sqlParsedConfig.getErrorCounter().increase(events.size(), callingUserTag);
+      sqlParsedConfig.getErrorCounter().increase(events.size(), callingUserTagAndEventTags);
       List<ErrorOutput> errorOutputs =
           events.stream().map(event -> new ErrorOutput(event, e.getMessage())).toList();
       return new ProcessResult(List.of(), errorOutputs);

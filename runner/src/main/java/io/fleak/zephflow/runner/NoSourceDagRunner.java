@@ -26,10 +26,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -58,8 +55,10 @@ public record NoSourceDagRunner(
     var sourceNodeId = sourceNodeIds.get(0);
     String commandName = "source_node";
 
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
-    counters.increaseInputEventCounter(events.size(), callingUserTag);
+    Map<String, String> tags =
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
+
+    counters.increaseInputEventCounter(events.size(), tags);
     counters.startStopWatch();
     MDC.put("callingUser", callingUser);
     log.debug("events {}", events.size());
@@ -68,13 +67,13 @@ public record NoSourceDagRunner(
     RunContext runContext =
         RunContext.builder()
             .callingUser(callingUser)
-            .callingUserTag(callingUserTag)
+            .callingUserTag(tags)
             .dagResult(dagResult)
             .metricClientProvider(metricClientProvider)
             .runConfig(runConfig)
             .build();
     routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
-    counters.stopStopWatch(callingUserTag);
+    counters.stopStopWatch(tags);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
     if (MapUtils.isNotEmpty(dagResult.getErrorByStep())) {

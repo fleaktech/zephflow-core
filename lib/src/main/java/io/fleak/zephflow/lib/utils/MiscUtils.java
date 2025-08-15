@@ -18,6 +18,8 @@ import static org.apache.commons.text.StringEscapeUtils.*;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.File;
 import java.io.IOException;
@@ -90,6 +92,7 @@ public interface MiscUtils {
   String METRIC_NAME_SINK_OUTPUT_COUNT = "sink_output_count";
   String METRIC_NAME_SINK_ERROR_COUNT = "sink_error_count";
 
+  String EVENT_TAG_FIELD = "__tag__";
   String METRIC_TAG_CALLING_USER = "calling_user";
   String METRIC_TAG_COMMAND_NAME = "command_name";
   String METRIC_TAG_NODE_ID = "node_id";
@@ -259,10 +262,29 @@ public interface MiscUtils {
     Preconditions.checkNotNull(metricTags.get(METRIC_TAG_ENV), "metric tag missing environment");
   }
 
-  static Map<String, String> getCallingUserTag(String nullableUserId) {
-    return Optional.ofNullable(nullableUserId)
-        .map(u -> Map.of(METRIC_TAG_CALLING_USER, u))
-        .orElse(new HashMap<>());
+  static Map<String, String> getCallingUserTagAndEventTags(
+      String nullableUserId, RecordFleakData event) {
+    Map<String, String> tags =
+        Optional.ofNullable(nullableUserId)
+            .map(u -> new HashMap<>(Map.of(METRIC_TAG_CALLING_USER, u)))
+            .orElse(new HashMap<>());
+
+    if (event == null) return tags;
+
+    FleakData tagData = event.getPayload().get(EVENT_TAG_FIELD);
+    if (tagData == null) return tags;
+
+    Object unwrapped = tagData.unwrap();
+    if (!(unwrapped instanceof Map<?, ?>)) return tags;
+
+    Map<String, Object> tagMap = (Map<String, Object>) unwrapped;
+    for (Map.Entry<String, Object> entry : tagMap.entrySet()) {
+      if (entry.getValue() != null) {
+        tags.put(entry.getKey(), entry.getValue().toString());
+      }
+    }
+
+    return tags;
   }
 
   static <T> T lookupFromMapOrThrow(
