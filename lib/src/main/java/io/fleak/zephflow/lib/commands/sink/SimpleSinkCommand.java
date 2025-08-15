@@ -45,12 +45,13 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
 
   @Override
   public SinkResult doWriteToSink(List<RecordFleakData> events, @NonNull String callingUser) {
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
+    Map<String, String> tags =
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
     List<List<RecordFleakData>> batches = Lists.partition(events, batchSize());
     long ts = System.currentTimeMillis();
 
     SinkResult sinkResult = new SinkResult();
-    batches.stream().map(p -> writeOneBatch(p, ts, callingUserTag)).forEach(sinkResult::merge);
+    batches.stream().map(p -> writeOneBatch(p, ts, tags)).forEach(sinkResult::merge);
 
     return sinkResult;
   }

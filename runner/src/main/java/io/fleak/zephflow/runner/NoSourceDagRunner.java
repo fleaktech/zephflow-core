@@ -15,7 +15,6 @@ package io.fleak.zephflow.runner;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
-import static io.fleak.zephflow.runner.Constants.TAG_FIELD_NAME;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
@@ -23,7 +22,6 @@ import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
-import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
@@ -57,11 +55,10 @@ public record NoSourceDagRunner(
     var sourceNodeId = sourceNodeIds.get(0);
     String commandName = "source_node";
 
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
+    Map<String, String> tags =
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
 
-    Map<String, String> enrichedTags = getTagsFromEvent(events, callingUserTag);
-
-    counters.increaseInputEventCounter(events.size(), callingUserTag);
+    counters.increaseInputEventCounter(events.size(), tags);
     counters.startStopWatch();
     MDC.put("callingUser", callingUser);
     log.debug("events {}", events.size());
@@ -70,38 +67,19 @@ public record NoSourceDagRunner(
     RunContext runContext =
         RunContext.builder()
             .callingUser(callingUser)
-            .callingUserTag(callingUserTag)
+            .callingUserTag(tags)
             .dagResult(dagResult)
             .metricClientProvider(metricClientProvider)
             .runConfig(runConfig)
             .build();
     routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
-    counters.stopStopWatch(enrichedTags);
+    counters.stopStopWatch(tags);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
     if (MapUtils.isNotEmpty(dagResult.getErrorByStep())) {
       log.error("failed to process events: {}", toJsonString(dagResult.errorByStep));
     }
     return dagResult;
-  }
-
-  private Map<String, String> getTagsFromEvent(
-      List<RecordFleakData> events, Map<String, String> callingUserTag) {
-    Map<String, String> tags = new HashMap<>(callingUserTag);
-
-    events.stream()
-        .findFirst()
-        .map(event -> event.getPayload().get(TAG_FIELD_NAME))
-        .map(FleakData::unwrap)
-        .filter(Map.class::isInstance)
-        .map(obj -> (Map<String, Object>) obj)
-        .ifPresent(
-            tagMap ->
-                tagMap.entrySet().stream()
-                    .filter(entry -> entry.getValue() != null)
-                    .forEach(entry -> tags.put(entry.getKey(), entry.getValue().toString())));
-
-    return tags;
   }
 
   void routeToDownstream(
