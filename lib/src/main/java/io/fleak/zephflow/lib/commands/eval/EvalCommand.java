@@ -15,7 +15,7 @@ package io.fleak.zephflow.lib.commands.eval;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_EVAL;
-import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTag;
+import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.structure.ArrayFleakData;
@@ -38,16 +38,17 @@ public class EvalCommand extends ScalarCommand {
   @Override
   protected List<RecordFleakData> processOneEvent(
       RecordFleakData event, String callingUser, InitializedConfig initializedConfig) {
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
+    Map<String, String> callingUserTagAndEventTags =
+        getCallingUserTagAndEventTags(callingUser, event);
     EvalInitializedConfig evalInitializedConfig = (EvalInitializedConfig) initializedConfig;
-    evalInitializedConfig.getInputMessageCounter().increase(callingUserTag);
+    evalInitializedConfig.getInputMessageCounter().increase(callingUserTagAndEventTags);
     try {
       ExpressionValueVisitor expressionValueVisitor =
           ExpressionValueVisitor.createInstance(event, evalInitializedConfig.getPythonExecutor());
       FleakData fleakData =
           expressionValueVisitor.visit(evalInitializedConfig.getLanguageContext());
       if (fleakData instanceof RecordFleakData) {
-        evalInitializedConfig.getOutputMessageCounter().increase(callingUserTag);
+        evalInitializedConfig.getOutputMessageCounter().increase(callingUserTagAndEventTags);
         return List.of((RecordFleakData) fleakData);
       }
       if (fleakData instanceof ArrayFleakData) {
@@ -65,13 +66,13 @@ public class EvalCommand extends ScalarCommand {
                 .toList();
         evalInitializedConfig
             .getOutputMessageCounter()
-            .increase(outputEvents.size(), callingUserTag);
+            .increase(outputEvents.size(), callingUserTagAndEventTags);
         return outputEvents;
       }
       throw new IllegalArgumentException(
           "Illegal result type: " + toJsonString(fleakData.unwrap()));
     } catch (Exception e) {
-      evalInitializedConfig.getErrorCounter().increase(callingUserTag);
+      evalInitializedConfig.getErrorCounter().increase(callingUserTagAndEventTags);
       throw e;
     }
   }

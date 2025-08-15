@@ -15,7 +15,7 @@ package io.fleak.zephflow.lib.commands.assertion;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_ASSERTION;
-import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTag;
+import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
@@ -40,9 +40,10 @@ public class AssertionCommand extends ScalarCommand {
   @Override
   protected List<RecordFleakData> processOneEvent(
       RecordFleakData event, String callingUser, InitializedConfig initializedConfig) {
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
+    Map<String, String> callingUserTagAndEventTags =
+        getCallingUserTagAndEventTags(callingUser, event);
     EvalInitializedConfig evalInitializedConfig = (EvalInitializedConfig) initializedConfig;
-    evalInitializedConfig.getInputMessageCounter().increase(callingUserTag);
+    evalInitializedConfig.getInputMessageCounter().increase(callingUserTagAndEventTags);
     ExpressionValueVisitor expressionValueVisitor =
         ExpressionValueVisitor.createInstance(event, evalInitializedConfig.getPythonExecutor());
     FleakData fleakData = new BooleanPrimitiveFleakData(false);
@@ -55,14 +56,14 @@ public class AssertionCommand extends ScalarCommand {
     }
 
     if (fleakData instanceof BooleanPrimitiveFleakData && fleakData.isTrueValue()) {
-      evalInitializedConfig.getOutputMessageCounter().increase(callingUserTag);
+      evalInitializedConfig.getOutputMessageCounter().increase(callingUserTagAndEventTags);
       return List.of(event);
     }
 
     if (!evalInitializedConfig.isAssertion()) {
       return List.of();
     }
-    evalInitializedConfig.getErrorCounter().increase(callingUserTag);
+    evalInitializedConfig.getErrorCounter().increase(callingUserTagAndEventTags);
     throw new IllegalArgumentException("assertion failed: " + toJsonString(event.unwrap()));
   }
 

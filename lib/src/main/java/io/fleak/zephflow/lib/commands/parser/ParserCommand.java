@@ -14,7 +14,7 @@
 package io.fleak.zephflow.lib.commands.parser;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_PARSER;
-import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTag;
+import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -35,14 +35,14 @@ public class ParserCommand extends ScalarCommand {
   @Override
   protected List<RecordFleakData> processOneEvent(
       RecordFleakData event, String callingUser, InitializedConfig initializedConfig) {
-    Map<String, String> callingUserTag = getCallingUserTag(callingUser);
+    Map<String, String> tags = getCallingUserTagAndEventTags(callingUser, event);
     ParserInitializedConfig parserInitializedConfig = (ParserInitializedConfig) initializedConfig;
-    parserInitializedConfig.getInputMessageCounter().increase(callingUserTag);
+    parserInitializedConfig.getInputMessageCounter().increase(tags);
     try {
       RecordFleakData parsed = parserInitializedConfig.getParseRule().parse(event);
       return List.of(parsed);
     } catch (Exception e) {
-      parserInitializedConfig.getErrorCounter().increase(callingUserTag);
+      parserInitializedConfig.getErrorCounter().increase(tags);
       throw e;
     }
   }

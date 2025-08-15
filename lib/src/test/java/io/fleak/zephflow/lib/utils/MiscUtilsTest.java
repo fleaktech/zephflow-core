@@ -13,16 +13,21 @@
  */
 package io.fleak.zephflow.lib.utils;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.collectDelimitedTreeElements;
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 7/5/24 */
@@ -52,5 +57,55 @@ class MiscUtilsTest {
   public void TestLoadStringFromResourceIgnoreAllWhitespace() throws IOException {
     String inputEvents = MiscUtils.loadStringFromResource("/json/record_event_1.json");
     assertEquals(1028, inputEvents.getBytes().length);
+  }
+
+  @Test
+  @DisplayName("should return user tag when no event provided")
+  void getCallingUserTag_shouldReturnUserTag_whenNoEvent() {
+    Map<String, String> result = getCallingUserTagAndEventTags("test-user", null);
+
+    assertEquals(1, result.size());
+    assertEquals("test-user", result.get(METRIC_TAG_CALLING_USER));
+  }
+
+  @Test
+  @DisplayName("should extract event tags when event has tag field")
+  void getCallingUserTag_shouldExtractEventTags_whenEventHasTagField() {
+    var event = (RecordFleakData) FleakData.wrap(Map.of(
+            "__tag__", Map.of(
+                    "tag_1", "tag_value_1",
+                    "tag_2", "tag_value_2"
+            ),
+            "other_field", "other_value"
+    ));
+
+    Map<String, String> result = getCallingUserTagAndEventTags("test-user", event);
+
+    assertEquals(3, result.size());
+    assertEquals("test-user", result.get(METRIC_TAG_CALLING_USER));
+    assertEquals("tag_value_1", result.get("tag_1"));
+    assertEquals("tag_value_2", result.get("tag_2"));
+  }
+
+  @Test
+  @DisplayName("should handle event without tag field")
+  void getCallingUserTag_shouldHandleEventWithoutTagField() {
+    var event = (RecordFleakData) FleakData.wrap(Map.of(
+            "key1", "value1",
+            "key2", "value2"
+    ));
+
+    Map<String, String> result = getCallingUserTagAndEventTags("test-user", event);
+
+    assertEquals(1, result.size());
+    assertEquals("test-user", result.get(METRIC_TAG_CALLING_USER));
+  }
+
+  @Test
+  @DisplayName("should return empty map when no user and no event")
+  void getCallingUserTag_shouldReturnEmptyMap_whenNoUserAndNoEvent() {
+    Map<String, String> result = getCallingUserTagAndEventTags(null, null);
+
+    assertTrue(result.isEmpty());
   }
 }
