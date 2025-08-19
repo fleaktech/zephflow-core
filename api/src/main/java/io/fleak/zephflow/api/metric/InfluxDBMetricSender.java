@@ -104,15 +104,17 @@ public class InfluxDBMetricSender implements AutoCloseable {
       }
 
       influxDB.write(batchPoints);
-      log.debug("Sent batch of {} metrics to InfluxDB with timestamp {}", metrics.size(), timestamp);
+      log.debug(
+          "Sent batch of {} metrics to InfluxDB with timestamp {}", metrics.size(), timestamp);
     } catch (Exception e) {
       log.warn("Error sending batch metrics to InfluxDB with timestamp", e);
     }
   }
 
-  private Point createPoint(String fieldName, Object value, Map<String, String> allTags, long timestamp) {
+  private Point createPoint(
+      String fieldName, Object value, Map<String, String> allTags, long timestamp) {
     Point.Builder pointBuilder =
-            Point.measurement(measurementName).time(timestamp, TimeUnit.MILLISECONDS);
+        Point.measurement(measurementName).time(timestamp, TimeUnit.MILLISECONDS);
 
     // Add tags
     for (Map.Entry<String, String> tag : allTags.entrySet()) {
