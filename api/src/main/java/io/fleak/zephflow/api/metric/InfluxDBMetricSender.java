@@ -55,27 +55,9 @@ public class InfluxDBMetricSender implements AutoCloseable {
   }
 
   private void writePointToInfluxDB(String fieldName, Object value, Map<String, String> tags) {
-    Point.Builder pointBuilder =
-        Point.measurement(measurementName).time(System.currentTimeMillis(), TimeUnit.MILLISECONDS);
-
-    // Add tags
-    for (Map.Entry<String, String> tag : tags.entrySet()) {
-      String tagKey = tag.getKey() != null ? tag.getKey() : "";
-      String tagValue = tag.getValue() != null ? tag.getValue() : "";
-      pointBuilder.tag(tagKey, tagValue);
-    }
-
-    // Add field
-    if (value instanceof Number) {
-      pointBuilder.addField(fieldName, (Number) value);
-    } else if (value instanceof Boolean) {
-      pointBuilder.addField(fieldName, (Boolean) value);
-    } else {
-      pointBuilder.addField(fieldName, value.toString());
-    }
-
+    Point point = createPoint(fieldName, value, tags, System.currentTimeMillis());
     BatchPoints batchPoints = BatchPoints.database(database).build();
-    batchPoints.point(pointBuilder.build());
+    batchPoints.point(point);
     influxDB.write(batchPoints);
   }
 
@@ -98,6 +80,59 @@ public class InfluxDBMetricSender implements AutoCloseable {
     if (namespace != null && !namespace.isEmpty()) {
       tags.put("namespace", namespace);
     }
+  }
+
+  public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags) {
+    sendMetrics(metrics, tags, System.currentTimeMillis());
+  }
+
+  public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags, long timestamp) {
+    if (metrics == null || metrics.isEmpty()) {
+      log.debug("No metrics to send");
+      return;
+    }
+
+    try {
+      Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
+      addEnvironmentTags(allTags);
+
+      BatchPoints batchPoints = BatchPoints.database(database).build();
+
+      for (Map.Entry<String, Object> metric : metrics.entrySet()) {
+        Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestamp);
+        batchPoints.point(point);
+      }
+
+      influxDB.write(batchPoints);
+      log.debug(
+          "Sent batch of {} metrics to InfluxDB with timestamp {}", metrics.size(), timestamp);
+    } catch (Exception e) {
+      log.warn("Error sending batch metrics to InfluxDB with timestamp", e);
+    }
+  }
+
+  private Point createPoint(
+      String fieldName, Object value, Map<String, String> allTags, long timestamp) {
+    Point.Builder pointBuilder =
+        Point.measurement(measurementName).time(timestamp, TimeUnit.MILLISECONDS);
+
+    // Add tags
+    for (Map.Entry<String, String> tag : allTags.entrySet()) {
+      String tagKey = tag.getKey() != null ? tag.getKey() : "";
+      String tagValue = tag.getValue() != null ? tag.getValue() : "";
+      pointBuilder.tag(tagKey, tagValue);
+    }
+
+    // Add field
+    if (value instanceof Number) {
+      pointBuilder.addField(fieldName, (Number) value);
+    } else if (value instanceof Boolean) {
+      pointBuilder.addField(fieldName, (Boolean) value);
+    } else {
+      pointBuilder.addField(fieldName, value.toString());
+    }
+
+    return pointBuilder.build();
   }
 
   @Override

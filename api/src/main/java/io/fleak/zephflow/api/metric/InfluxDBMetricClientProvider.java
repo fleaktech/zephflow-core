@@ -40,4 +40,8 @@ public class InfluxDBMetricClientProvider implements MetricClientProvider {
   public FleakStopWatch stopWatch(String name, Map<String, String> tags) {
     return new InfluxDBStopWatch(name, tags, metricSender);
   }
+
+  public InfluxDBMetricSender getSender() {
+    return metricSender;
+  }
 }
