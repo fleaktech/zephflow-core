@@ -13,15 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasource;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.*;
-
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
+import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.kafka.KafkaHealthMonitor;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -30,44 +29,30 @@ import org.apache.kafka.common.TopicPartition;
 
 /** Created by bolei on 9/24/24 */
 @Slf4j
-public class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
+public record KafkaSourceFetcher(
+    KafkaConsumer<byte[], byte[]> consumer,
+    KafkaHealthMonitor healthMonitor,
+    CommitStrategy commitStrategy)
+    implements Fetcher<SerializedEvent> {
 
   private static final LogOffsetCommitCallback COMMIT_CALLBACK = new LogOffsetCommitCallback();
 
-  final KafkaConsumer<byte[], byte[]> consumer;
-  private final KafkaHealthMonitor healthMonitor;
-
   public KafkaSourceFetcher(
       KafkaConsumer<byte[], byte[]> consumer, KafkaHealthMonitor healthMonitor) {
-    this.consumer = consumer;
-    this.healthMonitor = healthMonitor;
+    this(consumer, healthMonitor, BatchCommitStrategy.forKafka());
   }
 
   @Override
   public List<SerializedEvent> fetch() {
     log.trace("KafkaSourceFetcher: fetch()");
-    ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(100));
+    ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(1000));
 
     log.debug("Got records: {}", records.count());
 
     List<SerializedEvent> rawEvents = new ArrayList<>();
 
     for (ConsumerRecord<byte[], byte[]> r : records) {
-      Map<String, String> metadata = new HashMap<>();
-      metadata.put(METADATA_KAFKA_TOPIC, r.topic());
-      metadata.put(METADATA_KAFKA_PARTITION, Integer.toString(r.partition()));
-      metadata.put(METADATA_KAFKA_OFFSET, Long.toString(r.offset()));
-      metadata.put(METADATA_KAFKA_TIMESTAMP, Long.toString(r.timestamp()));
-      metadata.put(METADATA_KAFKA_TIMESTAMP_TYPE, r.timestampType().toString());
-      metadata.put(METADATA_KAFKA_SERIALIZED_KEY_SIZE, Integer.toString(r.serializedKeySize()));
-      metadata.put(METADATA_KAFKA_SERIALIZED_VALUE_SIZE, Integer.toString(r.serializedValueSize()));
-      metadata.put(
-          METADATA_KAFKA_LEADER_EPOCH,
-          r.leaderEpoch().map(epoc -> Integer.toString(epoc)).orElse(null));
-      r.headers()
-          .forEach(
-              h -> metadata.put(METADATA_KAFKA_HEADER_PREFIX + h.key(), toBase64String(h.value())));
-      SerializedEvent serializedEvent = new SerializedEvent(r.key(), r.value(), metadata);
+      SerializedEvent serializedEvent = new SerializedEvent(r.key(), r.value(), null);
       rawEvents.add(serializedEvent);
     }
     return rawEvents;

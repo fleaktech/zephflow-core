@@ -31,5 +31,22 @@ public class KafkaSourceConfigValidator implements ConfigValidator {
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getGroupId()), "no consumer group Id is provided");
     Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
+
+    // Validate commit strategy configuration
+    if (config.getCommitStrategy() != null
+        && config.getCommitStrategy() == KafkaSourceDto.CommitStrategyType.BATCH) {
+      if (config.getCommitBatchSize() != null) {
+        Preconditions.checkArgument(
+            config.getCommitBatchSize() > 0,
+            "commitBatchSize must be positive, got: %s",
+            config.getCommitBatchSize());
+      }
+      if (config.getCommitIntervalMs() != null) {
+        Preconditions.checkArgument(
+            config.getCommitIntervalMs() > 0,
+            "commitIntervalMs must be positive, got: %s",
+            config.getCommitIntervalMs());
+      }
+    }
   }
 }

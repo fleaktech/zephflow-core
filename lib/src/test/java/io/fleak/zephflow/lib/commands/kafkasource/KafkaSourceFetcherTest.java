@@ -13,11 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasource;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
-
-import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceInitializedConfig;
@@ -46,7 +43,7 @@ class KafkaSourceFetcherTest {
     KafkaConsumer<byte[], byte[]> mockConsumer = mock();
     // Set up mockConsumer to return empty ConsumerRecords
     ConsumerRecords<byte[], byte[]> emptyRecords = new ConsumerRecords<>(Collections.emptyMap());
-    when(mockConsumer.poll(Duration.ofMillis(100))).thenReturn(emptyRecords);
+    when(mockConsumer.poll(Duration.ofMillis(1000))).thenReturn(emptyRecords);
 
     KafkaSourceFetcher fetcher = new KafkaSourceFetcher(mockConsumer, null);
     // Call fetch
@@ -101,7 +98,7 @@ class KafkaSourceFetcherTest {
     ConsumerRecords<byte[], byte[]> consumerRecords = new ConsumerRecords<>(recordsMap);
 
     // Set up mockConsumer to return consumerRecords
-    when(mockConsumer.poll(Duration.ofMillis(100))).thenReturn(consumerRecords);
+    when(mockConsumer.poll(Duration.ofMillis(1000))).thenReturn(consumerRecords);
 
     FleakDeserializer<?> deserializer =
         DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT)
@@ -124,25 +121,8 @@ class KafkaSourceFetcherTest {
     assertNotNull(result);
     assertEquals(1, result.size());
 
-    Map<String, Object> payload =
-        ImmutableMap.<String, Object>builder()
-            .put("f1", 100L)
-            .put(METADATA_KAFKA_TOPIC, topic)
-            .put(METADATA_KAFKA_PARTITION, Integer.toString(partition))
-            .put(METADATA_KAFKA_OFFSET, Long.toString(offset))
-            .put(METADATA_KAFKA_TIMESTAMP, Long.toString(timestamp))
-            .put(METADATA_KAFKA_TIMESTAMP_TYPE, timestampType.toString())
-            .put(METADATA_KAFKA_SERIALIZED_KEY_SIZE, Integer.toString(serializedKeySize))
-            .put(METADATA_KAFKA_SERIALIZED_VALUE_SIZE, Integer.toString(serializedValueSize))
-            .put(METADATA_KAFKA_LEADER_EPOCH, leaderEpoch.map(Object::toString).orElse(null))
-            .put(
-                METADATA_KAFKA_HEADER_PREFIX + "headerKey1",
-                Base64.getEncoder().encodeToString("headerValue1".getBytes()))
-            .put(
-                METADATA_KAFKA_HEADER_PREFIX + "headerKey2",
-                Base64.getEncoder().encodeToString("headerValue2".getBytes()))
-            .put(METADATA_KEY, toBase64String(key))
-            .build();
+    // With metadata removed, we only expect the actual deserialized data
+    Map<String, Object> payload = Map.of("f1", 100L);
 
     assertEquals(FleakData.wrap(payload), result.get(0));
   }
