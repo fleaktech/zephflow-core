@@ -34,5 +34,16 @@ public interface KafkaSourceDto {
     private String groupId;
     private EncodingType encodingType;
     private Map<String, String> properties;
+
+    // Commit strategy configuration
+    @Builder.Default private CommitStrategyType commitStrategy = CommitStrategyType.BATCH;
+    @Builder.Default private Integer commitBatchSize = 1000;
+    @Builder.Default private Long commitIntervalMs = 5000L;
+  }
+
+  enum CommitStrategyType {
+    PER_RECORD,
+    BATCH,
+    NONE
   }
 }

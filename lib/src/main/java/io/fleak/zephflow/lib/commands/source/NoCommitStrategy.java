@@ -13,30 +13,32 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
-import java.io.Closeable;
-import java.util.List;
+/**
+ * Commit strategy that never commits manually. This delegates all commit responsibility to the
+ * underlying source (e.g., Kafka auto-commit, or sources that don't need commits like file
+ * sources).
+ */
+public class NoCommitStrategy implements CommitStrategy {
 
-/** Created by bolei on 11/5/24 */
-public interface Fetcher<T> extends Closeable {
+  public static final NoCommitStrategy INSTANCE = new NoCommitStrategy();
 
-  List<T> fetch();
-
-  default Fetcher.Committer commiter() {
-    return null;
+  @Override
+  public CommitMode getCommitMode() {
+    return CommitMode.NONE;
   }
 
-  /**
-   * Returns the commit strategy for this fetcher. The default strategy commits after each record to
-   * maintain backward compatibility.
-   *
-   * @return the commit strategy to use
-   */
-  default CommitStrategy commitStrategy() {
-    return PerRecordCommitStrategy.INSTANCE;
+  @Override
+  public int getCommitBatchSize() {
+    return 0;
   }
 
-  @FunctionalInterface
-  interface Committer {
-    void commit() throws Exception;
+  @Override
+  public long getCommitIntervalMs() {
+    return 0;
+  }
+
+  @Override
+  public boolean shouldCommitNow(int recordCount, long timeSinceLastCommit) {
+    return false;
   }
 }

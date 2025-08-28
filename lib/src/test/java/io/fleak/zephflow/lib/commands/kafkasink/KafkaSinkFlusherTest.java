@@ -59,14 +59,16 @@ class KafkaSinkFlusherTest {
     preparedEvents.add(testEvent, testEvent);
 
     Future<RecordMetadata> mockFuture = mock(Future.class);
-    when(mockProducer.send(any(ProducerRecord.class))).thenReturn(mockFuture);
+    when(mockProducer.send(any(ProducerRecord.class), any())).thenReturn(mockFuture);
 
     ArgumentCaptor<ProducerRecord<byte[], byte[]>> recordCaptor =
         ArgumentCaptor.forClass(ProducerRecord.class);
 
     SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents);
 
-    verify(mockProducer).send(recordCaptor.capture());
+    verify(mockProducer).send(recordCaptor.capture(), any());
+    verify(mockProducer).flush();
+    
     ProducerRecord<byte[], byte[]> capturedRecord = recordCaptor.getValue();
 
     assertEquals("test-topic", capturedRecord.topic());
@@ -96,15 +98,15 @@ class KafkaSinkFlusherTest {
     preparedEvents.add(testEvent, testEvent);
 
     RuntimeException testException = new RuntimeException("Send failed");
-    when(mockProducer.send(any(ProducerRecord.class))).thenThrow(testException);
+    when(mockProducer.send(any(ProducerRecord.class), any())).thenThrow(testException);
 
     SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents);
 
     List<ErrorOutput> errorOutputs = result.errorOutputList();
 
-    verify(mockProducer).send(any(ProducerRecord.class));
+    verify(mockProducer).send(any(ProducerRecord.class), any());
 
-    assertEquals(0, result.successCount());
+    assertEquals(-1, result.successCount());
     assertEquals(0, result.flushedDataSize());
     assertEquals(1, errorOutputs.size());
     assertEquals("Send failed", errorOutputs.get(0).errorMessage());

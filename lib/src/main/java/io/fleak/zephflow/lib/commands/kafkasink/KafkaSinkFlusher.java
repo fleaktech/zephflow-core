@@ -22,41 +22,26 @@ import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 
 @Slf4j
-public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
-  private final KafkaProducer<byte[], byte[]> producer;
-  private final String topic;
-  private final FleakSerializer<?> fleakSerializer;
-  private final PathExpression partitionKeyExpression;
-
-  public KafkaSinkFlusher(
-      KafkaProducer<byte[], byte[]> producer,
-      String topic,
-      FleakSerializer<?> fleakSerializer,
-      PathExpression partitionKeyExpression) {
-    this.producer = producer;
-    this.topic = topic;
-    this.fleakSerializer = fleakSerializer;
-    this.partitionKeyExpression = partitionKeyExpression;
-  }
+public record KafkaSinkFlusher(
+    KafkaProducer<byte[], byte[]> producer,
+    String topic,
+    FleakSerializer<?> fleakSerializer,
+    PathExpression partitionKeyExpression)
+    implements SimpleSinkCommand.Flusher<RecordFleakData> {
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) throws Exception {
 
-    // A map to correlate the future with the original event for better error handling.
-    Map<Future<?>, RecordFleakData> futureEventMap = new LinkedHashMap<>();
     List<ErrorOutput> errorOutputs = new ArrayList<>();
     long flushedDataSize = 0;
+    int totalSends = 0;
 
     List<RecordFleakData> preparedList = preparedInputEvents.preparedList();
     for (RecordFleakData event : preparedList) {
@@ -74,34 +59,43 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         var eventValue = serializedEvent.value();
 
         if (eventValue != null && eventValue.length > 0) {
-          Future<?> future = producer.send(new ProducerRecord<>(topic, keyBytesValue, eventValue));
-          futureEventMap.put(future, event); // Associate future with the event
+          // Send to Kafka with callback for async error handling
+          producer.send(
+              new ProducerRecord<>(topic, keyBytesValue, eventValue),
+              (metadata, exception) -> {
+                if (exception != null) {
+                  log.error(
+                      "Kafka producer failed to send event: {}", toJsonString(event), exception);
+                  synchronized (errorOutputs) {
+                    errorOutputs.add(new ErrorOutput(event, exception.getMessage()));
+                  }
+                } else {
+                  log.debug(
+                      "Sent event to Kafka: topic={}, partition={}, offset={}",
+                      metadata.topic(),
+                      metadata.partition(),
+                      metadata.offset());
+                }
+              });
           flushedDataSize += eventValue.length;
+          totalSends++;
         }
       } catch (Exception e) {
         // This catches serialization errors or other immediate issues.
         log.error("Failed to send Kafka record for event: {}", toJsonString(event), e);
-        errorOutputs.add(new ErrorOutput(event, e.getMessage()));
+        synchronized (errorOutputs) {
+          errorOutputs.add(new ErrorOutput(event, e.getMessage()));
+        }
       }
     }
 
-    // Now, check the result of each send operation.
-    for (Map.Entry<Future<?>, RecordFleakData> entry : futureEventMap.entrySet()) {
-      Future<?> future = entry.getKey();
-      RecordFleakData event = entry.getValue();
-      try {
-        // Wait for send to complete.
-        future.get(10, TimeUnit.SECONDS);
-        log.debug("Sent event to Kafka: {}", toJsonString(event));
-      } catch (Exception e) {
-        // This will catch exceptions from the Kafka producer, including RecordTooLargeException.
-        log.error("Kafka producer failed to send event: {}", toJsonString(event), e);
-        errorOutputs.add(new ErrorOutput(event, e.getMessage()));
-      }
+    // Flush to ensure all async sends complete before returning
+    if (totalSends > 0) {
+      producer.flush();
     }
 
-    return new SimpleSinkCommand.FlushResult(
-        preparedList.size() - errorOutputs.size(), flushedDataSize, errorOutputs);
+    int successfulSends = totalSends - errorOutputs.size();
+    return new SimpleSinkCommand.FlushResult(successfulSends, flushedDataSize, errorOutputs);
   }
 
   @Override

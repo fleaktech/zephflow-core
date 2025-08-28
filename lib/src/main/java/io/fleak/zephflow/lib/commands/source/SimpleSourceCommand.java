@@ -88,7 +88,9 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         List<ConvertedResult<T>> convertedResults =
             fetchedData.stream().map(fd -> converter.convert(fd, sourceInitializedConfig)).toList();
 
-        processFetchedData(convertedResults, sourceEventAcceptor, committer, dlqWriter, encoder);
+        CommitStrategy commitStrategy = sourceInitializedConfig.fetcher().commitStrategy();
+        processFetchedData(
+            convertedResults, sourceEventAcceptor, committer, dlqWriter, encoder, commitStrategy);
       }
     } catch (Exception e) {
       log.error("Fleak Source unexpected exception", e);
@@ -121,32 +123,60 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       SourceEventAcceptor sourceEventAcceptor,
       Fetcher.Committer committer,
       DlqWriter dlqWriter,
-      RawDataEncoder<T> rawDataEncoder) {
-    convertedResults.forEach(
-        convertedResult -> {
+      RawDataEncoder<T> rawDataEncoder,
+      CommitStrategy commitStrategy) {
+
+    if (convertedResults.isEmpty()) {
+      return;
+    }
+
+    commitStrategy.onBatchStart();
+    int recordCount = 0;
+    long lastCommitTime = System.currentTimeMillis();
+
+    for (ConvertedResult<T> convertedResult : convertedResults) {
+      try {
+        if (convertedResult.getTransformedData() == null) {
+          throw convertedResult.getError();
+        }
+        log.trace("Transformed data: {}", convertedResult.getTransformedData().size());
+        sourceEventAcceptor.accept(convertedResult.getTransformedData());
+        recordCount++;
+
+        long currentTime = System.currentTimeMillis();
+        long timeSinceLastCommit = currentTime - lastCommitTime;
+
+        if (committer != null && commitStrategy.shouldCommitNow(recordCount, timeSinceLastCommit)) {
           try {
-            if (convertedResult.getTransformedData() == null) {
-              throw convertedResult.getError();
-            }
-            log.trace("Transformed data: {}", convertedResult.getTransformedData().size());
-            sourceEventAcceptor.accept(convertedResult.getTransformedData());
+            committer.commit();
+            recordCount = 0;
+            lastCommitTime = currentTime;
+            log.debug("Committed batch of records after {} ms", timeSinceLastCommit);
           } catch (Exception e) {
-            log.debug("failed to process data: {}", convertedResult.getTransformedData(), e);
-            if (dlqWriter != null) {
-              SerializedEvent raw = rawDataEncoder.serialize(convertedResult.getSourceRecord());
-              dlqWriter.writeToDlq(
-                  System.currentTimeMillis(), raw, ExceptionUtils.getStackTrace(e));
-            }
-          } finally {
-            try {
-              if (committer != null) {
-                committer.commit();
-              }
-            } catch (Exception e) {
-              log.error("failed to commit", e);
-            }
+            log.error("failed to commit", e);
           }
-        });
+        }
+
+      } catch (Exception e) {
+        log.debug("failed to process data: {}", convertedResult.getTransformedData(), e);
+        if (dlqWriter != null) {
+          SerializedEvent raw = rawDataEncoder.serialize(convertedResult.getSourceRecord());
+          dlqWriter.writeToDlq(System.currentTimeMillis(), raw, ExceptionUtils.getStackTrace(e));
+        }
+      }
+    }
+
+    // Final commit for any remaining records
+    if (committer != null
+        && recordCount > 0
+        && commitStrategy.getCommitMode() == CommitStrategy.CommitMode.BATCH) {
+      try {
+        committer.commit();
+        log.debug("Final commit for batch with {} remaining records", recordCount);
+      } catch (Exception e) {
+        log.error("failed to commit final batch", e);
+      }
+    }
   }
 
   @Override

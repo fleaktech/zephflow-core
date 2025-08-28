@@ -13,7 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.filesource;
 
+import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.NoCommitStrategy;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.File;
 import java.io.IOException;
@@ -21,13 +23,7 @@ import java.util.List;
 import org.apache.commons.io.FileUtils;
 
 /** Created by bolei on 3/24/25 */
-public class FileSourceFetcher implements Fetcher<SerializedEvent> {
-
-  private final File file;
-
-  public FileSourceFetcher(File file) {
-    this.file = file;
-  }
+public record FileSourceFetcher(File file) implements Fetcher<SerializedEvent> {
 
   @Override
   public List<SerializedEvent> fetch() {
@@ -40,6 +36,11 @@ public class FileSourceFetcher implements Fetcher<SerializedEvent> {
     }
     SerializedEvent serializedEvent = new SerializedEvent(null, bytes, null);
     return List.of(serializedEvent);
+  }
+
+  @Override
+  public CommitStrategy commitStrategy() {
+    return NoCommitStrategy.INSTANCE;
   }
 
   @Override

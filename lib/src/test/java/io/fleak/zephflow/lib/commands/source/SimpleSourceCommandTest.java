@@ -86,6 +86,7 @@ class SimpleSourceCommandTest {
   private FleakCounter dataSizeCounter;
   private FleakCounter inputEventCounter;
   private FleakCounter deserializeFailureCounter;
+  private CommitStrategy mockCommitStrategy;
 
   @BeforeEach
   void setUp() {
@@ -107,8 +108,10 @@ class SimpleSourceCommandTest {
     dataSizeCounter = mock();
     inputEventCounter = mock();
     deserializeFailureCounter = mock();
+    mockCommitStrategy = mock(CommitStrategy.class);
 
     when(mockFetcher.commiter()).thenReturn(mockCommitter);
+    when(mockFetcher.commitStrategy()).thenReturn(mockCommitStrategy);
     // Setup command initializer factory
     when(mockCommandInitializerFactory.createCommandInitializer(
             any(), eq(mockJobContext), any(), eq(TEST_NODE_ID)))
@@ -159,6 +162,10 @@ class SimpleSourceCommandTest {
             });
     when(mockDeserializer.deserialize(same(mockRaw))).thenReturn(List.of(mockRecord));
 
+    // Setup commit strategy
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
+
     // Execute
     command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
 
@@ -197,6 +204,10 @@ class SimpleSourceCommandTest {
 
     when(mockEncoder.serialize(same(serializedEvent))).thenReturn(serializedEvent);
 
+    // Setup commit strategy
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
+
     // Execute
     command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
 
@@ -222,6 +233,11 @@ class SimpleSourceCommandTest {
     when(mockDeserializer.deserialize(any()))
         .thenThrow(new IllegalArgumentException("Test deserialization error"));
     when(mockEncoder.serialize(same(serializedEvent))).thenReturn(serializedEvent);
+
+    // Setup commit strategy
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
+
     command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
 
     verify(mockEncoder).serialize(same(serializedEvent));
@@ -229,6 +245,7 @@ class SimpleSourceCommandTest {
         .writeToDlq(anyLong(), same(serializedEvent), contains("Test deserialization error"));
     verify(dataSizeCounter).increase(9, Map.of());
     verify(inputEventCounter, never()).increase(anyLong(), anyMap());
+    verify(inputEventCounter, never()).increase(anyMap());
     verify(deserializeFailureCounter).increase(Map.of());
   }
 
@@ -252,6 +269,10 @@ class SimpleSourceCommandTest {
     command.parseAndValidateArg(TEST_CONFIG);
     // Setup single successful fetch
     when(mockFetcher.fetch()).thenReturn(List.of());
+
+    // Setup commit strategy
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
 
     // Execute
     command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
