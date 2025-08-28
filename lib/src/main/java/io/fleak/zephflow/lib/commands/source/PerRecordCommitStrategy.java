@@ -13,30 +13,26 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
-import java.io.Closeable;
-import java.util.List;
+/**
+ * Commit strategy that commits after each record. This is the traditional behavior that maintains
+ * strong consistency but may have performance implications for high-throughput sources.
+ */
+public class PerRecordCommitStrategy implements CommitStrategy {
 
-/** Created by bolei on 11/5/24 */
-public interface Fetcher<T> extends Closeable {
+  public static final PerRecordCommitStrategy INSTANCE = new PerRecordCommitStrategy();
 
-  List<T> fetch();
-
-  default Fetcher.Committer commiter() {
-    return null;
+  @Override
+  public CommitMode getCommitMode() {
+    return CommitMode.PER_RECORD;
   }
 
-  /**
-   * Returns the commit strategy for this fetcher. The default strategy commits after each record to
-   * maintain backward compatibility.
-   *
-   * @return the commit strategy to use
-   */
-  default CommitStrategy commitStrategy() {
-    return PerRecordCommitStrategy.INSTANCE;
+  @Override
+  public int getCommitBatchSize() {
+    return 1;
   }
 
-  @FunctionalInterface
-  interface Committer {
-    void commit() throws Exception;
+  @Override
+  public long getCommitIntervalMs() {
+    return 0;
   }
 }

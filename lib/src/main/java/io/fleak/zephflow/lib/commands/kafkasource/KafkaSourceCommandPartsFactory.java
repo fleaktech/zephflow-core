@@ -49,7 +49,8 @@ public class KafkaSourceCommandPartsFactory extends SourceCommandPartsFactory<Se
     initializeKafkaConsumer(consumer, config.getTopic());
     var monitoring = kafkaConsumerClientFactory.createAndStartHealthMonitor(consumerProps);
 
-    return new KafkaSourceFetcher(consumer, monitoring);
+    CommitStrategy commitStrategy = createCommitStrategy(config);
+    return new KafkaSourceFetcher(consumer, monitoring, commitStrategy);
   }
 
   @Override
@@ -95,8 +96,12 @@ public class KafkaSourceCommandPartsFactory extends SourceCommandPartsFactory<Se
     props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
     props.put(
         ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-    props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
-    props.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, "500");
+    props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+    props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "5000");
+    props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1048576");
+    props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "100");
+    props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000");
+    props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, "10485760");
 
     props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
@@ -106,5 +111,16 @@ public class KafkaSourceCommandPartsFactory extends SourceCommandPartsFactory<Se
     }
     log.debug("Using consumer: {}", props.get(ConsumerConfig.GROUP_ID_CONFIG));
     return props;
+  }
+
+  private CommitStrategy createCommitStrategy(KafkaSourceDto.Config config) {
+    return switch (config.getCommitStrategy()) {
+      case PER_RECORD -> PerRecordCommitStrategy.INSTANCE;
+      case BATCH ->
+          new BatchCommitStrategy(
+              config.getCommitBatchSize() != null ? config.getCommitBatchSize() : 1000,
+              config.getCommitIntervalMs() != null ? config.getCommitIntervalMs() : 5000L);
+      case NONE -> NoCommitStrategy.INSTANCE;
+    };
   }
 }

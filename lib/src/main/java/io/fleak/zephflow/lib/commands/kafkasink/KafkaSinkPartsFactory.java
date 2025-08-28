@@ -71,6 +71,16 @@ public class KafkaSinkPartsFactory extends SinkCommandPartsFactory<RecordFleakDa
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
 
+    // Performance optimizations for batching
+    props.put(ProducerConfig.BATCH_SIZE_CONFIG, "65536"); // 64KB batches (up from 16KB default)
+    props.put(ProducerConfig.LINGER_MS_CONFIG, "10"); // Wait 10ms for batching
+    props.put(
+        ProducerConfig.BUFFER_MEMORY_CONFIG, "67108864"); // 64MB buffer (up from 32MB default)
+    props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4"); // Fast compression
+    props.put(ProducerConfig.ACKS_CONFIG, "1"); // Leader acknowledgment only
+    props.put(ProducerConfig.RETRIES_CONFIG, "3"); // Retry on failure
+    props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5"); // Pipeline requests
+
     if (config.getProperties() != null) {
       props.putAll(config.getProperties());
     }
