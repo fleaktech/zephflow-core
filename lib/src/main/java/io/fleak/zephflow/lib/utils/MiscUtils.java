@@ -20,6 +20,8 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
+import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.File;
 import java.io.IOException;
@@ -83,6 +85,7 @@ public interface MiscUtils {
   String COMMAND_NAME_READER_SOURCE = "reader";
 
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";
+  String COMMAND_NAME_DELTA_LAKE_SINK = "deltalakesink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";
@@ -277,6 +280,7 @@ public interface MiscUtils {
     Object unwrapped = tagData.unwrap();
     if (!(unwrapped instanceof Map<?, ?>)) return tags;
 
+    @SuppressWarnings("unchecked")
     Map<String, Object> tagMap = (Map<String, Object>) unwrapped;
     for (Map.Entry<String, Object> entry : tagMap.entrySet()) {
       if (entry.getValue() != null) {
@@ -315,6 +319,50 @@ public interface MiscUtils {
     } catch (Exception e) {
       throw new RuntimeException(
           "failed to load username password credential for credentialId: " + credentialId, e);
+    }
+  }
+
+  /** Helper method to look up ApiKeyCredential from JobContext */
+  static Optional<ApiKeyCredential> lookupApiKeyCredentialOpt(
+      JobContext jobContext, String credentialId) {
+    try {
+      var credential = lookupApiKeyCredential(jobContext, credentialId);
+      return StringUtils.isEmpty(credential.getKey()) ? Optional.empty() : Optional.of(credential);
+    } catch (Exception e) {
+      return Optional.empty();
+    }
+  }
+
+  static ApiKeyCredential lookupApiKeyCredential(JobContext jobContext, String credentialId) {
+    Preconditions.checkNotNull(credentialId, "credentialId not provided");
+    try {
+      return lookupFromMapOrThrow(
+          jobContext.getOtherProperties(), credentialId, ApiKeyCredential.class);
+    } catch (Exception e) {
+      throw new RuntimeException(
+          "failed to load API key credential for credentialId: " + credentialId, e);
+    }
+  }
+
+  /** Helper method to look up GcpCredential from JobContext */
+  static Optional<GcpCredential> lookupGcpCredentialOpt(
+      JobContext jobContext, String credentialId) {
+    try {
+      var credential = lookupGcpCredential(jobContext, credentialId);
+      return Optional.of(credential);
+    } catch (Exception e) {
+      return Optional.empty();
+    }
+  }
+
+  static GcpCredential lookupGcpCredential(JobContext jobContext, String credentialId) {
+    Preconditions.checkNotNull(credentialId, "credentialId not provided");
+    try {
+      return lookupFromMapOrThrow(
+          jobContext.getOtherProperties(), credentialId, GcpCredential.class);
+    } catch (Exception e) {
+      throw new RuntimeException(
+          "failed to load GCP credential for credentialId: " + credentialId, e);
     }
   }
 
