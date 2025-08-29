@@ -11,6 +11,7 @@ dependencies {
   implementation group: 'org.apache.commons', name: 'commons-csv', version: commonsCsvVersion
   implementation group: 'software.amazon.awssdk', name: 's3', version: awsVersion
   implementation group: 'software.amazon.awssdk', name: 'kinesis', version: awsVersion
+  implementation group: 'software.amazon.awssdk', name: 's3-transfer-manager', version: awsVersion
 
   implementation group: 'software.amazon.kinesis', name: 'amazon-kinesis-client', version: awsKensisClientVersion
   implementation group: 'software.amazon.awssdk', name: 'dynamodb', version: awsVersion
@@ -29,6 +30,9 @@ dependencies {
   implementation('org.apache.hadoop:hadoop-aws:' + hadoopVersion) {
     exclude group: 'software.amazon.awssdk', module: 'bundle'
   }
+
+  implementation group: 'io.delta', name: 'delta-kernel-api', version: deltaKernelVersion
+  implementation group: 'io.delta', name: 'delta-kernel-defaults', version: deltaKernelVersion
 
   testImplementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml', version: jacksonVersion
   testImplementation group: 'org.testcontainers', name: 'clickhouse', version: testContainersVersion
