@@ -1006,4 +1006,68 @@ public class ZephFlowTest {
               + actualOutputs);
     }
   }
+
+  @Test
+  public void testConvertJsonEventsToFleakData() throws Exception {
+    // Test with simple events
+    String jsonEvents = "[{\"num\": 1, \"name\": \"first\"}, {\"num\": 2, \"name\": \"second\"}]";
+
+    List<RecordFleakData> result = ZephFlow.convertJsonEventsToFleakData(jsonEvents);
+
+    // Verify the conversion
+    assertEquals(2, result.size());
+
+    // Check first event
+    Map<String, Object> firstEvent = result.get(0).unwrap();
+    assertEquals(1, firstEvent.get("num"));
+    assertEquals("first", firstEvent.get("name"));
+
+    // Check second event
+    Map<String, Object> secondEvent = result.get(1).unwrap();
+    assertEquals(2, secondEvent.get("num"));
+    assertEquals("second", secondEvent.get("name"));
+  }
+
+  @Test
+  public void testProcessAsJson() throws Exception {
+    ZephFlow flow = ZephFlow.startFlow()
+        .eval("dict(value=$.num, doubled=$.num*2)");
+
+    List<Map<String, Object>> testEvents = List.of(
+        Map.of("num", 1),
+        Map.of("num", 2)
+    );
+
+    String jsonResult = flow.processAsJson(
+        testEvents.stream()
+            .map(event -> (RecordFleakData) fromObject(event))
+            .toList(),
+        "test_user",
+        new NoSourceDagRunner.DagRunConfig(false, false)
+    );
+
+    assertNotNull(jsonResult);
+    assertTrue(jsonResult.startsWith("{"));
+    assertTrue(jsonResult.endsWith("}"));
+
+    Map<String, Object> result = fromJsonString(jsonResult, new TypeReference<>() {});
+    assertNotNull(result);
+    assertTrue(result.containsKey("outputEvents"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, List<Map<String, Object>>> outputEvents =
+        (Map<String, List<Map<String, Object>>>) result.get("outputEvents");
+
+    assertFalse(outputEvents.isEmpty());
+    List<Map<String, Object>> events = outputEvents.values().iterator().next();
+    assertEquals(2, events.size());
+
+    Map<String, Object> firstEvent = events.get(0);
+    assertEquals(1, firstEvent.get("value"));
+    assertEquals(2.0, firstEvent.get("doubled"));
+
+    Map<String, Object> secondEvent = events.get(1);
+    assertEquals(2, secondEvent.get("value"));
+    assertEquals(4.0, secondEvent.get("doubled"));
+  }
 }

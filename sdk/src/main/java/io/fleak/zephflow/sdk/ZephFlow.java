@@ -20,13 +20,16 @@ import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_WORKFLOW_CONTROLLER_PATH;
 import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.SimpleHttpClient;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
@@ -874,5 +877,25 @@ public class ZephFlow {
         SimpleHttpClient.HttpMethodType.POST,
         requestJson.toString(),
         List.of("Content-Type: application/json"));
+  }
+
+  public static List<RecordFleakData> convertJsonEventsToFleakData(String jsonEvents)
+      throws JsonProcessingException {
+    // Use Jackson to parse JSON array directly
+    ObjectMapper mapper = new ObjectMapper();
+    List<Map<String, Object>> events = mapper.readValue(jsonEvents, new TypeReference<>() {});
+
+    return events.stream()
+        .map(FleakData::wrap)
+        .map(RecordFleakData.class::cast)
+        .collect(Collectors.toList());
+  }
+
+  public String processAsJson(
+      List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig)
+      throws JsonProcessingException {
+    DagResult dagResult = this.process(events, callingUser, runConfig);
+    ObjectMapper mapper = new ObjectMapper();
+    return mapper.writeValueAsString(dagResult);
   }
 }
