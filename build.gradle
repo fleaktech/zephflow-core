@@ -71,6 +71,7 @@ allprojects {
     influxDBClientVersion = '2.23'
     clickHouseVersion = '0.9.0'
     hadoopVersion = '3.4.1'
+    deltaKernelVersion = '3.3.1'
   }
 
   sourceCompatibility = javaVersion
