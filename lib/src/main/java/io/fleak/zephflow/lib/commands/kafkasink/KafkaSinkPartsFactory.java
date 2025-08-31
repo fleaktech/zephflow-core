@@ -25,10 +25,7 @@ import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
@@ -61,26 +58,11 @@ public class KafkaSinkPartsFactory extends SinkCommandPartsFactory<RecordFleakDa
             .map(PathExpression::fromString)
             .orElse(null);
 
-    KafkaProducer<byte[], byte[]> producer = kafkaProducerClientFactory.createKafkaProducer(props);
-    int batchSize = config.getBatchSize() != null ? config.getBatchSize() : 10000;
-    long flushIntervalMs =
-        config.getFlushIntervalMs() != null ? config.getFlushIntervalMs() : 5000L;
-
-    ScheduledExecutorService scheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "kafka-sink-batch-flusher");
-              t.setDaemon(true);
-              return t;
-            });
-    return new BatchKafkaSinkFlusher(
-        producer,
+    return new KafkaSinkFlusher(
+        kafkaProducerClientFactory.createKafkaProducer(props),
         config.getTopic(),
         serializer,
-        partitionKeyExpression,
-        batchSize,
-        flushIntervalMs,
-        scheduler);
+        partitionKeyExpression);
   }
 
   private Properties calculateProducerProperties() {

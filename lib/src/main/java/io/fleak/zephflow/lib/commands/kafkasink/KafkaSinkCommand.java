@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 
 public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
+  private static final int KAFKA_SINK_BATCH_SIZE = 100;
 
   protected KafkaSinkCommand(
       String nodeId,
@@ -37,8 +38,6 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
   @Override
   protected int batchSize() {
-    // Use very large batch size to effectively disable SimpleSinkCommand-level batching
-    // Let BatchKafkaSinkFlusher handle all batching logic instead
-    return Integer.MAX_VALUE;
+    return KAFKA_SINK_BATCH_SIZE;
   }
 }
