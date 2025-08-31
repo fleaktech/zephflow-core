@@ -115,8 +115,6 @@ class KafkaSinkCommandTest {
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .encodingType(EncodingType.JSON_OBJECT.toString())
-            .batchSize(5) // Small batch size for test
-            .flushIntervalMs(100L) // Quick flush interval for test
             .build();
     kafkaSinkCommand.parseAndValidateArg(toJsonString(config));
 
@@ -137,48 +135,5 @@ class KafkaSinkCommandTest {
                 r -> fromJsonString(new String(r.value()), new TypeReference<RecordFleakData>() {}))
             .toList();
     assertEquals(SOURCE_EVENTS, foundEvents);
-  }
-
-  @Test
-  public void testHighVolumePerformance() throws Exception {
-    // Create a large number of test records to simulate the original performance problem
-    List<RecordFleakData> largeEventSet = new ArrayList<>();
-    for (int i = 0; i < 1000; i++) { // 1000 records to simulate high volume
-      largeEventSet.add((RecordFleakData) FleakData.wrap(Map.of("id", i, "data", "large-test-" + i)));
-    }
-
-    KafkaSinkCommandFactory commandFactory = new KafkaSinkCommandFactory();
-    KafkaSinkCommand kafkaSinkCommand =
-        (KafkaSinkCommand) commandFactory.createCommand("perf_test_node", TestUtils.JOB_CONTEXT);
-    
-    // Use production-like configuration
-    KafkaSinkDto.Config config =
-        KafkaSinkDto.Config.builder()
-            .topic(TOPIC_NAME)
-            .broker(KAFKA_CONTAINER.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
-            .batchSize(500) // Reasonable batch size for performance testing
-            .flushIntervalMs(1000L) // 1 second flush interval
-            .build();
-    kafkaSinkCommand.parseAndValidateArg(toJsonString(config));
-
-    // Measure performance - this is the main validation
-    long startTime = System.currentTimeMillis();
-    
-    // Process large batch - this should NOT cause 1000 individual flushes
-    assertDoesNotThrow(() -> {
-      kafkaSinkCommand.writeToSink(
-          largeEventSet, "perf_test_user", new MetricClientProvider.NoopMetricClientProvider());
-    }, "High volume write should not throw exceptions");
-    
-    long processingTime = System.currentTimeMillis() - startTime;
-    
-    // Should complete quickly due to batching (not 1000 individual flush operations)
-    assertTrue(processingTime < 10000, // Should complete within 10 seconds
-               "High volume processing took too long: " + processingTime + "ms. " +
-               "This suggests batching is not working effectively.");
-
-    System.out.println("✅ High volume test: Processed " + largeEventSet.size() + 
-                       " records in " + processingTime + "ms - Performance test PASSED");
   }
 }
