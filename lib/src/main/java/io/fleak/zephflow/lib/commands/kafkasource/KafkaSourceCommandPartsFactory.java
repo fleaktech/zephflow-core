@@ -99,7 +99,7 @@ public class KafkaSourceCommandPartsFactory extends SourceCommandPartsFactory<Se
     props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
     props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "5000");
     props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1048576");
-    props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "100");
+    props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "1000");
     props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000");
     props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, "10485760");
 
