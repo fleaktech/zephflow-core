@@ -20,6 +20,7 @@ import static org.mockito.Mockito.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.util.*;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
@@ -60,7 +61,7 @@ public class KafkaSourceCommandPartsFactoryTest {
     ArgumentCaptor<Properties> propertiesCaptor = ArgumentCaptor.forClass(Properties.class);
 
     // Call createFetcher
-    Fetcher fetcher = factory.createFetcher(config);
+    Fetcher<SerializedEvent> fetcher = factory.createFetcher(config);
 
     // Verify that createKafkaConsumer was called with correct parameters and capture the Properties
     verify(kafkaConsumerClientFactory).createKafkaConsumer(propertiesCaptor.capture());
@@ -81,11 +82,11 @@ public class KafkaSourceCommandPartsFactoryTest {
     assertEquals("another.value", consumerProps.get("another.property"));
     assertEquals("false", consumerProps.get(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG));
     assertEquals("earliest", consumerProps.get(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG));
-    
+
     // Verify additional performance tuning properties are set
     assertEquals("5000", consumerProps.get(ConsumerConfig.MAX_POLL_RECORDS_CONFIG));
     assertEquals("1048576", consumerProps.get(ConsumerConfig.FETCH_MIN_BYTES_CONFIG));
-    assertEquals("100", consumerProps.get(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG));
+    assertEquals("1000", consumerProps.get(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG));
     assertEquals("10000", consumerProps.get(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG));
     assertEquals("10485760", consumerProps.get(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG));
 
@@ -115,6 +116,7 @@ public class KafkaSourceCommandPartsFactoryTest {
     when(kafkaConsumerClientFactory.createKafkaConsumer(any(Properties.class)))
         .thenReturn(kafkaConsumer);
 
+    //noinspection resource
     KafkaSourceFetcher fetcher = (KafkaSourceFetcher) factory.createFetcher(config);
     CommitStrategy commitStrategy = fetcher.commitStrategy();
 
@@ -146,7 +148,7 @@ public class KafkaSourceCommandPartsFactoryTest {
 
     when(kafkaConsumerClientFactory.createKafkaConsumer(any(Properties.class)))
         .thenReturn(kafkaConsumer);
-
+    //noinspection resource
     KafkaSourceFetcher fetcher = (KafkaSourceFetcher) factory.createFetcher(config);
     CommitStrategy commitStrategy = fetcher.commitStrategy();
 
@@ -175,7 +177,7 @@ public class KafkaSourceCommandPartsFactoryTest {
 
     when(kafkaConsumerClientFactory.createKafkaConsumer(any(Properties.class)))
         .thenReturn(kafkaConsumer);
-
+    //noinspection resource
     KafkaSourceFetcher fetcher = (KafkaSourceFetcher) factory.createFetcher(config);
     CommitStrategy commitStrategy = fetcher.commitStrategy();
 
@@ -204,7 +206,7 @@ public class KafkaSourceCommandPartsFactoryTest {
 
     when(kafkaConsumerClientFactory.createKafkaConsumer(any(Properties.class)))
         .thenReturn(kafkaConsumer);
-
+    //noinspection resource
     KafkaSourceFetcher fetcher = (KafkaSourceFetcher) factory.createFetcher(config);
     CommitStrategy commitStrategy = fetcher.commitStrategy();
 
