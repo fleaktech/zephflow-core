@@ -20,6 +20,7 @@ import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_WORKFLOW_CONTROLLER_PATH;
 import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -37,6 +38,7 @@ import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
 import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.runner.*;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition.DagNode;
@@ -874,5 +876,16 @@ public class ZephFlow {
         SimpleHttpClient.HttpMethodType.POST,
         requestJson.toString(),
         List.of("Content-Type: application/json"));
+  }
+
+  public static List<RecordFleakData> convertJsonEventsToFleakData(String jsonEvents)
+      throws JsonProcessingException {
+    return JsonUtils.convertJsonEventsToFleakData(jsonEvents);
+  }
+
+  public String processAsJson(
+      List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
+    DagResult dagResult = this.process(events, callingUser, runConfig);
+    return JsonUtils.toJsonString(dagResult);
   }
 }

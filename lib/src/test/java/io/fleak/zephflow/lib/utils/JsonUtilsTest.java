@@ -187,4 +187,25 @@ class JsonUtilsTest {
     Map<String, Object> deserialized = fromJsonString(jsonStr, new TypeReference<>() {});
     assertEquals(payload, deserialized);
   }
+
+  @Test
+  public void testConvertJsonEventsToFleakData() throws Exception {
+    // Test with simple events
+    String jsonEvents = "[{\"num\": 1, \"name\": \"first\"}, {\"num\": 2, \"name\": \"second\"}]";
+
+    List<RecordFleakData> result = JsonUtils.convertJsonEventsToFleakData(jsonEvents);
+
+    // Verify the conversion
+    assertEquals(2, result.size());
+
+    // Check first event
+    Map<String, Object> firstEvent = result.get(0).unwrap();
+    assertEquals(1, firstEvent.get("num"));
+    assertEquals("first", firstEvent.get("name"));
+
+    // Check second event
+    Map<String, Object> secondEvent = result.get(1).unwrap();
+    assertEquals(2, secondEvent.get("num"));
+    assertEquals("second", secondEvent.get("name"));
+  }
 }
