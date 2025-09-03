@@ -17,9 +17,11 @@ import static io.fleak.zephflow.lib.utils.AntlrUtils.GrammarType.*;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.lib.antlr.*;
+import io.fleak.zephflow.lib.commands.eval.FeelFunction;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.*;
 import org.antlr.v4.runtime.*;
 
@@ -44,17 +46,6 @@ public interface AntlrUtils {
     if (currentToken.getType() != Token.EOF) {
       throw new IllegalArgumentException(
           "Encountered parsing error at position " + currentToken.getStopIndex());
-    }
-  }
-
-  static void validateEvalExpression(String evalExpr) {
-    try {
-      EvalExpressionParser parser = (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, EVAL);
-      parser.language();
-    } catch (Exception e) {
-      throw new IllegalArgumentException(
-          String.format(
-              "failed to parse eval expression: %s. reason: %s", evalExpr, e.getMessage()));
     }
   }
 
@@ -96,6 +87,21 @@ public interface AntlrUtils {
     EVAL
   }
 
+  Map<String, FeelFunction.FunctionSignature> FEEL_FUNCTION_SIGNATURES =
+      createAllFunctionSignatures();
+
+  private static Map<String, FeelFunction.FunctionSignature> createAllFunctionSignatures() {
+    // Create signatures from base functions (without PythonExecutor)
+    Map<String, FeelFunction.FunctionSignature> signatures =
+        FeelFunction.createFunctionsTable(null).entrySet().stream()
+            .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getSignature()));
+
+    // Add Python function signature by creating a dummy instance to get its signature
+    signatures.put("python", new FeelFunction.PythonFunction(null).getSignature());
+
+    return signatures;
+  }
+
   class ParseErrorListener extends BaseErrorListener {
     public static final ParseErrorListener INSTANCE = new ParseErrorListener();
 
@@ -108,15 +114,92 @@ public interface AntlrUtils {
         String msg,
         RecognitionException e) {
 
+      String enhancedMessage = enhanceErrorMessage(recognizer, offendingSymbol, msg);
+
       ParseErrorDto errorDto =
           ParseErrorDto.builder()
               .offendingSymbol(Objects.toString(offendingSymbol))
               .line(line)
               .charPositionInLine(charPositionInLine)
-              .message(msg)
+              .message(enhancedMessage)
               .build();
 
       throw new FleakParseException(errorDto);
+    }
+
+    private String enhanceErrorMessage(
+        Recognizer<?, ?> recognizer, Object offendingSymbol, String originalMessage) {
+      if (!(recognizer instanceof Parser parser)) {
+        return originalMessage;
+      }
+
+      // Try to detect function argument errors
+      String functionErrorMessage =
+          detectFunctionArgumentError(parser, offendingSymbol, originalMessage);
+      if (functionErrorMessage != null) {
+        return functionErrorMessage;
+      }
+
+      return originalMessage;
+    }
+
+    private String detectFunctionArgumentError(
+        Parser parser, Object offendingSymbol, String originalMessage) {
+      if (!originalMessage.contains("no viable alternative")
+          && !originalMessage.contains("mismatched input")
+          && !originalMessage.contains("expecting")) {
+        return null;
+      }
+
+      try {
+        var context = parser.getContext();
+        while (context != null) {
+          if (context
+              instanceof
+              EvalExpressionParser.GenericFunctionCallContext genericFunctionCallContext) {
+            String functionName = genericFunctionCallContext.IDENTIFIER().getText();
+            return createFunctionArgumentErrorMessage(
+                functionName, offendingSymbol, originalMessage);
+          }
+          context = context.getParent();
+        }
+      } catch (Exception ex) {
+        return null;
+      }
+
+      return null;
+    }
+
+    private String createFunctionArgumentErrorMessage(
+        String functionName, Object offendingSymbol, String originalMessage) {
+      FeelFunction.FunctionSignature signature = FEEL_FUNCTION_SIGNATURES.get(functionName);
+      if (signature == null) {
+        return originalMessage;
+      }
+
+      String symbolText = offendingSymbol != null ? offendingSymbol.toString() : "";
+
+      if (symbolText.contains("')'")
+          && (originalMessage.contains("no viable alternative")
+              || originalMessage.contains("expecting ','")
+              || originalMessage.contains("mismatched input ')'"))) {
+
+        if (signature.maxArgs() == signature.minArgs()) {
+          return String.format(
+              "Function '%s' expects %d argument(s) (%s)",
+              functionName, signature.minArgs(), signature.description());
+        } else if (signature.maxArgs() == -1) {
+          return String.format(
+              "Function '%s' expects at least %d argument(s) (%s)",
+              functionName, signature.minArgs(), signature.description());
+        } else {
+          return String.format(
+              "Function '%s' expects %d-%d argument(s) (%s)",
+              functionName, signature.minArgs(), signature.maxArgs(), signature.description());
+        }
+      }
+
+      return String.format("Error in function '%s' - %s", functionName, originalMessage);
     }
   }
 

@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.eval.python;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.normalizeStrLiteral;
-
 import io.fleak.zephflow.lib.antlr.EvalExpressionBaseListener;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import java.util.*;
@@ -34,25 +32,46 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
   }
 
   @Override
-  public void enterPythonFunction(EvalExpressionParser.PythonFunctionContext ctx) {
-    // This method is called whenever the walker enters a pythonFunction node
+  public void enterGenericFunctionCall(EvalExpressionParser.GenericFunctionCallContext ctx) {
+    // Check if this is a Python function call
+    String functionName = ctx.IDENTIFIER().getText();
+    if ("python".equals(functionName)) {
+      // Extract the Python script from the first argument
+      if (ctx.arguments() != null && !ctx.arguments().expression().isEmpty()) {
+        String scriptText = ctx.arguments().expression().get(0).getText();
 
-    String pythonScript = normalizeStrLiteral(ctx.QUOTED_IDENTIFIER().getText());
-    if (pythonScript == null || pythonScript.isBlank()) {
-      throw new IllegalArgumentException(
-          String.format(
-              "Skipping empty Python script during pre-compilation at %s",
-              ctx.getSourceInterval()));
+        // Handle QUOTED_IDENTIFIER - remove outer quotes and handle escape sequences
+        if ((scriptText.startsWith("'") && scriptText.endsWith("'"))
+            || (scriptText.startsWith("\"") && scriptText.endsWith("\""))) {
+          scriptText = scriptText.substring(1, scriptText.length() - 1);
+          // Handle escape sequences: \n, \t, etc.
+          scriptText =
+              scriptText
+                  .replace("\\n", "\n")
+                  .replace("\\t", "\t")
+                  .replace("\\r", "\r")
+                  .replace("\\\\'", "'")
+                  .replace("\\\"", "\"");
+        }
+
+        try {
+          CompiledPythonFunction compiledFunction = compileAndDiscover(scriptText);
+          compiledFunctions.put(ctx, compiledFunction);
+          log.debug(
+              "Pre-compiled Python function at context: {} with script: {}",
+              ctx.getSourceInterval(),
+              scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
+        } catch (Exception e) {
+          log.error(
+              "Failed to pre-compile Python function at {}: {} Script: {}",
+              ctx.getSourceInterval(),
+              e.getMessage(),
+              scriptText.substring(0, Math.min(100, scriptText.length())));
+          // Re-throw the exception to maintain original behavior for tests
+          throw new RuntimeException(e.getMessage(), e);
+        }
+      }
     }
-
-    CompiledPythonFunction compiledFunc = compileAndDiscover(pythonScript);
-
-    // Use the specific node 'ctx' encountered during *this walk* as the key
-    compiledFunctions.put(ctx, compiledFunc);
-    log.debug(
-        "Pre-compiled Python function '{}' for node at {}",
-        compiledFunc.discoveredFunctionName(),
-        ctx.getSourceInterval());
   }
 
   private CompiledPythonFunction compileAndDiscover(String pythonScript) {
