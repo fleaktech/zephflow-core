@@ -44,7 +44,7 @@ class ExpressionValueVisitorTest {
             "x",
             Map.of(
                 "k",
-                ">>> Evaluation error: parse_int: argument to be parsed is not a string: null"));
+                ">>> Failed to evaluate expression: parse_int($.abc). Reason: parse_int: argument to be parsed is not a string: null"));
     assertEquals(expected, output.unwrap());
   }
 
@@ -84,12 +84,12 @@ dict(
             List.of(
                 Map.of(
                     "r_id",
-                    ">>> Evaluation error: parse_int: failed to parse int string: abc with radix: 10",
+                    ">>> Failed to evaluate expression: parse_int(d.id). Reason: parse_int: failed to parse int string: abc with radix: 10",
                     "r_type",
                     "foo"),
                 Map.of(
                     "r_id",
-                    ">>> Evaluation error: parse_int: failed to parse int string: def with radix: 10",
+                    ">>> Failed to evaluate expression: parse_int(d.id). Reason: parse_int: failed to parse int string: def with radix: 10",
                     "r_type",
                     "bar")));
     assertEquals(expected, output.unwrap());
@@ -579,18 +579,42 @@ dict(
   }
 
   @Test
-  public void testBooleanExpr(){
+  public void testBooleanExpr() {
     String evalExpr;
     FleakData outputEvent;
     FleakData inputEvent = FleakData.wrap(Map.of("foo", 100));
 
     evalExpr = "$.a == null";
     outputEvent = evaluate(evalExpr, inputEvent);
-    System.out.println(outputEvent);
+    assertTrue((Boolean) outputEvent.unwrap());
+  }
+
+  @Test
+  public void testBadFunction() {
+
+    String evalExpr;
+    FleakData outputEvent;
+    FleakData inputEvent =
+        FleakData.wrap(Map.of("responseElements", Map.of("directConnectGateways", List.of())));
+
+    evalExpr =
+"""
+dict(
+ status=case(
+    size($.responseElements.directConnectGateways) == 0 => 'Failed',
+    _ => 'Success'
+  )
+)
+""";
+    outputEvent = evaluate(evalExpr, inputEvent);
+
+    assertEquals(
+        ">>> Failed to evaluate expression: case(size($.responseElements.directConnectGateways)==0=>'Failed',_=>'Success'). Reason: Unknown function: size",
+        ((Map) outputEvent.unwrap()).get("status"));
   }
 
   private FleakData evaluate(String evalExpr, FleakData inputEvent) {
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, true, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     return visitor.visit(parser.language());
