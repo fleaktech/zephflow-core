@@ -63,14 +63,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   @Override
   public FleakData visit(ParseTree tree) {
-    try {
-      return super.visit(tree);
-    } catch (Exception e) {
-      if (lenient) {
-        return FleakData.wrap(String.format(">>> Evaluation error: %s", e.getMessage()));
-      }
-      throw e;
-    }
+    return super.visit(tree);
   }
 
   @Override
@@ -229,7 +222,20 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
     for (EvalExpressionParser.KvPairContext kvPairCtx : ctx.kvPair()) {
       // Directly extract key-value without creating intermediate objects
       String key = kvPairCtx.dictKey().getText();
-      FleakData val = visit(kvPairCtx.expression());
+      FleakData val;
+      try {
+        val = visit(kvPairCtx.expression());
+      } catch (Exception e) {
+        if (lenient) {
+          val =
+              FleakData.wrap(
+                  String.format(
+                      ">>> Failed to evaluate expression: %s. Reason: %s",
+                      kvPairCtx.expression().getText(), e.getMessage()));
+        } else {
+          throw e;
+        }
+      }
       payload.put(key, val);
     }
     return new RecordFleakData(payload);
@@ -286,6 +292,13 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
               fleakData != null ? fleakData.getClass().getSimpleName() : "null"));
     }
 
+    double doubleValue = getDoubleValue(exprCtx, argName, fleakData);
+
+    return (int) doubleValue;
+  }
+
+  private static double getDoubleValue(
+      EvalExpressionParser.ExpressionContext exprCtx, String argName, FleakData fleakData) {
     double doubleValue = fleakData.getNumberValue();
 
     if (doubleValue > Integer.MAX_VALUE || doubleValue < Integer.MIN_VALUE) {
@@ -302,8 +315,7 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
               "Argument '%s' (%s) must be a whole number, but got: %s with a fractional part",
               argName, exprCtx.getText(), doubleValue));
     }
-
-    return (int) doubleValue;
+    return doubleValue;
   }
 
   // Legacy method for backward compatibility

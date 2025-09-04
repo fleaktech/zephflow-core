@@ -255,6 +255,20 @@ dict(
   }
 
   @Test
+  public void testTimestampFunctions2() {
+    FleakData testData = FleakData.wrap(Map.of("eventTime", "2020-09-21T22:22:52Z"));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    try {
+      FleakData result =
+          executeExpression(
+              visitor, "ts_str_to_epoch($.eventTime, 'yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\'')");
+      assertEquals(1600726972000L, result.unwrap());
+    } catch (Exception e) {
+      fail("⚠️ ts_str_to_epoch test skipped (needs proper date): " + e.getMessage());
+    }
+  }
+
+  @Test
   public void testAdvancedFunctions() {
     FleakData testData =
         FleakData.wrap(

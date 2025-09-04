@@ -62,7 +62,9 @@ public interface FeelFunction {
   private static String normalizeStrLiteral(String text) {
     String cleaned = cleanWrappedString(text);
     // Handle escaped characters properly
-    return cleaned.replace("\\\\", "\\"); // Convert \\\\ to \\
+    return cleaned
+        .replace("\\\\", "\\") // Convert \\\\ to \\
+        .replace("\\'", "'"); // Convert \' to '
   }
 
   // Note: Removed duplicate evalArgAsInt - functions now use visitor.evalArgAsInt() for canonical
