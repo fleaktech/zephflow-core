@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
+import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.applyCredentials;
+import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.resolveStorageType;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static java.util.stream.Collectors.toList;
 
@@ -36,12 +38,7 @@ import io.delta.kernel.utils.DataFileStatus;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
-import io.fleak.zephflow.lib.credentials.GcpCredential;
-import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
@@ -313,126 +310,25 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   private void applyCredentialsForStorage(Configuration hadoopConf, String tablePath) {
     String credentialId = config.getCredentialId();
 
-    if (tablePath.startsWith("s3a://") || tablePath.startsWith("s3://")) {
-      // S3 requires UsernamePasswordCredential (access key + secret)
-      var credentialOpt = lookupUsernamePasswordCredentialOpt(jobContext, credentialId);
-      if (credentialOpt.isEmpty()) {
-        log.warn("S3 path requires UsernamePasswordCredential for credentialId: {}", credentialId);
-        return;
-      }
-      UsernamePasswordCredential credential = credentialOpt.get();
-      hadoopConf.set("fs.s3a.access.key", credential.getUsername());
-      hadoopConf.set("fs.s3a.secret.key", credential.getPassword());
-      log.info("Applied S3 credentials from credentialId: {}", credentialId);
-      return;
+    DeltaLakeStorageCredentialUtils.StorageType storageType = resolveStorageType(tablePath);
+
+    Optional<?> credentialObjOpt =
+        switch (storageType) {
+          case S3 -> lookupUsernamePasswordCredentialOpt(jobContext, credentialId);
+          case GCS -> lookupGcpCredentialOpt(jobContext, credentialId);
+          case ABS -> lookupApiKeyCredentialOpt(jobContext, credentialId);
+          default -> Optional.of(new Object()); // dummy object
+        };
+
+    if (credentialObjOpt.isEmpty()) {
+      log.warn(
+          "{} path requires credential for credentialId: {}, but nothing is found",
+          tablePath,
+          credentialId);
     }
 
-    if (tablePath.startsWith("abfs://") || tablePath.startsWith("abfss://")) {
-      // Azure requires ApiKeyCredential (storage account key)
-      var credentialOpt = lookupApiKeyCredentialOpt(jobContext, credentialId);
-      if (credentialOpt.isEmpty()) {
-        log.warn("Azure path requires ApiKeyCredential for credentialId: {}", credentialId);
-        return;
-      }
-      ApiKeyCredential credential = credentialOpt.get();
-      String storageAccount = extractAzureStorageAccount(tablePath);
-      if (storageAccount == null) {
-        log.warn("Could not extract storage account from Azure path: {}", tablePath);
-        return;
-      }
-      hadoopConf.set(
-          "fs.azure.account.key." + storageAccount + ".dfs.core.windows.net", credential.getKey());
-      log.info(
-          "Applied Azure storage account key from credentialId: {} for account: {}",
-          credentialId,
-          storageAccount);
-      return;
-    }
-
-    if (tablePath.startsWith("gs://")) {
-      // GCS requires GcpCredential (service account JSON or access token)
-      var credentialOpt = lookupGcpCredentialOpt(jobContext, credentialId);
-      if (credentialOpt.isEmpty()) {
-        log.warn("GCS path requires GcpCredential for credentialId: {}", credentialId);
-        return;
-      }
-      GcpCredential credential = credentialOpt.get();
-      applyGcpCredentials(hadoopConf, credential);
-      log.info(
-          "Applied GCP credentials from credentialId: {} with auth type: {}",
-          credentialId,
-          credential.getAuthType());
-      return;
-    }
-
-    if (tablePath.startsWith("hdfs://")) {
-      // HDFS authentication should be configured via hadoopConfiguration
-      log.info(
-          "For HDFS authentication, configure directly via hadoopConfiguration in sink config");
-      return;
-    }
-    // Local file system or unknown - no credentials needed
-    log.debug("No credentials applied for path: {}", tablePath);
-  }
-
-  /** Apply GCP credentials to Hadoop configuration based on auth type */
-  private void applyGcpCredentials(Configuration hadoopConf, GcpCredential credential) {
-    // Set project ID
-    hadoopConf.set("fs.gs.project.id", credential.getProjectId());
-
-    switch (credential.getAuthType()) {
-      case SERVICE_ACCOUNT_JSON_KEYFILE -> {
-        hadoopConf.set("google.cloud.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE");
-        if (credential.getJsonKeyContent() == null) {
-          log.warn(
-              "SERVICE_ACCOUNT_JSON_KEYFILE auth type specified but no jsonKeyContent provided");
-          return;
-        }
-        try {
-          File tempFile = File.createTempFile("gcp-service-account-", ".json");
-          tempFile.deleteOnExit(); // Clean up on JVM exit
-
-          Files.writeString(tempFile.toPath(), credential.getJsonKeyContent());
-
-          hadoopConf.set(
-              "google.cloud.auth.service.account.json.keyfile", tempFile.getAbsolutePath());
-          log.warn(
-              "Applied GCS service account JSON authentication via temp file: {} "
-                  + "(SECURITY RISK: credentials written to disk)",
-              tempFile.getAbsolutePath());
-        } catch (IOException e) {
-          throw new RuntimeException(
-              "Failed to write GCP service account JSON to temporary file", e);
-        }
-      }
-      case ACCESS_TOKEN -> {
-        // Use OAuth access token
-        hadoopConf.set("google.cloud.auth.type", "ACCESS_TOKEN_PROVIDER");
-
-        if (credential.getAccessToken() == null) {
-          log.warn("ACCESS_TOKEN auth type specified but no accessToken provided");
-          return;
-        }
-        // Set access token - this might require custom token provider implementation
-        hadoopConf.set("google.cloud.auth.access.token", credential.getAccessToken());
-        log.debug("Applied GCS access token authentication");
-      }
-    }
-  }
-
-  private String extractAzureStorageAccount(String tablePath) {
-    try {
-      // Extract from abfs://container@account.dfs.core.windows.net/path
-      if (tablePath.contains("@")) {
-        String afterAt = tablePath.split("@")[1];
-        if (afterAt.contains(".")) {
-          return afterAt.split("\\.")[0]; // Return just the account name
-        }
-      }
-    } catch (Exception e) {
-      log.warn("Could not extract Azure storage account from path: {}", tablePath);
-    }
-    return null;
+    applyCredentials(
+        storageType, hadoopConf, tablePath, credentialObjOpt.orElseThrow(), credentialId);
   }
 
   /** Result of processing a single partition */
