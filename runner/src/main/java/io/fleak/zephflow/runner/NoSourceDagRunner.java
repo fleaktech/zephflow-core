@@ -76,8 +76,8 @@ public record NoSourceDagRunner(
     counters.stopStopWatch(tags);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
-    if (MapUtils.isNotEmpty(dagResult.getErrorByStep())) {
-      log.error("failed to process events: {}", toJsonString(dagResult.errorByStep));
+    if (log.isDebugEnabled() && MapUtils.isNotEmpty(dagResult.getErrorByStep())) {
+      log.debug("failed to process events: {}", toJsonString(dagResult.errorByStep));
     }
     return dagResult;
   }
