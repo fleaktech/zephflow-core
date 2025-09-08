@@ -109,6 +109,7 @@ kvPair
 
 dictKey
     : IDENTIFIER(('.'|'::')IDENTIFIER)*
+    | QUOTED_IDENTIFIER
     ;
 
 /*
