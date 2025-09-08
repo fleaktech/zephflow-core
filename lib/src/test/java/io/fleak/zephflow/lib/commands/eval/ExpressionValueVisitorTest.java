@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.testcontainers.shaded.com.google.common.collect.ImmutableMap;
 
 /** Created by bolei on 1/27/25 */
 class ExpressionValueVisitorTest {
@@ -442,6 +443,44 @@ str_split("a,b,c", ",")
     FleakData actual = visitor.visit(parser.language());
     assertInstanceOf(RecordFleakData.class, actual);
     assertEquals(Map.of("a::b", 5L), actual.unwrap());
+  }
+
+  @Test
+  public void testDictKeyWithSpecialChars() {
+    String evalExpr =
+"""
+  dict(
+      "key with spaces" = "value1",
+      "key.with.dots" = "value2",
+      "key-with-dashes" = "value3",
+      "key with.special ^&* characters" = "value4",
+      "key with \\"escaped quotes\\"" = "value5",
+      "key with 'single quotes'" = "value6",
+      "123numeric_start" = "value7",
+      "special@#$%^&*()chars" = "value8",
+      normalKey = 100,
+      user.profile = $.user,
+      config::db = "localhost"
+  )
+""";
+    FleakData inputEvent = FleakData.wrap(Map.of("user", "test_user"));
+
+    FleakData outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(
+        ImmutableMap.builder()
+            .put("\"key with spaces\"", "value1")
+            .put("\"key.with.dots\"", "value2")
+            .put("\"key-with-dashes\"", "value3")
+            .put("\"key with.special ^&* characters\"", "value4")
+            .put("\"key with \\\"escaped quotes\\\"\"", "value5")
+            .put("\"key with 'single quotes'\"", "value6")
+            .put("\"123numeric_start\"", "value7")
+            .put("\"special@#$%^&*()chars\"", "value8")
+            .put("normalKey", 100L)
+            .put("user.profile", "test_user")
+            .put("config::db", "localhost")
+            .build(),
+        outputEvent.unwrap());
   }
 
   @Test
