@@ -1077,6 +1077,68 @@ public interface FeelFunction {
   }
 
   /*
+  floorFunction:
+  Round down a floating point number to the nearest integer.
+  Example: floor(123.45) => 123, floor(-123.45) => -124
+  */
+  class FloorFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("floor", 1, "number to round down");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (args.size() != 1) {
+        throw new IllegalArgumentException("floor expects 1 argument");
+      }
+
+      FleakData arg = visitExpression(visitor, args.get(0));
+      if (!(arg instanceof NumberPrimitiveFleakData)) {
+        throw new IllegalArgumentException(
+            "floor: argument must be a number but found: "
+                + (arg != null ? arg.getClass().getSimpleName() : "null"));
+      }
+
+      double value = arg.getNumberValue();
+      long floorValue = (long) Math.floor(value);
+      return new NumberPrimitiveFleakData(floorValue, NumberPrimitiveFleakData.NumberType.LONG);
+    }
+  }
+
+  /*
+  ceilFunction:
+  Round up a floating point number to the nearest integer.
+  Example: ceil(123.45) => 124, ceil(-123.45) => -123
+  */
+  class CeilFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("ceil", 1, "number to round up");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (args.size() != 1) {
+        throw new IllegalArgumentException("ceil expects 1 argument");
+      }
+
+      FleakData arg = visitExpression(visitor, args.get(0));
+      if (!(arg instanceof NumberPrimitiveFleakData)) {
+        throw new IllegalArgumentException(
+            "ceil: argument must be a number but found: "
+                + (arg != null ? arg.getClass().getSimpleName() : "null"));
+      }
+
+      double value = arg.getNumberValue();
+      long ceilValue = (long) Math.ceil(value);
+      return new NumberPrimitiveFleakData(ceilValue, NumberPrimitiveFleakData.NumberType.LONG);
+    }
+  }
+
+  /*
   pythonFunction:
   Execute a single Python function automatically discovered within the script string.
 
@@ -1202,7 +1264,9 @@ public interface FeelFunction {
             .put("arr_flatten", new ArrFlattenFunction())
             .put("range", new RangeFunction())
             .put("arr_foreach", new ArrForEachFunction())
-            .put("dict_merge", new DictMergeFunction());
+            .put("dict_merge", new DictMergeFunction())
+            .put("floor", new FloorFunction())
+            .put("ceil", new CeilFunction());
 
     if (pythonExecutor != null) {
       builder.put("python", new PythonFunction(pythonExecutor));
