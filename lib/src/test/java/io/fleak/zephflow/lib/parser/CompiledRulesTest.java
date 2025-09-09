@@ -81,6 +81,6 @@ class CompiledRulesTest {
     CompiledRules.ParseRule parseRule = parserConfigCompiler.compile(parserConfig);
     assertNotNull(inputEvent);
     RecordFleakData output = parseRule.parse(inputEvent);
-    assertEquals(Map.of("my_field", Map.of("a", 100)), output.unwrap());
+    assertEquals(Map.of("my_field", Map.of("a", 100L)), output.unwrap());
   }
 }

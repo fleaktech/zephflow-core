@@ -1,101 +1,101 @@
 [
   {
-    "value": 11.0,
+    "value": 11,
     "highPriority": true,
     "source": "A"
   },
   {
-    "value": 13.0,
+    "value": 13,
     "highPriority": true,
     "source": "A"
   },
   {
-    "value": 15.0,
+    "value": 15,
     "highPriority": true,
     "source": "A"
   },
   {
-    "value": 17.0,
+    "value": 17,
     "highPriority": true,
     "source": "A"
   },
   {
-    "value": 19.0,
+    "value": 19,
     "highPriority": true,
     "source": "A"
   },
   {
-    "value": 1.0,
+    "value": 1,
     "highPriority": false,
     "source": "A"
   },
   {
-    "value": 3.0,
+    "value": 3,
     "highPriority": false,
     "source": "A"
   },
   {
-    "value": 5.0,
+    "value": 5,
     "highPriority": false,
     "source": "A"
   },
   {
-    "value": 7.0,
+    "value": 7,
     "highPriority": false,
     "source": "A"
   },
   {
-    "value": 9.0,
+    "value": 9,
     "highPriority": false,
     "source": "A"
   },
   {
-    "value": 12.0,
+    "value": 12,
     "highPriority": true,
     "source": "B"
   },
   {
-    "value": 14.0,
+    "value": 14,
     "highPriority": true,
     "source": "B"
   },
   {
-    "value": 16.0,
+    "value": 16,
     "highPriority": true,
     "source": "B"
   },
   {
-    "value": 18.0,
+    "value": 18,
     "highPriority": true,
     "source": "B"
   },
   {
-    "value": 0.0,
+    "value": 0,
     "highPriority": false,
     "source": "B"
   },
   {
-    "value": 2.0,
+    "value": 2,
     "highPriority": false,
     "source": "B"
   },
   {
-    "value": 4.0,
+    "value": 4,
     "highPriority": false,
     "source": "B"
   },
   {
-    "value": 6.0,
+    "value": 6,
     "highPriority": false,
     "source": "B"
   },
   {
-    "value": 8.0,
+    "value": 8,
     "highPriority": false,
     "source": "B"
   },
   {
-    "value": 10.0,
+    "value": 10,
     "highPriority": false,
     "source": "B"
   }

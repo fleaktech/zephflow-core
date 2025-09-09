@@ -28,7 +28,7 @@ class ArrayFleakDataTest {
     arrayFleakData.arrayPayload.add(null);
 
     ArrayList<Object> expected = new ArrayList<>();
-    expected.add(5);
+    expected.add(5L);
     expected.add(null);
     assertEquals(expected, arrayFleakData.unwrap());
   }

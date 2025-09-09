@@ -240,10 +240,10 @@ class NoSourceDagRunnerTest {
               Map.of(
                   "inputCount",
                       new NumberPrimitiveFleakData(
-                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.INT),
+                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.LONG),
                   "successCount",
                       new NumberPrimitiveFleakData(
-                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.INT)));
+                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.LONG)));
       assertDebugInfo(
           result.outputByStep, SINK_ID, NODE_ID_1, List.of(expectedSinkSummary), "outputByStep");
       assertTrue(result.outputEvents.containsKey(SINK_ID), "outputEvents should contain sink ID");
@@ -356,10 +356,10 @@ class NoSourceDagRunnerTest {
               Map.of(
                   "inputCount",
                       new NumberPrimitiveFleakData(
-                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.INT),
+                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.LONG),
                   "successCount",
                       new NumberPrimitiveFleakData(
-                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.INT)));
+                          inputEvents.size(), NumberPrimitiveFleakData.NumberType.LONG)));
       assertDebugInfo(
           result.outputByStep, SINK_ID, NODE_ID_1, List.of(expectedSinkSummary), "outputByStep");
       assertDebugInfo(
@@ -608,10 +608,10 @@ class NoSourceDagRunnerTest {
               Map.of(
                   "inputCount",
                       new NumberPrimitiveFleakData(
-                          inputCount, NumberPrimitiveFleakData.NumberType.INT),
+                          inputCount, NumberPrimitiveFleakData.NumberType.LONG),
                   "successCount",
                       new NumberPrimitiveFleakData(
-                          successCount, NumberPrimitiveFleakData.NumberType.INT)));
+                          successCount, NumberPrimitiveFleakData.NumberType.LONG)));
       assertDebugInfo(
           result.outputByStep, SINK_ID, NODE_ID_1, List.of(expectedSinkSummary), "outputByStep");
       assertTrue(result.outputEvents.containsKey(SINK_ID), "outputEvents should contain sink ID");

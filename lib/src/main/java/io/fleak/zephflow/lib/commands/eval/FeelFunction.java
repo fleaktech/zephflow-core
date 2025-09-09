@@ -276,15 +276,15 @@ public interface FeelFunction {
       FleakData arg = visitExpression(visitor, args.get(0));
       if (arg instanceof RecordFleakData) {
         return new NumberPrimitiveFleakData(
-            arg.getPayload().size(), NumberPrimitiveFleakData.NumberType.INT);
+            arg.getPayload().size(), NumberPrimitiveFleakData.NumberType.LONG);
       }
       if (arg instanceof ArrayFleakData) {
         return new NumberPrimitiveFleakData(
-            arg.getArrayPayload().size(), NumberPrimitiveFleakData.NumberType.INT);
+            arg.getArrayPayload().size(), NumberPrimitiveFleakData.NumberType.LONG);
       }
       if (arg instanceof StringPrimitiveFleakData) {
         return new NumberPrimitiveFleakData(
-            arg.getStringValue().length(), NumberPrimitiveFleakData.NumberType.INT);
+            arg.getStringValue().length(), NumberPrimitiveFleakData.NumberType.LONG);
       }
       throw new IllegalArgumentException("Unsupported argument: " + arg);
     }
@@ -900,12 +900,12 @@ public interface FeelFunction {
       if (step > 0) {
         for (long i = start; i < end; i += step) {
           resultNumbers.add(
-              new NumberPrimitiveFleakData(i, NumberPrimitiveFleakData.NumberType.INT));
+              new NumberPrimitiveFleakData(i, NumberPrimitiveFleakData.NumberType.LONG));
         }
       } else {
         for (long i = start; i > end; i += step) {
           resultNumbers.add(
-              new NumberPrimitiveFleakData(i, NumberPrimitiveFleakData.NumberType.INT));
+              new NumberPrimitiveFleakData(i, NumberPrimitiveFleakData.NumberType.LONG));
         }
       }
 

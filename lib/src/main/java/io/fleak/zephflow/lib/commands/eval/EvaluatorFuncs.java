@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.eval;
 
+import static io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.getPromotedType;
+
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.structure.*;
 import java.util.Map;
@@ -92,10 +94,7 @@ public interface EvaluatorFuncs {
         }
       };
   Map<String, UnaryEvaluatorFunc<FleakData>> UNARY_VALUE_EVALUATOR_FUNC_MAP =
-      new ImmutableMap.Builder<String, UnaryEvaluatorFunc<FleakData>>()
-          .put("-", NEGATE_VALUE_EVALUATOR_FUNC)
-          .put("not", NOT_VALUE_EVALUATOR_FUNC)
-          .build();
+      Map.of("-", NEGATE_VALUE_EVALUATOR_FUNC, "not", NOT_VALUE_EVALUATOR_FUNC);
 
   /****************** Binary Value ******************/
   // Binary Arithmetic Operators
@@ -110,24 +109,22 @@ public interface EvaluatorFuncs {
       new ValueBinaryEvaluator() {
         @Override
         protected boolean validateTypes(FleakData l, FleakData r) {
-          return true;
+          // Allow string + string or number + number
+          return (l instanceof StringPrimitiveFleakData && r instanceof StringPrimitiveFleakData)
+              || (l instanceof NumberPrimitiveFleakData && r instanceof NumberPrimitiveFleakData);
         }
 
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
-          // str + str
-          if (l instanceof StringPrimitiveFleakData && r instanceof StringPrimitiveFleakData) {
+          if (l instanceof StringPrimitiveFleakData) { // Already validated types
             return new StringPrimitiveFleakData(l.getStringValue() + r.getStringValue());
           }
-          // num + num
-          if (l instanceof NumberPrimitiveFleakData && r instanceof NumberPrimitiveFleakData) {
-            double sum = l.getNumberValue() + r.getNumberValue();
-            return new NumberPrimitiveFleakData(sum, NumberPrimitiveFleakData.NumberType.DOUBLE);
-          }
-          throw new IllegalArgumentException(
-              String.format(
-                  "unsupported operand types for + operator: left=%s, right=%s",
-                  l.unwrap(), r.unwrap()));
+
+          // Handle numbers
+          double sum = l.getNumberValue() + r.getNumberValue();
+          NumberPrimitiveFleakData.NumberType promotedType =
+              getPromotedType(l.getNumberType(), r.getNumberType());
+          return new NumberPrimitiveFleakData(sum, promotedType);
         }
       };
 
@@ -136,41 +133,47 @@ public interface EvaluatorFuncs {
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           double minus = l.getNumberValue() - r.getNumberValue();
-          return new NumberPrimitiveFleakData(minus, NumberPrimitiveFleakData.NumberType.DOUBLE);
+          NumberPrimitiveFleakData.NumberType promotedType =
+              getPromotedType(l.getNumberType(), r.getNumberType());
+          return new NumberPrimitiveFleakData(minus, promotedType);
         }
       };
+
   NumericValueBinaryEvaluator TIMES_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           double timesResult = l.getNumberValue() * r.getNumberValue();
-          return new NumberPrimitiveFleakData(
-              timesResult, NumberPrimitiveFleakData.NumberType.DOUBLE);
+          NumberPrimitiveFleakData.NumberType promotedType =
+              getPromotedType(l.getNumberType(), r.getNumberType());
+          return new NumberPrimitiveFleakData(timesResult, promotedType);
         }
       };
+
   NumericValueBinaryEvaluator DIVIDE_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
-          double dividend = l.getNumberValue();
           double divisor = r.getNumberValue();
           if (divisor == 0) {
-            return null;
+            throw new IllegalArgumentException("divide by zero");
           }
-          double quotient = dividend / divisor;
+          double quotient = l.getNumberValue() / divisor;
           return new NumberPrimitiveFleakData(quotient, NumberPrimitiveFleakData.NumberType.DOUBLE);
         }
       };
+
   NumericValueBinaryEvaluator MOD_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           if (r.getNumberValue() == 0) {
-            return null;
+            throw new IllegalArgumentException("mod by zero");
           }
           double modResult = l.getNumberValue() % r.getNumberValue();
-          return new NumberPrimitiveFleakData(
-              modResult, NumberPrimitiveFleakData.NumberType.DOUBLE);
+          NumberPrimitiveFleakData.NumberType promotedType =
+              getPromotedType(l.getNumberType(), r.getNumberType());
+          return new NumberPrimitiveFleakData(modResult, promotedType);
         }
       };
 

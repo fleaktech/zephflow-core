@@ -201,13 +201,13 @@ dict(
     testFunctionExecution(visitor, "array()", List.of());
 
     // Test size_of
-    testFunctionExecution(visitor, "size_of(\"hello\")", 5);
-    testFunctionExecution(visitor, "size_of(array(1, 2, 3))", 3);
+    testFunctionExecution(visitor, "size_of(\"hello\")", 5L);
+    testFunctionExecution(visitor, "size_of(array(1, 2, 3))", 3L);
 
     // Test range
-    testFunctionExecution(visitor, "range(3)", List.of(0, 1, 2));
-    testFunctionExecution(visitor, "range(1, 4)", List.of(1, 2, 3));
-    testFunctionExecution(visitor, "range(0, 6, 2)", List.of(0, 2, 4));
+    testFunctionExecution(visitor, "range(3)", List.of(0L, 1L, 2L));
+    testFunctionExecution(visitor, "range(1, 4)", List.of(1L, 2L, 3L));
+    testFunctionExecution(visitor, "range(0, 6, 2)", List.of(0L, 2L, 4L));
   }
 
   @Test
@@ -331,7 +331,7 @@ dict(
     // Test empty strings
     testFunctionExecution(visitor, "str_split(\"\", \",\")", List.of());
     testFunctionExecution(visitor, "upper(\"\")", "");
-    testFunctionExecution(visitor, "size_of(\"\")", 0);
+    testFunctionExecution(visitor, "size_of(\"\")", 0L);
 
     // Test null handling
     testFunctionExecution(visitor, "to_str(null)", null);

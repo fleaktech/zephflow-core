@@ -77,7 +77,7 @@ public class FleakDataDeserializer extends StdDeserializer<FleakData> {
           switch (p.getNumberType()) {
             case INT -> {
               value = p.getIntValue();
-              yield NumberPrimitiveFleakData.NumberType.INT;
+              yield NumberPrimitiveFleakData.NumberType.LONG;
             }
             case LONG -> {
               value = p.getLongValue();
@@ -85,7 +85,7 @@ public class FleakDataDeserializer extends StdDeserializer<FleakData> {
             }
             case FLOAT -> {
               value = p.getFloatValue();
-              yield NumberPrimitiveFleakData.NumberType.FLOAT;
+              yield NumberPrimitiveFleakData.NumberType.DOUBLE;
             }
             default -> {
               value = p.getDoubleValue();
