@@ -38,7 +38,9 @@ class FeelFunctionTest {
       "substr(\"hello\", 1, 3)",
       "duration_str_to_mills(\"01:30:45\")",
       "range(5)",
-      "range(1, 10, 2)"
+      "range(1, 10, 2)",
+      "floor(123.45)",
+      "ceil(123.45)"
     };
 
     for (String testCase : testCases) {
@@ -229,6 +231,26 @@ dict(
   }
 
   @Test
+  public void testMathematicalFunctions() {
+    FleakData testData = new StringPrimitiveFleakData("test");
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    // Test floor function
+    testFunctionExecution(visitor, "floor(123.45)", 123L);
+    testFunctionExecution(visitor, "floor(-123.45)", -124L);
+    testFunctionExecution(visitor, "floor(123)", 123L);
+    testFunctionExecution(visitor, "floor(0.9)", 0L);
+    testFunctionExecution(visitor, "floor(-0.9)", -1L);
+
+    // Test ceil function
+    testFunctionExecution(visitor, "ceil(123.45)", 124L);
+    testFunctionExecution(visitor, "ceil(-123.45)", -123L);
+    testFunctionExecution(visitor, "ceil(123)", 123L);
+    testFunctionExecution(visitor, "ceil(0.1)", 1L);
+    testFunctionExecution(visitor, "ceil(-0.1)", 0L);
+  }
+
+  @Test
   public void testTimestampFunctions() {
     FleakData testData = new StringPrimitiveFleakData("test");
     ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
@@ -315,12 +337,18 @@ dict(
         IllegalArgumentException.class,
         () -> executeExpression(visitor, "str_contains(\"hello\")"));
     assertThrows(IllegalArgumentException.class, () -> executeExpression(visitor, "parse_int()"));
+    assertThrows(IllegalArgumentException.class, () -> executeExpression(visitor, "floor()"));
+    assertThrows(IllegalArgumentException.class, () -> executeExpression(visitor, "ceil()"));
 
     // Test type validation
     assertThrows(
         Exception.class, () -> executeExpression(visitor, "parse_int(123)")); // Should be string
     assertThrows(
         Exception.class, () -> executeExpression(visitor, "upper(123)")); // Should be string
+    assertThrows(
+        Exception.class, () -> executeExpression(visitor, "floor(\"123\")")); // Should be number
+    assertThrows(
+        Exception.class, () -> executeExpression(visitor, "ceil(\"123\")")); // Should be number
   }
 
   @Test
