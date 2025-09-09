@@ -83,7 +83,7 @@ class SyslogExtractionRuleTest {
           } catch (Exception e) {
             throw new RuntimeException(e);
           }
-          assertEquals(tc.expected, actual.unwrap());
+          assertEquals(FleakData.wrap(tc.expected), actual);
         });
   }
 

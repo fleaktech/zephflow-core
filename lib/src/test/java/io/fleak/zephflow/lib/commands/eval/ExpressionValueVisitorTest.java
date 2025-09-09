@@ -518,7 +518,7 @@ dict(
 
     evalExpr = "range(5)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(List.of(0, 1, 2, 3, 4), outputEvent.unwrap());
+    assertEquals(FleakData.wrap(List.of(0, 1, 2, 3, 4)), outputEvent);
 
     evalExpr = "range(-2)";
     outputEvent = evaluate(evalExpr, inputEvent);
@@ -526,19 +526,19 @@ dict(
 
     evalExpr = "range(2, 5)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(List.of(2, 3, 4), outputEvent.unwrap());
+    assertEquals(FleakData.wrap(List.of(2, 3, 4)), outputEvent);
 
     evalExpr = "range(0, 10, 2)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(List.of(0, 2, 4, 6, 8), outputEvent.unwrap());
+    assertEquals(FleakData.wrap(List.of(0, 2, 4, 6, 8)), outputEvent);
 
     evalExpr = "range(10, 0, -2)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(List.of(10, 8, 6, 4, 2), outputEvent.unwrap());
+    assertEquals(FleakData.wrap(List.of(10, 8, 6, 4, 2)), outputEvent);
 
     evalExpr = "range(5, 0, -1)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(List.of(5, 4, 3, 2, 1), outputEvent.unwrap());
+    assertEquals(FleakData.wrap(List.of(5, 4, 3, 2, 1)), outputEvent);
 
     evalExpr = "range(0, 5, -1)";
     outputEvent = evaluate(evalExpr, inputEvent);
@@ -546,7 +546,7 @@ dict(
 
     evalExpr = "range(0, -5, -1)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(List.of(0, -1, -2, -3, -4), outputEvent.unwrap());
+    assertEquals(FleakData.wrap(List.of(0, -1, -2, -3, -4)), outputEvent);
   }
 
   @Test
@@ -564,12 +564,12 @@ dict(
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
     assertInstanceOf(RecordFleakData.class, actual);
-    assertEquals(Map.of("a", 0.0d), actual.unwrap());
+    assertEquals(Map.of("a", 0L), actual.unwrap());
 
     FleakData outputEvent;
     evalExpr = "5-1";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(4.0d, outputEvent.unwrap());
+    assertEquals(4L, outputEvent.unwrap());
 
     evalExpr = "-42";
     outputEvent = evaluate(evalExpr, inputEvent);
@@ -581,11 +581,11 @@ dict(
 
     evalExpr = "10 - -5";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(15d, outputEvent.unwrap());
+    assertEquals(15L, outputEvent.unwrap());
 
     evalExpr = "-(5+3)";
     outputEvent = evaluate(evalExpr, inputEvent);
-    assertEquals(-8d, outputEvent.unwrap());
+    assertEquals(-8L, outputEvent.unwrap());
   }
 
   @Test
@@ -652,8 +652,111 @@ dict(
         ((Map) outputEvent.unwrap()).get("status"));
   }
 
+  @Test
+  public void testTyping() {
+    String evalExpr;
+    FleakData outputEvent;
+    FleakData inputEvent = FleakData.wrap(Map.of());
+
+    evalExpr = "parse_int(\"1\") * 10";
+    outputEvent = evaluate(evalExpr, inputEvent);
+    assertEquals(10L, outputEvent.unwrap());
+  }
+
+  @Test
+  public void testAdditionTyping() {
+    // LONG + LONG -> LONG
+    assertEquals(15L, evaluate("10 + 5").unwrap());
+
+    // LONG + DOUBLE -> DOUBLE
+    assertEquals(15.5, evaluate("10 + 5.5").unwrap());
+
+    // DOUBLE + LONG -> DOUBLE
+    assertEquals(15.5, evaluate("10.5 + 5").unwrap());
+
+    // DOUBLE + DOUBLE -> DOUBLE
+    assertEquals(16.0, evaluate("10.5 + 5.5").unwrap());
+  }
+
+  @Test
+  public void testSubtractionTyping() {
+    // LONG - LONG -> LONG
+    assertEquals(5L, evaluate("10 - 5").unwrap());
+
+    // LONG - DOUBLE -> DOUBLE
+    assertEquals(4.5, evaluate("10 - 5.5").unwrap());
+
+    // DOUBLE - LONG -> DOUBLE
+    assertEquals(5.5, evaluate("10.5 - 5").unwrap());
+
+    // DOUBLE - DOUBLE -> DOUBLE
+    assertEquals(5.0, evaluate("10.5 - 5.5").unwrap());
+  }
+
+  @Test
+  public void testMultiplicationTyping() {
+    // LONG * LONG -> LONG
+    assertEquals(50L, evaluate("10 * 5").unwrap());
+
+    // LONG * DOUBLE -> DOUBLE
+    assertEquals(55.0, evaluate("10 * 5.5").unwrap());
+
+    // DOUBLE * LONG -> DOUBLE
+    assertEquals(21.0, evaluate("10.5 * 2").unwrap());
+
+    // DOUBLE * DOUBLE -> DOUBLE
+    assertEquals(21.0, evaluate("10.5 * 2.0").unwrap());
+  }
+
+  @Test
+  public void testDivisionTyping() {
+    // Division should always promote to DOUBLE to preserve precision.
+    // LONG / LONG -> DOUBLE
+    assertEquals(2.5, evaluate("10 / 4").unwrap());
+
+    // LONG / DOUBLE -> DOUBLE
+    assertEquals(4.0, evaluate("10 / 2.5").unwrap());
+
+    // DOUBLE / LONG -> DOUBLE
+    assertEquals(2.5, evaluate("12.5 / 5").unwrap());
+
+    // DOUBLE / DOUBLE -> DOUBLE
+    assertEquals(5.0, evaluate("12.5 / 2.5").unwrap());
+
+    // Test division by zero
+    assertThrows(IllegalArgumentException.class, () -> evaluate("10 / 0").unwrap());
+    assertThrows(IllegalArgumentException.class, () -> evaluate("10 / 0.0").unwrap());
+  }
+
+  @Test
+  public void testModuloTyping() {
+    // LONG % LONG -> LONG
+    assertEquals(1L, evaluate("10 % 3").unwrap());
+
+    // LONG % DOUBLE -> DOUBLE
+    assertEquals(3.0, evaluate("10 % 3.5").unwrap()); // 10.0 = 2 * 3.5 + 3.0
+
+    // DOUBLE % LONG -> DOUBLE
+    assertEquals(1.5, evaluate("10.5 % 3").unwrap()); // 10.5 = 3 * 3.0 + 1.5
+
+    // DOUBLE % DOUBLE -> DOUBLE
+    assertEquals(0.0, evaluate("10.5 % 3.5").unwrap());
+
+    // Test modulo by zero
+    assertThrows(IllegalArgumentException.class, () -> evaluate("10 % 0").unwrap());
+    assertThrows(IllegalArgumentException.class, () -> evaluate("10 % 0.0").unwrap());
+  }
+
   private FleakData evaluate(String evalExpr, FleakData inputEvent) {
     ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, true, null);
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    return visitor.visit(parser.language());
+  }
+
+  private FleakData evaluate(String evalExpr) {
+    ExpressionValueVisitor visitor =
+        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), true, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     return visitor.visit(parser.language());

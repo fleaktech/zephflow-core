@@ -110,7 +110,7 @@ class PathExpressionTest {
                     List.of(Map.of("id", 1, "val", "best"), Map.of("id", 2, "val", "another"))));
     PathExpression pathExpression = PathExpression.fromString("$.prompts[0]");
     FleakData recordData = pathExpression.calculateValue(recordFleakData);
-    assertEquals(Map.of("id", 1, "val", "best"), recordData.unwrap());
+    assertEquals(Map.of("id", 1L, "val", "best"), recordData.unwrap());
   }
 
   @Test
@@ -124,7 +124,7 @@ class PathExpressionTest {
     PathExpression pathExpression = PathExpression.fromString("$.prompts");
     FleakData recordData = pathExpression.calculateValue(recordFleakData);
     assertEquals(
-        List.of(Map.of("id", 1, "val", "best"), Map.of("id", 2, "val", "another")),
+        List.of(Map.of("id", 1L, "val", "best"), Map.of("id", 2L, "val", "another")),
         recordData.unwrap());
   }
 }

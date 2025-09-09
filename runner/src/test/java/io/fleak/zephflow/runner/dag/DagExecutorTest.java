@@ -98,7 +98,7 @@ public class DagExecutorTest {
     dagExecutor.executeDag();
     Map<String, Set<Map<String, Object>>> expected =
         fromJsonResource(expectedOutputResource, new TypeReference<>() {});
-    assertEquals(expected, IN_MEM_SINK);
+    assertEquals(FleakData.wrap(expected), FleakData.wrap(IN_MEM_SINK));
   }
 
   static class TestSource extends SimpleSourceCommand<RecordFleakData> {

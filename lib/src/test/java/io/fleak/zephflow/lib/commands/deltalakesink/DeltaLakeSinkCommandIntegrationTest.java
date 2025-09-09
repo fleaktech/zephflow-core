@@ -16,13 +16,7 @@ package io.fleak.zephflow.lib.commands.deltalakesink;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import io.delta.kernel.types.ArrayType;
-import io.delta.kernel.types.BooleanType;
-import io.delta.kernel.types.DataType;
-import io.delta.kernel.types.DoubleType;
-import io.delta.kernel.types.IntegerType;
-import io.delta.kernel.types.StringType;
-import io.delta.kernel.types.StructType;
+import io.delta.kernel.types.*;
 import io.fleak.zephflow.api.CommandType;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
@@ -142,7 +136,8 @@ class DeltaLakeSinkCommandIntegrationTest {
                         "stringField",
                         new StringPrimitiveFleakData("test"),
                         "numberField",
-                        new NumberPrimitiveFleakData(42.0, NumberPrimitiveFleakData.NumberType.INT),
+                        new NumberPrimitiveFleakData(
+                            42.0, NumberPrimitiveFleakData.NumberType.LONG),
                         "booleanField",
                         new BooleanPrimitiveFleakData(true))))
             .fields()
@@ -154,7 +149,7 @@ class DeltaLakeSinkCommandIntegrationTest {
     // Create complex FleakData structure with nested records and arrays
     Map<String, FleakData> userPayload =
         Map.of(
-            "id", new NumberPrimitiveFleakData(123.0, NumberPrimitiveFleakData.NumberType.INT),
+            "id", new NumberPrimitiveFleakData(123.0, NumberPrimitiveFleakData.NumberType.LONG),
             "name", new StringPrimitiveFleakData("John Doe"),
             "active", new BooleanPrimitiveFleakData(true));
     RecordFleakData userRecord = new RecordFleakData(userPayload);
@@ -206,7 +201,8 @@ class DeltaLakeSinkCommandIntegrationTest {
     Map<String, Object> testData =
         Map.of(
             "stringField", new StringPrimitiveFleakData("test"),
-            "intField", new NumberPrimitiveFleakData(42.0, NumberPrimitiveFleakData.NumberType.INT),
+            "longField",
+                new NumberPrimitiveFleakData(42.0, NumberPrimitiveFleakData.NumberType.LONG),
             "doubleField",
                 new NumberPrimitiveFleakData(3.14, NumberPrimitiveFleakData.NumberType.DOUBLE),
             "boolField", new BooleanPrimitiveFleakData(true),
@@ -221,7 +217,7 @@ class DeltaLakeSinkCommandIntegrationTest {
                         "nestedString", new StringPrimitiveFleakData("nested"),
                         "nestedNumber",
                             new NumberPrimitiveFleakData(
-                                99.0, NumberPrimitiveFleakData.NumberType.INT))));
+                                99.0, NumberPrimitiveFleakData.NumberType.LONG))));
 
     // Test schema inference
     var schema = DeltaLakeDataConverter.inferSchema(List.of(testData));
@@ -235,7 +231,7 @@ class DeltaLakeSinkCommandIntegrationTest {
     }
 
     assertEquals(StringType.STRING, fieldMap.get("stringField"));
-    assertEquals(IntegerType.INTEGER, fieldMap.get("intField"));
+    assertEquals(LongType.LONG, fieldMap.get("longField"));
     assertEquals(DoubleType.DOUBLE, fieldMap.get("doubleField"));
     assertEquals(BooleanType.BOOLEAN, fieldMap.get("boolField"));
     assertInstanceOf(ArrayType.class, fieldMap.get("arrayField"));
