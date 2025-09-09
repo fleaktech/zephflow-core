@@ -76,6 +76,13 @@ public class JobCliParser {
   private static final Option INFLUXDB_PASSWORD_OPT =
       Option.builder().longOpt("influxdb-password").desc("InfluxDB password").hasArg().build();
 
+  private static final Option INFLUXDB_RETENTION_POLICY_OPT =
+      Option.builder()
+          .longOpt("influxdb-retention-policy")
+          .desc("InfluxDB retention policy")
+          .hasArg()
+          .build();
+
   static {
     CLI_OPTIONS = new Options();
     CLI_OPTIONS
@@ -89,7 +96,8 @@ public class JobCliParser {
         .addOption(INFLUXDB_DATABASE_OPT)
         .addOption(INFLUXDB_MEASUREMENT_OPT)
         .addOption(INFLUXDB_USERNAME_OPT)
-        .addOption(INFLUXDB_PASSWORD_OPT);
+        .addOption(INFLUXDB_PASSWORD_OPT)
+        .addOption(INFLUXDB_RETENTION_POLICY_OPT);
   }
 
   public static JobConfig parseArgs(String[] args) throws ParseException {
@@ -211,6 +219,9 @@ public class JobCliParser {
     }
     if (commandLine.hasOption("influxdb-password")) {
       config.setPassword(commandLine.getOptionValue("influxdb-password"));
+    }
+    if (commandLine.hasOption("influxdb-retention-policy")) {
+      config.setRetentionPolicy(commandLine.getOptionValue("influxdb-retention-policy"));
     }
 
     return config;
