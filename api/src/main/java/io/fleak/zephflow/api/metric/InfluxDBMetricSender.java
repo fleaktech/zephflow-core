@@ -28,11 +28,13 @@ public class InfluxDBMetricSender implements AutoCloseable {
   private final InfluxDB influxDB;
   private final String database;
   private final String measurementName;
+  private final String retentionPolicy;
 
   public InfluxDBMetricSender(InfluxDBConfig config, InfluxDB influxDB) {
     this.database = config.getDatabase();
     this.measurementName = config.getMeasurement();
     this.influxDB = influxDB;
+    this.retentionPolicy = config.getRetentionPolicy();
     log.info("InfluxDB Metric Sender initialized with config: {}", config);
   }
 
@@ -56,7 +58,14 @@ public class InfluxDBMetricSender implements AutoCloseable {
 
   private void writePointToInfluxDB(String fieldName, Object value, Map<String, String> tags) {
     Point point = createPoint(fieldName, value, tags, System.currentTimeMillis());
-    BatchPoints batchPoints = BatchPoints.database(database).build();
+    BatchPoints.Builder batchBuilder = BatchPoints.database(database);
+
+    if (retentionPolicy != null && !retentionPolicy.isEmpty()) {
+      batchBuilder.retentionPolicy(retentionPolicy);
+      log.debug("Using retention policy: {}", retentionPolicy);
+    }
+
+    BatchPoints batchPoints = batchBuilder.build();
     batchPoints.point(point);
     influxDB.write(batchPoints);
   }
@@ -96,7 +105,13 @@ public class InfluxDBMetricSender implements AutoCloseable {
       Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
       addEnvironmentTags(allTags);
 
-      BatchPoints batchPoints = BatchPoints.database(database).build();
+      BatchPoints.Builder batchBuilder = BatchPoints.database(database);
+      if (retentionPolicy != null && !retentionPolicy.isEmpty()) {
+        batchBuilder.retentionPolicy(retentionPolicy);
+        log.debug("Using retention policy: {}", retentionPolicy);
+      }
+
+      BatchPoints batchPoints = batchBuilder.build();
 
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
         Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestamp);
@@ -154,5 +169,6 @@ public class InfluxDBMetricSender implements AutoCloseable {
     private String measurement;
     private String username;
     private String password;
+    private String retentionPolicy;
   }
 }
