@@ -144,7 +144,7 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     log.debug("Starting Delta Lake write operation for {} records", dataToWrite.size());
 
     // Table existence already validated during initialization - use the existing table
-    StructType tableSchema = table.getLatestSnapshot(engine).getSchema(engine);
+    StructType tableSchema = table.getLatestSnapshot(engine).getSchema();
     log.debug("Using table schema: {}", tableSchema);
 
     // Step 2: Create transaction

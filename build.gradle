@@ -70,8 +70,8 @@ allprojects {
     graalvmVersion = '24.2.1'
     influxDBClientVersion = '2.23'
     clickHouseVersion = '0.9.0'
-    hadoopVersion = '3.4.1'
-    deltaKernelVersion = '3.3.1'
+    hadoopVersion = '3.4.0'
+    deltaKernelVersion = '4.0.0'
   }
 
   sourceCompatibility = javaVersion
