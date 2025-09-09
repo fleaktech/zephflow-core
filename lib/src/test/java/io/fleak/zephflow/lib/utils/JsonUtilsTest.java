@@ -88,7 +88,7 @@ class JsonUtilsTest {
     ArrayNode output = toArrayNode(input);
 
     ArrayNode expected = JsonUtils.OBJECT_MAPPER.createArrayNode();
-    expected.add(100);
+    expected.add(100L);
     expected.add(1000000000000L);
     expected.add(3.0);
     expected.add(3.14159);
@@ -103,8 +103,8 @@ class JsonUtilsTest {
     NumericNode numericNode = (NumericNode) arrayNode.get(0);
     NumberPrimitiveFleakData input = fromJsonNumber(numericNode);
     NumericNode output = toJsonNumber(input);
-    Assertions.assertEquals(100, output.numberValue());
-    Assertions.assertEquals(JsonParser.NumberType.INT, output.numberType());
+    Assertions.assertEquals(100L, output.numberValue());
+    Assertions.assertEquals(JsonParser.NumberType.LONG, output.numberType());
   }
 
   @Test
@@ -143,7 +143,7 @@ class JsonUtilsTest {
     Assertions.assertEquals(5, output.getArrayPayload().size());
     Assertions.assertEquals(400, output.getArrayPayload().get(4).getNumberValue());
     Assertions.assertEquals(
-        NumberPrimitiveFleakData.NumberType.INT, output.getArrayPayload().get(4).getNumberType());
+        NumberPrimitiveFleakData.NumberType.LONG, output.getArrayPayload().get(4).getNumberType());
   }
 
   @Test
@@ -155,7 +155,7 @@ class JsonUtilsTest {
     Assertions.assertEquals(4, arrayFleakData.getArrayPayload().size());
     Assertions.assertEquals(100, arrayFleakData.getArrayPayload().get(0).getNumberValue());
     Assertions.assertEquals(
-        NumberPrimitiveFleakData.NumberType.INT,
+        NumberPrimitiveFleakData.NumberType.LONG,
         arrayFleakData.getArrayPayload().get(0).getNumberType());
   }
 
@@ -167,7 +167,7 @@ class JsonUtilsTest {
     Assertions.assertNotNull(arrayFleakData);
     Assertions.assertEquals(4, arrayFleakData.getArrayPayload().size());
     Assertions.assertEquals(
-        NumberPrimitiveFleakData.NumberType.INT,
+        NumberPrimitiveFleakData.NumberType.LONG,
         arrayFleakData.getArrayPayload().get(0).getNumberType());
     Assertions.assertEquals(
         NumberPrimitiveFleakData.NumberType.LONG,
@@ -200,12 +200,12 @@ class JsonUtilsTest {
 
     // Check first event
     Map<String, Object> firstEvent = result.get(0).unwrap();
-    assertEquals(1, firstEvent.get("num"));
+    assertEquals(1L, firstEvent.get("num"));
     assertEquals("first", firstEvent.get("name"));
 
     // Check second event
     Map<String, Object> secondEvent = result.get(1).unwrap();
-    assertEquals(2, secondEvent.get("num"));
+    assertEquals(2L, secondEvent.get("num"));
     assertEquals("second", secondEvent.get("name"));
   }
 }

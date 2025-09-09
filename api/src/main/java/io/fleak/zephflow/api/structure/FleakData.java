@@ -126,7 +126,8 @@ public interface FleakData extends Comparable<FleakData> {
     }
 
     if (obj instanceof Integer n) {
-      return new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.INT);
+      return new NumberPrimitiveFleakData(
+          n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
     }
 
     if (obj instanceof Long n) {
@@ -136,7 +137,7 @@ public interface FleakData extends Comparable<FleakData> {
 
     if (obj instanceof Float n) {
       return new NumberPrimitiveFleakData(
-          n.doubleValue(), NumberPrimitiveFleakData.NumberType.FLOAT);
+          n.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
     }
 
     if (obj instanceof Number n) {

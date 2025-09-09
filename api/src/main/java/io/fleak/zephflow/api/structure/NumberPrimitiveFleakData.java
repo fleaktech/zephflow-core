@@ -38,6 +38,22 @@ public class NumberPrimitiveFleakData implements PrimitiveFleakData {
   private double numberValue;
   private NumberType numberType;
 
+  /**
+   * Determines the resulting numeric type based on standard promotion rules. The type with the
+   * highest precision is chosen. (DOUBLE > FLOAT > LONG > INT)
+   *
+   * @param type1 The first numeric type.
+   * @param type2 The second numeric type.
+   * @return The promoted numeric type.
+   */
+  public static NumberType getPromotedType(NumberType type1, NumberType type2) {
+    if (type1 == NumberType.DOUBLE || type2 == NumberType.DOUBLE) {
+      return NumberType.DOUBLE;
+    }
+
+    return NumberType.LONG;
+  }
+
   @Override
   public boolean equals(Object that) {
     if (!(that instanceof NumberPrimitiveFleakData)) {
@@ -55,19 +71,15 @@ public class NumberPrimitiveFleakData implements PrimitiveFleakData {
   @Override
   @JsonValue
   public Number unwrap() {
-    return switch (numberType) {
-      case INT -> (int) numberValue;
-      case LONG -> (long) numberValue;
-      case FLOAT -> (float) numberValue;
-      default -> numberValue;
-    };
+
+    if (numberType == NumberType.LONG) {
+      return (long) numberValue;
+    }
+    return numberValue;
   }
 
   public enum NumberType {
-    UNKNOWN,
-    INT,
     LONG,
-    FLOAT,
     DOUBLE
   }
 }

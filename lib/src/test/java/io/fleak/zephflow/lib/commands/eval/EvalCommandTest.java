@@ -1077,7 +1077,9 @@ dict(
     RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
     ScalarCommand.ProcessResult processResult = runEval(inputEvent, evalExpr);
     assertEquals(1, processResult.getFailureEvents().size());
-    assertEquals("failed to cast NumberPrimitiveFleakData(numberValue=1.0, numberType=INT) into RecordFleakData", processResult.getFailureEvents().get(0).errorMessage());
+    assertEquals(
+        "failed to cast NumberPrimitiveFleakData(numberValue=1.0, numberType=LONG) into RecordFleakData",
+        processResult.getFailureEvents().get(0).errorMessage());
   }
 
   private void testEval(RecordFleakData inputEvent, String evalExpr, FleakData expected) {

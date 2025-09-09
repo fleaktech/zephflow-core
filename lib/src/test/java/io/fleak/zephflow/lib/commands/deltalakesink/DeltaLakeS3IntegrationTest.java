@@ -228,13 +228,13 @@ class DeltaLakeS3IntegrationTest {
             "version", new StringPrimitiveFleakData("1.0"),
             "source", new StringPrimitiveFleakData("integration-test"),
             "priority",
-                new NumberPrimitiveFleakData(id % 3 + 1, NumberPrimitiveFleakData.NumberType.INT));
+                new NumberPrimitiveFleakData(id % 3 + 1, NumberPrimitiveFleakData.NumberType.LONG));
     RecordFleakData metadata = new RecordFleakData(metadataPayload);
 
     // Create the main record with complex nested structures
     Map<String, FleakData> rootPayload =
         Map.of(
-            "id", new NumberPrimitiveFleakData(id, NumberPrimitiveFleakData.NumberType.INT),
+            "id", new NumberPrimitiveFleakData(id, NumberPrimitiveFleakData.NumberType.LONG),
             "userProfile", userProfile,
             "department", new StringPrimitiveFleakData(department),
             "skills", skills,

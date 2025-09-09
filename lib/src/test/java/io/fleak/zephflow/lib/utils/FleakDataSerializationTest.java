@@ -46,7 +46,7 @@ public class FleakDataSerializationTest {
 
     // Number serialization
     NumberPrimitiveFleakData intData =
-        new NumberPrimitiveFleakData(42, NumberPrimitiveFleakData.NumberType.INT);
+        new NumberPrimitiveFleakData(42, NumberPrimitiveFleakData.NumberType.LONG);
     String intJson = JsonUtils.toJsonString(intData);
     assertEquals("42", intJson);
 
@@ -70,7 +70,7 @@ public class FleakDataSerializationTest {
     List<FleakData> arrayItems =
         Arrays.asList(
             new StringPrimitiveFleakData("item1"),
-            new NumberPrimitiveFleakData(42, NumberPrimitiveFleakData.NumberType.INT),
+            new NumberPrimitiveFleakData(42, NumberPrimitiveFleakData.NumberType.LONG),
             new BooleanPrimitiveFleakData(true));
     ArrayFleakData arrayData = new ArrayFleakData(arrayItems);
 
@@ -101,7 +101,7 @@ public class FleakDataSerializationTest {
     Map<String, FleakData> payloadMap = new HashMap<>();
     payloadMap.put("name", new StringPrimitiveFleakData("John"));
     payloadMap.put(
-        "age", new NumberPrimitiveFleakData(30, NumberPrimitiveFleakData.NumberType.INT));
+        "age", new NumberPrimitiveFleakData(30, NumberPrimitiveFleakData.NumberType.LONG));
     payloadMap.put("active", new BooleanPrimitiveFleakData(true));
 
     // Add a nested array
@@ -114,7 +114,7 @@ public class FleakDataSerializationTest {
     Map<String, FleakData> addressMap = new HashMap<>();
     addressMap.put("city", new StringPrimitiveFleakData("New York"));
     addressMap.put(
-        "zip", new NumberPrimitiveFleakData(10001, NumberPrimitiveFleakData.NumberType.INT));
+        "zip", new NumberPrimitiveFleakData(10001, NumberPrimitiveFleakData.NumberType.LONG));
     payloadMap.put("address", new RecordFleakData(addressMap));
 
     RecordFleakData recordData = new RecordFleakData(payloadMap);

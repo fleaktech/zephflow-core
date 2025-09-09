@@ -121,7 +121,6 @@ public class KafkaSourceCommandTest {
 
     // Execute the command in a separate thread with timeout
     // since Kafka source will keep polling indefinitely
-    //noinspection resource
     ExecutorService executor = Executors.newSingleThreadExecutor();
     try {
       Future<?> future =
@@ -147,7 +146,7 @@ public class KafkaSourceCommandTest {
 
       // Verify that messages were consumed
       assertEquals(3, eventConsumer.getReceivedEvents().size());
-      assertEquals(2, eventConsumer.getReceivedEvents().get(0).unwrap().get("batch"));
+      assertEquals(2L, eventConsumer.getReceivedEvents().get(0).unwrap().get("batch"));
     } finally {
       executor.shutdownNow();
       //noinspection ResultOfMethodCallIgnored

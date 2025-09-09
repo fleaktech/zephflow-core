@@ -131,9 +131,7 @@ public abstract class JsonUtils {
 
   public static RecordFleakData fromJsonPayload(ObjectNode jsonObj) {
     HashMap<String, FleakData> payload = new HashMap<>();
-    Iterator<Map.Entry<String, JsonNode>> it = jsonObj.fields();
-    while (it.hasNext()) {
-      Map.Entry<String, JsonNode> e = it.next();
+    for (Map.Entry<String, JsonNode> e : jsonObj.properties()) {
       String k = e.getKey();
       JsonNode v = e.getValue();
       FleakData data = fromJsonNode(v);
@@ -165,10 +163,8 @@ public abstract class JsonUtils {
     double numberValue = numericNode.numberValue().doubleValue();
     NumberPrimitiveFleakData.NumberType numberType =
         switch (numericNode.numberType()) {
-          case INT -> NumberPrimitiveFleakData.NumberType.INT;
-          case LONG -> NumberPrimitiveFleakData.NumberType.LONG;
-          case FLOAT -> NumberPrimitiveFleakData.NumberType.FLOAT;
-          case DOUBLE -> NumberPrimitiveFleakData.NumberType.DOUBLE;
+          case INT, LONG -> NumberPrimitiveFleakData.NumberType.LONG;
+          case FLOAT, DOUBLE -> NumberPrimitiveFleakData.NumberType.DOUBLE;
           default ->
               throw new RuntimeException(
                   String.format(
@@ -229,11 +225,8 @@ public abstract class JsonUtils {
   static NumericNode toJsonNumber(NumberPrimitiveFleakData data) {
     double value = data.getNumberValue();
     return switch (data.getNumberType()) {
-      case INT -> IntNode.valueOf((int) value);
       case LONG -> LongNode.valueOf((long) value);
-      case FLOAT -> FloatNode.valueOf((float) value);
       case DOUBLE -> DoubleNode.valueOf(value);
-      default -> throw new RuntimeException("value is not supported number type: " + data);
     };
   }
 

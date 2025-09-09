@@ -93,11 +93,11 @@ public class DagResult {
     payload.put(
         "inputCount",
         new NumberPrimitiveFleakData(
-            sinkResult.getInputCount(), NumberPrimitiveFleakData.NumberType.INT));
+            sinkResult.getInputCount(), NumberPrimitiveFleakData.NumberType.LONG));
     payload.put(
         "successCount",
         new NumberPrimitiveFleakData(
-            sinkResult.getSuccessCount(), NumberPrimitiveFleakData.NumberType.INT));
+            sinkResult.getSuccessCount(), NumberPrimitiveFleakData.NumberType.LONG));
     return new RecordFleakData(payload);
   }
 }

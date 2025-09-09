@@ -28,7 +28,6 @@ import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.lib.utils.YamlUtils;
 import io.fleak.zephflow.runner.DagCompilationException;
 import io.fleak.zephflow.runner.DagResult;
@@ -46,7 +45,7 @@ public class ZephFlowTest {
 
   static {
     for (int i = 0; i < 10; ++i) {
-      SOURCE_EVENTS.add(Map.of("num", i));
+      SOURCE_EVENTS.add(Map.of("num", ((long) i)));
     }
   }
 
@@ -176,7 +175,7 @@ public class ZephFlowTest {
     List<RecordFleakData> actual =
         dagResult.getOutputEvents().values().stream().findFirst().orElseThrow();
     assertEquals(
-        List.of(Map.of("value", 1, "category", "odd"), Map.of("value", 2, "category", "even")),
+        List.of(Map.of("value", 1L, "category", "odd"), Map.of("value", 2L, "category", "even")),
         actual.stream().map(RecordFleakData::unwrap).toList());
   }
 
@@ -622,7 +621,7 @@ public class ZephFlowTest {
         assertThrows(
             DagCompilationException.class,
             () -> flow.execute("test_job_id", "test_env", "test_service"));
-    assertEquals(e.getCommandName(), COMMAND_NAME_FILTER);
+    assertEquals(COMMAND_NAME_FILTER, e.getCommandName());
     assertTrue(e.getNodeId().startsWith("filter_"));
   }
 
@@ -734,7 +733,7 @@ public class ZephFlowTest {
     ZephFlow outputFlow = inputFlow.stdoutSink(EncodingType.JSON_OBJECT);
     AdjacencyListDagDefinition dagDefinition = outputFlow.buildDag();
 
-    String dagStr = JsonUtils.toJsonString(dagDefinition);
+    String dagStr = toJsonString(dagDefinition);
     assertNotNull(dagStr);
     ZephFlow.executeJsonDag("test_id", "test_env", "test_service", dagStr, null);
     String output = testOut.toString();
@@ -1019,32 +1018,26 @@ public class ZephFlowTest {
 
     // Check first event
     Map<String, Object> firstEvent = result.get(0).unwrap();
-    assertEquals(1, firstEvent.get("num"));
+    assertEquals(1L, firstEvent.get("num"));
     assertEquals("first", firstEvent.get("name"));
 
     // Check second event
     Map<String, Object> secondEvent = result.get(1).unwrap();
-    assertEquals(2, secondEvent.get("num"));
+    assertEquals(2L, secondEvent.get("num"));
     assertEquals("second", secondEvent.get("name"));
   }
 
   @Test
-  public void testProcessAsJson() throws Exception {
-    ZephFlow flow = ZephFlow.startFlow()
-        .eval("dict(value=$.num, doubled=$.num*2)");
+  public void testProcessAsJson() {
+    ZephFlow flow = ZephFlow.startFlow().eval("dict(value=$.num, doubled=$.num*2)");
 
-    List<Map<String, Object>> testEvents = List.of(
-        Map.of("num", 1),
-        Map.of("num", 2)
-    );
+    List<Map<String, Object>> testEvents = List.of(Map.of("num", 1), Map.of("num", 2));
 
-    String jsonResult = flow.processAsJson(
-        testEvents.stream()
-            .map(event -> (RecordFleakData) fromObject(event))
-            .toList(),
-        "test_user",
-        new NoSourceDagRunner.DagRunConfig(false, false)
-    );
+    String jsonResult =
+        flow.processAsJson(
+            testEvents.stream().map(event -> (RecordFleakData) fromObject(event)).toList(),
+            "test_user",
+            new NoSourceDagRunner.DagRunConfig(false, false));
 
     assertNotNull(jsonResult);
     assertTrue(jsonResult.startsWith("{"));
@@ -1064,10 +1057,10 @@ public class ZephFlowTest {
 
     Map<String, Object> firstEvent = events.get(0);
     assertEquals(1, firstEvent.get("value"));
-    assertEquals(2.0, firstEvent.get("doubled"));
+    assertEquals(2, firstEvent.get("doubled"));
 
     Map<String, Object> secondEvent = events.get(1);
     assertEquals(2, secondEvent.get("value"));
-    assertEquals(4.0, secondEvent.get("doubled"));
+    assertEquals(4, secondEvent.get("doubled"));
   }
 }

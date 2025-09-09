@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
+import io.delta.kernel.data.ArrayValue;
 import io.delta.kernel.data.ColumnVector;
 import io.delta.kernel.data.ColumnarBatch;
 import io.delta.kernel.data.FilteredColumnarBatch;
@@ -33,11 +34,14 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 
 /** Utility class for converting Map-based data to Delta Lake ColumnarBatch format */
 @Slf4j
@@ -73,22 +77,21 @@ public class DeltaLakeDataConverter {
     }
 
     // Create ColumnarBatch
-    ColumnarBatch columnarBatch = createColumnarBatch(schema, columnVectors, data.size());
+    FilteredColumnarBatch filteredBatch = getFilteredColumnarBatch(data, schema, columnVectors);
 
-    // Create FilteredColumnarBatch with a selection vector that selects all rows
-    // Issue: passing null causes getSelectionVector() to return null, causing NPE in
-    // ParquetFileWriter
-    // Fix: create a selection vector that selects all rows (all true values)
+    // Return as single-element iterator
+    return new SingleElementIterator<>(filteredBatch);
+  }
+
+  private static @NotNull FilteredColumnarBatch getFilteredColumnarBatch(
+      List<Map<String, Object>> data, StructType schema, Map<String, ColumnVector> columnVectors) {
+    ColumnarBatch columnarBatch = createColumnarBatch(schema, columnVectors, data.size());
     List<Object> allTrueValues = new ArrayList<>();
     for (int i = 0; i < data.size(); i++) {
       allTrueValues.add(Boolean.TRUE);
     }
     ColumnVector allRowsSelectedVector = new SimpleColumnVector(allTrueValues, BooleanType.BOOLEAN);
-    FilteredColumnarBatch filteredBatch =
-        new FilteredColumnarBatch(columnarBatch, java.util.Optional.of(allRowsSelectedVector));
-
-    // Return as single-element iterator
-    return new SingleElementIterator<>(filteredBatch);
+    return new FilteredColumnarBatch(columnarBatch, java.util.Optional.of(allRowsSelectedVector));
   }
 
   /** Infer schema from the first record in the data */
@@ -119,18 +122,14 @@ public class DeltaLakeDataConverter {
     // Handle FleakData types first
     if (value instanceof StringPrimitiveFleakData) {
       return StringType.STRING;
-    } else if (value instanceof NumberPrimitiveFleakData) {
-      NumberPrimitiveFleakData numberData = (NumberPrimitiveFleakData) value;
+    } else if (value instanceof NumberPrimitiveFleakData numberData) {
       return switch (numberData.getNumberType()) {
-        case INT -> IntegerType.INTEGER;
         case LONG -> LongType.LONG;
-        case FLOAT, DOUBLE -> DoubleType.DOUBLE;
-        default -> DoubleType.DOUBLE; // Default to double for unknown number types
+        case DOUBLE -> DoubleType.DOUBLE;
       };
     } else if (value instanceof BooleanPrimitiveFleakData) {
       return BooleanType.BOOLEAN;
-    } else if (value instanceof ArrayFleakData) {
-      ArrayFleakData arrayData = (ArrayFleakData) value;
+    } else if (value instanceof ArrayFleakData arrayData) {
       List<FleakData> arrayPayload = arrayData.getArrayPayload();
       if (!arrayPayload.isEmpty()) {
         // Infer element type from first non-null element
@@ -139,8 +138,7 @@ public class DeltaLakeDataConverter {
       } else {
         return new ArrayType(StringType.STRING, true); // default to string array
       }
-    } else if (value instanceof RecordFleakData) {
-      RecordFleakData recordData = (RecordFleakData) value;
+    } else if (value instanceof RecordFleakData recordData) {
       Map<String, FleakData> payload = recordData.getPayload();
       List<StructField> fields = new ArrayList<>();
 
@@ -166,18 +164,16 @@ public class DeltaLakeDataConverter {
       return BooleanType.BOOLEAN;
     } else if (value instanceof java.sql.Timestamp || value instanceof java.time.Instant) {
       return TimestampType.TIMESTAMP;
-    } else if (value instanceof java.util.List) {
+    } else if (value instanceof List<?> list) {
       // Handle Java Lists - try to infer element type
-      List<?> list = (java.util.List<?>) value;
       if (!list.isEmpty()) {
         DataType elementType = inferDataType(list.get(0));
         return new ArrayType(elementType, true);
       } else {
         return new ArrayType(StringType.STRING, true);
       }
-    } else if (value instanceof java.util.Map) {
+    } else if (value instanceof Map<?, ?> map) {
       // Handle Java Maps as structs
-      Map<?, ?> map = (java.util.Map<?, ?>) value;
       List<StructField> fields = new ArrayList<>();
 
       for (Map.Entry<?, ?> entry : map.entrySet()) {
@@ -270,11 +266,9 @@ public class DeltaLakeDataConverter {
           return null;
         }
       }
-    } else if (targetType instanceof ArrayType) {
+    } else if (targetType instanceof ArrayType arrayType) {
       // Handle array types
-      ArrayType arrayType = (ArrayType) targetType;
-      if (unwrappedValue instanceof List) {
-        List<?> list = (List<?>) unwrappedValue;
+      if (unwrappedValue instanceof List<?> list) {
         List<Object> convertedList = new ArrayList<>();
         for (Object element : list) {
           Object convertedElement =
@@ -340,11 +334,8 @@ public class DeltaLakeDataConverter {
    * Enhanced implementation of ColumnVector that properly handles different data types and null
    * values for use with Delta Kernel API
    */
-  static class SimpleColumnVector implements ColumnVector {
-    private final List<Object> values;
-    private final DataType dataType;
-
-    public SimpleColumnVector(List<Object> values, DataType dataType) {
+  record SimpleColumnVector(List<Object> values, DataType dataType) implements ColumnVector {
+    SimpleColumnVector(List<Object> values, DataType dataType) {
       this.values = new ArrayList<>(values); // Create defensive copy
       this.dataType = dataType;
 
@@ -378,7 +369,7 @@ public class DeltaLakeDataConverter {
       } else if (dataType.equals(BooleanType.BOOLEAN)) {
         return value instanceof Boolean;
       } else if (dataType.equals(TimestampType.TIMESTAMP)) {
-        return value instanceof java.sql.Timestamp || value instanceof java.time.Instant;
+        return value instanceof Timestamp || value instanceof Instant;
       } else if (dataType instanceof ArrayType) {
         return value instanceof List;
       } else if (dataType instanceof StructType) {
@@ -478,69 +469,15 @@ public class DeltaLakeDataConverter {
       Object value = get(rowId);
       if (value == null) return false;
       if (value instanceof Boolean) {
-        return ((Boolean) value).booleanValue();
+        return (Boolean) value;
       }
       return Boolean.parseBoolean(value.toString());
-    }
-
-    // Add methods that return Optional values to prevent null pointer issues in Parquet writer
-    public java.util.Optional<String> getStringOptional(int rowId) {
-      Object value = get(rowId);
-      return value == null ? java.util.Optional.empty() : java.util.Optional.of(value.toString());
-    }
-
-    public java.util.Optional<Integer> getIntOptional(int rowId) {
-      Object value = get(rowId);
-      if (value == null) return java.util.Optional.empty();
-      if (value instanceof Number) {
-        return java.util.Optional.of(((Number) value).intValue());
-      }
-      try {
-        return java.util.Optional.of(Integer.parseInt(value.toString()));
-      } catch (NumberFormatException e) {
-        return java.util.Optional.empty();
-      }
-    }
-
-    public java.util.Optional<Long> getLongOptional(int rowId) {
-      Object value = get(rowId);
-      if (value == null) return java.util.Optional.empty();
-      if (value instanceof Number) {
-        return java.util.Optional.of(((Number) value).longValue());
-      }
-      try {
-        return java.util.Optional.of(Long.parseLong(value.toString()));
-      } catch (NumberFormatException e) {
-        return java.util.Optional.empty();
-      }
-    }
-
-    public java.util.Optional<Double> getDoubleOptional(int rowId) {
-      Object value = get(rowId);
-      if (value == null) return java.util.Optional.empty();
-      if (value instanceof Number) {
-        return java.util.Optional.of(((Number) value).doubleValue());
-      }
-      try {
-        return java.util.Optional.of(Double.parseDouble(value.toString()));
-      } catch (NumberFormatException e) {
-        return java.util.Optional.empty();
-      }
-    }
-
-    public java.util.Optional<Boolean> getBooleanOptional(int rowId) {
-      Object value = get(rowId);
-      if (value == null) return java.util.Optional.empty();
-      if (value instanceof Boolean) {
-        return java.util.Optional.of((Boolean) value);
-      }
-      return java.util.Optional.of(Boolean.parseBoolean(value.toString()));
     }
 
     // Override additional methods that might be called by Parquet writer
     // to ensure they never return null Optional values
     @Override
-    public String toString() {
+    public @NotNull String toString() {
       return "SimpleColumnVector{" + "dataType=" + dataType + ", size=" + values.size() + '}';
     }
 
@@ -553,9 +490,9 @@ public class DeltaLakeDataConverter {
     }
 
     @Override
-    public io.delta.kernel.data.ArrayValue getArray(int rowId) {
+    public ArrayValue getArray(int rowId) {
       validateRowId(rowId);
-      if (!(dataType instanceof ArrayType)) {
+      if (!(dataType instanceof ArrayType arrayType)) {
         throw new UnsupportedOperationException("getArray() is only supported for array types");
       }
 
@@ -567,7 +504,6 @@ public class DeltaLakeDataConverter {
       if (value instanceof List) {
         @SuppressWarnings("unchecked")
         List<Object> list = (List<Object>) value;
-        ArrayType arrayType = (ArrayType) dataType;
 
         // Create a simple ArrayValue implementation
         return new SimpleArrayValue(list, arrayType.getElementType());
@@ -579,8 +515,7 @@ public class DeltaLakeDataConverter {
 
     @Override
     public ColumnVector getChild(int ordinal) {
-      if (dataType instanceof StructType) {
-        StructType structType = (StructType) dataType;
+      if (dataType instanceof StructType structType) {
         StructField field = structType.at(ordinal);
         String fieldName = field.getName();
         DataType fieldType = field.getDataType();
@@ -613,13 +548,12 @@ public class DeltaLakeDataConverter {
         }
 
         return new SimpleColumnVector(childValues, fieldType);
-      } else if (dataType instanceof ArrayType) {
+      } else if (dataType instanceof ArrayType arrayType) {
         // For arrays, ordinal should be 0 for the element vector
         if (ordinal != 0) {
           throw new IllegalArgumentException("Array types only have one child at ordinal 0");
         }
 
-        ArrayType arrayType = (ArrayType) dataType;
         DataType elementType = arrayType.getElementType();
 
         // Extract all elements from all arrays
@@ -627,7 +561,9 @@ public class DeltaLakeDataConverter {
         for (Object value : values) {
           if (value == null) {
             // For null arrays, we don't add any elements
-          } else if (value instanceof List) {
+            continue;
+          }
+          if (value instanceof List) {
             @SuppressWarnings("unchecked")
             List<Object> list = (List<Object>) value;
             allElements.addAll(list);
@@ -645,17 +581,9 @@ public class DeltaLakeDataConverter {
   }
 
   /** Simple implementation of ColumnarBatch for demonstration */
-  static class SimpleColumnarBatch implements ColumnarBatch {
-    private final StructType schema;
-    private final Map<String, ColumnVector> columnVectors;
-    private final int numRows;
-
-    public SimpleColumnarBatch(
-        StructType schema, Map<String, ColumnVector> columnVectors, int numRows) {
-      this.schema = schema;
-      this.columnVectors = columnVectors;
-      this.numRows = numRows;
-    }
+  record SimpleColumnarBatch(
+      StructType schema, Map<String, ColumnVector> columnVectors, int numRows)
+      implements ColumnarBatch {
 
     public StructType getSchema() {
       return schema;
@@ -668,10 +596,6 @@ public class DeltaLakeDataConverter {
     public ColumnVector getColumnVector(int ordinal) {
       StructField field = schema.at(ordinal);
       return columnVectors.get(field.getName());
-    }
-
-    public void close() {
-      columnVectors.values().forEach(ColumnVector::close);
     }
   }
 
@@ -694,14 +618,8 @@ public class DeltaLakeDataConverter {
   }
 
   /** Simple implementation of ArrayValue for Delta Kernel API */
-  private static class SimpleArrayValue implements io.delta.kernel.data.ArrayValue {
-    private final List<Object> elements;
-    private final io.delta.kernel.types.DataType elementType;
-
-    public SimpleArrayValue(List<Object> elements, io.delta.kernel.types.DataType elementType) {
-      this.elements = elements;
-      this.elementType = elementType;
-    }
+  private record SimpleArrayValue(List<Object> elements, DataType elementType)
+      implements ArrayValue {
 
     @Override
     public int getSize() {
@@ -709,26 +627,9 @@ public class DeltaLakeDataConverter {
     }
 
     @Override
-    public io.delta.kernel.data.ColumnVector getElements() {
+    public ColumnVector getElements() {
       // Return a column vector containing all the array elements
       return new SimpleColumnVector(elements, elementType);
-    }
-
-    // Additional helper methods that may be expected by Parquet writer
-    public boolean isNullAt(int ordinal) {
-      if (ordinal < 0 || ordinal >= elements.size()) {
-        throw new IndexOutOfBoundsException(
-            "Array index " + ordinal + " out of bounds for size " + elements.size());
-      }
-      return elements.get(ordinal) == null;
-    }
-
-    public Object get(int ordinal) {
-      if (ordinal < 0 || ordinal >= elements.size()) {
-        throw new IndexOutOfBoundsException(
-            "Array index " + ordinal + " out of bounds for size " + elements.size());
-      }
-      return elements.get(ordinal);
     }
   }
 
