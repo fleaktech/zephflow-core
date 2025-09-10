@@ -989,6 +989,49 @@ def process_req(req_value, factor):
   }
 
   @Test
+  void testEval_PythonFunc2() {
+    String evalExpr =
+        """
+        dict(
+          endpoint=arr_foreach(
+            $.resp["assets"],
+            elem,
+            dict(
+              test1=python(
+                  'def test(arg1):
+                      return arg1*2',
+                  elem["deviceModel"]
+                )
+            )
+          )
+        )
+        """;
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            loadFleakDataFromJsonString(
+                """
+            {
+              "resp": {
+                "assets": [
+                  {
+                    "deviceModel": "a"
+                  },
+                  {
+                    "deviceModel": "b"
+                  }
+                ]
+              }
+            }
+            """);
+    FleakData outputEvent =
+        loadFleakDataFromJsonString(
+"""
+{"endpoint":[{"test1":"aa"},{"test1":"bb"}]}
+""");
+    testEval(inputEvent, evalExpr, outputEvent);
+  }
+
+  @Test
   public void testArrayZip() {
     String inputEventStr =
 """

@@ -1181,9 +1181,8 @@ public interface FeelFunction {
       if (args.isEmpty()) {
         throw new IllegalArgumentException("python function expects at least 1 argument (script)");
       }
-
       // Use the context to lookup the pre-compiled function
-      CompiledPythonFunction compiledFunc = pythonExecutor.getCompiledPythonFunctions().get(ctx);
+      CompiledPythonFunction compiledFunc = pythonExecutor.compiledPythonFunctions().get(ctx);
 
       if (compiledFunc == null) {
         throw new IllegalStateException(
@@ -1208,7 +1207,11 @@ public interface FeelFunction {
         CompiledPythonFunction compiledFunc, List<FleakData> feelArgs) {
       Value targetFunction = compiledFunc.functionValue();
 
-      try (Context context = compiledFunc.pythonContext()) {
+      try {
+        // can't close the context here because it will be reused
+        // it's closed in pythonExecutor.close()
+        @SuppressWarnings("resource")
+        Context context = compiledFunc.pythonContext();
         // Convert FEEL arguments to Python arguments
         Object[] pythonArgs =
             feelArgs.stream()

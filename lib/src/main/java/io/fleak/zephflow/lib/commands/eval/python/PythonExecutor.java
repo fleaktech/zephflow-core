@@ -16,21 +16,14 @@ package io.fleak.zephflow.lib.commands.eval.python;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
 
 /** Created by bolei on 4/22/25 */
 @Slf4j
-@Value
-public class PythonExecutor implements AutoCloseable {
-
-  Map<ParserRuleContext, CompiledPythonFunction> compiledPythonFunctions;
-
-  private PythonExecutor(Map<ParserRuleContext, CompiledPythonFunction> compiledPythonFunctions) {
-    this.compiledPythonFunctions = compiledPythonFunctions;
-  }
+public record PythonExecutor(Map<ParserRuleContext, CompiledPythonFunction> compiledPythonFunctions)
+    implements AutoCloseable {
 
   @Override
   public void close() throws Exception {
