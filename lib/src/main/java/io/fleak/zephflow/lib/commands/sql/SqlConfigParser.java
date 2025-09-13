@@ -15,11 +15,15 @@ package io.fleak.zephflow.lib.commands.sql;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import java.util.Map;
+import org.apache.hadoop.util.Preconditions;
 
 /** Created by bolei on 9/4/24 */
 public class SqlConfigParser implements ConfigParser {
   @Override
-  public CommandConfig parseConfig(String configStr) {
-    return new SqlCommandDto.SqlCommandConfig(configStr);
+  public CommandConfig parseConfig(Map<String, Object> config) {
+    String sql = (String) config.get("sql");
+    Preconditions.checkNotNull(sql);
+    return new SqlCommandDto.SqlCommandConfig(sql);
   }
 }

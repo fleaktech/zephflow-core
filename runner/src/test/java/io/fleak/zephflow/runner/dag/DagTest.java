@@ -16,10 +16,7 @@ package io.fleak.zephflow.runner.dag;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -259,7 +256,7 @@ class DagTest {
     AdjacencyListDagDefinition.DagNode nodeA = new AdjacencyListDagDefinition.DagNode();
     nodeA.setId("A");
     nodeA.setCommandName("Command A");
-    nodeA.setConfig("Config A");
+    nodeA.setConfig(Map.of("k", "Config A"));
 
     List<String> outputsA = new ArrayList<>();
     String outputAB = "B";
@@ -270,7 +267,7 @@ class DagTest {
     AdjacencyListDagDefinition.DagNode nodeB = new AdjacencyListDagDefinition.DagNode();
     nodeB.setId("B");
     nodeB.setCommandName("Command B");
-    nodeB.setConfig("Config B");
+    nodeB.setConfig(Map.of("k", "Config B"));
     nodeB.setOutputs(new ArrayList<>()); // No outputs
 
     dagNodes.add(nodeA);
@@ -287,7 +284,7 @@ class DagTest {
     // Verify node content
     Node<RawDagNode> convertedNodeA = dag.lookupNode("A");
     assertEquals("Command A", convertedNodeA.getNodeContent().getCommandName());
-    assertEquals("Config A", convertedNodeA.getNodeContent().getArg());
+    assertEquals(Map.of("k", "Config A"), convertedNodeA.getNodeContent().getArg());
 
     // Verify edge
     List<Edge> downstreamEdgesA = dag.downstreamEdges("A");
@@ -301,12 +298,12 @@ class DagTest {
     AdjacencyListDagDefinition.DagNode nodeA = new AdjacencyListDagDefinition.DagNode();
     nodeA.setId("A");
     nodeA.setCommandName("Command A");
-    nodeA.setConfig("Config A");
+    nodeA.setConfig(Map.of("k", "Config A"));
 
     AdjacencyListDagDefinition.DagNode nodeB = new AdjacencyListDagDefinition.DagNode();
     nodeB.setId("B");
     nodeB.setCommandName("Command B");
-    nodeB.setConfig("Config B");
+    nodeB.setConfig(Map.of("k", "Config B"));
 
     Dag<RawDagNode> dag = Dag.fromAdjacencyList(List.of(nodeA, nodeB));
     assertTrue(dag.getEdges().isEmpty());

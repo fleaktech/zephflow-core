@@ -18,6 +18,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.utils.YamlUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -42,7 +43,7 @@ public class AdjacencyListDagDefinition {
   public static class DagNode {
     private String id;
     private String commandName;
-    private String config;
+    private Map<String, Object> config;
     @Builder.Default private List<String> outputs = new ArrayList<>();
 
     public DagNode duplicate() {

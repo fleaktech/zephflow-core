@@ -14,9 +14,10 @@
 package io.fleak.zephflow.lib.commands.stdin;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_STDIN;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.TestUtils;
@@ -35,8 +36,8 @@ class StdInSourceCommandTest {
                 .get(COMMAND_NAME_STDIN)
                 .createCommand("my_node", JOB_CONTEXT);
     command.parseAndValidateArg(
-        toJsonString(
-            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build()));
+        OBJECT_MAPPER.convertValue(
+            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(), new TypeReference<>() {}));
     command.execute("my_user", new MetricClientProvider.NoopMetricClientProvider(), eventConsumer);
   }
 }

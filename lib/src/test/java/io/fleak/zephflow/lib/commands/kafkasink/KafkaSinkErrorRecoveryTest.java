@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -90,7 +91,7 @@ class KafkaSinkErrorRecoveryTest {
             .batchSize(5)
             .flushIntervalMs(1000L)
             .build();
-    kafkaSinkCommand.parseAndValidateArg(toJsonString(config));
+    kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Create test data with potential serialization challenges
     List<RecordFleakData> testData = new ArrayList<>();

@@ -1139,7 +1139,7 @@ dict(
   private ScalarCommand.ProcessResult runEval(RecordFleakData inputEvent, String evalExpr) {
     EvalCommand evalCommand =
         (EvalCommand) new EvalCommandFactory().createCommand("my_node_id", JOB_CONTEXT);
-    evalCommand.parseAndValidateArg(evalExpr);
+    evalCommand.parseAndValidateArg(Map.of("expression", evalExpr));
     ScalarCommand.ProcessResult processResult =
         evalCommand.process(
             List.of(inputEvent), "test_user", new MetricClientProvider.NoopMetricClientProvider());

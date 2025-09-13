@@ -14,30 +14,33 @@ dag:
 
   - id: "b"
     commandName: "eval"
-    config: |
-      dict(
-        type=case(
-          $.num%2==0 => 'even',
-          $.num%2==1 => 'odd',
-          _ => 'unknown'
-        ),
-        num=$.num
-      )
+    config:
+      expression: |
+        dict(
+          type=case(
+            $.num%2==0 => 'even',
+            $.num%2==1 => 'odd',
+            _ => 'unknown'
+          ),
+          num=$.num
+        )
     outputs:
       - "b_to_c_filter"
       - "b_to_d_filter"
 
   - id: "b_to_c_filter"
     commandName: "filter"
-    config: |
-      $.type == 'even'
+    config:
+      expression: |
+        $.type == 'even'
     outputs:
       - "c"
 
   - id: "b_to_d_filter"
     commandName: "filter"
-    config: |
-      $.type == 'odd'
+    config:
+      expression: |
+        $.type == 'odd'
     outputs:
       - "d"
 
