@@ -59,7 +59,7 @@ class AssertionCommandTest {
     AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(true);
     AssertionCommand assertionCommand =
         (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
-    assertionCommand.parseAndValidateArg("$.foo %2 == 0 ");
+    assertionCommand.parseAndValidateArg(Map.of("expression", "$.foo %2 == 0 "));
 
     RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
     RecordFleakData r1 = (RecordFleakData) FleakData.wrap(Map.of("foo", 1));
@@ -84,7 +84,7 @@ class AssertionCommandTest {
     AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(true);
     AssertionCommand assertionCommand =
         (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
-    assertionCommand.parseAndValidateArg("dict(bar=$.foo)");
+    assertionCommand.parseAndValidateArg(Map.of("expression", "dict(bar=$.foo)"));
     RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
     RecordFleakData r1 = (RecordFleakData) FleakData.wrap(Map.of("foo", 1));
     assert r0 != null;
@@ -109,7 +109,7 @@ class AssertionCommandTest {
     AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(false);
     AssertionCommand assertionCommand =
         (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
-    assertionCommand.parseAndValidateArg("$.foo %2 == 0 ");
+    assertionCommand.parseAndValidateArg(Map.of("expression", "$.foo %2 == 0 "));
     RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
     RecordFleakData r1 = (RecordFleakData) FleakData.wrap(Map.of("foo", 1));
 
@@ -132,7 +132,7 @@ class AssertionCommandTest {
     AssertionCommand assertionCommand =
         (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
     // $.foo is number, str_split() on it will cause issue
-    assertionCommand.parseAndValidateArg("str_split($.foo, '\\+') ");
+    assertionCommand.parseAndValidateArg(Map.of("expression", "str_split($.foo, '\\+') "));
     RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
     assert r0 != null;
     ScalarCommand.ProcessResult processResult =

@@ -13,8 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.eval;
 
+import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 
@@ -25,7 +27,9 @@ public class EvalConfigParser implements ConfigParser {
   private boolean assertion;
 
   @Override
-  public CommandConfig parseConfig(String configStr) {
-    return new EvalCommandDto.Config(configStr, assertion);
+  public CommandConfig parseConfig(Map<String, Object> config) {
+    String eval = (String) config.get("expression");
+    Preconditions.checkNotNull(eval);
+    return new EvalCommandDto.Config(eval, assertion);
   }
 }

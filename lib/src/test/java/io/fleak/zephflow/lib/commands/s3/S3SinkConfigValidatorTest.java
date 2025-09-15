@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3;
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 9/6/24 */
@@ -23,21 +24,23 @@ class S3SinkConfigValidatorTest {
 
   @Test
   void validateConfig() {
-    String configStr =
-        """
-      {
-        "regionStr": "us-east-1",
-        "bucketName": "example-bucket",
-        "keyName": "example-key",
-        "encodingType": "JSON_OBJECT",
-        "credentialId": "credential_2"
-      }
-    """;
+    Map<String, Object> configMap =
+        Map.of(
+            "regionStr",
+            "us-east-1",
+            "bucketName",
+            "example-bucket",
+            "keyName",
+            "example-key",
+            "encodingType",
+            "JSON_OBJECT",
+            "credentialId",
+            "credential_2");
     S3SinkConfigValidator validator = new S3SinkConfigValidator();
     JsonConfigParser<S3SinkDto.Config> configParser =
         new JsonConfigParser<>(S3SinkDto.Config.class);
 
-    S3SinkDto.Config config = configParser.parseConfig(configStr);
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
     validator.validateConfig(config, "abc", JOB_CONTEXT);
   }
 }

@@ -68,7 +68,7 @@ class SimpleSourceCommandTest {
 
   private static final String TEST_NODE_ID = "testNode";
   private static final String TEST_COMMAND_NAME = "testCommand";
-  private static final String TEST_CONFIG = "test-config";
+  private static final Map<String, Object> TEST_CONFIG = Map.of("k", "test-config");
 
   private JobContext mockJobContext;
   private ConfigParser mockConfigParser;

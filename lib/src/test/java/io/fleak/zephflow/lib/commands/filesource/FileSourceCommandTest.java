@@ -13,8 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.filesource;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonResource;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -43,11 +42,11 @@ class FileSourceCommandTest {
     SourceCommand command = (SourceCommand) fac.createCommand("test_node", TestUtils.JOB_CONTEXT);
 
     command.parseAndValidateArg(
-        toJsonString(
+        OBJECT_MAPPER.convertValue(
             FileSourceDto.Config.builder()
                 .encodingType(EncodingType.CSV)
                 .filePath(inputFile.toString())
-                .build()));
+                .build(), new TypeReference<>() {}));
     KafkaSourceCommandTest.TestSourceEventAcceptor eventConsumer =
         new KafkaSourceCommandTest.TestSourceEventAcceptor();
     command.execute(

@@ -13,22 +13,17 @@
  */
 package io.fleak.zephflow.lib.commands;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import java.util.Map;
 
 /** Created by bolei on 9/24/24 */
-public class JsonConfigParser<T extends CommandConfig> implements ConfigParser {
-
-  private final Class<T> clz;
-
-  public JsonConfigParser(Class<T> clz) {
-    this.clz = clz;
-  }
+public record JsonConfigParser<T extends CommandConfig>(Class<T> clz) implements ConfigParser {
 
   @Override
-  public T parseConfig(String configStr) {
-    return fromJsonString(configStr, clz);
+  public T parseConfig(Map<String, Object> config) {
+    return OBJECT_MAPPER.convertValue(config, clz);
   }
 }

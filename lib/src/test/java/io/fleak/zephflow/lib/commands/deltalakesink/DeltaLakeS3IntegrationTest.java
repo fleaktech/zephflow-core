@@ -13,10 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.delta.kernel.Operation;
 import io.delta.kernel.Table;
 import io.delta.kernel.Transaction;
@@ -125,8 +127,7 @@ class DeltaLakeS3IntegrationTest {
             .batchSize(50) // Smaller batch for integration test
             .build();
 
-    String configJson = io.fleak.zephflow.lib.utils.JsonUtils.toJsonString(config);
-    sinkCommand.parseAndValidateArg(configJson);
+    sinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Step 4: Create Delta table on S3 for testing
     createDeltaTableOnS3(tablePath, s3Credential);

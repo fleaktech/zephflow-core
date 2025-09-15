@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasource;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -117,7 +118,8 @@ public class KafkaSourceCommandTest {
             .properties(Map.of("auto.offset.reset", "latest"))
             .build();
 
-    kafkaSourceCommand.parseAndValidateArg(toJsonString(config));
+    kafkaSourceCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Execute the command in a separate thread with timeout
     // since Kafka source will keep polling indefinitely
