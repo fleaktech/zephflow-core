@@ -30,11 +30,8 @@ import org.apache.commons.lang3.tuple.Pair;
 
 /** Created by bolei on 2/28/25 */
 @Slf4j
-public class DagExecutor {
-  private final JobConfig jobConfig;
-  private final DagCompiler dagCompiler;
-  private final MetricClientProvider metricClientProvider;
-
+public record DagExecutor(
+    JobConfig jobConfig, DagCompiler dagCompiler, MetricClientProvider metricClientProvider) {
   public static DagExecutor createDagExecutor(
       JobConfig jobConfig, MetricClientProvider metricClientProvider) {
 
@@ -88,13 +85,6 @@ public class DagExecutor {
     return new DagExecutor(jobConfig, compiler, metricClientProvider);
   }
 
-  private DagExecutor(
-      JobConfig jobConfig, DagCompiler compiler, MetricClientProvider metricClientProvider) {
-    this.jobConfig = jobConfig;
-    this.dagCompiler = compiler;
-    this.metricClientProvider = metricClientProvider;
-  }
-
   public void executeDag() throws Exception {
     var compiledDag = dagCompiler.compile(jobConfig.getDagDefinition(), true);
     Pair<Dag<OperatorCommand>, Dag<OperatorCommand>> entryNodesDagAndRest =
@@ -137,6 +127,7 @@ public class DagExecutor {
           });
     } finally {
       sourceCommand.terminate();
+      noSourceDagRunner.terminate();
     }
   }
 
