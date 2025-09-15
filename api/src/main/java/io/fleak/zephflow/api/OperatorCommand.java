@@ -18,6 +18,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import java.io.ObjectInputStream;
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.Map;
 
 /** Created by bolei on 7/26/24 */
 public abstract class OperatorCommand implements Serializable {
@@ -50,11 +51,11 @@ public abstract class OperatorCommand implements Serializable {
    * This method is called by the compiler at the compilation time. It parses the argument string
    * into a CommandConfig object and validates the config value.
    *
-   * @param configStr The configuration as a string coming from the UI/client
+   * @param config The configuration coming from the UI/client
    */
-  public void parseAndValidateArg(String configStr) {
-    commandConfig = configParser.parseConfig(configStr);
-    Preconditions.checkNotNull(commandConfig, "failed to parse input arg: %s", configStr);
+  public void parseAndValidateArg(Map<String, Object> config) {
+    commandConfig = configParser.parseConfig(config);
+    Preconditions.checkNotNull(commandConfig, "failed to parse input arg: %s", config);
     configValidator.validateConfig(commandConfig, nodeId, jobContext);
   }
 

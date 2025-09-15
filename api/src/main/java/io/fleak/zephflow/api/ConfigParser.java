@@ -14,8 +14,9 @@
 package io.fleak.zephflow.api;
 
 import java.io.Serializable;
+import java.util.Map;
 
 /** Created by bolei on 9/3/24 */
 public interface ConfigParser extends Serializable {
-  CommandConfig parseConfig(String configStr);
+  CommandConfig parseConfig(Map<String, Object> configStr);
 }

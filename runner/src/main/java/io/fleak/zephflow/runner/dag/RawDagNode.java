@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.runner.dag;
 
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,5 +26,5 @@ import lombok.NoArgsConstructor;
 @Builder
 public class RawDagNode {
   private String commandName;
-  private String arg;
+  private Map<String, Object> arg;
 }

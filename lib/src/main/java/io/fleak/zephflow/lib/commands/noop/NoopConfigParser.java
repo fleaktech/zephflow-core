@@ -15,11 +15,12 @@ package io.fleak.zephflow.lib.commands.noop;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import java.util.Map;
 
 /** Created by bolei on 9/3/24 */
 public class NoopConfigParser implements ConfigParser {
   @Override
-  public NoopCommandConfig parseConfig(String configStr) {
+  public NoopCommandConfig parseConfig(Map<String, Object> config) {
     return new NoopCommandConfig();
   }
 

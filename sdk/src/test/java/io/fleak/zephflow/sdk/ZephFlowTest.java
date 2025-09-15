@@ -498,9 +498,9 @@ public class ZephFlowTest {
     AdjacencyListDagDefinition.DagNode oddFilterNode = null;
 
     for (AdjacencyListDagDefinition.DagNode node : filterNodes) {
-      if (node.getConfig().contains("$.num%2 == 0")) {
+      if (((String) node.getConfig().get("expression")).contains("$.num%2 == 0")) {
         evenFilterNode = node;
-      } else if (node.getConfig().contains("$.num%2 == 1")) {
+      } else if (((String) node.getConfig().get("expression")).contains("$.num%2 == 1")) {
         oddFilterNode = node;
       }
     }
@@ -523,8 +523,12 @@ public class ZephFlowTest {
     assertNotNull(oddEvalNode);
 
     // Verify the content of eval nodes
-    assertTrue(evenEvalNode.getConfig().contains("dict(num=$.num, label='even')"));
-    assertTrue(oddEvalNode.getConfig().contains("dict(num=$.num, label='odd')"));
+    assertTrue(
+        ((String) evenEvalNode.getConfig().get("expression"))
+            .contains("dict(num=$.num, label='even')"));
+    assertTrue(
+        ((String) oddEvalNode.getConfig().get("expression"))
+            .contains("dict(num=$.num, label='odd')"));
 
     // Verify eval nodes have no outputs
     assertTrue(evenEvalNode.getOutputs().isEmpty());

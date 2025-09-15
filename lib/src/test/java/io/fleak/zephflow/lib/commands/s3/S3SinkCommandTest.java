@@ -14,9 +14,10 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -88,7 +89,7 @@ public class S3SinkCommandTest {
 
     S3SinkCommand command =
         (S3SinkCommand) new S3SinkCommandFactory().createCommand("myNodeId", jobContext);
-    command.parseAndValidateArg(toJsonString(config));
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     List<RecordFleakData> inputEvents =
         List.of(

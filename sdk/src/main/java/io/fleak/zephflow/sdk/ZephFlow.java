@@ -25,15 +25,18 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.annotations.VisibleForTesting;
+import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.SimpleHttpClient;
+import io.fleak.zephflow.lib.commands.eval.EvalCommandDto;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceDto;
 import io.fleak.zephflow.lib.commands.s3.S3SinkDto;
+import io.fleak.zephflow.lib.commands.sql.SqlCommandDto;
 import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
 import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
@@ -327,7 +330,7 @@ public class ZephFlow {
    * @return A new ZephFlow instance representing the flow with the filter appended.
    */
   public ZephFlow filter(String condition) {
-    return appendNode(COMMAND_NAME_FILTER, condition);
+    return appendNode(COMMAND_NAME_FILTER, new EvalCommandDto.Config(condition, false));
   }
 
   /**
@@ -337,7 +340,7 @@ public class ZephFlow {
    * @return A new ZephFlow instance representing the flow with the assertion appended.
    */
   public ZephFlow assertion(String condition) {
-    return appendNode(COMMAND_NAME_ASSERTION, condition);
+    return appendNode(COMMAND_NAME_ASSERTION, new EvalCommandDto.Config(condition, true));
   }
 
   /**
@@ -347,7 +350,7 @@ public class ZephFlow {
    * @return A new ZephFlow instance representing the flow with the parser appended.
    */
   public ZephFlow parse(ParserConfigs.ParserConfig parserConfig) {
-    return appendNode(COMMAND_NAME_PARSER, toJsonString(parserConfig));
+    return appendNode(COMMAND_NAME_PARSER, parserConfig);
   }
 
   /**
@@ -359,7 +362,7 @@ public class ZephFlow {
   public ZephFlow stdinSource(EncodingType encodingType) {
     StdInSourceDto.Config config =
         StdInSourceDto.Config.builder().encodingType(encodingType).build();
-    return appendNode(COMMAND_NAME_STDIN, toJsonString(config));
+    return appendNode(COMMAND_NAME_STDIN, config);
   }
 
   /**
@@ -372,7 +375,7 @@ public class ZephFlow {
   public ZephFlow fileSource(String filePath, EncodingType encodingType) {
     FileSourceDto.Config config =
         FileSourceDto.Config.builder().filePath(filePath).encodingType(encodingType).build();
-    return appendNode(COMMAND_NAME_FILE_SOURCE, toJsonString(config));
+    return appendNode(COMMAND_NAME_FILE_SOURCE, config);
   }
 
   /**
@@ -382,7 +385,7 @@ public class ZephFlow {
    * @return A new ZephFlow instance representing the flow with the eval node appended.
    */
   public ZephFlow eval(String evalExpression) {
-    return appendNode(COMMAND_NAME_EVAL, evalExpression);
+    return appendNode(COMMAND_NAME_EVAL, new EvalCommandDto.Config(evalExpression, false));
   }
 
   /**
@@ -392,7 +395,7 @@ public class ZephFlow {
    * @return A new ZephFlow instance representing the flow with the SQL node appended.
    */
   public ZephFlow sql(String sql) {
-    return appendNode(COMMAND_NAME_SQL_EVAL, sql);
+    return appendNode(COMMAND_NAME_SQL_EVAL, new SqlCommandDto.SqlCommandConfig(sql));
   }
 
   /**
@@ -433,7 +436,7 @@ public class ZephFlow {
             .encodingType(encodingType.toString())
             .s3EndpointOverride(s3EndpointOverride)
             .build();
-    return appendNode(COMMAND_NAME_S3_SINK, toJsonString(config));
+    return appendNode(COMMAND_NAME_S3_SINK, config);
   }
 
   /**
@@ -460,7 +463,7 @@ public class ZephFlow {
             .encodingType(encodingType)
             .properties(properties == null ? Collections.emptyMap() : properties)
             .build();
-    return appendNode(COMMAND_NAME_KAFKA_SOURCE, toJsonString(config));
+    return appendNode(COMMAND_NAME_KAFKA_SOURCE, config);
   }
 
   /**
@@ -487,7 +490,7 @@ public class ZephFlow {
             .encodingType(encodingType.toString())
             .properties(properties == null ? Collections.emptyMap() : properties)
             .build();
-    return appendNode(COMMAND_NAME_KAFKA_SINK, toJsonString(config));
+    return appendNode(COMMAND_NAME_KAFKA_SINK, config);
   }
 
   /**
@@ -498,26 +501,28 @@ public class ZephFlow {
    */
   public ZephFlow stdoutSink(EncodingType encodingType) {
     StdOutDto.Config config = StdOutDto.Config.builder().encodingType(encodingType).build();
-    return appendNode(COMMAND_NAME_STDOUT, toJsonString(config));
+    return appendNode(COMMAND_NAME_STDOUT, config);
   }
 
   /**
    * Internal helper method to append a new processing node to the current flow structure.
    *
    * @param commandName The name of the command for the new node.
-   * @param configStr The JSON configuration string for the command.
+   * @param config The JSON configuration for the command.
    * @return A new ZephFlow instance representing the flow with the new node appended.
    */
-  public ZephFlow appendNode(String commandName, String configStr) {
+  public ZephFlow appendNode(String commandName, CommandConfig config) {
     // Generate a unique ID for the new node.
     String id = commandName + "_" + generateRandomHash();
+
+    Map<String, Object> configMap = OBJECT_MAPPER.convertValue(config, new TypeReference<>() {});
 
     // Create the DAG node definition for this step.
     DagNode newNodeDef =
         DagNode.builder()
             .id(id)
             .commandName(commandName)
-            .config(configStr)
+            .config(configMap)
             .outputs(new ArrayList<>()) // Outputs will be populated during buildDag traversal
             .build();
 

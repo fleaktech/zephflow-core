@@ -52,7 +52,8 @@ class MainTest {
       String output = testOut.toString();
       List<String> lines = output.lines().toList();
       var objects =
-          lines.subList(1, lines.size()).stream()
+          lines.stream()
+              .filter(l -> l.startsWith("{\""))
               .map(l -> fromJsonString(l, new TypeReference<Map<String, Object>>() {}))
               .collect(Collectors.toSet());
       //noinspection unchecked

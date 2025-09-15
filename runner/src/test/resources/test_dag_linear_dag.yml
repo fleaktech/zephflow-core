@@ -11,10 +11,11 @@ dag:
     outputs: [ "b" ]
   - id: "b"
     commandName: "eval"
-    config: |
-      dict(
-        num=$.num * 2
-      )
+    config:
+      expression: |
+        dict(
+          num=$.num * 2
+        )
     outputs: [ "c" ]
   - id: "c"
     commandName: "testSink"

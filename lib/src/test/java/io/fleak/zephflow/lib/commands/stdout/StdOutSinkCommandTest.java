@@ -14,10 +14,10 @@
 package io.fleak.zephflow.lib.commands.stdout;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_STDOUT;
-import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -46,8 +46,9 @@ class StdOutSinkCommandTest {
     List<RecordFleakData> inputEvents =
         fleakData.getArrayPayload().stream().map(fd -> ((RecordFleakData) fd)).toList();
     command.parseAndValidateArg(
-        toJsonString(
-            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build()));
+        OBJECT_MAPPER.convertValue(
+            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(),
+            new TypeReference<>() {}));
     command.writeToSink(
         inputEvents, "my_user", new MetricClientProvider.NoopMetricClientProvider());
   }

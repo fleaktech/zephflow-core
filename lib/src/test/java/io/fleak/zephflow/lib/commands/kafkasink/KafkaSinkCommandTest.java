@@ -13,8 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.JsonUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -118,7 +117,7 @@ class KafkaSinkCommandTest {
             .batchSize(5) // Small batch size for test
             .flushIntervalMs(100L) // Quick flush interval for test
             .build();
-    kafkaSinkCommand.parseAndValidateArg(toJsonString(config));
+    kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Process each record
     kafkaSinkCommand.writeToSink(
@@ -140,7 +139,7 @@ class KafkaSinkCommandTest {
   }
 
   @Test
-  public void testHighVolumePerformance() throws Exception {
+  public void testHighVolumePerformance() {
     // Create a large number of test records to simulate the original performance problem
     List<RecordFleakData> largeEventSet = new ArrayList<>();
     for (int i = 0; i < 1000; i++) { // 1000 records to simulate high volume
@@ -160,7 +159,7 @@ class KafkaSinkCommandTest {
             .batchSize(500) // Reasonable batch size for performance testing
             .flushIntervalMs(1000L) // 1 second flush interval
             .build();
-    kafkaSinkCommand.parseAndValidateArg(toJsonString(config));
+    kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Measure performance - this is the main validation
     long startTime = System.currentTimeMillis();

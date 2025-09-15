@@ -16,15 +16,18 @@ package io.fleak.zephflow.lib.commands.parser;
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
-import io.fleak.zephflow.lib.utils.MiscUtils;
+import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.io.IOUtils;
 import org.junit.jupiter.api.Test;
@@ -32,11 +35,11 @@ import org.junit.jupiter.api.Test;
 /** Created by bolei on 3/18/25 */
 class ParserCommandTest {
   @Test
-  public void testParse() {
-    String parserConfigStr = MiscUtils.loadStringFromResource("/parser/cisco_asa_config.json");
+  public void testParse() throws IOException {
+    Map<String, Object> parserConfigMap = JsonUtils.fromJsonResource("/parser/cisco_asa_config.json", new TypeReference<>() {});
     ParserCommand command =
         (ParserCommand) new ParserCommandFactory().createCommand("my_node", JOB_CONTEXT);
-    command.parseAndValidateArg(parserConfigStr);
+    command.parseAndValidateArg(parserConfigMap);
 
     DeserializerFactory<?> deserializerFactory =
         DeserializerFactory.createDeserializerFactory(EncodingType.STRING_LINE);
