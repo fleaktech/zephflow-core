@@ -77,6 +77,7 @@ public class S3IntegrationTest {
             BUCKET_NAME,
             FOLDER_NAME,
             EncodingType.JSON_OBJECT_LINE,
+            null,
             minioContainer.getS3URL());
     outputStream.execute("test_jobid", "test_env", "test_service");
 
