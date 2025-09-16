@@ -405,6 +405,8 @@ public class ZephFlow {
    * @param bucket The S3 bucket name.
    * @param folder The target folder/prefix within the bucket.
    * @param encodingType The encoding for the output data.
+   * @param credentialId credentialId The credential identifier to look up AWS credentials from
+   *     JobContext, or null to use default credential provider chain.
    * @return A new ZephFlow instance representing the flow with the S3 sink appended.
    */
   @SuppressWarnings("unused") // Part of the public API
@@ -420,6 +422,8 @@ public class ZephFlow {
    * @param bucket The S3 bucket name.
    * @param folder The target folder/prefix within the bucket.
    * @param encodingType The encoding for the output data.
+   * @param credentialId credentialId The credential identifier to look up AWS credentials from
+   *     JobContext, or null to use default credential provider chain.
    * @param s3EndpointOverride Optional S3 endpoint override (e.g., for MinIO).
    * @return A new ZephFlow instance representing the flow with the S3 sink appended.
    */
