@@ -69,7 +69,12 @@ public class S3SinkPartsFactory extends SinkCommandPartsFactory<RecordFleakData>
               config.getBatchSize(),
               config.getFlushIntervalMillis(),
               new S3CommiterSerializer.RecordFleakDataS3CommiterSerializer(serializer),
-              Executors.newSingleThreadScheduledExecutor());
+              Executors.newSingleThreadScheduledExecutor(
+                  r -> {
+                    Thread t = new Thread(r, "s3-sink-batch-flusher");
+                    t.setDaemon(true);
+                    return t;
+                  }));
       ((BatchS3Commiter<RecordFleakData>) commiter).open();
     } else {
       commiter =

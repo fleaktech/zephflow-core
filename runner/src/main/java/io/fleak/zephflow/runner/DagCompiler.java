@@ -25,12 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 3/4/25 */
 @Slf4j
-public class DagCompiler {
-  private final Map<String, CommandFactory> commandFactoryMap;
-
-  public DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
-    this.commandFactoryMap = commandFactoryMap;
-  }
+public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
 
   public Dag<OperatorCommand> compile(
       AdjacencyListDagDefinition adjacencyListDagDefinition, boolean checkConnected) {

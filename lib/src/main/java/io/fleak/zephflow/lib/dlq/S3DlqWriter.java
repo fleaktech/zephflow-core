@@ -60,7 +60,13 @@ public class S3DlqWriter extends DlqWriter {
     S3Client s3Client =
         new AwsClientFactory().createS3Client(region, credential, s3EndpointOverride);
     // Initialize the scheduler for periodic flushing
-    ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    ScheduledExecutorService scheduler =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread t = new Thread(r, "s3-dlq-writer-flusher");
+              t.setDaemon(true);
+              return t;
+            });
     DeadLetterS3CommiterSerializer serializer = new DeadLetterS3CommiterSerializer();
     BatchS3Commiter<DeadLetter> batchS3Commiter =
         new BatchS3Commiter<>(
