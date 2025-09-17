@@ -52,5 +52,7 @@ public class JobContext implements Serializable {
     private String bucket;
     private int batchSize;
     private int flushIntervalMillis;
+    private String accessKeyId;
+    private String secretAccessKey;
   }
 }
