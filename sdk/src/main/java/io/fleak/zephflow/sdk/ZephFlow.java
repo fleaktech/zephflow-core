@@ -405,14 +405,11 @@ public class ZephFlow {
    * @param bucket The S3 bucket name.
    * @param folder The target folder/prefix within the bucket.
    * @param encodingType The encoding for the output data.
-   * @param credentialId credentialId The credential identifier to look up AWS credentials from
-   *     JobContext, or null to use default credential provider chain.
    * @return A new ZephFlow instance representing the flow with the S3 sink appended.
    */
   @SuppressWarnings("unused") // Part of the public API
-  public ZephFlow s3Sink(
-      String region, String bucket, String folder, EncodingType encodingType, String credentialId) {
-    return s3Sink(region, bucket, folder, encodingType, credentialId, null);
+  public ZephFlow s3Sink(String region, String bucket, String folder, EncodingType encodingType) {
+    return s3Sink(region, bucket, folder, encodingType, null);
   }
 
   /**
@@ -422,8 +419,6 @@ public class ZephFlow {
    * @param bucket The S3 bucket name.
    * @param folder The target folder/prefix within the bucket.
    * @param encodingType The encoding for the output data.
-   * @param credentialId credentialId The credential identifier to look up AWS credentials from
-   *     JobContext, or null to use default credential provider chain.
    * @param s3EndpointOverride Optional S3 endpoint override (e.g., for MinIO).
    * @return A new ZephFlow instance representing the flow with the S3 sink appended.
    */
@@ -432,7 +427,6 @@ public class ZephFlow {
       String bucket,
       String folder,
       EncodingType encodingType,
-      String credentialId,
       String s3EndpointOverride) {
     S3SinkDto.Config config =
         S3SinkDto.Config.builder()
@@ -440,7 +434,6 @@ public class ZephFlow {
             .bucketName(bucket)
             .keyName(folder)
             .encodingType(encodingType.toString())
-            .credentialId(credentialId)
             .s3EndpointOverride(s3EndpointOverride)
             .build();
     return appendNode(COMMAND_NAME_S3_SINK, config);
