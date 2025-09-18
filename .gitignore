@@ -59,3 +59,6 @@ build
 
 # antlr generated
 lib/src/main/gen/
+
+# Claude Code configuration
+CLAUDE.md
