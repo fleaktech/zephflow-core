@@ -38,7 +38,8 @@ public class S3DlqWriter extends DlqWriter {
         s3DlqConfig.getBucket(),
         s3DlqConfig.getBatchSize(),
         s3DlqConfig.getFlushIntervalMillis(),
-        null,
+        new UsernamePasswordCredential(
+            s3DlqConfig.getAccessKeyId(), s3DlqConfig.getSecretAccessKey()),
         null);
   }
 
