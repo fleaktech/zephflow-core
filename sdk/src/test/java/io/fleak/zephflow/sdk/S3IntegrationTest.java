@@ -77,6 +77,7 @@ public class S3IntegrationTest {
             BUCKET_NAME,
             FOLDER_NAME,
             EncodingType.JSON_OBJECT_LINE,
+            null,  // No credentials - use default credential chain
             minioContainer.getS3URL());
     outputStream.execute("test_jobid", "test_env", "test_service");
 
@@ -86,6 +87,50 @@ public class S3IntegrationTest {
     var resp = s3Client.listObjectsV2(listObjectsV2Request);
     assertEquals(1, resp.contents().size());
 
+    GetObjectRequest getObjectRequest =
+        GetObjectRequest.builder().bucket(BUCKET_NAME).key(resp.contents().get(0).key()).build();
+
+    ResponseBytes<GetObjectResponse> s3ObjectBytes = s3Client.getObjectAsBytes(getObjectRequest);
+    byte[] data = s3ObjectBytes.asByteArray();
+    var deser =
+        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT_LINE)
+            .createDeserializer();
+    var actual = deser.deserialize(new SerializedEvent(null, data, null));
+    var actualUnwrapped = actual.stream().map(FleakData::unwrap).toList();
+    assertEquals(SOURCE_EVENTS, actualUnwrapped);
+  }
+
+  @Test
+  public void testS3SinkWithCredentials(@TempDir Path tempDir) throws Exception {
+    var tmpFile = tempDir.resolve("test_input_with_credentials.json");
+    FileUtils.copyInputStreamToFile(in, tmpFile.toFile());
+
+    // Create test credentials (MinIO uses these defaults)
+    var credentials = new io.fleak.zephflow.lib.credentials.UsernamePasswordCredential(
+        "minioadmin", "minioadmin");
+
+    ZephFlow flow = ZephFlow.startFlow();
+    var inputStream = flow.fileSource(tmpFile.toString(), EncodingType.JSON_ARRAY);
+    var outputStream =
+        inputStream.s3Sink(
+            REGION_STR,
+            BUCKET_NAME,
+            "test-credentials-folder",
+            EncodingType.JSON_OBJECT_LINE,
+            credentials,  // Pass credential object directly
+            minioContainer.getS3URL());
+    outputStream.execute("test_jobid_with_creds", "test_env", "test_service");
+
+    // verify s3 content
+    ListObjectsV2Request listRequest =
+        ListObjectsV2Request.builder()
+            .bucket(BUCKET_NAME)
+            .prefix("test-credentials-folder/")
+            .build();
+    ListObjectsV2Response resp = s3Client.listObjectsV2(listRequest);
+    assertEquals(1, resp.contents().size());
+
+    // verify object content
     GetObjectRequest getObjectRequest =
         GetObjectRequest.builder().bucket(BUCKET_NAME).key(resp.contents().get(0).key()).build();
 
