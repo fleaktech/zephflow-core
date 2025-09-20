@@ -315,6 +315,46 @@ dict(
       fail("dict_merge failed: " + e.getMessage());
     }
 
+    // Test dict_remove with single key
+    try {
+      FleakData result = executeExpression(visitor, "dict_remove($[\"dict1\"], \"b\")");
+      assertNotNull(result);
+      assertInstanceOf(RecordFleakData.class, result);
+      @SuppressWarnings("unchecked")
+      Map<String, Object> removed = (Map<String, Object>) result.unwrap();
+      assertTrue(removed.containsKey("a"));
+      assertFalse(removed.containsKey("b"));
+      assertEquals(1L, removed.get("a"));
+    } catch (Exception e) {
+      fail("dict_remove failed: " + e.getMessage());
+    }
+
+    // Test dict_remove with multiple keys
+    try {
+      FleakData result = executeExpression(visitor, "dict_remove($[\"dict2\"], \"c\", \"d\")");
+      assertNotNull(result);
+      assertInstanceOf(RecordFleakData.class, result);
+      @SuppressWarnings("unchecked")
+      Map<String, Object> removed = (Map<String, Object>) result.unwrap();
+      assertTrue(removed.isEmpty());
+    } catch (Exception e) {
+      fail("dict_remove with multiple keys failed: " + e.getMessage());
+    }
+
+    // Test dict_remove with non-existent key
+    try {
+      FleakData result = executeExpression(visitor, "dict_remove($[\"dict1\"], \"nonexistent\")");
+      assertNotNull(result);
+      assertInstanceOf(RecordFleakData.class, result);
+      @SuppressWarnings("unchecked")
+      Map<String, Object> removed = (Map<String, Object>) result.unwrap();
+      assertEquals(2, removed.size()); // Should still have both original keys
+      assertTrue(removed.containsKey("a"));
+      assertTrue(removed.containsKey("b"));
+    } catch (Exception e) {
+      fail("dict_remove with non-existent key failed: " + e.getMessage());
+    }
+
     // Test grok with simple pattern
     try {
       FleakData result =

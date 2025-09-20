@@ -1077,6 +1077,70 @@ public interface FeelFunction {
   }
 
   /*
+  dictRemoveFunction:
+  Remove specified keys from a dictionary and return a new dictionary.
+
+  Syntax:
+  ```
+  dict_remove(dictionary, key1, key2, ...)
+  ```
+
+  Parameters:
+  - dictionary: The input dictionary/record to remove keys from
+  - key1, key2, ...: One or more string keys to remove from the dictionary
+
+  Return Value:
+  - A new dictionary with the specified keys removed
+  - Non-existent keys are silently ignored
+
+  Examples:
+  ```
+  dict_remove({"a": 1, "b": 2, "c": 3}, "b") returns {"a": 1, "c": 3}
+  dict_remove({"a": 1, "b": 2, "c": 3}, "b", "c") returns {"a": 1}
+  dict_remove({"a": 1}, "x") returns {"a": 1} (non-existent key ignored)
+  ```
+  */
+  class DictRemoveFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.variable("dict_remove", 2, "dictionary and keys to remove");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (args.size() < 2) {
+        throw new IllegalArgumentException(
+            "dict_remove expects at least 2 arguments: dictionary and at least one key to remove");
+      }
+
+      FleakData dictData = visitExpression(visitor, args.get(0));
+      Preconditions.checkArgument(
+          dictData instanceof RecordFleakData,
+          "dict_remove: first argument must be a dictionary but found: %s",
+          dictData != null ? dictData.unwrap() : null);
+
+      // Create a copy of the original dictionary
+      Map<String, FleakData> resultPayload = new HashMap<>(dictData.getPayload());
+
+      // Remove each specified key
+      for (int i = 1; i < args.size(); i++) {
+        FleakData keyData = visitExpression(visitor, args.get(i));
+        Preconditions.checkArgument(
+            keyData instanceof StringPrimitiveFleakData,
+            "dict_remove: key arguments must be strings but found: %s at position %d",
+            keyData != null ? keyData.unwrap() : null,
+            i + 1);
+
+        String keyToRemove = keyData.getStringValue();
+        resultPayload.remove(keyToRemove);
+      }
+
+      return new RecordFleakData(resultPayload);
+    }
+  }
+
+  /*
   floorFunction:
   Round down a floating point number to the nearest integer.
   Example: floor(123.45) => 123, floor(-123.45) => -124
@@ -1268,6 +1332,7 @@ public interface FeelFunction {
             .put("range", new RangeFunction())
             .put("arr_foreach", new ArrForEachFunction())
             .put("dict_merge", new DictMergeFunction())
+            .put("dict_remove", new DictRemoveFunction())
             .put("floor", new FloorFunction())
             .put("ceil", new CeilFunction());
 
