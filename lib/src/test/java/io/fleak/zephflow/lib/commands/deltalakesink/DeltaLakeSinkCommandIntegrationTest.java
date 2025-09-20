@@ -237,4 +237,73 @@ class DeltaLakeSinkCommandIntegrationTest {
     assertInstanceOf(ArrayType.class, fieldMap.get("arrayField"));
     assertInstanceOf(StructType.class, fieldMap.get("recordField"));
   }
+
+  @Test
+  void testNonNullableFieldValidation() {
+    // Test that writing NULL to a non-nullable field throws an appropriate error
+    // This simulates the INVOICE_ID vs INVOICE_I scenario
+
+    // Create a schema with a non-nullable field (like INVOICE_ID in the ATTACHMENT table)
+    List<StructField> fields = List.of(
+        new StructField("ATTACHMENT_ID", StringType.STRING, true), // nullable
+        new StructField("INVOICE_ID", StringType.STRING, false), // non-nullable (required)
+        new StructField("DESCRIPTION", StringType.STRING, true) // nullable
+    );
+    StructType schema = new StructType(fields);
+
+    // Create input data that's missing the required INVOICE_ID field
+    // (simulating the case where input has INVOICE_I instead of INVOICE_ID)
+    Map<String, Object> recordMissingRequiredField = new HashMap<>();
+    recordMissingRequiredField.put("ATTACHMENT_ID", "ATT-123");
+    recordMissingRequiredField.put("INVOICE_I", "INV-456"); // Wrong field name!
+    recordMissingRequiredField.put("DESCRIPTION", "Test attachment");
+
+    List<Map<String, Object>> data = List.of(recordMissingRequiredField);
+
+    // Attempt to convert - should throw exception
+    IllegalArgumentException exception = assertThrows(
+        IllegalArgumentException.class,
+        () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema)
+    );
+
+    // Verify the error message is helpful
+    String errorMessage = exception.getMessage();
+    assertTrue(errorMessage.contains("Cannot write NULL to non-nullable field 'INVOICE_ID'"));
+    assertTrue(errorMessage.contains("Available fields in input:"));
+    assertTrue(errorMessage.contains("INVOICE_I")); // Shows the actual field that exists
+    assertTrue(errorMessage.contains("ATTACHMENT_ID"));
+    assertTrue(errorMessage.contains("DESCRIPTION"));
+  }
+
+  @Test
+  void testNullableFieldAllowsNull() {
+    // Test that NULL values are allowed for nullable fields
+    List<StructField> fields = List.of(
+        new StructField("ID", StringType.STRING, false), // non-nullable
+        new StructField("OPTIONAL_FIELD", StringType.STRING, true) // nullable
+    );
+    StructType schema = new StructType(fields);
+
+    Map<String, Object> record = new HashMap<>();
+    record.put("ID", "123");
+    record.put("OPTIONAL_FIELD", null); // NULL is OK for nullable field
+
+    List<Map<String, Object>> data = List.of(record);
+
+    // This should succeed without throwing exception
+    var result = DeltaLakeDataConverter.convertToColumnarBatch(data, schema);
+    assertNotNull(result);
+
+    // Verify the iterator has data
+    assertTrue(result.hasNext());
+    var batch = result.next();
+    assertNotNull(batch);
+
+    // Close the iterator
+    try {
+      result.close();
+    } catch (Exception e) {
+      // Ignore close errors in test
+    }
+  }
 }

@@ -68,6 +68,17 @@ public class DeltaLakeDataConverter {
       List<Object> columnValues = new ArrayList<>();
       for (Map<String, Object> record : data) {
         Object value = record.get(fieldName);
+
+        // Validate nullability constraint
+        if (value == null && !field.isNullable()) {
+          throw new IllegalArgumentException(
+              String.format(
+                  "Cannot write NULL to non-nullable field '%s'. "
+                      + "Please ensure the input data contains this required field. "
+                      + "Available fields in input: %s",
+                  fieldName, String.join(", ", record.keySet())));
+        }
+
         columnValues.add(convertValueToSchemaType(value, dataType, fieldName));
       }
 
