@@ -39,6 +39,7 @@ import io.fleak.zephflow.lib.commands.s3.S3SinkDto;
 import io.fleak.zephflow.lib.commands.sql.SqlCommandDto;
 import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
 import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.utils.JsonUtils;
@@ -409,31 +410,45 @@ public class ZephFlow {
    */
   @SuppressWarnings("unused") // Part of the public API
   public ZephFlow s3Sink(String region, String bucket, String folder, EncodingType encodingType) {
-    return s3Sink(region, bucket, folder, encodingType, null);
+    return s3Sink(region, bucket, folder, encodingType, null, null);
   }
 
   /**
-   * Appends an S3 sink node to the flow with an endpoint override.
+   * Appends an S3 sink node to the flow with optional AWS credentials and endpoint override.
    *
    * @param region The AWS region.
    * @param bucket The S3 bucket name.
    * @param folder The target folder/prefix within the bucket.
    * @param encodingType The encoding for the output data.
-   * @param s3EndpointOverride Optional S3 endpoint override (e.g., for MinIO).
+   * @param credential Optional AWS credentials for S3 access (null to use default credential
+   *     chain).
+   * @param s3EndpointOverride Optional S3 endpoint override (e.g., for MinIO, null for default AWS
+   *     endpoint).
    * @return A new ZephFlow instance representing the flow with the S3 sink appended.
    */
+  @SuppressWarnings("unused") // Part of the public API
   public ZephFlow s3Sink(
       String region,
       String bucket,
       String folder,
       EncodingType encodingType,
+      UsernamePasswordCredential credential,
       String s3EndpointOverride) {
+
+    String credentialId = null;
+    if (credential != null) {
+      credentialId = UUID.randomUUID().toString();
+      // Store credential in JobContext for later retrieval during execution
+      this.getJobContext().getOtherProperties().put(credentialId, credential);
+    }
+
     S3SinkDto.Config config =
         S3SinkDto.Config.builder()
             .regionStr(region)
             .bucketName(bucket)
             .keyName(folder)
             .encodingType(encodingType.toString())
+            .credentialId(credentialId)
             .s3EndpointOverride(s3EndpointOverride)
             .build();
     return appendNode(COMMAND_NAME_S3_SINK, config);
