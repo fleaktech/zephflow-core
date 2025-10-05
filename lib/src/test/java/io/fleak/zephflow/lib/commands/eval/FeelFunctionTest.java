@@ -427,6 +427,34 @@ dict(
   }
 
   @Test
+  public void testRandomLongFunction() {
+    FleakData testData = new RecordFleakData();
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result1 = executeExpression(visitor, "random_long()");
+    assertNotNull(result1);
+    assertInstanceOf(NumberPrimitiveFleakData.class, result1);
+
+    FleakData result2 = executeExpression(visitor, "random_long()");
+    assertNotNull(result2);
+    assertInstanceOf(NumberPrimitiveFleakData.class, result2);
+
+    long randomValue1 = (long) result1.getNumberValue();
+    long randomValue2 = (long) result2.getNumberValue();
+
+    assertNotEquals(randomValue1, randomValue2);
+  }
+
+  @Test
+  public void testRandomLongFunctionNoArguments() {
+    FleakData testData = new RecordFleakData();
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    assertThrows(
+        IllegalArgumentException.class, () -> executeExpression(visitor, "random_long(123)"));
+  }
+
+  @Test
   public void testPythonFunction() {
     FleakData testData =
         FleakData.wrap(
