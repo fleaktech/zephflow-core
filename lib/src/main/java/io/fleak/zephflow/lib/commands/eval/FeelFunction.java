@@ -21,6 +21,7 @@ import io.fleak.zephflow.api.structure.*;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.python.CompiledPythonFunction;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
+import java.security.SecureRandom;
 import java.text.NumberFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -1203,6 +1204,55 @@ public interface FeelFunction {
   }
 
   /*
+  nowFunction:
+  Returns the current epoch milliseconds.
+  Example: now() => 1704067200000
+  */
+  class NowFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("now", 0, "no arguments");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (!args.isEmpty()) {
+        throw new IllegalArgumentException("now expects 0 arguments");
+      }
+
+      long currentTimeMillis = System.currentTimeMillis();
+      return new NumberPrimitiveFleakData(
+          currentTimeMillis, NumberPrimitiveFleakData.NumberType.LONG);
+    }
+  }
+
+  /*
+  randomLongFunction:
+  Returns a cryptographically secure random long number.
+  Example: random_long() => -8234782934729834729
+  */
+  class RandomLongFunction implements FeelFunction {
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("random_long", 0, "no arguments");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (!args.isEmpty()) {
+        throw new IllegalArgumentException("random_long expects 0 arguments");
+      }
+
+      long randomValue = SECURE_RANDOM.nextLong();
+      return new NumberPrimitiveFleakData(randomValue, NumberPrimitiveFleakData.NumberType.LONG);
+    }
+  }
+
+  /*
   pythonFunction:
   Execute a single Python function automatically discovered within the script string.
 
@@ -1334,7 +1384,9 @@ public interface FeelFunction {
             .put("dict_merge", new DictMergeFunction())
             .put("dict_remove", new DictRemoveFunction())
             .put("floor", new FloorFunction())
-            .put("ceil", new CeilFunction());
+            .put("ceil", new CeilFunction())
+            .put("now", new NowFunction())
+            .put("random_long", new RandomLongFunction());
 
     if (pythonExecutor != null) {
       builder.put("python", new PythonFunction(pythonExecutor));
