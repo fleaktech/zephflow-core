@@ -411,6 +411,22 @@ dict(
   }
 
   @Test
+  public void testNowFunction() {
+    FleakData testData = new RecordFleakData();
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result = executeExpression(visitor, "now()");
+    assertNotNull(result);
+    assertInstanceOf(NumberPrimitiveFleakData.class, result);
+
+    long currentTime = System.currentTimeMillis();
+    long resultTime = (long) result.getNumberValue();
+
+    assertTrue(resultTime > 0);
+    assertTrue(Math.abs(currentTime - resultTime) < 1000);
+  }
+
+  @Test
   public void testPythonFunction() {
     FleakData testData =
         FleakData.wrap(

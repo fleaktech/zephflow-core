@@ -1203,6 +1203,30 @@ public interface FeelFunction {
   }
 
   /*
+  nowFunction:
+  Returns the current epoch milliseconds.
+  Example: now() => 1704067200000
+  */
+  class NowFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("now", 0, "no arguments");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (!args.isEmpty()) {
+        throw new IllegalArgumentException("now expects 0 arguments");
+      }
+
+      long currentTimeMillis = System.currentTimeMillis();
+      return new NumberPrimitiveFleakData(
+          currentTimeMillis, NumberPrimitiveFleakData.NumberType.LONG);
+    }
+  }
+
+  /*
   pythonFunction:
   Execute a single Python function automatically discovered within the script string.
 
@@ -1334,7 +1358,8 @@ public interface FeelFunction {
             .put("dict_merge", new DictMergeFunction())
             .put("dict_remove", new DictRemoveFunction())
             .put("floor", new FloorFunction())
-            .put("ceil", new CeilFunction());
+            .put("ceil", new CeilFunction())
+            .put("now", new NowFunction());
 
     if (pythonExecutor != null) {
       builder.put("python", new PythonFunction(pythonExecutor));
