@@ -29,7 +29,7 @@ v0.3.0
 
 Import Zephflow from Gradle
 ```groovy
-implementation 'io.fleak.zephflow:sdk:0.3.0'
+implementation 'io.fleak.zephflow:sdk:0.3.1'
 ```
 
 Import Zephflow from Maven
@@ -38,7 +38,7 @@ Import Zephflow from Maven
 <dependency>
   <groupId>io.fleak.zephflow</groupId>
   <artifactId>sdk</artifactId>
-  <version>0.3.0</version>
+  <version>0.3.1</version>
 </dependency>
 ```
 
