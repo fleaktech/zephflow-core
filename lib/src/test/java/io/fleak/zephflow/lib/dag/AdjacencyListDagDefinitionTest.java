@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.runner.dag;
+package io.fleak.zephflow.lib.dag;
 
 import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlResource;
 import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
@@ -26,7 +26,8 @@ class AdjacencyListDagDefinitionTest {
 
   @Test
   void testToString() throws IOException {
-    AdjacencyListDagDefinition def = fromYamlResource("/test_dag.yml", new TypeReference<>() {});
+    AdjacencyListDagDefinition def =
+        fromYamlResource("/dags/test_dag.yml", new TypeReference<>() {});
     String defStr = def.toString();
     AdjacencyListDagDefinition actual = fromYamlString(defStr, new TypeReference<>() {});
     assertEquals(def, actual);

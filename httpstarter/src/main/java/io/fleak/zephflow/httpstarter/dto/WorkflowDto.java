@@ -14,7 +14,7 @@
 package io.fleak.zephflow.httpstarter.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
+import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;

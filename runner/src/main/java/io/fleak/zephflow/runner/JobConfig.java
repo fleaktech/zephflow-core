@@ -13,7 +13,7 @@
  */
 package io.fleak.zephflow.runner;
 
-import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
+import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

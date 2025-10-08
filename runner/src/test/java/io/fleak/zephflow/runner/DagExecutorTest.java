@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.runner.dag;
+package io.fleak.zephflow.runner;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonResource;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
@@ -31,9 +31,9 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkCommandInitializerFactory;
 import io.fleak.zephflow.lib.commands.sink.SinkCommandPartsFactory;
 import io.fleak.zephflow.lib.commands.source.*;
+import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.runner.DagExecutor;
-import io.fleak.zephflow.runner.JobConfig;
+
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

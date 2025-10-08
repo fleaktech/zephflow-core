@@ -17,9 +17,9 @@ import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import io.fleak.zephflow.runner.JobConfig;
-import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

@@ -18,9 +18,9 @@ import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
+import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import io.fleak.zephflow.runner.JobConfig;
-import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;

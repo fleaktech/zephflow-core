@@ -15,6 +15,8 @@ package io.fleak.zephflow.runner.spi;
 
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
+import io.fleak.zephflow.lib.dag.compile.CommandProvider;
+
 import java.util.Map;
 
 /** Created by bolei on 4/12/25 */

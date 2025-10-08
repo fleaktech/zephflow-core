@@ -11,20 +11,18 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.runner.dag;
+package io.fleak.zephflow.lib.dag;
 
-import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** Created by bolei on 3/4/25 */
+@Builder
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-@Builder
-public class RawDagNode {
-  private String commandName;
-  private Map<String, Object> arg;
+public class Edge {
+  String from;
+  String to;
 }
