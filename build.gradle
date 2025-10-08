@@ -72,6 +72,7 @@ allprojects {
     clickHouseVersion = '0.9.0'
     hadoopVersion = '3.4.0'
     deltaKernelVersion = '4.0.0'
+    nettyVersion = '4.1.122.Final'
   }
 
   sourceCompatibility = javaVersion
@@ -229,6 +230,35 @@ subprojects {
       implementation "org.apache.logging.log4j:log4j-api:${log4j2Version}"
       implementation "org.apache.logging.log4j:log4j-core:${log4j2Version}"
       testImplementation("org.hamcrest:hamcrest-core:${hamcrestVersion}")
+
+      implementation("io.netty:netty-all:${nettyVersion}")
+      implementation("io.netty:netty-buffer:${nettyVersion}")
+      implementation("io.netty:netty-codec:${nettyVersion}")
+      implementation("io.netty:netty-codec-dns:${nettyVersion}")
+      implementation("io.netty:netty-codec-haproxy:${nettyVersion}")
+      implementation("io.netty:netty-codec-http:${nettyVersion}")
+      implementation("io.netty:netty-codec-http2:${nettyVersion}")
+      implementation("io.netty:netty-codec-memcache:${nettyVersion}")
+      implementation("io.netty:netty-codec-mqtt:${nettyVersion}")
+      implementation("io.netty:netty-codec-redis:${nettyVersion}")
+      implementation("io.netty:netty-codec-smtp:${nettyVersion}")
+      implementation("io.netty:netty-codec-socks:${nettyVersion}")
+      implementation("io.netty:netty-codec-stomp:${nettyVersion}")
+      implementation("io.netty:netty-codec-xml:${nettyVersion}")
+      implementation("io.netty:netty-common:${nettyVersion}")
+      implementation("io.netty:netty-handler:${nettyVersion}")
+      implementation("io.netty:netty-handler-proxy:${nettyVersion}")
+      implementation("io.netty:netty-handler-ssl-ocsp:${nettyVersion}")
+      implementation("io.netty:netty-resolver:${nettyVersion}")
+      implementation("io.netty:netty-resolver-dns:${nettyVersion}")
+      implementation("io.netty:netty-resolver-dns-classes-macos:${nettyVersion}")
+      implementation("io.netty:netty-resolver-dns-native-macos:${nettyVersion}")
+      implementation("io.netty:netty-transport:${nettyVersion}")
+      implementation("io.netty:netty-transport-classes-epoll:${nettyVersion}")
+      implementation("io.netty:netty-transport-classes-kqueue:${nettyVersion}")
+      implementation("io.netty:netty-transport-native-epoll:${nettyVersion}")
+      implementation("io.netty:netty-transport-native-kqueue:${nettyVersion}")
+      implementation("io.netty:netty-transport-native-unix-common:${nettyVersion}")
     }
   }
 
