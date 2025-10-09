@@ -17,8 +17,11 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.utils.YamlUtils;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -61,4 +64,60 @@ public class AdjacencyListDagDefinition {
   public String toString() {
     return YamlUtils.toYamlString(this);
   }
+
+  public SortedDag topologicalSort() {
+    if (dag == null || dag.isEmpty()) {
+      return new SortedDag(List.of(), Map.of());
+    }
+
+    Map<String, List<String>> parentMap = new HashMap<>();
+    Map<String, Integer> inDegree = new HashMap<>();
+    Map<String, DagNode> nodeMap = new HashMap<>();
+
+    for (DagNode node : dag) {
+      nodeMap.put(node.getId(), node);
+      parentMap.put(node.getId(), new ArrayList<>());
+      inDegree.put(node.getId(), 0);
+    }
+
+    for (DagNode node : dag) {
+      for (String childId : node.getOutputs()) {
+        parentMap.get(childId).add(node.getId());
+        inDegree.put(childId, inDegree.get(childId) + 1);
+      }
+    }
+
+    Queue<DagNode> queue = new LinkedList<>();
+    for (DagNode node : dag) {
+      if (inDegree.get(node.getId()) == 0) {
+        queue.offer(node);
+      }
+    }
+
+    List<DagNode> sortedNodes = new ArrayList<>();
+    while (!queue.isEmpty()) {
+      DagNode current = queue.poll();
+      sortedNodes.add(current);
+
+      for (String childId : current.getOutputs()) {
+        int newInDegree = inDegree.get(childId) - 1;
+        inDegree.put(childId, newInDegree);
+
+        if (newInDegree == 0) {
+          queue.offer(nodeMap.get(childId));
+        }
+      }
+    }
+
+    if (sortedNodes.size() != dag.size()) {
+      throw new IllegalStateException("DAG contains a cycle");
+    }
+
+    return new SortedDag(sortedNodes, parentMap);
+  }
+
+  public record SortedDag(
+      List<AdjacencyListDagDefinition.DagNode> sortedNodes,
+      Map<String, List<String>> parentMap // Key: node ID, Value: List of parent IDs
+      ) {}
 }

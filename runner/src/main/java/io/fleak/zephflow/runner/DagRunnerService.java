@@ -29,11 +29,11 @@ import lombok.NonNull;
 public class DagRunnerService {
   private static final String SYNC_INPUT_NODE_NAME = "sync_input";
 
-  private final DagCompiler dagCompiler;
+  private final ZephflowDagCompiler zephflowDagCompiler;
   private final MetricClientProvider metricClientProvider;
 
-  public DagRunnerService(DagCompiler dagCompiler, MetricClientProvider metricClientProvider) {
-    this.dagCompiler = dagCompiler;
+  public DagRunnerService(ZephflowDagCompiler zephflowDagCompiler, MetricClientProvider metricClientProvider) {
+    this.zephflowDagCompiler = zephflowDagCompiler;
     this.metricClientProvider = metricClientProvider;
   }
 
@@ -41,7 +41,7 @@ public class DagRunnerService {
       List<AdjacencyListDagDefinition.DagNode> dag, @NonNull JobContext jobContext) {
     AdjacencyListDagDefinition dagDefinition =
         AdjacencyListDagDefinition.builder().jobContext(jobContext).dag(dag).build();
-    Dag<OperatorCommand> compiledDag = dagCompiler.compile(dagDefinition, false);
+    Dag<OperatorCommand> compiledDag = zephflowDagCompiler.compile(dagDefinition, false);
     List<Edge> incomingEdges = new ArrayList<>();
     for (Node<OperatorCommand> node : compiledDag.getEntryNodes()) {
       if (node.getNodeContent() instanceof SourceCommand) {

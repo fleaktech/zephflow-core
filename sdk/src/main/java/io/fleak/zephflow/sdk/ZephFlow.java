@@ -855,8 +855,8 @@ public class ZephFlow {
     // this cache is only reused if process() is called multiple times on the *exact same*
     // final ZephFlow object returned by a sink/builder method.
     if (noSourceDagRunner == null) {
-      DagCompiler dagCompiler = new DagCompiler(aggregatedCommands);
-      DagRunnerService dagRunnerService = new DagRunnerService(dagCompiler, metricClientProvider);
+      ZephflowDagCompiler zephflowDagCompiler = new ZephflowDagCompiler(aggregatedCommands);
+      DagRunnerService dagRunnerService = new DagRunnerService(zephflowDagCompiler, metricClientProvider);
 
       AdjacencyListDagDefinition dagDefinition = buildDag();
       noSourceDagRunner =

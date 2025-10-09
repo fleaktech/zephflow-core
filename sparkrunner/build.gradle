@@ -1,0 +1,14 @@
+plugins {
+  id 'java'
+  id 'application'
+}
+
+dependencies {
+  api project(":lib")
+  implementation group: 'org.apache.spark', name: 'spark-sql_2.13', version: sparkVersion
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
+  testLogging.showStandardStreams = true
+}

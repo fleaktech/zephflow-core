@@ -31,7 +31,7 @@ import org.apache.commons.lang3.tuple.Pair;
 /** Created by bolei on 2/28/25 */
 @Slf4j
 public record DagExecutor(
-    JobConfig jobConfig, DagCompiler dagCompiler, MetricClientProvider metricClientProvider) {
+    JobConfig jobConfig, ZephflowDagCompiler zephflowDagCompiler, MetricClientProvider metricClientProvider) {
   public static DagExecutor createDagExecutor(
       JobConfig jobConfig, MetricClientProvider metricClientProvider) {
 
@@ -81,12 +81,12 @@ public record DagExecutor(
       JobConfig jobConfig,
       Map<String, CommandFactory> commandFactoryMap,
       MetricClientProvider metricClientProvider) {
-    DagCompiler compiler = new DagCompiler(commandFactoryMap);
+    ZephflowDagCompiler compiler = new ZephflowDagCompiler(commandFactoryMap);
     return new DagExecutor(jobConfig, compiler, metricClientProvider);
   }
 
   public void executeDag() throws Exception {
-    var compiledDag = dagCompiler.compile(jobConfig.getDagDefinition(), true);
+    var compiledDag = zephflowDagCompiler.compile(jobConfig.getDagDefinition(), true);
     Pair<Dag<OperatorCommand>, Dag<OperatorCommand>> entryNodesDagAndRest =
         Dag.splitEntryNodesAndRest(compiledDag);
     Preconditions.checkArgument(

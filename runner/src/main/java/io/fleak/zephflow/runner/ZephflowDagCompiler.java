@@ -17,6 +17,7 @@ import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.CommandType;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.lib.dag.*;
+import io.fleak.zephflow.lib.dag.compile.DagCompiler;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
@@ -25,7 +26,11 @@ import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 3/4/25 */
 @Slf4j
-public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
+public class ZephflowDagCompiler extends DagCompiler<Dag<OperatorCommand>, CommandFactory> {
+
+  public ZephflowDagCompiler(Map<String, CommandFactory> commandRegistryMap) {
+    super(commandRegistryMap);
+  }
 
   public Dag<OperatorCommand> compile(
       AdjacencyListDagDefinition adjacencyListDagDefinition, boolean checkConnected) {
@@ -93,7 +98,7 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
   }
 
   private CommandFactory getCommandFactory(String nodeId, String commandName) {
-    CommandFactory commandFactory = commandFactoryMap.get(commandName);
+    CommandFactory commandFactory = commandRegistryMap.get(commandName);
     if (commandFactory == null) {
       throw new DagCompilationException(
           nodeId, commandName, "unknown command: " + commandName, null);
