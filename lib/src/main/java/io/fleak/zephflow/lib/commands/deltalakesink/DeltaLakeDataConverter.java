@@ -220,11 +220,10 @@ public class DeltaLakeDataConverter {
       try {
         return Integer.parseInt(unwrappedValue.toString());
       } catch (NumberFormatException e) {
-        log.warn(
-            "Could not convert value {} to integer for field {}, using null",
-            unwrappedValue,
-            fieldName);
-        return null;
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot convert value '%s' to integer for field '%s'", unwrappedValue, fieldName),
+            e);
       }
     } else if (targetType.equals(LongType.LONG)) {
       if (unwrappedValue instanceof Number) {
@@ -233,11 +232,10 @@ public class DeltaLakeDataConverter {
       try {
         return Long.parseLong(unwrappedValue.toString());
       } catch (NumberFormatException e) {
-        log.warn(
-            "Could not convert value {} to long for field {}, using null",
-            unwrappedValue,
-            fieldName);
-        return null;
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot convert value '%s' to long for field '%s'", unwrappedValue, fieldName),
+            e);
       }
     } else if (targetType.equals(DoubleType.DOUBLE)) {
       if (unwrappedValue instanceof Number) {
@@ -246,11 +244,10 @@ public class DeltaLakeDataConverter {
       try {
         return Double.parseDouble(unwrappedValue.toString());
       } catch (NumberFormatException e) {
-        log.warn(
-            "Could not convert value {} to double for field {}, using null",
-            unwrappedValue,
-            fieldName);
-        return null;
+        throw new IllegalArgumentException(
+            String.format(
+                "Cannot convert value '%s' to double for field '%s'", unwrappedValue, fieldName),
+            e);
       }
     } else if (targetType.equals(BooleanType.BOOLEAN)) {
       if (unwrappedValue instanceof Boolean) {
@@ -270,11 +267,11 @@ public class DeltaLakeDataConverter {
           long timestamp = Long.parseLong(unwrappedValue.toString());
           return new java.sql.Timestamp(timestamp);
         } catch (NumberFormatException e) {
-          log.warn(
-              "Could not convert value {} to timestamp for field {}, using null",
-              unwrappedValue,
-              fieldName);
-          return null;
+          throw new IllegalArgumentException(
+              String.format(
+                  "Cannot convert value '%s' to timestamp for field '%s'",
+                  unwrappedValue, fieldName),
+              e);
         }
       }
     } else if (targetType instanceof ArrayType arrayType) {
@@ -289,22 +286,20 @@ public class DeltaLakeDataConverter {
         }
         return convertedList;
       } else {
-        log.warn(
-            "Expected array for field {} but got {}, using empty array",
-            fieldName,
-            unwrappedValue.getClass());
-        return new ArrayList<>();
+        throw new IllegalArgumentException(
+            String.format(
+                "Expected array for field '%s' but got %s",
+                fieldName, unwrappedValue.getClass().getSimpleName()));
       }
     } else if (targetType instanceof StructType) {
       // Handle struct types
       if (unwrappedValue instanceof Map) {
         return unwrappedValue; // Maps are handled naturally by Delta Lake
       } else {
-        log.warn(
-            "Expected map/struct for field {} but got {}, using empty map",
-            fieldName,
-            unwrappedValue.getClass());
-        return new HashMap<>();
+        throw new IllegalArgumentException(
+            String.format(
+                "Expected map/struct for field '%s' but got %s",
+                fieldName, unwrappedValue.getClass().getSimpleName()));
       }
     }
 
@@ -358,12 +353,9 @@ public class DeltaLakeDataConverter {
       for (int i = 0; i < values.size(); i++) {
         Object value = values.get(i);
         if (value != null && !isValueCompatibleWithType(value, dataType)) {
-          log.warn(
-              "Value at index {} ({}) is not compatible with type {}, setting to null",
-              i,
-              value,
-              dataType);
-          values.set(i, null);
+          throw new IllegalArgumentException(
+              String.format(
+                  "Value at index %d (%s) is not compatible with type %s", i, value, dataType));
         }
       }
     }
