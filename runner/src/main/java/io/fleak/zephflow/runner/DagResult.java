@@ -66,10 +66,10 @@ public class DagResult {
       pipelineCounters.increaseErrorEventCounter(failureEvents.size(), tags);
     }
     if (runConfig.includeErrorByStep()) {
-      recordDebugInfo(nodeId, upstreamNodeId, failureEvents, errorByStep);
+      recordDebugInfo(nodeId, upstreamNodeId, failureEvents, errorByStep, false);
     }
     if (runConfig.includeOutputByStep()) {
-      recordDebugInfo(nodeId, upstreamNodeId, output, outputByStep);
+      recordDebugInfo(nodeId, upstreamNodeId, output, outputByStep, true);
     }
   }
 
@@ -77,8 +77,12 @@ public class DagResult {
       String currentNodeId,
       String upstreamNodeId,
       List<T> data,
-      Map<String, Map<String, List<T>>> debugDataByStep) {
-    if (CollectionUtils.isEmpty(data)) {
+      Map<String, Map<String, List<T>>> debugDataByStep,
+      boolean allowEmptyList) {
+    if (data == null) {
+      return;
+    }
+    if (!allowEmptyList && data.isEmpty()) {
       return;
     }
     Map<String, List<T>> upstreamIdAndDebugInfo =
