@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.runner;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 import static org.junit.jupiter.api.Assertions.*;
@@ -23,14 +24,12 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-import io.fleak.zephflow.api.ErrorOutput;
-import io.fleak.zephflow.api.OperatorCommand;
-import io.fleak.zephflow.api.ScalarCommand;
-import io.fleak.zephflow.api.ScalarSinkCommand;
+import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
@@ -403,7 +402,8 @@ class NoSourceDagRunnerTest {
       verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
 
       assertTrue(result.errorByStep.isEmpty(), "errorByStep should be empty for empty input");
-      assertTrue(MapUtils.isEmpty(result.outputByStep));
+      assertDebugInfo(
+          result.outputByStep, NODE_ID_1, SOURCE_NODE_ID, Collections.emptyList(), "outputByStep");
       assertTrue(MapUtils.isEmpty(result.errorByStep));
       assertTrue(
           result.outputEvents.containsKey(NODE_ID_1), "outputEvents should contain final node ID");
@@ -839,5 +839,41 @@ class NoSourceDagRunnerTest {
           result.outputEvents.get(SINK_ID),
           "Sink outputEvents content mismatch");
     }
+  }
+
+  @Test
+  public void test() {
+    OperatorCommand command =
+        OperatorCommandRegistry.OPERATOR_COMMANDS
+            .get("eval")
+            .createCommand(
+                NODE_ID_1,
+                JobContext.builder()
+                    .metricTags(
+                        Map.of(
+                            METRIC_TAG_SERVICE, "my_service",
+                            METRIC_TAG_ENV, "my_env"))
+                    .build());
+    command.parseAndValidateArg(Map.of("expression", "$.abc"));
+    noSourceDagRunner =
+        new NoSourceDagRunner(
+            edgesFromSource,
+            new Dag<>(
+                List.of(Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(command).build()),
+                List.of()),
+            new MetricClientProvider.NoopMetricClientProvider(),
+            mockCounters,
+            false);
+
+    DagResult dagResult =
+        noSourceDagRunner.run(
+            List.of(((RecordFleakData) FleakData.wrap(Map.of()))),
+            CALLING_USER,
+            new NoSourceDagRunner.DagRunConfig(true, true));
+    System.out.println(toJsonString(dagResult));
+
+    assertTrue(dagResult.outputEvents.get(NODE_ID_1).isEmpty());
+    assertTrue(dagResult.outputByStep.get(NODE_ID_1).get(SOURCE_NODE_ID).isEmpty());
+    assertTrue(dagResult.errorByStep.isEmpty());
   }
 }
