@@ -132,7 +132,7 @@ public interface FeelFunction {
         simpleDateFormat = new SimpleDateFormat(patternStr, Locale.US);
         simpleDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
       } catch (Exception e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             "ts_str_to_epoch: failed to process date time pattern: " + patternStr);
       }
 
@@ -141,7 +141,7 @@ public interface FeelFunction {
         return new NumberPrimitiveFleakData(
             date.getTime(), NumberPrimitiveFleakData.NumberType.LONG);
       } catch (ParseException e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             String.format(
                 "ts_str_to_epoch: failed to parse timestamp string %s with pattern %s",
                 tsStr, patternStr));
@@ -402,7 +402,7 @@ public interface FeelFunction {
         long value = Long.parseLong(intStr, radix);
         return new NumberPrimitiveFleakData(value, NumberPrimitiveFleakData.NumberType.LONG);
       } catch (Exception e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             "parse_int: failed to parse int string: " + intStr + " with radix: " + radix);
       }
     }
@@ -444,7 +444,8 @@ public interface FeelFunction {
         return new NumberPrimitiveFleakData(
             number.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
       } catch (Exception e) {
-        throw new RuntimeException("parse_float: failed to parse float string: " + numberStr);
+        throw new IllegalArgumentException(
+            "parse_float: failed to parse float string: " + numberStr);
       }
     }
   }
@@ -737,7 +738,7 @@ public interface FeelFunction {
       try {
         simpleDateFormat = new SimpleDateFormat(patternStr);
       } catch (Exception e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             "epoch_to_ts_str: failed to process date time pattern: " + patternStr);
       }
 
@@ -1001,9 +1002,8 @@ public interface FeelFunction {
 
       FleakData arrayData = visitExpression(visitor, args.get(0));
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
-        throw new RuntimeException(
-            "arr_foreach: first argument should be an array or object but found: "
-                + arrayData.getClass().getSimpleName());
+        throw new IllegalArgumentException(
+            "arr_foreach: first argument should be an array or object but found: " + arrayData);
       }
 
       if (arrayData instanceof RecordFleakData) {
