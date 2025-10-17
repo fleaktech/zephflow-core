@@ -7,3 +7,7 @@ management:
     health:
       enabled: true
       show-details: always
+  metrics:
+    enable:
+      system: false
+      process: false
