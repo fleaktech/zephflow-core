@@ -709,6 +709,20 @@ def add_one(x):
     }
   }
 
+  @Test
+  public void testArrForeach_firstArgNull() {
+    FleakData testData = FleakData.wrap(Map.of());
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> executeExpression(visitor, "arr_foreach($.items, item, item.category == \"C\")"));
+    assertEquals(
+        "arr_foreach: first argument should be an array or object but found: null", e.getMessage());
+  }
+
   private void testFunctionExecution(
       ExpressionValueVisitor visitor, String expression, Object expectedValue) {
     try {
