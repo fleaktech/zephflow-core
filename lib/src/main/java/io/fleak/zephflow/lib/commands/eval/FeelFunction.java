@@ -132,7 +132,7 @@ public interface FeelFunction {
         simpleDateFormat = new SimpleDateFormat(patternStr, Locale.US);
         simpleDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
       } catch (Exception e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             "ts_str_to_epoch: failed to process date time pattern: " + patternStr);
       }
 
@@ -141,7 +141,7 @@ public interface FeelFunction {
         return new NumberPrimitiveFleakData(
             date.getTime(), NumberPrimitiveFleakData.NumberType.LONG);
       } catch (ParseException e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             String.format(
                 "ts_str_to_epoch: failed to parse timestamp string %s with pattern %s",
                 tsStr, patternStr));
@@ -402,7 +402,7 @@ public interface FeelFunction {
         long value = Long.parseLong(intStr, radix);
         return new NumberPrimitiveFleakData(value, NumberPrimitiveFleakData.NumberType.LONG);
       } catch (Exception e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             "parse_int: failed to parse int string: " + intStr + " with radix: " + radix);
       }
     }
@@ -444,7 +444,8 @@ public interface FeelFunction {
         return new NumberPrimitiveFleakData(
             number.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
       } catch (Exception e) {
-        throw new RuntimeException("parse_float: failed to parse float string: " + numberStr);
+        throw new IllegalArgumentException(
+            "parse_float: failed to parse float string: " + numberStr);
       }
     }
   }
@@ -737,7 +738,7 @@ public interface FeelFunction {
       try {
         simpleDateFormat = new SimpleDateFormat(patternStr);
       } catch (Exception e) {
-        throw new RuntimeException(
+        throw new IllegalArgumentException(
             "epoch_to_ts_str: failed to process date time pattern: " + patternStr);
       }
 
@@ -1001,9 +1002,8 @@ public interface FeelFunction {
 
       FleakData arrayData = visitExpression(visitor, args.get(0));
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
-        throw new RuntimeException(
-            "arr_foreach: first argument should be an array or object but found: "
-                + arrayData.getClass().getSimpleName());
+        throw new IllegalArgumentException(
+            "arr_foreach: first argument should be an array or object but found: " + arrayData);
       }
 
       if (arrayData instanceof RecordFleakData) {
@@ -1021,6 +1021,187 @@ public interface FeelFunction {
           visitor.setVariable(elemVarName, elem);
           FleakData resultElem = visitExpression(visitor, args.get(2));
           resultArray.add(resultElem);
+        } finally {
+          visitor.exitScope();
+        }
+      }
+
+      return new ArrayFleakData(resultArray);
+    }
+  }
+
+  /*
+  arrFindFunction:
+  Find and return the first element in an array that satisfies a condition.
+  Returns null if no element matches.
+
+  Syntax:
+  ```
+  arr_find($.path.to.array, variable_name, condition_expression)
+  ```
+
+  where
+  - `$.path.to.array` points to the array field in the input event
+  - If `$.path.to.array` points to an object, treat that object as a single element array
+  - `variable_name` declares a variable that represents each array element
+  - `condition_expression` is a boolean expression evaluated for each element
+
+  For example:
+  Given the input event:
+  ```
+  {
+    "users": [
+      { "name": "Alice", "id": "100" },
+      { "name": "Bob", "id": "200" }
+    ]
+  }
+  ```
+
+  and the `arr_find` expression:
+  ```
+  arr_find($.users, user, user.id == "100")
+  ```
+
+  Results: `{ "name": "Alice", "id": "100" }`
+
+  With null safety:
+  ```
+  dict(
+    username=case(
+      arr_find($.users, user, user.id == "100") != null =>
+        arr_find($.users, user, user.id == "100").name,
+      _ => null
+    )
+  )
+  ```
+  */
+  class ArrFindFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("arr_find", 3, "array, variable name, and condition");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (args.size() != 3) {
+        throw new IllegalArgumentException(
+            "arr_find expects 3 arguments: array, variable name, and condition");
+      }
+
+      FleakData arrayData = visitExpression(visitor, args.get(0));
+
+      if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
+        return null;
+      }
+
+      if (arrayData instanceof RecordFleakData) {
+        arrayData = new ArrayFleakData(List.of(arrayData));
+      }
+
+      String elemVarName = args.get(1).getText();
+
+      for (FleakData elem : arrayData.getArrayPayload()) {
+        visitor.enterScope();
+        try {
+          visitor.setVariable(elemVarName, elem);
+          FleakData conditionResult = visitExpression(visitor, args.get(2));
+
+          if (conditionResult instanceof BooleanPrimitiveFleakData
+              && conditionResult.isTrueValue()) {
+            return elem;
+          }
+        } finally {
+          visitor.exitScope();
+        }
+      }
+
+      return null;
+    }
+  }
+
+  /*
+  arrFilterFunction:
+  Filter and return all elements in an array that satisfy a condition.
+  Returns an empty array if no elements match.
+
+  Syntax:
+  ```
+  arr_filter($.path.to.array, variable_name, condition_expression)
+  ```
+
+  where
+  - `$.path.to.array` points to the array field in the input event
+  - If `$.path.to.array` points to an object, treat that object as a single element array
+  - `variable_name` declares a variable that represents each array element
+  - `condition_expression` is a boolean expression evaluated for each element
+
+  For example:
+  Given the input event:
+  ```
+  {
+    "items": [
+      { "price": 100, "category": "A" },
+      { "price": 200, "category": "B" },
+      { "price": 150, "category": "A" }
+    ]
+  }
+  ```
+
+  and the `arr_filter` expression:
+  ```
+  arr_filter($.items, item, item.category == "A")
+  ```
+
+  Results:
+  ```
+  [
+    { "price": 100, "category": "A" },
+    { "price": 150, "category": "A" }
+  ]
+  ```
+
+  To get the first filtered element:
+  ```
+  arr_filter($.items, item, item.category == "A")[0]
+  ```
+  */
+  class ArrFilterFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("arr_filter", 3, "array, variable name, and condition");
+    }
+
+    @Override
+    public FleakData evaluate(
+        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+      if (args.size() != 3) {
+        throw new IllegalArgumentException(
+            "arr_filter expects 3 arguments: array, variable name, and condition");
+      }
+
+      FleakData arrayData = visitExpression(visitor, args.get(0));
+      if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
+        return FleakData.wrap(List.of());
+      }
+
+      if (arrayData instanceof RecordFleakData) {
+        arrayData = new ArrayFleakData(List.of(arrayData));
+      }
+
+      String elemVarName = args.get(1).getText();
+      List<FleakData> resultArray = new ArrayList<>();
+
+      for (FleakData elem : arrayData.getArrayPayload()) {
+        visitor.enterScope();
+        try {
+          visitor.setVariable(elemVarName, elem);
+          FleakData conditionResult = visitExpression(visitor, args.get(2));
+
+          if (conditionResult instanceof BooleanPrimitiveFleakData
+              && conditionResult.isTrueValue()) {
+            resultArray.add(elem);
+          }
         } finally {
           visitor.exitScope();
         }
@@ -1381,6 +1562,8 @@ public interface FeelFunction {
             .put("arr_flatten", new ArrFlattenFunction())
             .put("range", new RangeFunction())
             .put("arr_foreach", new ArrForEachFunction())
+            .put("arr_find", new ArrFindFunction())
+            .put("arr_filter", new ArrFilterFunction())
             .put("dict_merge", new DictMergeFunction())
             .put("dict_remove", new DictRemoveFunction())
             .put("floor", new FloorFunction())

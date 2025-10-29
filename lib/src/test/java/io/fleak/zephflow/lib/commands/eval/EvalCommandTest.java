@@ -1104,6 +1104,23 @@ dict(
   }
 
   @Test
+  public void testOutputMultipleEvents_BadPath() {
+    String inputEventStr =
+        """
+        {
+          "arr":[
+            {"k": 1},
+            {"k": 2}
+          ]
+        }
+        """;
+
+    String evalExpr = "$.bad_field.some_field";
+    RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
+    testEval(inputEvent, evalExpr, List.of());
+  }
+
+  @Test
   public void testOutputMultipleEvents_castFailure() {
     String inputEventStr =
         """

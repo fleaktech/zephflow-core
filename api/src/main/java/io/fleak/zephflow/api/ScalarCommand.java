@@ -44,8 +44,8 @@ public abstract class ScalarCommand extends OperatorCommand {
         List<RecordFleakData> oneOutput = processOneEvent(event, callingUser, initializedConfig);
         processResult.output.addAll(oneOutput);
       } catch (Exception e) {
-        log.debug("process failure", e);
         ErrorOutput errorOutput = new ErrorOutput(event, e.getMessage());
+        log.debug("process failure: {}", errorOutput, e);
         processResult.failureEvents.add(errorOutput);
       }
     }

@@ -455,6 +455,186 @@ dict(
   }
 
   @Test
+  public void testArrFindFunction() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "users",
+                    List.of(
+                        Map.of("name", "Alice", "id", "100"),
+                        Map.of("name", "Bob", "id", "200"),
+                        Map.of("name", "Charlie", "id", "300")),
+                "products",
+                    List.of(
+                        Map.of("price", 100, "category", "A"),
+                        Map.of("price", 200, "category", "B"),
+                        Map.of("price", 150, "category", "A"))));
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result1 = executeExpression(visitor, "arr_find($.users, user, user.id == \"100\")");
+    assertEquals(FleakData.wrap(Map.of("name", "Alice", "id", "100")), result1);
+
+    FleakData result2 = executeExpression(visitor, "arr_find($.products, item, item.price > 100)");
+    assertEquals(FleakData.wrap(Map.of("category", "B", "price", 200)), result2);
+
+    FleakData result3 =
+        executeExpression(visitor, "arr_find($.products, item, item.category == \"A\")");
+    assertEquals(FleakData.wrap(Map.of("price", 100, "category", "A")), result3);
+  }
+
+  @Test
+  public void testArrFindNoMatch() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "items",
+                List.of(
+                    Map.of("price", 100, "category", "A"), Map.of("price", 200, "category", "B"))));
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result =
+        executeExpression(visitor, "arr_find($.items, item, item.category == \"C\")");
+    assertNull(result);
+  }
+
+  @Test
+  public void testArrFindEmptyArray() {
+    FleakData testData = FleakData.wrap(Map.of("items", List.of()));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result = executeExpression(visitor, "arr_find($.items, item, item.price > 0)");
+    assertNull(result);
+  }
+
+  @Test
+  public void testArrFindWithNullSafety() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "users",
+                List.of(Map.of("name", "Alice", "id", "100"), Map.of("name", "Bob", "id", "200"))));
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    String expr = "arr_find($.users, user, user.id == '100').name";
+
+    FleakData result = executeExpression(visitor, expr);
+    assertNotNull(result);
+    assertEquals("Alice", result.getStringValue());
+
+    String expr2 = "arr_find($.users, user, user.id == \"999\").name";
+
+    FleakData result2 = executeExpression(visitor, expr2);
+    assertNull(result2);
+
+    String expr3 = "arr_find($.bad_field, user, user.id == '100').name";
+    FleakData result3 = executeExpression(visitor, expr3);
+    assertNull(result3);
+  }
+
+  @Test
+  public void testArrFilterFunction() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "items",
+                    List.of(
+                        Map.of("price", 100, "category", "A"),
+                        Map.of("price", 200, "category", "B"),
+                        Map.of("price", 150, "category", "A"),
+                        Map.of("price", 300, "category", "C")),
+                "numbers", List.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)));
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result1 =
+        executeExpression(visitor, "arr_filter($.items, item, item.category == \"A\")");
+    assertEquals(
+        FleakData.wrap(
+            List.of(Map.of("price", 100, "category", "A"), Map.of("price", 150, "category", "A"))),
+        result1);
+
+    FleakData result2 = executeExpression(visitor, "arr_filter($.items, item, item.price >= 150)");
+    assertEquals(
+        FleakData.wrap(
+            List.of(
+                Map.of("price", 200, "category", "B"),
+                Map.of("price", 150, "category", "A"),
+                Map.of("price", 300, "category", "C"))),
+        result2);
+
+    FleakData result3 = executeExpression(visitor, "arr_filter($.numbers, n, n % 2 == 0)");
+    assertEquals(FleakData.wrap(List.of(2, 4, 6, 8, 10)), result3);
+  }
+
+  @Test
+  public void testArrFilterNoMatch() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "items",
+                List.of(
+                    Map.of("price", 100, "category", "A"), Map.of("price", 200, "category", "B"))));
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result =
+        executeExpression(visitor, "arr_filter($.items, item, item.category == \"C\")");
+    assertEquals(FleakData.wrap(List.of()), result);
+
+    FleakData result2 =
+        executeExpression(visitor, "arr_filter($.bad_array, item, item.category == \"C\")");
+    assertEquals(FleakData.wrap(List.of()), result2);
+  }
+
+  @Test
+  public void testArrFilterEmptyArray() {
+    FleakData testData = FleakData.wrap(Map.of("items", List.of()));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    FleakData result = executeExpression(visitor, "arr_filter($.items, item, item.price > 0)");
+    assertEquals(FleakData.wrap(List.of()), result);
+  }
+
+  @Test
+  public void testArrFilterWithIndexAccess() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "items",
+                List.of(
+                    Map.of("price", 100, "category", "A"), Map.of("price", 150, "category", "A"))));
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    String expr = "arr_filter($.items, item, item.category == \"A\")[0].price";
+    FleakData result = executeExpression(visitor, expr);
+    assertNotNull(result);
+    assertEquals(100L, result.unwrap());
+  }
+
+  @Test
+  public void testArrFindAndFilterArgumentValidation() {
+    FleakData testData = FleakData.wrap(Map.of("items", List.of(1, 2, 3)));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> executeExpression(visitor, "arr_find($.items, item)"));
+
+    assertThrows(
+        IllegalArgumentException.class, () -> executeExpression(visitor, "arr_filter($.items)"));
+
+    FleakData findResult = executeExpression(visitor, "arr_find(\"not_array\", x, x > 0)");
+    assertNull(findResult);
+
+    FleakData filterResult = executeExpression(visitor, "arr_filter(\"not_array\", x, x > 0)");
+    assertEquals(List.of(), filterResult.unwrap());
+  }
+
+  @Test
   public void testPythonFunction() {
     FleakData testData =
         FleakData.wrap(
@@ -527,6 +707,20 @@ def add_one(x):
           e.getMessage().contains("python") || e.getMessage().toLowerCase().contains("argument"));
       System.out.println("✅ Python function signature properly included in error system");
     }
+  }
+
+  @Test
+  public void testArrForeach_firstArgNull() {
+    FleakData testData = FleakData.wrap(Map.of());
+
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> executeExpression(visitor, "arr_foreach($.items, item, item.category == \"C\")"));
+    assertEquals(
+        "arr_foreach: first argument should be an array or object but found: null", e.getMessage());
   }
 
   private void testFunctionExecution(
