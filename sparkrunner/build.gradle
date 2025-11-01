@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
   api project(":lib")
+  api project(":runner")
   implementation group: 'org.apache.spark', name: 'spark-sql_2.13', version: sparkVersion
 }
 
