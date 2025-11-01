@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dag.Dag;
 import io.fleak.zephflow.lib.dag.Edge;
 import io.fleak.zephflow.lib.dag.Node;
+import java.io.Serializable;
 import java.util.*;
 import lombok.Builder;
 import lombok.NonNull;
@@ -39,12 +40,15 @@ import org.slf4j.MDC;
 public record NoSourceDagRunner(
     @NonNull List<Edge> edgesFromSource,
     Dag<OperatorCommand> compiledDagWithoutSource,
-    MetricClientProvider metricClientProvider,
-    DagRunCounters counters,
-    boolean useDlq) {
+    boolean useDlq)
+    implements Serializable {
 
   public DagResult run(
-      List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
+      List<RecordFleakData> events,
+      String callingUser,
+      NoSourceDagRunner.DagRunConfig runConfig,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters) {
 
     // make sure all edges are from the same source
     var sourceNodeIds = edgesFromSource.stream().map(Edge::getFrom).distinct().toList();
@@ -69,10 +73,16 @@ public record NoSourceDagRunner(
             .callingUser(callingUser)
             .callingUserTag(tags)
             .dagResult(dagResult)
-            .metricClientProvider(metricClientProvider)
             .runConfig(runConfig)
             .build();
-    routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
+    routeToDownstream(
+        sourceNodeId,
+        commandName,
+        events,
+        edgesFromSource,
+        runContext,
+        metricClientProvider,
+        counters);
     counters.stopStopWatch(tags);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
@@ -82,12 +92,14 @@ public record NoSourceDagRunner(
     return dagResult;
   }
 
-  void routeToDownstream(
+  private void routeToDownstream(
       String currentNodeId,
       String commandName,
       List<RecordFleakData> events,
       List<Edge> outgoingEdges,
-      RunContext runContext) {
+      RunContext runContext,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters) {
     if (CollectionUtils.isEmpty(outgoingEdges)) {
       List<RecordFleakData> currentNodeOutput =
           runContext.dagResult.outputEvents.computeIfAbsent(currentNodeId, k -> new ArrayList<>());
@@ -99,22 +111,24 @@ public record NoSourceDagRunner(
       return;
     }
     for (var e : outgoingEdges) {
-      processEvent(e.getTo(), currentNodeId, events, runContext);
+      processEvent(e.getTo(), currentNodeId, events, runContext, metricClientProvider, counters);
     }
   }
 
-  void processEvent(
+  private void processEvent(
       String currentNodeId,
       String upstreamNodeId,
       List<RecordFleakData> events,
-      RunContext runContext) {
+      RunContext runContext,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters) {
     Node<OperatorCommand> compiledNode = compiledDagWithoutSource.lookupNode(currentNodeId);
     OperatorCommand command = compiledNode.getNodeContent();
     List<Edge> downstreamEdges = compiledDagWithoutSource.downstreamEdges(currentNodeId);
     if (command instanceof ScalarCommand scalarCommand) {
       // Process the event through a scalar command
       ScalarCommand.ProcessResult result =
-          scalarCommand.process(events, runContext.callingUser, runContext.metricClientProvider);
+          scalarCommand.process(events, runContext.callingUser, metricClientProvider);
       runContext.dagResult.handleNodeResult(
           runContext.callingUserTag,
           currentNodeId,
@@ -127,13 +141,19 @@ public record NoSourceDagRunner(
           useDlq);
 
       routeToDownstream(
-          currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
+          currentNodeId,
+          command.commandName(),
+          result.getOutput(),
+          downstreamEdges,
+          runContext,
+          metricClientProvider,
+          counters);
       return;
     }
     if (command instanceof ScalarSinkCommand sinkCommand) {
       // Write to sink
       ScalarSinkCommand.SinkResult result =
-          sinkCommand.writeToSink(events, runContext.callingUser, runContext.metricClientProvider);
+          sinkCommand.writeToSink(events, runContext.callingUser, metricClientProvider);
       RecordFleakData sinkOutputEvent = sinkResultToOutputEvent(result);
       runContext.dagResult.handleNodeResult(
           runContext.callingUserTag,
@@ -181,7 +201,6 @@ public record NoSourceDagRunner(
   private static class RunContext {
     String callingUser;
     Map<String, String> callingUserTag;
-    MetricClientProvider metricClientProvider;
     DagResult dagResult;
     NoSourceDagRunner.DagRunConfig runConfig;
   }

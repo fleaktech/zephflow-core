@@ -19,9 +19,9 @@ import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.lib.serdes.des.csv.CsvDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.jsonarr.JsonArrayDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.strline.StringLineDeserializerFactory;
-import io.fleak.zephflow.runner.ZephflowDagCompiler;
 import io.fleak.zephflow.runner.DagRunnerService;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
+import io.fleak.zephflow.runner.ZephflowDagCompiler;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.lang3.tuple.Pair;
@@ -45,7 +45,8 @@ public class HttpStarterApplication {
 
   @Bean
   public DagRunnerService dagRunnerService() {
-    ZephflowDagCompiler zephflowDagCompiler = new ZephflowDagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS);
+    ZephflowDagCompiler zephflowDagCompiler =
+        new ZephflowDagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS);
     MetricClientProvider metricClientProvider = new MetricClientProvider.NoopMetricClientProvider();
     return new DagRunnerService(zephflowDagCompiler, metricClientProvider);
   }

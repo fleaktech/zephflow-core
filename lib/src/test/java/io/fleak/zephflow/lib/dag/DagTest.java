@@ -28,15 +28,14 @@ class DagTest {
   @BeforeEach
   void setUp() {
     List<Node<String>> testNodes =
-        Arrays.asList(
+        List.of(
             Node.<String>builder().id("A").nodeContent("Node A").build(),
             Node.<String>builder().id("B").nodeContent("Node B").build(),
             Node.<String>builder().id("C").nodeContent("Node C").build(),
             Node.<String>builder().id("D").nodeContent("Node D").build());
 
     List<Edge> testEdges =
-        Arrays.asList(
-            new Edge("A", "B"), new Edge("A", "C"), new Edge("B", "D"), new Edge("C", "D"));
+        List.of(new Edge("A", "B"), new Edge("A", "C"), new Edge("B", "D"), new Edge("C", "D"));
 
     testDag = new Dag<>(testNodes, testEdges);
   }
@@ -327,5 +326,157 @@ class DagTest {
     assertNotNull(dagString);
     assertTrue(dagString.contains("\"nodes\""));
     assertTrue(dagString.contains("\"edges\""));
+  }
+
+  @Test
+  public void testSplitProcessingAndSinks_withMultipleSinks() {
+    List<Node<String>> nodes =
+        List.of(
+            Node.<String>builder().id("source").nodeContent("source_command").build(),
+            Node.<String>builder().id("eval1").nodeContent("eval_command").build(),
+            Node.<String>builder().id("eval2").nodeContent("eval_command").build(),
+            Node.<String>builder().id("kafka_sink").nodeContent("kafka_sink_command").build(),
+            Node.<String>builder().id("s3_sink").nodeContent("s3_sink_command").build());
+
+    List<Edge> edges =
+        List.of(
+            new Edge("source", "eval1"),
+            new Edge("eval1", "eval2"),
+            new Edge("eval2", "kafka_sink"),
+            new Edge("eval2", "s3_sink"));
+
+    Dag<String> dag = new Dag<>(nodes, edges);
+
+    Dag.ProcessingSinkSplit<String> actual =
+        Dag.splitProcessingAndSinks(dag, n -> n.getNodeContent().endsWith("_sink_command"));
+
+    Dag<String> expectedProcessingDag =
+        new Dag<>(
+            List.of(
+                Node.<String>builder().id("source").nodeContent("source_command").build(),
+                Node.<String>builder().id("eval1").nodeContent("eval_command").build(),
+                Node.<String>builder().id("eval2").nodeContent("eval_command").build()),
+            List.of(new Edge("source", "eval1"), new Edge("eval1", "eval2")));
+
+    List<Node<String>> expectedSinkNodes =
+        List.of(
+            Node.<String>builder().id("kafka_sink").nodeContent("kafka_sink_command").build(),
+            Node.<String>builder().id("s3_sink").nodeContent("s3_sink_command").build());
+
+    List<Edge> expectedEdgesToSinks =
+        List.of(new Edge("eval2", "kafka_sink"), new Edge("eval2", "s3_sink"));
+
+    Dag.ProcessingSinkSplit<String> expected =
+        new Dag.ProcessingSinkSplit<>(
+            expectedProcessingDag, expectedSinkNodes, expectedEdgesToSinks);
+
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void testSplitProcessingAndSinks_withSingleSink() {
+    List<Node<String>> nodes =
+        List.of(
+            Node.<String>builder().id("source").nodeContent("source_command").build(),
+            Node.<String>builder().id("eval1").nodeContent("eval_command").build(),
+            Node.<String>builder().id("sink").nodeContent("sink_command").build());
+
+    List<Edge> edges = List.of(new Edge("source", "eval1"), new Edge("eval1", "sink"));
+
+    Dag<String> dag = new Dag<>(nodes, edges);
+
+    Dag.ProcessingSinkSplit<String> actual =
+        Dag.splitProcessingAndSinks(dag, n -> n.getNodeContent().equals("sink_command"));
+
+    Dag<String> expectedProcessingDag =
+        new Dag<>(
+            List.of(
+                Node.<String>builder().id("source").nodeContent("source_command").build(),
+                Node.<String>builder().id("eval1").nodeContent("eval_command").build()),
+            List.of(new Edge("source", "eval1")));
+
+    List<Node<String>> expectedSinkNodes =
+        List.of(Node.<String>builder().id("sink").nodeContent("sink_command").build());
+
+    List<Edge> expectedEdgesToSinks = List.of(new Edge("eval1", "sink"));
+
+    Dag.ProcessingSinkSplit<String> expected =
+        new Dag.ProcessingSinkSplit<>(
+            expectedProcessingDag, expectedSinkNodes, expectedEdgesToSinks);
+
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void testSplitProcessingAndSinks_noSinks() {
+    List<Node<String>> nodes =
+        List.of(
+            Node.<String>builder().id("source").nodeContent("source_command").build(),
+            Node.<String>builder().id("eval1").nodeContent("eval_command").build());
+
+    List<Edge> edges = List.of(new Edge("source", "eval1"));
+
+    Dag<String> dag = new Dag<>(nodes, edges);
+
+    Dag.ProcessingSinkSplit<String> actual =
+        Dag.splitProcessingAndSinks(dag, n -> n.getNodeContent().equals("sink_command"));
+
+    Dag<String> expectedProcessingDag =
+        new Dag<>(
+            List.of(
+                Node.<String>builder().id("source").nodeContent("source_command").build(),
+                Node.<String>builder().id("eval1").nodeContent("eval_command").build()),
+            List.of(new Edge("source", "eval1")));
+
+    List<Node<String>> expectedSinkNodes = Collections.emptyList();
+
+    List<Edge> expectedEdgesToSinks = Collections.emptyList();
+
+    Dag.ProcessingSinkSplit<String> expected =
+        new Dag.ProcessingSinkSplit<>(
+            expectedProcessingDag, expectedSinkNodes, expectedEdgesToSinks);
+
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void testSplitProcessingAndSinks_multipleProcessingToOneSink() {
+    List<Node<String>> nodes =
+        List.of(
+            Node.<String>builder().id("source").nodeContent("source_command").build(),
+            Node.<String>builder().id("eval1").nodeContent("eval_command").build(),
+            Node.<String>builder().id("eval2").nodeContent("eval_command").build(),
+            Node.<String>builder().id("sink").nodeContent("sink_command").build());
+
+    List<Edge> edges =
+        List.of(
+            new Edge("source", "eval1"),
+            new Edge("source", "eval2"),
+            new Edge("eval1", "sink"),
+            new Edge("eval2", "sink"));
+
+    Dag<String> dag = new Dag<>(nodes, edges);
+
+    Dag.ProcessingSinkSplit<String> actual =
+        Dag.splitProcessingAndSinks(dag, n -> n.getNodeContent().equals("sink_command"));
+
+    Dag<String> expectedProcessingDag =
+        new Dag<>(
+            List.of(
+                Node.<String>builder().id("source").nodeContent("source_command").build(),
+                Node.<String>builder().id("eval1").nodeContent("eval_command").build(),
+                Node.<String>builder().id("eval2").nodeContent("eval_command").build()),
+            List.of(new Edge("source", "eval1"), new Edge("source", "eval2")));
+
+    List<Node<String>> expectedSinkNodes =
+        List.of(Node.<String>builder().id("sink").nodeContent("sink_command").build());
+
+    List<Edge> expectedEdgesToSinks = List.of(new Edge("eval1", "sink"), new Edge("eval2", "sink"));
+
+    Dag.ProcessingSinkSplit<String> expected =
+        new Dag.ProcessingSinkSplit<>(
+            expectedProcessingDag, expectedSinkNodes, expectedEdgesToSinks);
+
+    assertEquals(expected, actual);
   }
 }

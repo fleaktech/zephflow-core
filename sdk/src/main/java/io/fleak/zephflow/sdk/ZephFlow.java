@@ -82,8 +82,8 @@ public class ZephFlow {
   private final MetricClientProvider metricClientProvider;
 
   // Cached runner for the 'process' method (for flows without explicit sources).
-  private transient NoSourceDagRunner
-      noSourceDagRunner; // Marked transient if serialization is intended
+  private transient NoSourceDagRunner noSourceDagRunner;
+  private transient DagRunnerService dagRunnerService;
 
   /**
    * Private constructor for internal use by factory methods and builder methods.
@@ -856,14 +856,16 @@ public class ZephFlow {
     // final ZephFlow object returned by a sink/builder method.
     if (noSourceDagRunner == null) {
       ZephflowDagCompiler zephflowDagCompiler = new ZephflowDagCompiler(aggregatedCommands);
-      DagRunnerService dagRunnerService = new DagRunnerService(zephflowDagCompiler, metricClientProvider);
+      dagRunnerService = new DagRunnerService(zephflowDagCompiler, metricClientProvider);
 
       AdjacencyListDagDefinition dagDefinition = buildDag();
       noSourceDagRunner =
           dagRunnerService.createForApiBackend(
               dagDefinition.getDag(), dagDefinition.getJobContext());
     }
-    return noSourceDagRunner.run(inputData, callingUser, runConfig);
+    DagRunCounters counters = dagRunnerService.createCounters(buildDag().getJobContext());
+    return noSourceDagRunner.run(
+        inputData, callingUser, runConfig, dagRunnerService.metricClientProvider(), counters);
   }
 
   /**

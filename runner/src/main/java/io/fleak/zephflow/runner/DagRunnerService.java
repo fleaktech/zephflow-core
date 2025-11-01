@@ -26,16 +26,9 @@ import java.util.List;
 import lombok.NonNull;
 
 /** Created by bolei on 4/8/25 */
-public class DagRunnerService {
+public record DagRunnerService(
+    ZephflowDagCompiler zephflowDagCompiler, MetricClientProvider metricClientProvider) {
   private static final String SYNC_INPUT_NODE_NAME = "sync_input";
-
-  private final ZephflowDagCompiler zephflowDagCompiler;
-  private final MetricClientProvider metricClientProvider;
-
-  public DagRunnerService(ZephflowDagCompiler zephflowDagCompiler, MetricClientProvider metricClientProvider) {
-    this.zephflowDagCompiler = zephflowDagCompiler;
-    this.metricClientProvider = metricClientProvider;
-  }
 
   public NoSourceDagRunner createForApiBackend(
       List<AdjacencyListDagDefinition.DagNode> dag, @NonNull JobContext jobContext) {
@@ -51,9 +44,10 @@ public class DagRunnerService {
       }
       incomingEdges.add(Edge.builder().from(SYNC_INPUT_NODE_NAME).to(node.getId()).build());
     }
-    DagRunCounters counters =
-        DagRunCounters.createPipelineCounters(
-            metricClientProvider, dagDefinition.getJobContext().getMetricTags());
-    return new NoSourceDagRunner(incomingEdges, compiledDag, metricClientProvider, counters, false);
+    return new NoSourceDagRunner(incomingEdges, compiledDag, false);
+  }
+
+  public DagRunCounters createCounters(JobContext jobContext) {
+    return DagRunCounters.createPipelineCounters(metricClientProvider, jobContext.getMetricTags());
   }
 }

@@ -1,7 +1,5 @@
 package io.fleak.zephflow.sparkrunner.processors;
 
-import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
-import java.util.List;
 import java.util.Map;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -16,5 +14,4 @@ public class EvalSparkCommandProcessor implements SparkCommandProcessor {
 
     return null;
   }
-
 }

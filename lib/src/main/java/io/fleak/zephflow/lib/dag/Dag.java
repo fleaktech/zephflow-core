@@ -23,6 +23,7 @@ import org.apache.commons.lang3.tuple.Pair;
 
 @Getter
 @NoArgsConstructor
+@EqualsAndHashCode
 public class Dag<T> {
 
   private final List<Node<T>> nodes = new ArrayList<>();
@@ -302,6 +303,50 @@ public class Dag<T> {
 
     // 3. Create the DAG with all nodes and edges at once
     return new Dag<>(nodes, edges);
+  }
+
+  /**
+   * Result of splitting a DAG into processing nodes and sink nodes.
+   *
+   * @param <T> The type of node content
+   */
+  public record ProcessingSinkSplit<T>(
+      Dag<T> processingDag, List<Node<T>> sinkNodes, List<Edge> edgesToSinks) {}
+
+  /**
+   * Splits a DAG into processing nodes and sink nodes, tracking which processing nodes connect to
+   * which sinks.
+   *
+   * @param dag The DAG to split
+   * @param isSinkNode Predicate to identify sink nodes
+   * @param <T> The type of node content
+   * @return ProcessingSinkSplit containing processing DAG, sink nodes, and edges to sinks
+   */
+  public static <T> ProcessingSinkSplit<T> splitProcessingAndSinks(
+      Dag<T> dag, Predicate<Node<T>> isSinkNode) {
+
+    List<Node<T>> sinkNodes = dag.getNodes().stream().filter(isSinkNode).toList();
+
+    Set<String> sinkNodeIds = sinkNodes.stream().map(Node::getId).collect(Collectors.toSet());
+
+    List<Node<T>> processingNodes =
+        dag.getNodes().stream()
+            .filter(n -> !sinkNodeIds.contains(n.getId()))
+            .collect(Collectors.toList());
+
+    List<Edge> processingEdges = new ArrayList<>();
+    List<Edge> edgesToSinks = new ArrayList<>();
+
+    for (Edge edge : dag.getEdges()) {
+      if (sinkNodeIds.contains(edge.getTo())) {
+        edgesToSinks.add(edge);
+      } else {
+        processingEdges.add(edge);
+      }
+    }
+
+    Dag<T> processingDag = new Dag<>(processingNodes, processingEdges);
+    return new ProcessingSinkSplit<>(processingDag, sinkNodes, edgesToSinks);
   }
 
   /**

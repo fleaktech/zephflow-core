@@ -29,6 +29,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
 import io.fleak.zephflow.lib.dag.Dag;
 import io.fleak.zephflow.lib.dag.Edge;
 import io.fleak.zephflow.lib.dag.Node;
@@ -203,10 +204,9 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges); // Create the real DAG
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       // Verify command processing
       verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
@@ -267,10 +267,9 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges); // Create the real DAG
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
       verify(mockScalarCmd2)
@@ -322,10 +321,9 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges); // Create the real DAG
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
       verify(mockScalarCmd2).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
@@ -385,10 +383,9 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges); // Create the real DAG
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockScalarCmd1)
           .process(eq(Collections.emptyList()), eq(CALLING_USER), eq(mockMetricProvider));
@@ -431,12 +428,12 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> dummyDag = new Dag<>(List.of(node1, node2), Collections.emptyList());
 
       noSourceDagRunner =
-          new NoSourceDagRunner(edgesFromSource, dummyDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, dummyDag, false);
 
       IllegalArgumentException exception =
           assertThrows(
               IllegalArgumentException.class,
-              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll),
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters),
               "Should throw IllegalArgumentException for multiple source IDs");
 
       assertEquals(
@@ -454,13 +451,12 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges); // Create the real DAG
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
       IllegalStateException exception =
           assertThrows(
               IllegalStateException.class,
-              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll),
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters),
               "Should throw IllegalStateException for unsupported command");
 
       assertTrue(
@@ -503,14 +499,9 @@ class NoSourceDagRunnerTest {
           .thenReturn(new ScalarCommand.ProcessResult(successfulEvents, errors));
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource,
-              compiledDag,
-              mockMetricProvider,
-              mockCounters,
-              false); // useDlq=false
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false); // useDlq=false
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockScalarCmd2)
           .process(eq(successfulEvents), eq(CALLING_USER), eq(mockMetricProvider));
@@ -551,13 +542,12 @@ class NoSourceDagRunnerTest {
           .thenReturn(new ScalarCommand.ProcessResult(successfulEvents, errors));
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
+          new NoSourceDagRunner(edgesFromSource, compiledDag, true); // useDlq=true
 
       IllegalArgumentException exception =
           assertThrows(
               IllegalArgumentException.class,
-              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll),
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters),
               "Should throw IllegalArgumentException when useDlq=true and errors occur");
       assertEquals(errorMessage, exception.getMessage(), "Exception message mismatch");
       verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
@@ -585,14 +575,9 @@ class NoSourceDagRunnerTest {
           .thenReturn(sinkResult);
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource,
-              compiledDag,
-              mockMetricProvider,
-              mockCounters,
-              false); // useDlq=false
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false); // useDlq=false
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockCounters)
           .increaseErrorEventCounter(eq((long) errors.size()), tagsCaptor.capture());
@@ -643,13 +628,12 @@ class NoSourceDagRunnerTest {
           .thenReturn(sinkResult);
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
+          new NoSourceDagRunner(edgesFromSource, compiledDag, true); // useDlq=true
 
       IllegalArgumentException exception =
           assertThrows(
               IllegalArgumentException.class,
-              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll),
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters),
               "Should throw IllegalArgumentException when useDlq=true and sink errors occur");
       assertEquals(errorMessage, exception.getMessage(), "Exception message mismatch");
       verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
@@ -671,16 +655,11 @@ class NoSourceDagRunnerTest {
           .thenReturn(new ScalarCommand.ProcessResult(Collections.emptyList(), errors));
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource,
-              compiledDag,
-              mockMetricProvider,
-              mockCounters,
-              false); // useDlq=false
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false); // useDlq=false
 
       DagResult result =
           noSourceDagRunner.run(
-              inputEvents, CALLING_USER, runConfigExcludeSteps); // includeErrorByStep=false
+              inputEvents, CALLING_USER, runConfigExcludeSteps, mockMetricProvider, mockCounters); // includeErrorByStep=false
 
       verify(mockCounters).increaseErrorEventCounter(eq((long) errors.size()), anyMap());
       assertTrue(
@@ -710,8 +689,7 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges); // Create the real DAG
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
       noSourceDagRunner.terminate();
 
@@ -734,8 +712,7 @@ class NoSourceDagRunnerTest {
       doThrow(new RuntimeException("Terminate failed")).when(mockScalarCmd1).terminate();
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
       assertDoesNotThrow(
           () -> noSourceDagRunner.terminate(), "Terminate should not throw exceptions upwards");
@@ -760,12 +737,11 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges);
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
       DagResult result =
           noSourceDagRunner.run(
-              inputEvents, CALLING_USER, runConfigIncludeAll); // includeOutputByStep=true
+              inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters); // includeOutputByStep=true
 
       assertFalse(result.outputByStep.isEmpty(), "outputByStep should not be empty");
       assertDebugInfo(result.outputByStep, NODE_ID_1, SOURCE_NODE_ID, inputEvents, "outputByStep");
@@ -791,10 +767,9 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges);
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
-      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigExcludeSteps);
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigExcludeSteps, mockMetricProvider, mockCounters);
 
       assertTrue(
           result.outputByStep.isEmpty(),
@@ -821,12 +796,11 @@ class NoSourceDagRunnerTest {
       Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges);
 
       noSourceDagRunner =
-          new NoSourceDagRunner(
-              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+          new NoSourceDagRunner(edgesFromSource, compiledDag, false);
 
       DagResult result =
           noSourceDagRunner.run(
-              inputEvents, CALLING_USER, runConfigExcludeSteps); // includeOutputByStep=false
+              inputEvents, CALLING_USER, runConfigExcludeSteps, mockMetricProvider, mockCounters); // includeOutputByStep=false
 
       assertTrue(result.outputByStep.isEmpty(), "outputByStep map should be empty");
       assertTrue(result.outputEvents.containsKey(SINK_ID), "outputEvents should contain sink ID");
@@ -860,15 +834,15 @@ class NoSourceDagRunnerTest {
             new Dag<>(
                 List.of(Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(command).build()),
                 List.of()),
-            new MetricClientProvider.NoopMetricClientProvider(),
-            mockCounters,
             false);
 
     DagResult dagResult =
         noSourceDagRunner.run(
             List.of(((RecordFleakData) FleakData.wrap(Map.of()))),
             CALLING_USER,
-            new NoSourceDagRunner.DagRunConfig(true, true));
+            new NoSourceDagRunner.DagRunConfig(true, true),
+            new MetricClientProvider.NoopMetricClientProvider(),
+            mockCounters);
     System.out.println(toJsonString(dagResult));
 
     assertTrue(dagResult.outputEvents.get(NODE_ID_1).isEmpty());

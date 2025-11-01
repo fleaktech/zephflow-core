@@ -13,13 +13,19 @@
  */
 package io.fleak.zephflow.httpstarter.api.v1;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_EXECUTION_CONTROLLER_PATH;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.httpstarter.dto.ExecuteDto;
 import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.DagResult;
+import io.fleak.zephflow.runner.DagRunCounters;
+import io.fleak.zephflow.runner.DagRunnerService;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,15 +37,24 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping(HTTP_STARTER_EXECUTION_CONTROLLER_PATH)
 public class ExecutionController {
+
+  private static final JobContext DEFAULT_JOB_CONTEXT =
+      JobContext.builder()
+          .metricTags(Map.of(METRIC_TAG_SERVICE, "http_endpoint", METRIC_TAG_ENV, "env"))
+          .build();
+
   private final ConcurrentHashMap<
           String, Pair<List<AdjacencyListDagDefinition.DagNode>, NoSourceDagRunner>>
       dagMap;
+  private final DagRunnerService dagRunnerService;
 
   @Autowired
   public ExecutionController(
       ConcurrentHashMap<String, Pair<List<AdjacencyListDagDefinition.DagNode>, NoSourceDagRunner>>
-          dagMap) {
+          dagMap,
+      DagRunnerService dagRunnerService) {
     this.dagMap = dagMap;
+    this.dagRunnerService = dagRunnerService;
   }
 
   @PostMapping("/run/{workflowId}/batch")
@@ -55,11 +70,14 @@ public class ExecutionController {
     }
     NoSourceDagRunner noSourceDagRunner = dagPair.getValue();
     try {
+      DagRunCounters counters = dagRunnerService.createCounters(DEFAULT_JOB_CONTEXT);
       DagResult dagResult =
           noSourceDagRunner.run(
               batchPayload.getInputRecords(),
               "http_endpoint_user",
-              new NoSourceDagRunner.DagRunConfig(includeErrorByStep, includeOutputByStep));
+              new NoSourceDagRunner.DagRunConfig(includeErrorByStep, includeOutputByStep),
+              dagRunnerService.metricClientProvider(),
+              counters);
 
       return ExecuteDto.Response.builder()
           .workflowId(workflowId)

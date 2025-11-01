@@ -31,7 +31,9 @@ import org.apache.commons.lang3.tuple.Pair;
 /** Created by bolei on 2/28/25 */
 @Slf4j
 public record DagExecutor(
-    JobConfig jobConfig, ZephflowDagCompiler zephflowDagCompiler, MetricClientProvider metricClientProvider) {
+    JobConfig jobConfig,
+    ZephflowDagCompiler zephflowDagCompiler,
+    MetricClientProvider metricClientProvider) {
   public static DagExecutor createDagExecutor(
       JobConfig jobConfig, MetricClientProvider metricClientProvider) {
 
@@ -103,8 +105,6 @@ public record DagExecutor(
         new NoSourceDagRunner(
             edgesFromSource,
             subDagWithoutSource,
-            metricClientProvider,
-            counters,
             jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
     try {
 
@@ -122,7 +122,9 @@ public record DagExecutor(
               noSourceDagRunner.run(
                   recordFleakData,
                   jobConfig.getJobId(),
-                  new NoSourceDagRunner.DagRunConfig(true, false));
+                  new NoSourceDagRunner.DagRunConfig(true, false),
+                  metricClientProvider,
+                  counters);
             }
           });
     } finally {
