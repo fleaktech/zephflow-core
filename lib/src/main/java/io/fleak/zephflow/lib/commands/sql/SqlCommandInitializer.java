@@ -16,7 +16,7 @@ package io.fleak.zephflow.lib.commands.sql;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.commands.DefaultCommandInitializer;
-import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 
 /** Created by bolei on 9/4/24 */
@@ -26,7 +26,7 @@ public class SqlCommandInitializer extends DefaultCommandInitializer {
   }
 
   @Override
-  protected DefaultInitializedConfig doInitialize(
+  protected DefaultExecutionContext doInitialize(
       String commandName,
       JobContext jobContext,
       CommandConfig commandConfig,
@@ -36,7 +36,7 @@ public class SqlCommandInitializer extends DefaultCommandInitializer {
     SQLInterpreter sqlInterpreter = SQLInterpreter.defaultInterpreter();
     SQLInterpreter.CompiledQuery query =
         sqlInterpreter.compileQuery(((SqlCommandDto.SqlCommandConfig) commandConfig).sql());
-    return new SqlInitializedConfig(
+    return new SqlExecutionContext(
         inputMessageCounter, outputMessageCounter, errorCounter, sqlInterpreter, query);
   }
 }

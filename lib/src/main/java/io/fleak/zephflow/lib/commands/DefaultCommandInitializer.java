@@ -27,7 +27,7 @@ public abstract class DefaultCommandInitializer extends CommandInitializer {
   }
 
   @Override
-  public DefaultInitializedConfig initialize(
+  public DefaultExecutionContext initialize(
       String commandName, JobContext jobContext, CommandConfig commandConfig) {
 
     Map<String, String> metricTags =
@@ -54,7 +54,7 @@ public abstract class DefaultCommandInitializer extends CommandInitializer {
         errorCounter);
   }
 
-  protected abstract DefaultInitializedConfig doInitialize(
+  protected abstract DefaultExecutionContext doInitialize(
       String commandName,
       JobContext jobContext,
       CommandConfig commandConfig,

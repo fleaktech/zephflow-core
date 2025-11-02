@@ -98,8 +98,9 @@ class SimpleSinkCommandTest {
     FleakData fleakData = loadFleakDataFromJsonResource("/json/multiple_simple_events.json");
     List<RecordFleakData> input =
         fleakData.getArrayPayload().stream().map(fd -> (RecordFleakData) fd).toList();
+    var context = sinkCommand.initialize(metricClientProvider);
     ScalarSinkCommand.SinkResult sinkResult =
-        sinkCommand.writeToSink(input, callingUser, metricClientProvider);
+        sinkCommand.writeToSink(input, callingUser, context);
     ScalarSinkCommand.SinkResult expected =
         new ScalarSinkCommand.SinkResult(
             5,
@@ -148,8 +149,9 @@ class SimpleSinkCommandTest {
             .map(fd -> (RecordFleakData) fd)
             .filter(fd -> ((int) fd.getPayload().get("val").getNumberValue()) % 3 == 1)
             .toList();
+    var context = sinkCommand.initialize(metricClientProvider);
     ScalarSinkCommand.SinkResult sinkResult =
-        sinkCommand.writeToSink(input, callingUser, metricClientProvider);
+        sinkCommand.writeToSink(input, callingUser, context);
     ScalarSinkCommand.SinkResult expected =
         new ScalarSinkCommand.SinkResult(
             2,

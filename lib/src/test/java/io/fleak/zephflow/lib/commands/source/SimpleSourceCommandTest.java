@@ -121,7 +121,7 @@ class SimpleSourceCommandTest {
     when(mockCommandInitializer.initialize(
             eq(TEST_COMMAND_NAME), eq(mockJobContext), any(CommandConfig.class)))
         .thenReturn(
-            new SourceInitializedConfig<>(
+            new SourceExecutionContext<>(
                 mockFetcher,
                 rawDataConverter,
                 mockEncoder,

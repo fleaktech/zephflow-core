@@ -44,14 +44,15 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   @Override
-  public SinkResult doWriteToSink(List<RecordFleakData> events, @NonNull String callingUser) {
+  public SinkResult doWriteToSink(
+      List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
     Map<String, String> tags =
         getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
     List<List<RecordFleakData>> batches = Lists.partition(events, batchSize());
     long ts = System.currentTimeMillis();
 
     SinkResult sinkResult = new SinkResult();
-    batches.stream().map(p -> writeOneBatch(p, ts, tags)).forEach(sinkResult::merge);
+    batches.stream().map(p -> writeOneBatch(p, ts, tags, context)).forEach(sinkResult::merge);
 
     return sinkResult;
   }
@@ -59,22 +60,24 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   protected abstract int batchSize();
 
   private SinkResult writeOneBatch(
-      List<RecordFleakData> batch, long ts, Map<String, String> callingUserTag) {
+      List<RecordFleakData> batch,
+      long ts,
+      Map<String, String> callingUserTag,
+      ExecutionContext context) {
     //noinspection unchecked
-    SinkInitializedConfig<T> sinkInitializedConfig =
-        (SinkInitializedConfig<T>) initializedConfigThreadLocal.get();
+    SinkExecutionContext<T> sinkContext = (SinkExecutionContext<T>) context;
 
-    sinkInitializedConfig.inputMessageCounter().increase(batch.size(), callingUserTag);
+    sinkContext.inputMessageCounter().increase(batch.size(), callingUserTag);
     List<ErrorOutput> errorOutputs = new ArrayList<>();
     PreparedInputEvents<T> preparedInputEvents = new PreparedInputEvents<>();
     batch.forEach(
         rd -> {
           try {
-            T prepared = sinkInitializedConfig.messagePreProcessor().preprocess(rd, ts);
+            T prepared = sinkContext.messagePreProcessor().preprocess(rd, ts);
             preparedInputEvents.add(rd, prepared);
           } catch (Exception e) {
             log.debug("failed to preprocess event", e);
-            sinkInitializedConfig.errorCounter().increase(callingUserTag);
+            sinkContext.errorCounter().increase(callingUserTag);
             errorOutputs.add(new ErrorOutput(rd, e.getMessage()));
           }
         });
@@ -83,7 +86,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     }
     FlushResult flushResult;
     try {
-      flushResult = sinkInitializedConfig.flusher().flush(preparedInputEvents);
+      flushResult = sinkContext.flusher().flush(preparedInputEvents);
     } catch (Exception e) {
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure
@@ -94,10 +97,10 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       flushResult = new FlushResult(0, 0, error);
     }
     errorOutputs.addAll(flushResult.errorOutputList);
-    sinkInitializedConfig.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
-    sinkInitializedConfig.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
+    sinkContext.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
+    sinkContext.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
     SinkResult sinkResult = new SinkResult(batch.size(), flushResult.successCount, errorOutputs);
-    sinkInitializedConfig.sinkErrorCounter().increase(sinkResult.errorCount(), callingUserTag);
+    sinkContext.sinkErrorCounter().increase(sinkResult.errorCount(), callingUserTag);
     return sinkResult;
   }
 

@@ -22,12 +22,12 @@ public class NoopCommandInitializer extends CommandInitializer {
   }
 
   @Override
-  public InitializedConfig initialize(
+  public ExecutionContext initialize(
       String commandName, JobContext jobContext, CommandConfig commandConfig) {
-    return new NoopInitializedConfig();
+    return new NoopExecutionContext();
   }
 
-  private static class NoopInitializedConfig implements InitializedConfig {
+  private static class NoopExecutionContext implements ExecutionContext {
     @Override
     public void close() {}
   }

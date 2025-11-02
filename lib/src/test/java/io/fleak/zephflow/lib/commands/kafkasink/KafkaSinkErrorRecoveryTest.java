@@ -106,9 +106,8 @@ class KafkaSinkErrorRecoveryTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 4, "special", "quotes\"and\\backslashes")));
 
     // Act: Process mixed data including edge cases
-    ScalarSinkCommand.SinkResult result =
-        kafkaSinkCommand.writeToSink(
-            testData, "json_test_user", new MetricClientProvider.NoopMetricClientProvider());
+    var context = kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    ScalarSinkCommand.SinkResult result = kafkaSinkCommand.writeToSink(testData, "json_test_user", context);
 
     // Assert: Should handle mixed data appropriately
     assertNotNull(result);

@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.api;
 
-import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,16 +32,29 @@ public abstract class ScalarSinkCommand extends OperatorCommand {
     super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
   }
 
+  /**
+   * Write events to sink with explicit execution context.
+   *
+   * @param events The events to write
+   * @param callingUser The calling user ID
+   * @param context The execution context (must be initialized via initialize())
+   * @return The sink result
+   */
   public SinkResult writeToSink(
-      List<RecordFleakData> events,
-      @NonNull String callingUser,
-      MetricClientProvider metricClientProvider) {
-    lazyInitialize(metricClientProvider);
-    return doWriteToSink(events, callingUser);
+      List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
+    return doWriteToSink(events, callingUser, context);
   }
 
+  /**
+   * Implementation method for writing to sink.
+   *
+   * @param events The events to write
+   * @param callingUser The calling user ID
+   * @param context The execution context
+   * @return The sink result
+   */
   protected abstract SinkResult doWriteToSink(
-      List<RecordFleakData> events, @NonNull String callingUser);
+      List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context);
 
   @Data
   @NoArgsConstructor

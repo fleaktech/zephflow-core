@@ -26,6 +26,6 @@ public abstract class CommandInitializer implements Serializable {
     this.commandPartsFactory = commandPartsFactory;
   }
 
-  public abstract InitializedConfig initialize(
+  public abstract ExecutionContext initialize(
       String commandName, JobContext jobContext, CommandConfig commandConfig);
 }

@@ -17,7 +17,7 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.DefaultCommandInitializer;
-import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -30,7 +30,7 @@ public class EvalCommandInitializer extends DefaultCommandInitializer {
   }
 
   @Override
-  protected DefaultInitializedConfig doInitialize(
+  protected DefaultExecutionContext doInitialize(
       String commandName,
       JobContext jobContext,
       CommandConfig commandConfig,
@@ -50,7 +50,7 @@ public class EvalCommandInitializer extends DefaultCommandInitializer {
           "An unexpected error occurred during Python support initialization. Python execution will be disabled.",
           e);
     }
-    return new EvalInitializedConfig(
+    return new EvalExecutionContext(
         inputMessageCounter,
         outputMessageCounter,
         errorCounter,

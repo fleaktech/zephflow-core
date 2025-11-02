@@ -67,7 +67,7 @@ public class SourceInitializerTest {
     when(mockPartsFactory.createDlqWriter(mockDlqConfig)).thenReturn(mockDlqWriter);
 
     // Act
-    SourceInitializedConfig<RecordFleakData> result =
+    SourceExecutionContext<RecordFleakData> result =
         sourceInitializer.initialize(commandName, mockJobContext, mockCommandConfig);
 
     // Assert
@@ -89,7 +89,7 @@ public class SourceInitializerTest {
     when(mockPartsFactory.createFetcher(mockCommandConfig)).thenReturn(mockFetcher);
 
     // Act
-    SourceInitializedConfig<RecordFleakData> result =
+    SourceExecutionContext<RecordFleakData> result =
         sourceInitializer.initialize(commandName, mockJobContext, mockCommandConfig);
 
     // Assert

@@ -19,6 +19,7 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
@@ -60,10 +61,9 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       String callingUser,
       MetricClientProvider metricClientProvider,
       SourceEventAcceptor sourceEventAcceptor) {
-    lazyInitialize(metricClientProvider);
+    ExecutionContext context = initialize(metricClientProvider);
     //noinspection unchecked
-    SourceInitializedConfig<T> sourceInitializedConfig =
-        (SourceInitializedConfig<T>) initializedConfigThreadLocal.get();
+    SourceExecutionContext<T> sourceInitializedConfig = (SourceExecutionContext<T>) context;
 
     RawDataConverter<T> converter = sourceInitializedConfig.converter();
     RawDataEncoder<T> encoder = sourceInitializedConfig.encoder();
@@ -180,7 +180,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   }
 
   @Override
-  public void terminate() throws Exception {
+  public void terminate() throws IOException {
     finished.set(true);
     super.terminate();
   }

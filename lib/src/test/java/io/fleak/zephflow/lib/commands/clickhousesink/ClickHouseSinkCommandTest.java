@@ -129,8 +129,8 @@ class ClickHouseSinkCommandTest {
             .build();
 
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
-    command.writeToSink(
-        SOURCE_EVENTS, "test_user", new MetricClientProvider.NoopMetricClientProvider());
+    var context = command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.writeToSink(SOURCE_EVENTS, "test_user", context);
 
     var rows =
         selectSQL(

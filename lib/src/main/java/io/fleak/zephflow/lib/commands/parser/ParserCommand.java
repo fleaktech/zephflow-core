@@ -34,15 +34,15 @@ public class ParserCommand extends ScalarCommand {
 
   @Override
   protected List<RecordFleakData> processOneEvent(
-      RecordFleakData event, String callingUser, InitializedConfig initializedConfig) {
+      RecordFleakData event, String callingUser, ExecutionContext context) {
     Map<String, String> tags = getCallingUserTagAndEventTags(callingUser, event);
-    ParserInitializedConfig parserInitializedConfig = (ParserInitializedConfig) initializedConfig;
-    parserInitializedConfig.getInputMessageCounter().increase(tags);
+    ParserExecutionContext parserContext = (ParserExecutionContext) context;
+    parserContext.getInputMessageCounter().increase(tags);
     try {
-      RecordFleakData parsed = parserInitializedConfig.getParseRule().parse(event);
+      RecordFleakData parsed = parserContext.getParseRule().parse(event);
       return List.of(parsed);
     } catch (Exception e) {
-      parserInitializedConfig.getErrorCounter().increase(tags);
+      parserContext.getErrorCounter().increase(tags);
       throw e;
     }
   }

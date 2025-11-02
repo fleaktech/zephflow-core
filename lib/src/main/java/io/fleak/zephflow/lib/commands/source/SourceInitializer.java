@@ -28,7 +28,7 @@ public class SourceInitializer<T> extends CommandInitializer {
   }
 
   @Override
-  public SourceInitializedConfig<T> initialize(
+  public SourceExecutionContext<T> initialize(
       String commandName, JobContext jobContext, CommandConfig commandConfig) {
     //noinspection unchecked
     SourceCommandPartsFactory<T> partsFactory = (SourceCommandPartsFactory<T>) commandPartsFactory;
@@ -61,7 +61,7 @@ public class SourceInitializer<T> extends CommandInitializer {
       dlqWriter.open();
     }
 
-    return new SourceInitializedConfig<>(
+    return new SourceExecutionContext<>(
         fetcher,
         converter,
         encoder,

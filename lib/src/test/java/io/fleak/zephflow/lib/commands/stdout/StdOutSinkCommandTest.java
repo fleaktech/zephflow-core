@@ -49,7 +49,7 @@ class StdOutSinkCommandTest {
         OBJECT_MAPPER.convertValue(
             StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(),
             new TypeReference<>() {}));
-    command.writeToSink(
-        inputEvents, "my_user", new MetricClientProvider.NoopMetricClientProvider());
+    var context = command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.writeToSink(inputEvents, "my_user", context);
   }
 }

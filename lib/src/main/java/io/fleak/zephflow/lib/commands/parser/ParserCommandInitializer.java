@@ -18,7 +18,7 @@ import io.fleak.zephflow.api.CommandPartsFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.commands.DefaultCommandInitializer;
-import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
 import io.fleak.zephflow.lib.parser.CompiledRules;
 import io.fleak.zephflow.lib.parser.ParserConfigCompiler;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
@@ -31,7 +31,7 @@ public class ParserCommandInitializer extends DefaultCommandInitializer {
   }
 
   @Override
-  protected DefaultInitializedConfig doInitialize(
+  protected DefaultExecutionContext doInitialize(
       String commandName,
       JobContext jobContext,
       CommandConfig commandConfig,
@@ -41,7 +41,7 @@ public class ParserCommandInitializer extends DefaultCommandInitializer {
     ParserConfigs.ParserConfig parserConfig = (ParserConfigs.ParserConfig) commandConfig;
     ParserConfigCompiler compiler = new ParserConfigCompiler();
     CompiledRules.ParseRule parseRule = compiler.compile(parserConfig);
-    return new ParserInitializedConfig(
+    return new ParserExecutionContext(
         inputMessageCounter, outputMessageCounter, errorCounter, parseRule);
   }
 }

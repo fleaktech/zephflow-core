@@ -15,8 +15,7 @@ package io.fleak.zephflow.api;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
-import java.io.ObjectInputStream;
-import java.io.Serial;
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.Map;
 
@@ -29,10 +28,11 @@ public abstract class OperatorCommand implements Serializable {
   private final ConfigValidator configValidator;
   private final CommandInitializerFactory commandInitializerFactory;
 
-  protected CommandConfig commandConfig; // parsed from the arg string at the compile time
+  protected CommandConfig commandConfig;
 
-  // initialized at the run time
-  protected transient ThreadLocal<InitializedConfig> initializedConfigThreadLocal;
+  // Explicit initialization approach
+  protected transient volatile ExecutionContext executionContext;
+  private final transient Object initLock = new Object();
 
   protected OperatorCommand(
       String nodeId,
@@ -64,39 +64,49 @@ public abstract class OperatorCommand implements Serializable {
    */
   public abstract String commandName();
 
-  protected void lazyInitialize(MetricClientProvider metricClientProvider) {
-    if (initializedConfigThreadLocal == null) {
-      initializedConfigThreadLocal = ThreadLocal.withInitial(() -> null);
+  /**
+   * Explicitly initializes the execution context for this command. This method should be called
+   * once before processing any events. Thread-safe via double-checked locking.
+   *
+   * @param metricClientProvider Provider for metrics
+   * @return The initialized execution context
+   */
+  public ExecutionContext initialize(MetricClientProvider metricClientProvider) {
+    if (executionContext == null) {
+      synchronized (initLock) {
+        if (executionContext == null) {
+          String commandName = commandName();
+          CommandInitializer commandInitializer =
+              commandInitializerFactory.createCommandInitializer(
+                  metricClientProvider, jobContext, commandConfig, nodeId);
+          executionContext = commandInitializer.initialize(commandName, jobContext, commandConfig);
+        }
+      }
     }
-    if (initializedConfigThreadLocal.get() != null) {
-      return;
+    return executionContext;
+  }
+
+  /**
+   * Gets the execution context for this command. Must be initialized via initialize() first.
+   *
+   * @return The execution context
+   * @throws IllegalStateException if context not initialized
+   */
+  public ExecutionContext getExecutionContext() {
+    if (executionContext == null) {
+      throw new IllegalStateException(
+          "ExecutionContext not initialized for command: "
+              + commandName()
+              + ". Call initialize() first.");
     }
-    String commandName = commandName();
-    CommandInitializer commandInitializer =
-        commandInitializerFactory.createCommandInitializer(
-            metricClientProvider, jobContext, commandConfig, nodeId);
-    InitializedConfig initializedConfig =
-        commandInitializer.initialize(commandName, jobContext, commandConfig);
-    initializedConfigThreadLocal.set(initializedConfig);
+    return executionContext;
   }
 
   /** Clean up resources */
-  public void terminate() throws Exception {
-    if (initializedConfigThreadLocal == null) {
-      return;
+  public void terminate() throws IOException {
+    if (executionContext != null) {
+      executionContext.close();
+      executionContext = null;
     }
-    InitializedConfig initializedConfig = initializedConfigThreadLocal.get();
-    if (initializedConfig != null) {
-      initializedConfig.close();
-    }
-  }
-
-  @Serial
-  private void readObject(ObjectInputStream ois)
-      throws java.io.IOException, ClassNotFoundException {
-    // Default deserialization for other attributes
-    ois.defaultReadObject();
-    // Initialize the ThreadLocal after deserialization
-    initializedConfigThreadLocal = ThreadLocal.withInitial(() -> null);
   }
 }

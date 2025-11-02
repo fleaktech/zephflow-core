@@ -27,7 +27,7 @@ public class SinkInitializer<T> extends CommandInitializer {
   }
 
   @Override
-  public InitializedConfig initialize(
+  public ExecutionContext initialize(
       String commandName, JobContext jobContext, CommandConfig commandConfig) {
 
     //noinspection unchecked
@@ -52,7 +52,7 @@ public class SinkInitializer<T> extends CommandInitializer {
     SimpleSinkCommand.SinkMessagePreProcessor<T> messagePreProcessor =
         partsFactory.createMessagePreProcessor();
 
-    return new SinkInitializedConfig<>(
+    return new SinkExecutionContext<>(
         flusher,
         messagePreProcessor,
         inputMessageCounter,

@@ -42,7 +42,7 @@ public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> 
 
   @Override
   public ConvertedResult<SerializedEvent> convert(
-      SerializedEvent sourceRecord, SourceInitializedConfig<?> sourceInitializedConfig) {
+      SerializedEvent sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
       sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, Map.of());
       List<RecordFleakData> events =
