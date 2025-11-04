@@ -265,7 +265,9 @@ FROM
       SQLEvalCommand sqlEvalCommand =
           new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
       sqlEvalCommand.parseAndValidateArg(Map.of("sql", sql));
-      var result = sqlEvalCommand.process(List.of(inputEvent), null, metricClientProvider);
+      sqlEvalCommand.initialize(metricClientProvider);
+      var context = sqlEvalCommand.getExecutionContext();
+      var result = sqlEvalCommand.process(List.of(inputEvent), null, context);
       assertTrue(result.getFailureEvents().isEmpty());
       assertEquals(1, result.getOutput().size());
       assertNull(result.getOutput().get(0).getPayload().get("v"));
@@ -288,7 +290,9 @@ FROM
     SQLEvalCommand sqlEvalCommand = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
-    var output = sqlEvalCommand.process(List.of(inputEvent), null, metricClientProvider);
+    sqlEvalCommand.initialize(metricClientProvider);
+      var context = sqlEvalCommand.getExecutionContext();
+    var output = sqlEvalCommand.process(List.of(inputEvent), null, context);
     assertTrue(output.getFailureEvents().isEmpty());
   }
 
@@ -307,7 +311,9 @@ FROM
     SQLEvalCommand sqlEvalCommand = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
-    var output = sqlEvalCommand.process(List.of(inputEvent), null, metricClientProvider);
+    sqlEvalCommand.initialize(metricClientProvider);
+      var context = sqlEvalCommand.getExecutionContext();
+    var output = sqlEvalCommand.process(List.of(inputEvent), null, context);
     assertTrue(output.getOutput().isEmpty());
     assertEquals(1, output.getFailureEvents().size());
     assertEquals(
@@ -355,8 +361,9 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
     SQLEvalCommand sqlEvalCommand = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
-    ScalarCommand.ProcessResult result =
-        sqlEvalCommand.process(List.of(fleakData), null, metricClientProvider);
+    sqlEvalCommand.initialize(metricClientProvider);
+      var context = sqlEvalCommand.getExecutionContext();
+    ScalarCommand.ProcessResult result = sqlEvalCommand.process(List.of(fleakData), null, context);
     if (fieldAndExpectedValues == null) {
       assertTrue(result.getFailureEvents().isEmpty());
       assertTrue(result.getOutput().isEmpty());
@@ -381,8 +388,9 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
     SQLEvalCommand sqlEvalCommand = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
-    ScalarCommand.ProcessResult result =
-        sqlEvalCommand.process(List.of(fleakData), null, metricClientProvider);
+    sqlEvalCommand.initialize(metricClientProvider);
+      var context = sqlEvalCommand.getExecutionContext();
+    ScalarCommand.ProcessResult result = sqlEvalCommand.process(List.of(fleakData), null, context);
     List<RecordFleakData> outputEvents = result.getOutput();
     System.out.println("outputEvents:");
     System.out.println(outputEvents);
@@ -415,8 +423,9 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
     String arg = "select count(*) as cnt from events;";
     SQLEvalCommand command = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
     command.parseAndValidateArg(Map.of("sql", arg));
-    ScalarCommand.ProcessResult output =
-        command.process(List.of(event1, event2), null, metricClientProvider);
+    command.initialize(metricClientProvider);
+      var context = command.getExecutionContext();
+    ScalarCommand.ProcessResult output = command.process(List.of(event1, event2), null, context);
     assertTrue(output.getFailureEvents().isEmpty());
     assertEquals(1, output.getOutput().size());
     assertEquals(Map.of("cnt", 2L), output.getOutput().get(0).unwrap());

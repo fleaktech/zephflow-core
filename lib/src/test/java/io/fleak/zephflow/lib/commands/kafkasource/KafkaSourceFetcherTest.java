@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
-import io.fleak.zephflow.lib.commands.source.SourceInitializedConfig;
+import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -107,7 +107,7 @@ class KafkaSourceFetcherTest {
 
     BytesRawDataConverter converter = new BytesRawDataConverter(deserializer);
 
-    SourceInitializedConfig<SerializedEvent> sourceInitializedConfig = mock();
+    SourceExecutionContext<SerializedEvent> sourceInitializedConfig = mock();
     when(sourceInitializedConfig.dataSizeCounter()).thenReturn(mock());
     when(sourceInitializedConfig.inputEventCounter()).thenReturn(mock());
     when(sourceInitializedConfig.deserializeFailureCounter()).thenReturn(mock());

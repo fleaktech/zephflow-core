@@ -25,9 +25,7 @@ public class ClickHouseSinkCommandFactory extends CommandFactory {
     JsonConfigParser<ClickHouseSinkDto.Config> configParser =
         new JsonConfigParser<>(ClickHouseSinkDto.Config.class);
     var validator = new ClickHouseConfigValidator();
-    var initializerFactory = new ClickHouseSinkCommandInitializerFactory();
-    return new ClickHouseSinkCommand(
-        nodeId, jobContext, configParser, validator, initializerFactory);
+    return new ClickHouseSinkCommand(nodeId, jobContext, configParser, validator);
   }
 
   @Override

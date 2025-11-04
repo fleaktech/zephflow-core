@@ -98,8 +98,10 @@ class SimpleSinkCommandTest {
     FleakData fleakData = loadFleakDataFromJsonResource("/json/multiple_simple_events.json");
     List<RecordFleakData> input =
         fleakData.getArrayPayload().stream().map(fd -> (RecordFleakData) fd).toList();
+    sinkCommand.initialize(metricClientProvider);
+      var context = sinkCommand.getExecutionContext();
     ScalarSinkCommand.SinkResult sinkResult =
-        sinkCommand.writeToSink(input, callingUser, metricClientProvider);
+        sinkCommand.writeToSink(input, callingUser, context);
     ScalarSinkCommand.SinkResult expected =
         new ScalarSinkCommand.SinkResult(
             5,
@@ -148,8 +150,10 @@ class SimpleSinkCommandTest {
             .map(fd -> (RecordFleakData) fd)
             .filter(fd -> ((int) fd.getPayload().get("val").getNumberValue()) % 3 == 1)
             .toList();
+    sinkCommand.initialize(metricClientProvider);
+      var context = sinkCommand.getExecutionContext();
     ScalarSinkCommand.SinkResult sinkResult =
-        sinkCommand.writeToSink(input, callingUser, metricClientProvider);
+        sinkCommand.writeToSink(input, callingUser, context);
     ScalarSinkCommand.SinkResult expected =
         new ScalarSinkCommand.SinkResult(
             2,
@@ -182,34 +186,7 @@ class SimpleSinkCommandTest {
           nodeId,
           jobContext,
           (ConfigParser) configStr -> new CommandConfig() {},
-          (ConfigValidator) (commandConfig, nodeId1, jobContext1) -> {},
-          new SinkCommandInitializerFactory<>() {
-            @Override
-            protected CommandPartsFactory createCommandPartsFactory(
-                MetricClientProvider metricClientProvider,
-                JobContext jobContext,
-                CommandConfig commandConfig,
-                String nodeId) {
-              return new SinkCommandPartsFactory<Integer>(metricClientProvider, jobContext) {
-                @Override
-                public SimpleSinkCommand.SinkMessagePreProcessor<Integer>
-                    createMessagePreProcessor() {
-                  return (event, ts) -> {
-                    int val = (int) event.getPayload().get("val").getNumberValue();
-                    if (val % 3 == 1) {
-                      throw new RuntimeException("process error");
-                    }
-                    return val;
-                  };
-                }
-
-                @Override
-                public SimpleSinkCommand.Flusher<Integer> createFlusher() {
-                  return new FakeSimpleFlusher();
-                }
-              };
-            }
-          });
+          (ConfigValidator) (commandConfig, nodeId1, jobContext1) -> {});
     }
 
     @Override
@@ -224,9 +201,8 @@ class SimpleSinkCommandTest {
         String nodeId,
         JobContext jobContext,
         ConfigParser configParser,
-        ConfigValidator configValidator,
-        SinkCommandInitializerFactory<Integer> sinkCommandInitializerFactory) {
-      super(nodeId, jobContext, configParser, configValidator, sinkCommandInitializerFactory);
+        ConfigValidator configValidator) {
+      super(nodeId, jobContext, configParser, configValidator);
     }
 
     @Override
@@ -237,6 +213,33 @@ class SimpleSinkCommandTest {
     @Override
     public String commandName() {
       return "fake_sink";
+    }
+
+    @Override
+    protected SinkExecutionContext<Integer> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      SimpleSinkCommand.SinkMessagePreProcessor<Integer> preprocessor =
+          (event, ts) -> {
+            int val = (int) event.getPayload().get("val").getNumberValue();
+            if (val % 3 == 1) {
+              throw new RuntimeException("process error");
+            }
+            return val;
+          };
+
+      SimpleSinkCommand.Flusher<Integer> flusher = new FakeSimpleFlusher();
+
+      return new SinkExecutionContext<>(
+          flusher,
+          preprocessor,
+          metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, jobContext.getMetricTags()));
     }
   }
 

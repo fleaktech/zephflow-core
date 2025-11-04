@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.api;
 
-import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,19 +28,24 @@ public abstract class ScalarCommand extends OperatorCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
-  public ScalarCommand.ProcessResult process(
-      List<RecordFleakData> events, String callingUser, MetricClientProvider metricClientProvider) {
-    lazyInitialize(metricClientProvider);
-    InitializedConfig initializedConfig = initializedConfigThreadLocal.get();
+  /**
+   * Process events with explicit execution context.
+   *
+   * @param events The events to process
+   * @param callingUser The calling user ID
+   * @param context The execution context (must be initialized via initialize())
+   * @return The process result
+   */
+  public ProcessResult process(
+      List<RecordFleakData> events, String callingUser, ExecutionContext context) {
     ProcessResult processResult = new ProcessResult();
     for (RecordFleakData event : events) {
       try {
-        List<RecordFleakData> oneOutput = processOneEvent(event, callingUser, initializedConfig);
+        List<RecordFleakData> oneOutput = processOneEvent(event, callingUser, context);
         processResult.output.addAll(oneOutput);
       } catch (Exception e) {
         ErrorOutput errorOutput = new ErrorOutput(event, e.getMessage());
@@ -52,9 +56,17 @@ public abstract class ScalarCommand extends OperatorCommand {
     return processResult;
   }
 
+  /**
+   * Process a single event. Subclasses should implement this method.
+   *
+   * @param event The event to process
+   * @param callingUser The calling user ID
+   * @param context The execution context
+   * @return List of output events (may be empty for filtering, or multiple for flattening)
+   * @throws Exception if processing fails
+   */
   protected abstract List<RecordFleakData> processOneEvent(
-      RecordFleakData event, String callingUser, InitializedConfig initializedConfig)
-      throws Exception;
+      RecordFleakData event, String callingUser, ExecutionContext context) throws Exception;
 
   @Data
   @NoArgsConstructor

@@ -28,8 +28,7 @@ public class ParserCommandFactory extends CommandFactory {
         new JsonConfigParser<>(ParserConfigs.ParserConfig.class);
 
     var configValidator = new ParserConfigValidator();
-    ParserCommandInitializerFactory initializerFactory = new ParserCommandInitializerFactory();
-    return new ParserCommand(nodeId, jobContext, configParser, configValidator, initializerFactory);
+    return new ParserCommand(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override

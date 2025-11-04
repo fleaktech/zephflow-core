@@ -109,10 +109,8 @@ public class KinesisSourceCommandTest {
         executor.submit(
             () -> {
               try {
-                command.execute(
-                    "test_user",
-                    new MetricClientProvider.NoopMetricClientProvider(),
-                    eventConsumer);
+                command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+                command.execute("test_user", eventConsumer);
               } catch (Exception e) {
                 log.error(">>>>>>>>>>>>>>> Error executing kinesis source command:");
                 log.error(e.getMessage(), e);

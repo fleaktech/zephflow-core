@@ -119,9 +119,10 @@ class KafkaSinkCommandTest {
             .build();
     kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
-    // Process each record
-    kafkaSinkCommand.writeToSink(
-        SOURCE_EVENTS, "test_user", new MetricClientProvider.NoopMetricClientProvider());
+    // Initialize and process
+    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = kafkaSinkCommand.getExecutionContext();
+    kafkaSinkCommand.writeToSink(SOURCE_EVENTS, "test_user", context);
 
     // Wait for records to be processed (simulating batch processing delay)
     Thread.sleep(2000);
@@ -163,11 +164,14 @@ class KafkaSinkCommandTest {
 
     // Measure performance - this is the main validation
     long startTime = System.currentTimeMillis();
-    
+
+    // Initialize command
+    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = kafkaSinkCommand.getExecutionContext();
+
     // Process large batch - this should NOT cause 1000 individual flushes
     assertDoesNotThrow(() -> {
-      kafkaSinkCommand.writeToSink(
-          largeEventSet, "perf_test_user", new MetricClientProvider.NoopMetricClientProvider());
+      kafkaSinkCommand.writeToSink(largeEventSet, "perf_test_user", context);
     }, "High volume write should not throw exceptions");
     
     long processingTime = System.currentTimeMillis() - startTime;
