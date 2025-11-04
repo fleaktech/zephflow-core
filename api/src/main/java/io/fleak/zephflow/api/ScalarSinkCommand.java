@@ -39,20 +39,7 @@ public abstract class ScalarSinkCommand extends OperatorCommand {
    * @param context The execution context (must be initialized via initialize())
    * @return The sink result
    */
-  public SinkResult writeToSink(
-      List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
-    return doWriteToSink(events, callingUser, context);
-  }
-
-  /**
-   * Implementation method for writing to sink.
-   *
-   * @param events The events to write
-   * @param callingUser The calling user ID
-   * @param context The execution context
-   * @return The sink result
-   */
-  protected abstract SinkResult doWriteToSink(
+  public abstract SinkResult writeToSink(
       List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context);
 
   @Data

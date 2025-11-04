@@ -45,7 +45,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   @Override
-  public SinkResult doWriteToSink(
+  public SinkResult writeToSink(
       List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
     Map<String, String> tags =
         getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
