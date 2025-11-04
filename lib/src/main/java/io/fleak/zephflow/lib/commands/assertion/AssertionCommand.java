@@ -18,10 +18,12 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_ASSERTION;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.eval.EvalInitializedConfig;
+import io.fleak.zephflow.lib.commands.eval.EvalCommand;
+import io.fleak.zephflow.lib.commands.eval.EvalExecutionContext;
 import io.fleak.zephflow.lib.commands.eval.ExpressionValueVisitor;
 import java.util.List;
 import java.util.Map;
@@ -32,23 +34,33 @@ public class AssertionCommand extends ScalarCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    // Reuse shared helper from EvalCommand
+    return EvalCommand.createEvalExecutionContext(
+        metricClientProvider, jobContext, commandConfig, nodeId, commandName());
   }
 
   @Override
   protected List<RecordFleakData> processOneEvent(
-      RecordFleakData event, String callingUser, InitializedConfig initializedConfig) {
+      RecordFleakData event, String callingUser, ExecutionContext context) {
     Map<String, String> callingUserTagAndEventTags =
         getCallingUserTagAndEventTags(callingUser, event);
-    EvalInitializedConfig evalInitializedConfig = (EvalInitializedConfig) initializedConfig;
-    evalInitializedConfig.getInputMessageCounter().increase(callingUserTagAndEventTags);
+    EvalExecutionContext evalContext = (EvalExecutionContext) context;
+    evalContext.getInputMessageCounter().increase(callingUserTagAndEventTags);
     ExpressionValueVisitor expressionValueVisitor =
-        ExpressionValueVisitor.createInstance(event, evalInitializedConfig.getPythonExecutor());
+        ExpressionValueVisitor.createInstance(event, evalContext.getPythonExecutor());
     FleakData fleakData = new BooleanPrimitiveFleakData(false);
     try {
-      fleakData = expressionValueVisitor.visit(evalInitializedConfig.getLanguageContext());
+      fleakData = expressionValueVisitor.visit(evalContext.getLanguageContext());
     } catch (Exception e) {
       // no-op
       // any exception thrown during evaluation should be caught here and causing the expression
@@ -56,14 +68,14 @@ public class AssertionCommand extends ScalarCommand {
     }
 
     if (fleakData instanceof BooleanPrimitiveFleakData && fleakData.isTrueValue()) {
-      evalInitializedConfig.getOutputMessageCounter().increase(callingUserTagAndEventTags);
+      evalContext.getOutputMessageCounter().increase(callingUserTagAndEventTags);
       return List.of(event);
     }
 
-    if (!evalInitializedConfig.isAssertion()) {
+    if (!evalContext.isAssertion()) {
       return List.of();
     }
-    evalInitializedConfig.getErrorCounter().increase(callingUserTagAndEventTags);
+    evalContext.getErrorCounter().increase(callingUserTagAndEventTags);
     throw new IllegalArgumentException("assertion failed: " + toJsonString(event.unwrap()));
   }
 

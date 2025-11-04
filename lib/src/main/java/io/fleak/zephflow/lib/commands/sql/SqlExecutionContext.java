@@ -14,7 +14,7 @@
 package io.fleak.zephflow.lib.commands.sql;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
-import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import java.io.IOException;
 import lombok.EqualsAndHashCode;
@@ -23,12 +23,12 @@ import lombok.Value;
 /** Created by bolei on 9/2/24 */
 @EqualsAndHashCode(callSuper = true)
 @Value
-public class SqlInitializedConfig extends DefaultInitializedConfig {
+public class SqlExecutionContext extends DefaultExecutionContext {
 
   SQLInterpreter sqlInterpreter;
   SQLInterpreter.CompiledQuery query;
 
-  public SqlInitializedConfig(
+  public SqlExecutionContext(
       FleakCounter inputMessageCounter,
       FleakCounter outputMessageCounter,
       FleakCounter errorCounter,

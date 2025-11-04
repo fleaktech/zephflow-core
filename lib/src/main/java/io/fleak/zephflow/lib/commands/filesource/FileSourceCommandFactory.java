@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.filesource;
 
-import io.fleak.zephflow.api.CommandInitializerFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
@@ -26,7 +25,6 @@ public class FileSourceCommandFactory extends SourceCommandFactory {
     JsonConfigParser<FileSourceDto.Config> configParser =
         new JsonConfigParser<>(FileSourceDto.Config.class);
     FileSourceConfigValidator validator = new FileSourceConfigValidator();
-    CommandInitializerFactory initializerFactory = new FileSourceCommandInitializerFactory();
-    return new FileSourceCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new FileSourceCommand(nodeId, jobContext, configParser, validator);
   }
 }

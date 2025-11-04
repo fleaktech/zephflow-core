@@ -24,9 +24,7 @@ public class EvalCommandFactory extends CommandFactory {
   public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
     EvalConfigParser evalConfigParser = new EvalConfigParser();
     EvalConfigValidator evalConfigValidator = new EvalConfigValidator();
-    EvalCommandInitializerFactory initializerFactory = new EvalCommandInitializerFactory();
-    return new EvalCommand(
-        nodeId, jobContext, evalConfigParser, evalConfigValidator, initializerFactory);
+    return new EvalCommand(nodeId, jobContext, evalConfigParser, evalConfigValidator);
   }
 
   @Override

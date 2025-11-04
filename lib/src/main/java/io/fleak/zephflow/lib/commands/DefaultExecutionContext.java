@@ -11,30 +11,25 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.parser;
+package io.fleak.zephflow.lib.commands;
 
+import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
-import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
-import io.fleak.zephflow.lib.parser.CompiledRules;
-import java.io.IOException;
-import lombok.EqualsAndHashCode;
-import lombok.Value;
+import lombok.Getter;
 
-/** Created by bolei on 3/18/25 */
-@EqualsAndHashCode(callSuper = true)
-@Value
-public class ParserInitializedConfig extends DefaultInitializedConfig {
-  CompiledRules.ParseRule parseRule;
+/** Created by bolei on 10/25/24 */
+@Getter
+public abstract class DefaultExecutionContext implements ExecutionContext {
+  protected final FleakCounter inputMessageCounter;
+  protected final FleakCounter outputMessageCounter;
+  protected final FleakCounter errorCounter;
 
-  public ParserInitializedConfig(
+  protected DefaultExecutionContext(
       FleakCounter inputMessageCounter,
       FleakCounter outputMessageCounter,
-      FleakCounter errorCounter,
-      CompiledRules.ParseRule parseRule) {
-    super(inputMessageCounter, outputMessageCounter, errorCounter);
-    this.parseRule = parseRule;
+      FleakCounter errorCounter) {
+    this.inputMessageCounter = inputMessageCounter;
+    this.outputMessageCounter = outputMessageCounter;
+    this.errorCounter = errorCounter;
   }
-
-  @Override
-  public void close() throws IOException {}
 }

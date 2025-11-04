@@ -28,9 +28,7 @@ public class S3SinkCommandFactory extends CommandFactory {
         new JsonConfigParser<>(S3SinkDto.Config.class);
     S3SinkConfigValidator validator = new S3SinkConfigValidator();
     AwsClientFactory awsClientFactory = new AwsClientFactory();
-    S3SinkCommandInitializerFactory initializerFactory =
-        new S3SinkCommandInitializerFactory(awsClientFactory);
-    return new S3SinkCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new S3SinkCommand(nodeId, jobContext, configParser, validator, awsClientFactory);
   }
 
   @Override

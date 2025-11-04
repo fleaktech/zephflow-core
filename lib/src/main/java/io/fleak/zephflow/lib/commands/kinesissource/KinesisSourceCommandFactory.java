@@ -24,7 +24,6 @@ public class KinesisSourceCommandFactory extends SourceCommandFactory {
         nodeId,
         jobContext,
         new JsonConfigParser<>(KinesisSourceDto.Config.class),
-        new KinesisSourceConfigValidator(),
-        new KinesisSourceCommandInitializerFactory());
+        new KinesisSourceConfigValidator());
   }
 }

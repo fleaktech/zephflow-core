@@ -49,8 +49,8 @@ class FileSourceCommandTest {
                 .build(), new TypeReference<>() {}));
     KafkaSourceCommandTest.TestSourceEventAcceptor eventConsumer =
         new KafkaSourceCommandTest.TestSourceEventAcceptor();
-    command.execute(
-        "test_user", new MetricClientProvider.NoopMetricClientProvider(), eventConsumer);
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.execute("test_user", eventConsumer);
     List<RecordFleakData> expected = fromJsonResource("/serdes/test_csv_expected_output.json", new TypeReference<>() {});
     assertEquals(expected, eventConsumer.getReceivedEvents());
   }

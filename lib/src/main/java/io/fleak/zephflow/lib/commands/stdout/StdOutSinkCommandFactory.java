@@ -26,9 +26,7 @@ public class StdOutSinkCommandFactory extends CommandFactory {
     JsonConfigParser<StdOutDto.Config> configParser =
         new JsonConfigParser<>(StdOutDto.Config.class);
     StdOutSinkConfigValidator validator = new StdOutSinkConfigValidator();
-    StdOutSinkCommandInitializerFactory initializerFactory =
-        new StdOutSinkCommandInitializerFactory();
-    return new StdOutSinkCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new StdOutSinkCommand(nodeId, jobContext, configParser, validator);
   }
 
   @Override

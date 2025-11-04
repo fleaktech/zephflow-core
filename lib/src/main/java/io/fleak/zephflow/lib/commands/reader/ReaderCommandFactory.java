@@ -23,7 +23,6 @@ public class ReaderCommandFactory extends SourceCommandFactory {
   public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
     var configParser = new JsonConfigParser<>(ReaderDto.Config.class);
     var validator = new ReaderConfigValidator();
-    var initializerFactory = new ReaderCommandInitializerFactory();
-    return new ReaderCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new ReaderCommand(nodeId, jobContext, configParser, validator);
   }
 }

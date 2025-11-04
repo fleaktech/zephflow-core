@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.stdin;
 
-import io.fleak.zephflow.api.CommandInitializerFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
@@ -26,7 +25,6 @@ public class StdInCommandFactory extends SourceCommandFactory {
     JsonConfigParser<StdInSourceDto.Config> configParser =
         new JsonConfigParser<>(StdInSourceDto.Config.class);
     StdInSourceConfigValidator validator = new StdInSourceConfigValidator();
-    CommandInitializerFactory initializerFactory = new StdInSourceCommandInitializerFactory();
-    return new StdInSourceCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new StdInSourceCommand(nodeId, jobContext, configParser, validator);
   }
 }

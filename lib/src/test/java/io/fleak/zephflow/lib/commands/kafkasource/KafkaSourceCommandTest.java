@@ -128,10 +128,8 @@ public class KafkaSourceCommandTest {
       Future<?> future =
           executor.submit(
               () -> {
-                kafkaSourceCommand.execute(
-                    "test_user",
-                    new MetricClientProvider.NoopMetricClientProvider(),
-                    eventConsumer);
+                kafkaSourceCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+                kafkaSourceCommand.execute("test_user", eventConsumer);
                 return null;
               });
 

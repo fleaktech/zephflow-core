@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.api;
 
-import io.fleak.zephflow.api.metric.MetricClientProvider;
-
 /** Created by bolei on 9/23/24 */
 public abstract class SourceCommand extends OperatorCommand {
 
@@ -22,15 +20,11 @@ public abstract class SourceCommand extends OperatorCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
-  public abstract void execute(
-      String callingUser,
-      MetricClientProvider metricClientProvider,
-      SourceEventAcceptor sourceEventAcceptor)
+  public abstract void execute(String callingUser, SourceEventAcceptor sourceEventAcceptor)
       throws Exception;
 
   public abstract SourceType sourceType();

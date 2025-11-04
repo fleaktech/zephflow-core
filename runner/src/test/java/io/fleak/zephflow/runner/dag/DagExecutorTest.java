@@ -28,8 +28,7 @@ import io.fleak.zephflow.lib.commands.noop.NoopConfigParser;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigValidator;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkCommandInitializerFactory;
-import io.fleak.zephflow.lib.commands.sink.SinkCommandPartsFactory;
+import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.runner.DagExecutor;
@@ -107,9 +106,8 @@ public class DagExecutorTest {
         String nodeId,
         JobContext jobContext,
         ConfigParser configParser,
-        ConfigValidator configValidator,
-        CommandInitializerFactory commandInitializerFactory) {
-      super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory, true);
+        ConfigValidator configValidator) {
+      super(nodeId, jobContext, configParser, configValidator, true);
     }
 
     @Override
@@ -121,61 +119,58 @@ public class DagExecutorTest {
     public String commandName() {
       return "testSource";
     }
+
+    @Override
+    protected SourceExecutionContext<RecordFleakData> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      // Create fetcher that generates 10 test events
+      Fetcher<RecordFleakData> fetcher =
+          new Fetcher<>() {
+            @Override
+            public List<RecordFleakData> fetch() {
+              int eventCount = 10;
+              List<RecordFleakData> sourceEvents = new ArrayList<>();
+              for (int i = 0; i < eventCount; ++i) {
+                sourceEvents.add((RecordFleakData) FleakData.wrap(Map.of("num", i)));
+              }
+              return sourceEvents;
+            }
+
+            @Override
+            public void close() {}
+          };
+
+      // Create converter that passes through RecordFleakData
+      RawDataConverter<RecordFleakData> converter =
+          (sourceRecord, config) -> ConvertedResult.success(List.of(sourceRecord), sourceRecord);
+
+      // Create encoder that converts to JSON bytes
+      RawDataEncoder<RecordFleakData> encoder =
+          sourceRecord -> {
+            String str = toJsonString(sourceRecord);
+            assert str != null;
+            return new SerializedEvent(null, str.getBytes(), null);
+          };
+
+      return new SourceExecutionContext<>(
+          fetcher,
+          converter,
+          encoder,
+          metricClientProvider.counter("input_event_size_count", Map.of()),
+          metricClientProvider.counter("input_event_count", Map.of()),
+          metricClientProvider.counter("input_deser_err_count", Map.of()),
+          null);
+    }
   }
 
   static class TestSourceFactory extends CommandFactory {
     @Override
     public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
       return new TestSource(
-          nodeId,
-          jobContext,
-          new NoopConfigParser(),
-          new NoopConfigValidator(),
-          new SourceCommandInitializerFactory<RecordFleakData>() {
-            @Override
-            protected CommandPartsFactory createCommandPartsFactory(
-                MetricClientProvider metricClientProvider,
-                JobContext jobContext,
-                CommandConfig commandConfig,
-                String nodeId) {
-              return new SourceCommandPartsFactory<RecordFleakData>(metricClientProvider) {
-                @Override
-                public Fetcher<RecordFleakData> createFetcher(CommandConfig commandConfig) {
-                  return new Fetcher<>() {
-                    @Override
-                    public List<RecordFleakData> fetch() {
-                      int eventCount = 10;
-                      List<RecordFleakData> sourceEvents = new ArrayList<>();
-                      for (int i = 0; i < eventCount; ++i) {
-                        sourceEvents.add((RecordFleakData) FleakData.wrap(Map.of("num", i)));
-                      }
-                      return sourceEvents;
-                    }
-
-                    @Override
-                    public void close() {}
-                  };
-                }
-
-                @Override
-                public RawDataConverter<RecordFleakData> createRawDataConverter(
-                    CommandConfig commandConfig) {
-                  return (sourceRecord, config) ->
-                      ConvertedResult.success(List.of(sourceRecord), sourceRecord);
-                }
-
-                @Override
-                public RawDataEncoder<RecordFleakData> createRawDataEncoder(
-                    CommandConfig commandConfig) {
-                  return sourceRecord -> {
-                    String str = toJsonString(sourceRecord);
-                    assert str != null;
-                    return new SerializedEvent(null, str.getBytes(), null);
-                  };
-                }
-              };
-            }
-          });
+          nodeId, jobContext, new NoopConfigParser(), new NoopConfigValidator());
     }
 
     @Override
@@ -190,9 +185,8 @@ public class DagExecutorTest {
         String nodeId,
         JobContext jobContext,
         ConfigParser configParser,
-        ConfigValidator configValidator,
-        SinkCommandInitializerFactory<RecordFleakData> sinkCommandInitializerFactory) {
-      super(nodeId, jobContext, configParser, configValidator, sinkCommandInitializerFactory);
+        ConfigValidator configValidator) {
+      super(nodeId, jobContext, configParser, configValidator);
     }
 
     @Override
@@ -204,6 +198,45 @@ public class DagExecutorTest {
     public String commandName() {
       return "testSink";
     }
+
+    @Override
+    protected SinkExecutionContext<RecordFleakData> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      // Create flusher that writes to IN_MEM_SINK
+      SimpleSinkCommand.Flusher<RecordFleakData> flusher =
+          new SimpleSinkCommand.Flusher<>() {
+            @Override
+            public SimpleSinkCommand.FlushResult flush(
+                SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
+              Set<Map<String, Object>> sink =
+                  IN_MEM_SINK.computeIfAbsent(nodeId, k -> new HashSet<>());
+              sink.addAll(
+                  preparedInputEvents.preparedList().stream()
+                      .map(RecordFleakData::unwrap)
+                      .toList());
+              return new SimpleSinkCommand.FlushResult(
+                  preparedInputEvents.preparedList().size(), 0, List.of());
+            }
+
+            @Override
+            public void close() {}
+          };
+
+      SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> preprocessor =
+          new PassThroughMessagePreProcessor();
+
+      return new SinkExecutionContext<>(
+          flusher,
+          preprocessor,
+          metricClientProvider.counter("input_event_count", Map.of()),
+          metricClientProvider.counter("error_event_count", Map.of()),
+          metricClientProvider.counter("sink_output_count", Map.of()),
+          metricClientProvider.counter("output_event_size_count", Map.of()),
+          metricClientProvider.counter("sink_error_count", Map.of()));
+    }
   }
 
   static class TestSinkFactory extends CommandFactory {
@@ -211,49 +244,7 @@ public class DagExecutorTest {
     @Override
     public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
       return new TestSink(
-          nodeId,
-          jobContext,
-          new NoopConfigParser(),
-          new NoopConfigValidator(),
-          new SinkCommandInitializerFactory<>() {
-            @Override
-            protected CommandPartsFactory createCommandPartsFactory(
-                MetricClientProvider metricClientProvider,
-                JobContext jobContext,
-                CommandConfig commandConfig,
-                String nodeId) {
-              return new SinkCommandPartsFactory<RecordFleakData>(
-                  metricClientProvider, jobContext) {
-                @Override
-                public SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData>
-                    createMessagePreProcessor() {
-                  return new PassThroughMessagePreProcessor();
-                }
-
-                @Override
-                public SimpleSinkCommand.Flusher<RecordFleakData> createFlusher() {
-                  return new SimpleSinkCommand.Flusher<>() {
-                    @Override
-                    public SimpleSinkCommand.FlushResult flush(
-                        SimpleSinkCommand.PreparedInputEvents<RecordFleakData>
-                            preparedInputEvents) {
-                      Set<Map<String, Object>> sink =
-                          IN_MEM_SINK.computeIfAbsent(nodeId, k -> new HashSet<>());
-                      sink.addAll(
-                          preparedInputEvents.preparedList().stream()
-                              .map(RecordFleakData::unwrap)
-                              .toList());
-                      return new SimpleSinkCommand.FlushResult(
-                          preparedInputEvents.preparedList().size(), 0, List.of());
-                    }
-
-                    @Override
-                    public void close() {}
-                  };
-                }
-              };
-            }
-          });
+          nodeId, jobContext, new NoopConfigParser(), new NoopConfigValidator());
     }
 
     @Override

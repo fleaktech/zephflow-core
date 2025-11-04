@@ -99,7 +99,7 @@ class SimpleSourceCommandCommitTest {
   private class TestSourceCommand extends SimpleSourceCommand<SerializedEvent> {
 
     public TestSourceCommand() {
-      super("test", null, null, null, null);
+      super("test", null, null, null, false);
     }
 
     @Override
@@ -110,6 +110,22 @@ class SimpleSourceCommandCommitTest {
     @Override
     public String commandName() {
       return "test-source";
+    }
+
+    @Override
+    protected SourceExecutionContext<SerializedEvent> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      return new SourceExecutionContext<>(
+          null,
+          converter,
+          encoder,
+          null,
+          null,
+          null,
+          dlqWriter);
     }
 
     public void testProcessFetchedData(List<SerializedEvent> testData, CommitStrategy strategy) throws Exception {

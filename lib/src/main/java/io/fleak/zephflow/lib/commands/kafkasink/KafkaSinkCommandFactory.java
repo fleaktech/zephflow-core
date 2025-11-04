@@ -32,9 +32,8 @@ public class KafkaSinkCommandFactory extends CommandFactory {
     JsonConfigParser<KafkaSinkDto.Config> configParser =
         new JsonConfigParser<>(KafkaSinkDto.Config.class);
     KafkaSinkConfigValidator validator = new KafkaSinkConfigValidator();
-    KafkaSinkCommandInitializerFactory initializerFactory =
-        new KafkaSinkCommandInitializerFactory(kafkaProducerClientFactory);
-    return new KafkaSinkCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new KafkaSinkCommand(
+        nodeId, jobContext, configParser, validator, kafkaProducerClientFactory);
   }
 
   @Override

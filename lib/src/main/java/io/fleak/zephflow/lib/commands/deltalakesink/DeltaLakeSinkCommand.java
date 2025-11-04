@@ -15,10 +15,10 @@ package io.fleak.zephflow.lib.commands.deltalakesink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_DELTA_LAKE_SINK;
 
-import io.fleak.zephflow.api.ConfigParser;
-import io.fleak.zephflow.api.ConfigValidator;
-import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import java.util.Map;
 
 public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
@@ -27,9 +27,40 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      DeltaLakeSinkCommandInitializerFactory initializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, initializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    SinkCounters counters =
+        createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
+
+    DeltaLakeSinkDto.Config config = (DeltaLakeSinkDto.Config) commandConfig;
+    SimpleSinkCommand.Flusher<Map<String, Object>> flusher =
+        createDeltaLakeFlusher(config, jobContext);
+    SimpleSinkCommand.SinkMessagePreProcessor<Map<String, Object>> messagePreProcessor =
+        new DeltaLakeMessageProcessor();
+
+    return new SinkExecutionContext<>(
+        flusher,
+        messagePreProcessor,
+        counters.inputMessageCounter(),
+        counters.errorCounter(),
+        counters.sinkOutputCounter(),
+        counters.outputSizeCounter(),
+        counters.sinkErrorCounter());
+  }
+
+  private SimpleSinkCommand.Flusher<Map<String, Object>> createDeltaLakeFlusher(
+      DeltaLakeSinkDto.Config config, JobContext jobContext) {
+    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext);
+    writer.initialize();
+    return writer;
   }
 
   @Override
@@ -43,6 +74,6 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
       DeltaLakeSinkDto.Config config = (DeltaLakeSinkDto.Config) commandConfig;
       return config.getBatchSize();
     }
-    return 1000; // Fallback default if config not yet parsed
+    return 1000;
   }
 }

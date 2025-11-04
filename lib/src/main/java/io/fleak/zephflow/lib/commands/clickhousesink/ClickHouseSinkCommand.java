@@ -14,13 +14,16 @@
 package io.fleak.zephflow.lib.commands.clickhousesink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_CLICK_HOUSE_SINK;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
 
-import io.fleak.zephflow.api.ConfigParser;
-import io.fleak.zephflow.api.ConfigValidator;
-import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class ClickHouseSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
 
   private static final int CLICKHOUSE_SINK_BATCH_SIZE = 100;
@@ -29,10 +32,48 @@ public class ClickHouseSinkCommand extends SimpleSinkCommand<Map<String, Object>
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      ClickHouseSinkCommandInitializerFactory snowflakeSinkCommandInitializerFactory) {
-    super(
-        nodeId, jobContext, configParser, configValidator, snowflakeSinkCommandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    SinkCounters counters =
+        createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
+
+    ClickHouseSinkDto.Config config = (ClickHouseSinkDto.Config) commandConfig;
+    SimpleSinkCommand.Flusher<Map<String, Object>> flusher =
+        createClickHouseFlusher(config, jobContext);
+    SimpleSinkCommand.SinkMessagePreProcessor<Map<String, Object>> messagePreProcessor =
+        new ClickHouseMessageProcessor();
+
+    return new SinkExecutionContext<>(
+        flusher,
+        messagePreProcessor,
+        counters.inputMessageCounter(),
+        counters.errorCounter(),
+        counters.sinkOutputCounter(),
+        counters.outputSizeCounter(),
+        counters.sinkErrorCounter());
+  }
+
+  private SimpleSinkCommand.Flusher<Map<String, Object>> createClickHouseFlusher(
+      ClickHouseSinkDto.Config config, JobContext jobContext) {
+    var writer =
+        new ClickHouseWriter(
+            config,
+            lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId()).orElse(null));
+    try {
+      writer.downloadAndSetSchema(config.getDatabase(), config.getTable());
+    } catch (Exception e) {
+      log.error("Error downloading schema", e);
+      throw new IllegalArgumentException(e);
+    }
+    return writer;
   }
 
   @Override

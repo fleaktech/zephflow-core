@@ -17,6 +17,8 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.google.common.collect.Lists;
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -38,43 +40,79 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      SinkCommandInitializerFactory<T> sinkCommandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, sinkCommandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override
-  public SinkResult doWriteToSink(List<RecordFleakData> events, @NonNull String callingUser) {
+  public SinkResult writeToSink(
+      List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
     Map<String, String> tags =
         getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
     List<List<RecordFleakData>> batches = Lists.partition(events, batchSize());
     long ts = System.currentTimeMillis();
 
     SinkResult sinkResult = new SinkResult();
-    batches.stream().map(p -> writeOneBatch(p, ts, tags)).forEach(sinkResult::merge);
+    batches.stream().map(p -> writeOneBatch(p, ts, tags, context)).forEach(sinkResult::merge);
 
     return sinkResult;
   }
 
   protected abstract int batchSize();
 
-  private SinkResult writeOneBatch(
-      List<RecordFleakData> batch, long ts, Map<String, String> callingUserTag) {
-    //noinspection unchecked
-    SinkInitializedConfig<T> sinkInitializedConfig =
-        (SinkInitializedConfig<T>) initializedConfigThreadLocal.get();
+  /**
+   * Helper method to create base sink counters. Subclasses can use this to avoid code duplication.
+   *
+   * @return SinkCounters containing the standard 5 counters for sinks
+   */
+  protected static SinkCounters createSinkCounters(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      String commandName,
+      String nodeId) {
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName, nodeId);
+    FleakCounter inputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter errorCounter =
+        metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
+    FleakCounter sinkOutputCounter =
+        metricClientProvider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, metricTags);
+    FleakCounter outputSizeCounter =
+        metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, metricTags);
+    FleakCounter sinkErrorCounter =
+        metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, metricTags);
+    return new SinkCounters(
+        inputMessageCounter, errorCounter, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+  }
 
-    sinkInitializedConfig.inputMessageCounter().increase(batch.size(), callingUserTag);
+  /** Helper record to hold sink counters */
+  protected record SinkCounters(
+      FleakCounter inputMessageCounter,
+      FleakCounter errorCounter,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter) {}
+
+  private SinkResult writeOneBatch(
+      List<RecordFleakData> batch,
+      long ts,
+      Map<String, String> callingUserTag,
+      ExecutionContext context) {
+    //noinspection unchecked
+    SinkExecutionContext<T> sinkContext = (SinkExecutionContext<T>) context;
+
+    sinkContext.inputMessageCounter().increase(batch.size(), callingUserTag);
     List<ErrorOutput> errorOutputs = new ArrayList<>();
     PreparedInputEvents<T> preparedInputEvents = new PreparedInputEvents<>();
     batch.forEach(
         rd -> {
           try {
-            T prepared = sinkInitializedConfig.messagePreProcessor().preprocess(rd, ts);
+            T prepared = sinkContext.messagePreProcessor().preprocess(rd, ts);
             preparedInputEvents.add(rd, prepared);
           } catch (Exception e) {
             log.debug("failed to preprocess event", e);
-            sinkInitializedConfig.errorCounter().increase(callingUserTag);
+            sinkContext.errorCounter().increase(callingUserTag);
             errorOutputs.add(new ErrorOutput(rd, e.getMessage()));
           }
         });
@@ -83,7 +121,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     }
     FlushResult flushResult;
     try {
-      flushResult = sinkInitializedConfig.flusher().flush(preparedInputEvents);
+      flushResult = sinkContext.flusher().flush(preparedInputEvents);
     } catch (Exception e) {
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure
@@ -94,10 +132,10 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       flushResult = new FlushResult(0, 0, error);
     }
     errorOutputs.addAll(flushResult.errorOutputList);
-    sinkInitializedConfig.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
-    sinkInitializedConfig.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
+    sinkContext.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
+    sinkContext.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
     SinkResult sinkResult = new SinkResult(batch.size(), flushResult.successCount, errorOutputs);
-    sinkInitializedConfig.sinkErrorCounter().increase(sinkResult.errorCount(), callingUserTag);
+    sinkContext.sinkErrorCounter().increase(sinkResult.errorCount(), callingUserTag);
     return sinkResult;
   }
 

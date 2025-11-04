@@ -25,9 +25,7 @@ public class DeltaLakeSinkCommandFactory extends CommandFactory {
     JsonConfigParser<DeltaLakeSinkDto.Config> configParser =
         new JsonConfigParser<>(DeltaLakeSinkDto.Config.class);
     var validator = new DeltaLakeSinkConfigValidator();
-    var initializerFactory = new DeltaLakeSinkCommandInitializerFactory();
-    return new DeltaLakeSinkCommand(
-        nodeId, jobContext, configParser, validator, initializerFactory);
+    return new DeltaLakeSinkCommand(nodeId, jobContext, configParser, validator);
   }
 
   @Override

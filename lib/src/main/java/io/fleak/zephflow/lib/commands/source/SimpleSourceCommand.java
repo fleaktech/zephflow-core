@@ -16,9 +16,9 @@ package io.fleak.zephflow.lib.commands.source;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import io.fleak.zephflow.api.*;
-import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
@@ -39,9 +39,8 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    this(nodeId, jobContext, configParser, configValidator, commandInitializerFactory, false);
+      ConfigValidator configValidator) {
+    this(nodeId, jobContext, configParser, configValidator, false);
   }
 
   protected SimpleSourceCommand(
@@ -49,21 +48,16 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       JobContext jobContext,
       ConfigParser configParser,
       ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory,
       boolean singleEventSource) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+    super(nodeId, jobContext, configParser, configValidator);
     this.singleEventSource = singleEventSource;
   }
 
   @Override
-  public void execute(
-      String callingUser,
-      MetricClientProvider metricClientProvider,
-      SourceEventAcceptor sourceEventAcceptor) {
-    lazyInitialize(metricClientProvider);
+  public void execute(String callingUser, SourceEventAcceptor sourceEventAcceptor) {
+    ExecutionContext context = getExecutionContext();
     //noinspection unchecked
-    SourceInitializedConfig<T> sourceInitializedConfig =
-        (SourceInitializedConfig<T>) initializedConfigThreadLocal.get();
+    SourceExecutionContext<T> sourceInitializedConfig = (SourceExecutionContext<T>) context;
 
     RawDataConverter<T> converter = sourceInitializedConfig.converter();
     RawDataEncoder<T> encoder = sourceInitializedConfig.encoder();
@@ -180,7 +174,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   }
 
   @Override
-  public void terminate() throws Exception {
+  public void terminate() throws IOException {
     finished.set(true);
     super.terminate();
   }

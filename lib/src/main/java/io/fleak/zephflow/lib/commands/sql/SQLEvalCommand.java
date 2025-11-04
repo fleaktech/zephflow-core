@@ -16,9 +16,11 @@ package io.fleak.zephflow.lib.commands.sql;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.exec.Catalog;
 import io.fleak.zephflow.lib.sql.exec.Row;
 import io.fleak.zephflow.lib.sql.exec.Table;
@@ -33,9 +35,8 @@ public class SQLEvalCommand extends ScalarCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      SqlCommandInitializerFactory sqlCommandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, sqlCommandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override
@@ -44,20 +45,43 @@ public class SQLEvalCommand extends ScalarCommand {
   }
 
   @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    // Create counters
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+    FleakCounter inputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter outputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_COUNT, metricTags);
+    FleakCounter errorCounter =
+        metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
+
+    // Create SQL interpreter and compile query
+    SQLInterpreter sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    SQLInterpreter.CompiledQuery query =
+        sqlInterpreter.compileQuery(((SqlCommandDto.SqlCommandConfig) commandConfig).sql());
+
+    return new SqlExecutionContext(
+        inputMessageCounter, outputMessageCounter, errorCounter, sqlInterpreter, query);
+  }
+
+  @Override
   public ScalarCommand.ProcessResult process(
-      List<RecordFleakData> events, String callingUser, MetricClientProvider metricClientProvider) {
-    lazyInitialize(metricClientProvider);
+      List<RecordFleakData> events, String callingUser, ExecutionContext context) {
     Map<String, String> callingUserTagAndEventTags =
         getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
-    SqlInitializedConfig sqlParsedConfig =
-        (SqlInitializedConfig) initializedConfigThreadLocal.get();
-    sqlParsedConfig.getInputMessageCounter().increase(events.size(), callingUserTagAndEventTags);
+    SqlExecutionContext sqlContext = (SqlExecutionContext) context;
+    sqlContext.getInputMessageCounter().increase(events.size(), callingUserTagAndEventTags);
 
-    var typeSystem = sqlParsedConfig.getSqlInterpreter().getTypeSystem();
+    var typeSystem = sqlContext.getSqlInterpreter().getTypeSystem();
 
     try {
       List<RecordFleakData> output =
-          sqlParsedConfig
+          sqlContext
               .getSqlInterpreter()
               .eval(
                   Catalog.fromMap(
@@ -67,14 +91,14 @@ public class SQLEvalCommand extends ScalarCommand {
                               typeSystem,
                               EVENT_TABLE_NAME,
                               events.stream().map(RecordFleakData::unwrap).toList()))),
-                  sqlParsedConfig.getQuery())
+                  sqlContext.getQuery())
               .map(Row::asMap)
               .map(m -> (RecordFleakData) FleakData.wrap(m))
               .toList();
-      sqlParsedConfig.getOutputMessageCounter().increase(output.size(), callingUserTagAndEventTags);
+      sqlContext.getOutputMessageCounter().increase(output.size(), callingUserTagAndEventTags);
       return new ProcessResult(output, List.of());
     } catch (Exception e) {
-      sqlParsedConfig.getErrorCounter().increase(events.size(), callingUserTagAndEventTags);
+      sqlContext.getErrorCounter().increase(events.size(), callingUserTagAndEventTags);
       List<ErrorOutput> errorOutputs =
           events.stream().map(event -> new ErrorOutput(event, e.getMessage())).toList();
       return new ProcessResult(List.of(), errorOutputs);
@@ -83,8 +107,7 @@ public class SQLEvalCommand extends ScalarCommand {
 
   @Override
   public List<RecordFleakData> processOneEvent(
-      RecordFleakData event, String callingUser, InitializedConfig initializedConfig)
-      throws Exception {
+      RecordFleakData event, String callingUser, ExecutionContext context) throws Exception {
     throw new IllegalAccessException("this method shouldn't be accessed");
   }
 }

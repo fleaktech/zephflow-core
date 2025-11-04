@@ -13,14 +13,20 @@
  */
 package io.fleak.zephflow.lib.commands.filesource;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_FILE_SOURCE;
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import io.fleak.zephflow.api.CommandInitializerFactory;
-import io.fleak.zephflow.api.ConfigParser;
-import io.fleak.zephflow.api.ConfigValidator;
-import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
+import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.source.*;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.S3DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import java.io.File;
+import java.util.Map;
+import java.util.Optional;
 
 /** Created by bolei on 3/24/25 */
 public class FileSourceCommand extends SimpleSourceCommand<SerializedEvent> {
@@ -28,9 +34,62 @@ public class FileSourceCommand extends SimpleSourceCommand<SerializedEvent> {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory, true);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator, true);
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    FileSourceDto.Config config = (FileSourceDto.Config) commandConfig;
+
+    Fetcher<SerializedEvent> fetcher = new FileSourceFetcher(new File(config.getFilePath()));
+    RawDataEncoder<SerializedEvent> encoder = new BytesRawDataEncoder();
+    RawDataConverter<SerializedEvent> converter = createRawDataConverter(config);
+
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+    FleakCounter dataSizeCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, metricTags);
+    FleakCounter inputEventCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter deserializeFailureCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
+
+    DlqWriter dlqWriter =
+        Optional.of(jobContext)
+            .map(JobContext::getDlqConfig)
+            .map(this::createDlqWriter)
+            .orElse(null);
+    if (dlqWriter != null) {
+      dlqWriter.open();
+    }
+
+    return new SourceExecutionContext<>(
+        fetcher,
+        converter,
+        encoder,
+        dataSizeCounter,
+        inputEventCounter,
+        deserializeFailureCounter,
+        dlqWriter);
+  }
+
+  private RawDataConverter<SerializedEvent> createRawDataConverter(FileSourceDto.Config config) {
+    FleakDeserializer<?> deserializer =
+        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
+            .createDeserializer();
+    return new BytesRawDataConverter(deserializer);
+  }
+
+  private DlqWriter createDlqWriter(JobContext.DlqConfig dlqConfig) {
+    if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
+      return S3DlqWriter.createS3DlqWriter(s3DlqConfig);
+    }
+    throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
   }
 
   @Override

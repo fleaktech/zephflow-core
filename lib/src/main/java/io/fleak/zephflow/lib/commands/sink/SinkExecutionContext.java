@@ -13,7 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
-import io.fleak.zephflow.api.InitializedConfig;
+import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import java.io.IOException;
 
@@ -23,7 +23,7 @@ import java.io.IOException;
  * @param errorCounter error count during preparation phase
  * @param sinkErrorCounter error count during flushing phase
  */
-public record SinkInitializedConfig<T>(
+public record SinkExecutionContext<T>(
     SimpleSinkCommand.Flusher<T> flusher,
     SimpleSinkCommand.SinkMessagePreProcessor<T> messagePreProcessor,
     FleakCounter inputMessageCounter,
@@ -31,7 +31,7 @@ public record SinkInitializedConfig<T>(
     FleakCounter sinkOutputCounter,
     FleakCounter outputSizeCounter,
     FleakCounter sinkErrorCounter)
-    implements InitializedConfig {
+    implements ExecutionContext {
 
   @Override
   public void close() throws IOException {
