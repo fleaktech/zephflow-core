@@ -24,8 +24,7 @@ public class NoopCommandFactory extends CommandFactory {
   public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
     NoopConfigParser configParser = new NoopConfigParser();
     NoopConfigValidator validator = new NoopConfigValidator();
-    NoopCommandInitializerFactory initializerFactory = new NoopCommandInitializerFactory();
-    return new NoopCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new NoopCommand(nodeId, jobContext, configParser, validator);
   }
 
   @Override

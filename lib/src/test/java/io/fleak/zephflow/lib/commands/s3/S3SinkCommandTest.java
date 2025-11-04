@@ -100,7 +100,8 @@ public class S3SinkCommandTest {
                     FleakData.wrap(Map.of("key1", "102", "key2", "another string")))));
     ScalarSinkCommand.SinkResult sinkResult;
     try {
-      var context = command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = command.getExecutionContext();
       sinkResult = command.writeToSink(inputEvents, "test_user", context);
     } finally {
       command.terminate();

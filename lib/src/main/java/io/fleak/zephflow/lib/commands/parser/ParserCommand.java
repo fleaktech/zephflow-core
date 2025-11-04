@@ -14,10 +14,19 @@
 package io.fleak.zephflow.lib.commands.parser;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_PARSER;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_ERROR_EVENT_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_OUTPUT_EVENT_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.basicCommandMetricTags;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.parser.CompiledRules;
+import io.fleak.zephflow.lib.parser.ParserConfigCompiler;
+import io.fleak.zephflow.lib.parser.ParserConfigs;
 import java.util.List;
 import java.util.Map;
 
@@ -27,9 +36,33 @@ public class ParserCommand extends ScalarCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    // Create counters
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+    FleakCounter inputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter outputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_COUNT, metricTags);
+    FleakCounter errorCounter =
+        metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
+
+    // Compile parser rules
+    ParserConfigs.ParserConfig parserConfig = (ParserConfigs.ParserConfig) commandConfig;
+    ParserConfigCompiler compiler = new ParserConfigCompiler();
+    CompiledRules.ParseRule parseRule = compiler.compile(parserConfig);
+
+    return new ParserExecutionContext(
+        inputMessageCounter, outputMessageCounter, errorCounter, parseRule);
   }
 
   @Override

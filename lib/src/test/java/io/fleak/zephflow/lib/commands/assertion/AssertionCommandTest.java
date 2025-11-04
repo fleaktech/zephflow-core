@@ -66,7 +66,8 @@ class AssertionCommandTest {
 
     assert r0 != null;
     assert r1 != null;
-    var context = assertionCommand.initialize(metricClientProvider);
+    assertionCommand.initialize(metricClientProvider);
+      var context = assertionCommand.getExecutionContext();
     ScalarCommand.ProcessResult processResult =
         assertionCommand.process(List.of(r0, r1), "test_user", context);
 
@@ -90,7 +91,8 @@ class AssertionCommandTest {
     RecordFleakData r1 = (RecordFleakData) FleakData.wrap(Map.of("foo", 1));
     assert r0 != null;
     assert r1 != null;
-    var context = assertionCommand.initialize(metricClientProvider);
+    assertionCommand.initialize(metricClientProvider);
+      var context = assertionCommand.getExecutionContext();
     ScalarCommand.ProcessResult processResult =
         assertionCommand.process(List.of(r0, r1), "test_user", context);
 
@@ -117,7 +119,8 @@ class AssertionCommandTest {
 
     assert r0 != null;
     assert r1 != null;
-    var context = assertionCommand.initialize(metricClientProvider);
+    assertionCommand.initialize(metricClientProvider);
+      var context = assertionCommand.getExecutionContext();
     ScalarCommand.ProcessResult processResult =
         assertionCommand.process(List.of(r0, r1), "test_user", context);
     assertEquals(List.of(r0), processResult.getOutput());
@@ -138,7 +141,8 @@ class AssertionCommandTest {
     assertionCommand.parseAndValidateArg(Map.of("expression", "str_split($.foo, '\\+') "));
     RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
     assert r0 != null;
-    var context = assertionCommand.initialize(metricClientProvider);
+    assertionCommand.initialize(metricClientProvider);
+      var context = assertionCommand.getExecutionContext();
     ScalarCommand.ProcessResult processResult =
         assertionCommand.process(List.of(r0), "test_user", context);
 

@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.commands.source;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import io.fleak.zephflow.api.*;
-import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
@@ -40,9 +39,8 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    this(nodeId, jobContext, configParser, configValidator, commandInitializerFactory, false);
+      ConfigValidator configValidator) {
+    this(nodeId, jobContext, configParser, configValidator, false);
   }
 
   protected SimpleSourceCommand(
@@ -50,18 +48,14 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       JobContext jobContext,
       ConfigParser configParser,
       ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory,
       boolean singleEventSource) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+    super(nodeId, jobContext, configParser, configValidator);
     this.singleEventSource = singleEventSource;
   }
 
   @Override
-  public void execute(
-      String callingUser,
-      MetricClientProvider metricClientProvider,
-      SourceEventAcceptor sourceEventAcceptor) {
-    ExecutionContext context = initialize(metricClientProvider);
+  public void execute(String callingUser, SourceEventAcceptor sourceEventAcceptor) {
+    ExecutionContext context = getExecutionContext();
     //noinspection unchecked
     SourceExecutionContext<T> sourceInitializedConfig = (SourceExecutionContext<T>) context;
 

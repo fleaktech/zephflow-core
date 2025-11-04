@@ -26,7 +26,6 @@ public abstract class OperatorCommand implements Serializable {
   protected final JobContext jobContext;
   private final ConfigParser configParser;
   private final ConfigValidator configValidator;
-  private final CommandInitializerFactory commandInitializerFactory;
 
   protected CommandConfig commandConfig;
 
@@ -38,13 +37,11 @@ public abstract class OperatorCommand implements Serializable {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
+      ConfigValidator configValidator) {
     this.nodeId = nodeId;
     this.jobContext = jobContext;
     this.configParser = configParser;
     this.configValidator = configValidator;
-    this.commandInitializerFactory = commandInitializerFactory;
   }
 
   /**
@@ -69,22 +66,33 @@ public abstract class OperatorCommand implements Serializable {
    * once before processing any events. Thread-safe via double-checked locking.
    *
    * @param metricClientProvider Provider for metrics
-   * @return The initialized execution context
    */
-  public ExecutionContext initialize(MetricClientProvider metricClientProvider) {
+  public void initialize(MetricClientProvider metricClientProvider) {
     if (executionContext == null) {
       synchronized (initLock) {
         if (executionContext == null) {
-          String commandName = commandName();
-          CommandInitializer commandInitializer =
-              commandInitializerFactory.createCommandInitializer(
-                  metricClientProvider, jobContext, commandConfig, nodeId);
-          executionContext = commandInitializer.initialize(commandName, jobContext, commandConfig);
+          executionContext =
+              createExecutionContext(metricClientProvider, jobContext, commandConfig, nodeId);
         }
       }
     }
-    return executionContext;
   }
+
+  /**
+   * Creates the execution context for this command. Subclasses must override this to provide
+   * command-specific initialization logic.
+   *
+   * @param metricClientProvider Provider for metrics
+   * @param jobContext Job context
+   * @param commandConfig Parsed and validated config
+   * @param nodeId Node ID
+   * @return The execution context
+   */
+  protected abstract ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId);
 
   /**
    * Gets the execution context for this command. Must be initialized via initialize() first.

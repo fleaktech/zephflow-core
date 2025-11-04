@@ -28,9 +28,8 @@ public abstract class ScalarCommand extends OperatorCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   /**

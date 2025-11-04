@@ -120,7 +120,8 @@ class KafkaSinkCommandTest {
     kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Initialize and process
-    var context = kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = kafkaSinkCommand.getExecutionContext();
     kafkaSinkCommand.writeToSink(SOURCE_EVENTS, "test_user", context);
 
     // Wait for records to be processed (simulating batch processing delay)
@@ -165,7 +166,8 @@ class KafkaSinkCommandTest {
     long startTime = System.currentTimeMillis();
 
     // Initialize command
-    var context = kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = kafkaSinkCommand.getExecutionContext();
 
     // Process large batch - this should NOT cause 1000 individual flushes
     assertDoesNotThrow(() -> {

@@ -16,8 +16,11 @@ package io.fleak.zephflow.lib.commands.sql;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.exec.Catalog;
 import io.fleak.zephflow.lib.sql.exec.Row;
 import io.fleak.zephflow.lib.sql.exec.Table;
@@ -32,14 +35,38 @@ public class SQLEvalCommand extends ScalarCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      SqlCommandInitializerFactory sqlCommandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, sqlCommandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override
   public String commandName() {
     return COMMAND_NAME_SQL_EVAL;
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    // Create counters
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+    FleakCounter inputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter outputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_COUNT, metricTags);
+    FleakCounter errorCounter =
+        metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
+
+    // Create SQL interpreter and compile query
+    SQLInterpreter sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    SQLInterpreter.CompiledQuery query =
+        sqlInterpreter.compileQuery(((SqlCommandDto.SqlCommandConfig) commandConfig).sql());
+
+    return new SqlExecutionContext(
+        inputMessageCounter, outputMessageCounter, errorCounter, sqlInterpreter, query);
   }
 
   @Override

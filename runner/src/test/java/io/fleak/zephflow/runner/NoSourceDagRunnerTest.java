@@ -117,14 +117,14 @@ class NoSourceDagRunnerTest {
         .when(mockUnsupportedCommand.commandName())
         .thenReturn("unsupportedCmd"); // Name for unsupported
 
-    // Mock initialize() to return a dummy ExecutionContext
+    // Mock initialize() to do nothing (it returns void now)
     ExecutionContext mockContext = mock(ExecutionContext.class);
-    lenient().when(mockScalarCmd1.initialize(any())).thenReturn(mockContext);
-    lenient().when(mockScalarCmd2.initialize(any())).thenReturn(mockContext);
-    lenient().when(mockScalarCmd3.initialize(any())).thenReturn(mockContext);
-    lenient().when(mockSinkCmd.initialize(any())).thenReturn(mockContext);
+    lenient().doNothing().when(mockScalarCmd1).initialize(any());
+    lenient().doNothing().when(mockScalarCmd2).initialize(any());
+    lenient().doNothing().when(mockScalarCmd3).initialize(any());
+    lenient().doNothing().when(mockSinkCmd).initialize(any());
 
-    // Mock getExecutionContext() to return the same mock context
+    // Mock getExecutionContext() to return a dummy ExecutionContext
     lenient().when(mockScalarCmd1.getExecutionContext()).thenReturn(mockContext);
     lenient().when(mockScalarCmd2.getExecutionContext()).thenReturn(mockContext);
     lenient().when(mockScalarCmd3.getExecutionContext()).thenReturn(mockContext);

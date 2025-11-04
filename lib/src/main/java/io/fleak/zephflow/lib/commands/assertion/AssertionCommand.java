@@ -18,9 +18,11 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_ASSERTION;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.eval.EvalCommand;
 import io.fleak.zephflow.lib.commands.eval.EvalExecutionContext;
 import io.fleak.zephflow.lib.commands.eval.ExpressionValueVisitor;
 import java.util.List;
@@ -32,9 +34,19 @@ public class AssertionCommand extends ScalarCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    // Reuse shared helper from EvalCommand
+    return EvalCommand.createEvalExecutionContext(
+        metricClientProvider, jobContext, commandConfig, nodeId, commandName());
   }
 
   @Override

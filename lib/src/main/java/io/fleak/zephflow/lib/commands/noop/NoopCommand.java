@@ -27,9 +27,8 @@ public class NoopCommand extends ScalarCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      CommandInitializerFactory commandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, commandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override
@@ -38,9 +37,23 @@ public class NoopCommand extends ScalarCommand {
   }
 
   @Override
+  protected ExecutionContext createExecutionContext(
+      io.fleak.zephflow.api.metric.MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    return new NoopExecutionContext();
+  }
+
+  @Override
   public List<RecordFleakData> processOneEvent(
       RecordFleakData event, String callingUser, ExecutionContext context) {
     System.out.printf("noop nodeId: %s, event: %s%n", nodeId, toJsonString(event));
     return Collections.singletonList(event);
+  }
+
+  private static class NoopExecutionContext implements ExecutionContext {
+    @Override
+    public void close() {}
   }
 }

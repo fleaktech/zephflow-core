@@ -28,9 +28,7 @@ public class KinesisSinkCommandFactory extends CommandFactory {
         new JsonConfigParser<>(KinesisSinkDto.Config.class);
     KinesisSinkConfigValidator validator = new KinesisSinkConfigValidator();
     AwsClientFactory awsClientFactory = new AwsClientFactory();
-    KinesisSinkCommandInitializerFactory initializerFactory =
-        new KinesisSinkCommandInitializerFactory(awsClientFactory);
-    return new KinesisSinkCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new KinesisSinkCommand(nodeId, jobContext, configParser, validator, awsClientFactory);
   }
 
   @Override

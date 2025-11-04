@@ -17,6 +17,8 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.google.common.collect.Lists;
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -38,9 +40,8 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      SinkCommandInitializerFactory<T> sinkCommandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, sinkCommandInitializerFactory);
+      ConfigValidator configValidator) {
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override
@@ -58,6 +59,40 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   protected abstract int batchSize();
+
+  /**
+   * Helper method to create base sink counters. Subclasses can use this to avoid code duplication.
+   *
+   * @return SinkCounters containing the standard 5 counters for sinks
+   */
+  protected static SinkCounters createSinkCounters(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      String commandName,
+      String nodeId) {
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName, nodeId);
+    FleakCounter inputMessageCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    FleakCounter errorCounter =
+        metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
+    FleakCounter sinkOutputCounter =
+        metricClientProvider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, metricTags);
+    FleakCounter outputSizeCounter =
+        metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, metricTags);
+    FleakCounter sinkErrorCounter =
+        metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, metricTags);
+    return new SinkCounters(
+        inputMessageCounter, errorCounter, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+  }
+
+  /** Helper record to hold sink counters */
+  protected record SinkCounters(
+      FleakCounter inputMessageCounter,
+      FleakCounter errorCounter,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter) {}
 
   private SinkResult writeOneBatch(
       List<RecordFleakData> batch,

@@ -60,7 +60,8 @@ class ParserCommandTest {
       SerializedEvent expectedDataSerializedEvent = new SerializedEvent(null, expectedOutput, null);
 
       List<RecordFleakData> inputEvents = deserializer.deserialize(serializedEvent);
-      var context = command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = command.getExecutionContext();
       var processResult = command.process(inputEvents, "test_user", context);
 
       List<RecordFleakData> parsedEvents = processResult.getOutput();

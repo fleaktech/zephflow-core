@@ -1157,7 +1157,8 @@ dict(
     EvalCommand evalCommand =
         (EvalCommand) new EvalCommandFactory().createCommand("my_node_id", JOB_CONTEXT);
     evalCommand.parseAndValidateArg(Map.of("expression", evalExpr));
-    var context = evalCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    evalCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = evalCommand.getExecutionContext();
     ScalarCommand.ProcessResult processResult =
         evalCommand.process(List.of(inputEvent), "test_user", context);
     System.out.println(

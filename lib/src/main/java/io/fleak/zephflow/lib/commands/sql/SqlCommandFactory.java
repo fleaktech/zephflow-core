@@ -23,8 +23,7 @@ public class SqlCommandFactory extends CommandFactory {
   public SQLEvalCommand createCommand(String nodeId, JobContext jobContext) {
     SqlConfigParser configParser = new SqlConfigParser();
     SqlConfigValidator validator = new SqlConfigValidator();
-    SqlCommandInitializerFactory initializerFactory = new SqlCommandInitializerFactory();
-    return new SQLEvalCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new SQLEvalCommand(nodeId, jobContext, configParser, validator);
   }
 
   @Override
