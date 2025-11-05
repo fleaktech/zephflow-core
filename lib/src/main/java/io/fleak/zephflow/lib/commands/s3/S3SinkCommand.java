@@ -15,23 +15,97 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import io.fleak.zephflow.api.ConfigParser;
-import io.fleak.zephflow.api.ConfigValidator;
-import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import java.util.*;
+import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
+import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.Optional;
+import java.util.concurrent.Executors;
+import software.amazon.awssdk.services.s3.S3Client;
 
-public class S3SinkCommand extends SimpleSinkCommand<Map<String, Object>> {
-  private static final int S3_SINK_BATCH_SIZE =
-      1_000_000_000; // big number, so that we end up with on batch
+public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
+  private static final int S3_SINK_BATCH_SIZE = 1_000_000_000;
+
+  private final AwsClientFactory awsClientFactory;
 
   protected S3SinkCommand(
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
       ConfigValidator configValidator,
-      S3SinkCommandInitializerFactory s3SinkCommandInitializerFactory) {
-    super(nodeId, jobContext, configParser, configValidator, s3SinkCommandInitializerFactory);
+      AwsClientFactory awsClientFactory) {
+    super(nodeId, jobContext, configParser, configValidator);
+    this.awsClientFactory = awsClientFactory;
+  }
+
+  @Override
+  protected ExecutionContext createExecutionContext(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    SinkCounters counters =
+        createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
+
+    S3SinkDto.Config config = (S3SinkDto.Config) commandConfig;
+    SimpleSinkCommand.Flusher<RecordFleakData> flusher = createS3Flusher(config, jobContext);
+    SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
+        new PassThroughMessagePreProcessor();
+
+    return new SinkExecutionContext<>(
+        flusher,
+        messagePreProcessor,
+        counters.inputMessageCounter(),
+        counters.errorCounter(),
+        counters.sinkOutputCounter(),
+        counters.outputSizeCounter(),
+        counters.sinkErrorCounter());
+  }
+
+  private SimpleSinkCommand.Flusher<RecordFleakData> createS3Flusher(
+      S3SinkDto.Config config, JobContext jobContext) {
+    Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt =
+        lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+
+    S3Client s3Client =
+        awsClientFactory.createS3Client(
+            config.getRegionStr(),
+            usernamePasswordCredentialOpt.orElse(null),
+            config.getS3EndpointOverride());
+
+    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+    SerializerFactory<?> serializerFactory =
+        SerializerFactory.createSerializerFactory(encodingType);
+    FleakSerializer<?> serializer = serializerFactory.createSerializer();
+    S3Commiter<RecordFleakData> commiter;
+    if (config.isBatching()) {
+      commiter =
+          new BatchS3Commiter<>(
+              s3Client,
+              config.getBucketName(),
+              config.getBatchSize(),
+              config.getFlushIntervalMillis(),
+              new S3CommiterSerializer.RecordFleakDataS3CommiterSerializer(serializer),
+              Executors.newSingleThreadScheduledExecutor(
+                  r -> {
+                    Thread t = new Thread(r, "s3-sink-batch-flusher");
+                    t.setDaemon(true);
+                    return t;
+                  }));
+      ((BatchS3Commiter<RecordFleakData>) commiter).open();
+    } else {
+      commiter =
+          new OnDemandS3Commiter(s3Client, config.getBucketName(), config.getKeyName(), serializer);
+    }
+
+    return new S3Flusher(commiter);
   }
 
   @Override

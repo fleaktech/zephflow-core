@@ -17,7 +17,6 @@ import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.CommandType;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
-import io.fleak.zephflow.lib.commands.eval.EvalCommandInitializerFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalConfigParser;
 import io.fleak.zephflow.lib.commands.eval.EvalConfigValidator;
 
@@ -33,9 +32,7 @@ public class AssertionCommandFactory extends CommandFactory {
   public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
     EvalConfigParser evalConfigParser = new EvalConfigParser(assertion);
     EvalConfigValidator evalConfigValidator = new EvalConfigValidator();
-    EvalCommandInitializerFactory initializerFactory = new EvalCommandInitializerFactory();
-    return new AssertionCommand(
-        nodeId, jobContext, evalConfigParser, evalConfigValidator, initializerFactory);
+    return new AssertionCommand(nodeId, jobContext, evalConfigParser, evalConfigValidator);
   }
 
   @Override

@@ -107,10 +107,11 @@ public record DagExecutor(
             subDagWithoutSource,
             jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
     try {
+      // Initialize source command before execution
+      sourceCommand.initialize(metricClientProvider);
 
       sourceCommand.execute(
           jobConfig.getJobId(),
-          metricClientProvider,
           new SourceEventAcceptor() {
             @Override
             public void terminate() {

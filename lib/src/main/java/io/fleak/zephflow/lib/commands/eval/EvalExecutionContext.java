@@ -15,24 +15,24 @@ package io.fleak.zephflow.lib.commands.eval;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
-import io.fleak.zephflow.lib.commands.DefaultInitializedConfig;
+import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import java.io.IOException;
 import lombok.EqualsAndHashCode;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
-/** Created by bolei on 10/19/24 */
+/** Execution context for EvalCommand. Holds runtime resources like counters and Python executor. */
 @EqualsAndHashCode(callSuper = true)
 @Value
 @Slf4j
-public class EvalInitializedConfig extends DefaultInitializedConfig {
+public class EvalExecutionContext extends DefaultExecutionContext {
 
   EvalExpressionParser.LanguageContext languageContext;
   boolean assertion;
   PythonExecutor pythonExecutor;
 
-  public EvalInitializedConfig(
+  public EvalExecutionContext(
       FleakCounter inputMessageCounter,
       FleakCounter outputMessageCounter,
       FleakCounter errorCounter,
@@ -50,8 +50,12 @@ public class EvalInitializedConfig extends DefaultInitializedConfig {
     if (pythonExecutor != null) {
       try {
         pythonExecutor.close();
+      } catch (IOException e) {
+        log.error("failed to close python executor", e);
+        throw e;
       } catch (Exception e) {
         log.error("failed to close python executor", e);
+        throw new IOException("Failed to close python executor", e);
       }
     }
   }

@@ -13,13 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
-import io.fleak.zephflow.api.InitializedConfig;
+import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
 
 /** Created by bolei on 9/23/24 */
-public record SourceInitializedConfig<T>(
+public record SourceExecutionContext<T>(
     Fetcher<T> fetcher,
     RawDataConverter<T> converter,
     RawDataEncoder<T> encoder,
@@ -27,7 +27,7 @@ public record SourceInitializedConfig<T>(
     FleakCounter inputEventCounter,
     FleakCounter deserializeFailureCounter,
     DlqWriter dlqWriter)
-    implements InitializedConfig {
+    implements ExecutionContext {
   @Override
   public void close() throws IOException {
     if (fetcher != null) {

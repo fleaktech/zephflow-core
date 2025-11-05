@@ -38,6 +38,7 @@ class StdInSourceCommandTest {
     command.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(
             StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(), new TypeReference<>() {}));
-    command.execute("my_user", new MetricClientProvider.NoopMetricClientProvider(), eventConsumer);
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.execute("my_user", eventConsumer);
   }
 }

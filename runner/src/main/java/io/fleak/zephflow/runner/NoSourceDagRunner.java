@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
@@ -49,6 +50,9 @@ public record NoSourceDagRunner(
       NoSourceDagRunner.DagRunConfig runConfig,
       MetricClientProvider metricClientProvider,
       DagRunCounters counters) {
+
+    // Initialize all commands once at the start of the run
+    initializeAllCommands(metricClientProvider);
 
     // make sure all edges are from the same source
     var sourceNodeIds = edgesFromSource.stream().map(Edge::getFrom).distinct().toList();
@@ -125,10 +129,14 @@ public record NoSourceDagRunner(
     Node<OperatorCommand> compiledNode = compiledDagWithoutSource.lookupNode(currentNodeId);
     OperatorCommand command = compiledNode.getNodeContent();
     List<Edge> downstreamEdges = compiledDagWithoutSource.downstreamEdges(currentNodeId);
+
+    // Get the already-initialized execution context
+    ExecutionContext executionContext = command.getExecutionContext();
+
     if (command instanceof ScalarCommand scalarCommand) {
       // Process the event through a scalar command
       ScalarCommand.ProcessResult result =
-          scalarCommand.process(events, runContext.callingUser, metricClientProvider);
+          scalarCommand.process(events, runContext.callingUser, executionContext);
       runContext.dagResult.handleNodeResult(
           runContext.callingUserTag,
           currentNodeId,
@@ -153,7 +161,7 @@ public record NoSourceDagRunner(
     if (command instanceof ScalarSinkCommand sinkCommand) {
       // Write to sink
       ScalarSinkCommand.SinkResult result =
-          sinkCommand.writeToSink(events, runContext.callingUser, metricClientProvider);
+          sinkCommand.writeToSink(events, runContext.callingUser, executionContext);
       RecordFleakData sinkOutputEvent = sinkResultToOutputEvent(result);
       runContext.dagResult.handleNodeResult(
           runContext.callingUserTag,
@@ -180,6 +188,17 @@ public record NoSourceDagRunner(
         String.format(
             "encountered unsupported command at downstream node: id=%s, commandName=%s",
             currentNodeId, command.commandName()));
+  }
+
+  /**
+   * Initialize all commands in the DAG. Should be called once before processing events. This method
+   * is idempotent - calling it multiple times will only initialize each command once due to
+   * double-checked locking in OperatorCommand.initialize().
+   */
+  private void initializeAllCommands(MetricClientProvider metricClientProvider) {
+    compiledDagWithoutSource.getNodes().stream()
+        .map(Node::getNodeContent)
+        .forEach(command -> command.initialize(metricClientProvider));
   }
 
   public void terminate() {

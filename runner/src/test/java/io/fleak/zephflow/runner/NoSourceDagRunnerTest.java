@@ -117,8 +117,21 @@ class NoSourceDagRunnerTest {
         .when(mockUnsupportedCommand.commandName())
         .thenReturn("unsupportedCmd"); // Name for unsupported
 
+    // Mock initialize() to do nothing (it returns void now)
+    ExecutionContext mockContext = mock(ExecutionContext.class);
+    lenient().doNothing().when(mockScalarCmd1).initialize(any());
+    lenient().doNothing().when(mockScalarCmd2).initialize(any());
+    lenient().doNothing().when(mockScalarCmd3).initialize(any());
+    lenient().doNothing().when(mockSinkCmd).initialize(any());
+
+    // Mock getExecutionContext() to return a dummy ExecutionContext
+    lenient().when(mockScalarCmd1.getExecutionContext()).thenReturn(mockContext);
+    lenient().when(mockScalarCmd2.getExecutionContext()).thenReturn(mockContext);
+    lenient().when(mockScalarCmd3.getExecutionContext()).thenReturn(mockContext);
+    lenient().when(mockSinkCmd.getExecutionContext()).thenReturn(mockContext);
+
     lenient()
-        .when(mockScalarCmd1.process(anyList(), eq(CALLING_USER), eq(mockMetricProvider)))
+        .when(mockScalarCmd1.process(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
         .thenAnswer(
             invocation -> {
               List<RecordFleakData> events = invocation.getArgument(0);
@@ -126,7 +139,7 @@ class NoSourceDagRunnerTest {
                   new ArrayList<>(events), Collections.emptyList());
             });
     lenient()
-        .when(mockScalarCmd2.process(anyList(), eq(CALLING_USER), eq(mockMetricProvider)))
+        .when(mockScalarCmd2.process(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
         .thenAnswer(
             invocation -> {
               List<RecordFleakData> events = invocation.getArgument(0);
@@ -134,7 +147,7 @@ class NoSourceDagRunnerTest {
                   new ArrayList<>(events), Collections.emptyList());
             });
     lenient()
-        .when(mockScalarCmd3.process(anyList(), eq(CALLING_USER), eq(mockMetricProvider)))
+        .when(mockScalarCmd3.process(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
         .thenAnswer(
             invocation -> {
               List<RecordFleakData> events = invocation.getArgument(0);
@@ -142,7 +155,7 @@ class NoSourceDagRunnerTest {
                   new ArrayList<>(events), Collections.emptyList());
             });
     lenient()
-        .when(mockSinkCmd.writeToSink(anyList(), eq(CALLING_USER), eq(mockMetricProvider)))
+        .when(mockSinkCmd.writeToSink(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
         .thenAnswer(
             invocation -> {
               List<RecordFleakData> events = invocation.getArgument(0);
@@ -209,9 +222,9 @@ class NoSourceDagRunnerTest {
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       // Verify command processing
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockSinkCmd)
-          .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
+          .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), any(ExecutionContext.class));
       assertEquals(
           inputEvents.size(),
           eventListCaptor.getValue().size(),
@@ -271,9 +284,9 @@ class NoSourceDagRunnerTest {
 
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockScalarCmd2)
-          .process(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
+          .process(eventListCaptor.capture(), eq(CALLING_USER), any(ExecutionContext.class));
       assertEquals(inputEvents.size(), eventListCaptor.getValue().size());
 
       verify(mockCounters)
@@ -325,10 +338,10 @@ class NoSourceDagRunnerTest {
 
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
-      verify(mockScalarCmd2).process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider));
+      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
+      verify(mockScalarCmd2).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockSinkCmd, times(2))
-          .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), eq(mockMetricProvider));
+          .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), any(ExecutionContext.class));
       assertEquals(inputEvents.size(), eventListCaptor.getAllValues().get(0).size());
       assertEquals(inputEvents.size(), eventListCaptor.getAllValues().get(1).size());
 
@@ -388,7 +401,7 @@ class NoSourceDagRunnerTest {
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockScalarCmd1)
-          .process(eq(Collections.emptyList()), eq(CALLING_USER), eq(mockMetricProvider));
+          .process(eq(Collections.emptyList()), eq(CALLING_USER), any(ExecutionContext.class));
 
       verify(mockCounters).increaseInputEventCounter(eq(0L), eq(callingUserTag));
       verify(mockCounters).startStopWatch();
@@ -495,7 +508,7 @@ class NoSourceDagRunnerTest {
       RecordFleakData errorEvent = createEvent("errorEvent");
       List<RecordFleakData> successfulEvents = List.of(createEvent("successEvent"));
       List<ErrorOutput> errors = List.of(createError(errorEvent, "Scalar failed"));
-      when(mockScalarCmd1.process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider)))
+      when(mockScalarCmd1.process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
           .thenReturn(new ScalarCommand.ProcessResult(successfulEvents, errors));
 
       noSourceDagRunner =
@@ -504,7 +517,7 @@ class NoSourceDagRunnerTest {
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll, mockMetricProvider, mockCounters);
 
       verify(mockScalarCmd2)
-          .process(eq(successfulEvents), eq(CALLING_USER), eq(mockMetricProvider));
+          .process(eq(successfulEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockCounters)
           .increaseErrorEventCounter(eq((long) errors.size()), tagsCaptor.capture());
       assertEquals(createNodeTags(NODE_ID_1, CMD_NAME_1), tagsCaptor.getValue());
@@ -538,7 +551,7 @@ class NoSourceDagRunnerTest {
       List<RecordFleakData> successfulEvents = List.of(createEvent("successEvent"));
       String errorMessage = "Scalar failed for DLQ";
       List<ErrorOutput> errors = List.of(createError(errorEvent, errorMessage));
-      when(mockScalarCmd1.process(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider)))
+      when(mockScalarCmd1.process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
           .thenReturn(new ScalarCommand.ProcessResult(successfulEvents, errors));
 
       noSourceDagRunner =
@@ -571,7 +584,7 @@ class NoSourceDagRunnerTest {
       int successCount = inputCount - 1;
       List<ErrorOutput> errors = List.of(createError(inputEvents.get(1), "Sink failed"));
       var sinkResult = new ScalarSinkCommand.SinkResult(inputCount, successCount, errors);
-      when(mockSinkCmd.writeToSink(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider)))
+      when(mockSinkCmd.writeToSink(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
           .thenReturn(sinkResult);
 
       noSourceDagRunner =
@@ -624,7 +637,7 @@ class NoSourceDagRunnerTest {
       String errorMessage = "Sink failed for DLQ";
       List<ErrorOutput> errors = List.of(createError(inputEvents.get(1), errorMessage));
       var sinkResult = new ScalarSinkCommand.SinkResult(inputCount, successCount, errors);
-      when(mockSinkCmd.writeToSink(eq(inputEvents), eq(CALLING_USER), eq(mockMetricProvider)))
+      when(mockSinkCmd.writeToSink(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
           .thenReturn(sinkResult);
 
       noSourceDagRunner =

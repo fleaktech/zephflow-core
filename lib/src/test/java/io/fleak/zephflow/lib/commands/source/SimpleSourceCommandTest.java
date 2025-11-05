@@ -36,23 +36,19 @@ class SimpleSourceCommandTest {
   // Test implementation of SimpleSourceCommand
   private static class TestSimpleSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     private final String commandName;
+    private final SourceExecutionContext<SerializedEvent> testExecutionContext;
 
     TestSimpleSourceCommand(
         String nodeId,
         JobContext jobContext,
         ConfigParser configParser,
         ConfigValidator configValidator,
-        CommandInitializerFactory commandInitializerFactory,
         boolean singleEventSource,
-        String commandName) {
-      super(
-          nodeId,
-          jobContext,
-          configParser,
-          configValidator,
-          commandInitializerFactory,
-          singleEventSource);
+        String commandName,
+        SourceExecutionContext<SerializedEvent> testExecutionContext) {
+      super(nodeId, jobContext, configParser, configValidator, singleEventSource);
       this.commandName = commandName;
+      this.testExecutionContext = testExecutionContext;
     }
 
     @Override
@@ -64,6 +60,15 @@ class SimpleSourceCommandTest {
     public SourceType sourceType() {
       return SourceType.BATCH;
     }
+
+    @Override
+    protected SourceExecutionContext<SerializedEvent> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      return testExecutionContext;
+    }
   }
 
   private static final String TEST_NODE_ID = "testNode";
@@ -73,7 +78,6 @@ class SimpleSourceCommandTest {
   private JobContext mockJobContext;
   private ConfigParser mockConfigParser;
   private ConfigValidator mockConfigValidator;
-  private CommandInitializerFactory mockCommandInitializerFactory;
   private Fetcher<SerializedEvent> mockFetcher;
   private FleakDeserializer<?> mockDeserializer;
   private RawDataEncoder<SerializedEvent> mockEncoder;
@@ -87,14 +91,13 @@ class SimpleSourceCommandTest {
   private FleakCounter inputEventCounter;
   private FleakCounter deserializeFailureCounter;
   private CommitStrategy mockCommitStrategy;
+  private SourceExecutionContext<SerializedEvent> testExecutionContext;
 
   @BeforeEach
   void setUp() {
     mockJobContext = mock(JobContext.class);
     mockConfigParser = mock(ConfigParser.class);
     mockConfigValidator = mock(ConfigValidator.class);
-    mockCommandInitializerFactory = mock(CommandInitializerFactory.class);
-    CommandInitializer mockCommandInitializer = mock(CommandInitializer.class);
     mockFetcher = mock();
     mockDeserializer = mock();
     RawDataConverter<SerializedEvent> rawDataConverter =
@@ -112,23 +115,17 @@ class SimpleSourceCommandTest {
 
     when(mockFetcher.commiter()).thenReturn(mockCommitter);
     when(mockFetcher.commitStrategy()).thenReturn(mockCommitStrategy);
-    // Setup command initializer factory
-    when(mockCommandInitializerFactory.createCommandInitializer(
-            any(), eq(mockJobContext), any(), eq(TEST_NODE_ID)))
-        .thenReturn(mockCommandInitializer);
 
-    // Setup command initializer to return config with our mocked fetcher
-    when(mockCommandInitializer.initialize(
-            eq(TEST_COMMAND_NAME), eq(mockJobContext), any(CommandConfig.class)))
-        .thenReturn(
-            new SourceInitializedConfig<>(
-                mockFetcher,
-                rawDataConverter,
-                mockEncoder,
-                dataSizeCounter,
-                inputEventCounter,
-                deserializeFailureCounter,
-                mockDlqWriter));
+    testExecutionContext =
+        new SourceExecutionContext<>(
+            mockFetcher,
+            rawDataConverter,
+            mockEncoder,
+            dataSizeCounter,
+            inputEventCounter,
+            deserializeFailureCounter,
+            mockDlqWriter);
+
     when(mockConfigParser.parseConfig(TEST_CONFIG)).thenReturn(mockCommandConfig);
     command =
         new TestSimpleSourceCommand(
@@ -136,9 +133,9 @@ class SimpleSourceCommandTest {
             mockJobContext,
             mockConfigParser,
             mockConfigValidator,
-            mockCommandInitializerFactory,
             false,
-            TEST_COMMAND_NAME);
+            TEST_COMMAND_NAME,
+            testExecutionContext);
     command.parseAndValidateArg(TEST_CONFIG);
   }
 
@@ -167,11 +164,8 @@ class SimpleSourceCommandTest {
     when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
 
     // Execute
-    command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
-
-    verify(mockCommandInitializerFactory)
-        .createCommandInitializer(
-            eq(mockMetricClientProvider), eq(mockJobContext), any(), eq(TEST_NODE_ID));
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
 
     verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
     verify(mockCommitter).commit();
@@ -209,7 +203,8 @@ class SimpleSourceCommandTest {
     when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
 
     // Execute
-    command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
 
     verify(mockEncoder).serialize(same(serializedEvent));
     // Verify DLQ writing
@@ -238,7 +233,8 @@ class SimpleSourceCommandTest {
     when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
     when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
 
-    command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
 
     verify(mockEncoder).serialize(same(serializedEvent));
     verify(mockDlqWriter)
@@ -263,9 +259,9 @@ class SimpleSourceCommandTest {
             mockJobContext,
             mockConfigParser,
             mockConfigValidator,
-            mockCommandInitializerFactory,
             true,
-            TEST_COMMAND_NAME);
+            TEST_COMMAND_NAME,
+            testExecutionContext);
     command.parseAndValidateArg(TEST_CONFIG);
     // Setup single successful fetch
     when(mockFetcher.fetch()).thenReturn(List.of());
@@ -275,7 +271,8 @@ class SimpleSourceCommandTest {
     when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
 
     // Execute
-    command.execute("testUser", mockMetricClientProvider, mockSourceEventAcceptor);
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
 
     // Verify only one fetch
     verify(mockFetcher, times(1)).fetch();

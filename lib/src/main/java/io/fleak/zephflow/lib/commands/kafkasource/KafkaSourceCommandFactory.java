@@ -26,8 +26,7 @@ public class KafkaSourceCommandFactory extends SourceCommandFactory {
         new JsonConfigParser<>(KafkaSourceDto.Config.class);
     KafkaSourceConfigValidator validator = new KafkaSourceConfigValidator();
     KafkaConsumerClientFactory kafkaConsumerClientFactory = new KafkaConsumerClientFactory();
-    CommandInitializerFactory initializerFactory =
-        new KafkaSourceCommandInitializerFactory(kafkaConsumerClientFactory);
-    return new KafkaSourceCommand(nodeId, jobContext, configParser, validator, initializerFactory);
+    return new KafkaSourceCommand(
+        nodeId, jobContext, configParser, validator, kafkaConsumerClientFactory);
   }
 }

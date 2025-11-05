@@ -22,5 +22,5 @@ public interface RawDataConverter<T> {
    * @param sourceRecord The original record from the source
    * @return Transformed result containing either success with data or failure with original record
    */
-  ConvertedResult<T> convert(T sourceRecord, SourceInitializedConfig<?> sourceInitializedConfig);
+  ConvertedResult<T> convert(T sourceRecord, SourceExecutionContext<?> sourceInitializedConfig);
 }
