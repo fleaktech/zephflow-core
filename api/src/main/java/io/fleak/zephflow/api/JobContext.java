@@ -55,4 +55,8 @@ public class JobContext implements Serializable {
     private String accessKeyId;
     private String secretAccessKey;
   }
+
+  public boolean useDlq() {
+    return dlqConfig != null;
+  }
 }

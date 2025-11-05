@@ -21,7 +21,6 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.httpstarter.dto.ExecuteDto;
 import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.DagResult;
-import io.fleak.zephflow.runner.DagRunCounters;
 import io.fleak.zephflow.runner.DagRunnerService;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
 import java.util.List;
@@ -70,14 +69,12 @@ public class ExecutionController {
     }
     NoSourceDagRunner noSourceDagRunner = dagPair.getValue();
     try {
-      DagRunCounters counters = dagRunnerService.createCounters(DEFAULT_JOB_CONTEXT);
       DagResult dagResult =
           noSourceDagRunner.run(
               batchPayload.getInputRecords(),
               "http_endpoint_user",
               new NoSourceDagRunner.DagRunConfig(includeErrorByStep, includeOutputByStep),
-              dagRunnerService.metricClientProvider(),
-              counters);
+              dagRunnerService.metricClientProvider());
 
       return ExecuteDto.Response.builder()
           .workflowId(workflowId)

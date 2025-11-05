@@ -17,13 +17,8 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class InfluxDBMetricClientProvider implements MetricClientProvider {
-
-  private final InfluxDBMetricSender metricSender;
-
-  public InfluxDBMetricClientProvider(InfluxDBMetricSender metricSender) {
-    this.metricSender = metricSender;
-  }
+public record InfluxDBMetricClientProvider(InfluxDBMetricSender metricSender)
+    implements MetricClientProvider {
 
   @Override
   public FleakCounter counter(String name, Map<String, String> tags) {

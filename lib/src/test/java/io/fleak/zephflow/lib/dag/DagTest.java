@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.dag;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.io.*;
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -478,5 +479,43 @@ class DagTest {
             expectedProcessingDag, expectedSinkNodes, expectedEdgesToSinks);
 
     assertEquals(expected, actual);
+  }
+
+  @Test
+  public void testSerializationAndDeserialization() throws Exception {
+    Dag<String> deserializedDag = serializeAndDeserialize(testDag);
+
+    assertEquals(testDag, deserializedDag);
+
+    Node<String> nodeA = deserializedDag.lookupNode("A");
+    assertEquals("Node A", nodeA.getNodeContent());
+
+    List<Edge> upstreamEdgesD = deserializedDag.upstreamEdges("D");
+    assertEquals(2, upstreamEdgesD.size());
+
+    List<Edge> downstreamEdgesA = deserializedDag.downstreamEdges("A");
+    assertEquals(2, downstreamEdgesA.size());
+
+    List<Node<String>> entryNodes = deserializedDag.getEntryNodes();
+    assertEquals(1, entryNodes.size());
+    assertEquals("A", entryNodes.get(0).getId());
+
+    deserializedDag.validate(true, n -> false, n -> false);
+  }
+
+  private <T> Dag<T> serializeAndDeserialize(Dag<T> dag) throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(dag);
+    }
+
+    byte[] bytes = baos.toByteArray();
+
+    ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+    try (ObjectInputStream ois = new ObjectInputStream(bais)) {
+      @SuppressWarnings("unchecked")
+      Dag<T> deserialized = (Dag<T>) ois.readObject();
+      return deserialized;
+    }
   }
 }

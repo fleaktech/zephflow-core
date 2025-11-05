@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.dag;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -24,20 +25,24 @@ import org.apache.commons.lang3.tuple.Pair;
 @Getter
 @NoArgsConstructor
 @EqualsAndHashCode
-public class Dag<T> {
+public class Dag<T> implements Serializable {
 
   private final List<Node<T>> nodes = new ArrayList<>();
   private final List<Edge> edges = new ArrayList<>();
 
-  // Index maps for faster lookups
+  // All index maps for faster lookups
+  // If null, indexes need to be rebuilt via ensureIndexes()
   @Getter(AccessLevel.NONE)
-  private transient Map<String, Node<T>> nodeIndex = new HashMap<>();
+  private transient DagIndexes<T> indexes;
 
-  @Getter(AccessLevel.NONE)
-  private transient Map<String, List<Edge>> incomingEdgesIndex = new HashMap<>();
-
-  @Getter(AccessLevel.NONE)
-  private transient Map<String, List<Edge>> outgoingEdgesIndex = new HashMap<>();
+  /**
+   * Container for all transient index maps used for fast lookups. If this object exists, all
+   * indexes are guaranteed to be properly built.
+   */
+  private record DagIndexes<T>(
+      Map<String, Node<T>> nodeIndex,
+      Map<String, List<Edge>> incomingEdgesIndex,
+      Map<String, List<Edge>> outgoingEdgesIndex) {}
 
   /**
    * Custom constructor to create a DAG with nodes and edges. Builds indexes immediately upon
@@ -62,14 +67,14 @@ public class Dag<T> {
    */
   private void buildIndexes() {
     // Build node index
-    nodeIndex = new HashMap<>();
+    Map<String, Node<T>> nodeIndex = new HashMap<>();
     for (Node<T> node : nodes) {
       nodeIndex.put(node.getId(), node);
     }
 
     // Build edge indexes
-    incomingEdgesIndex = new HashMap<>();
-    outgoingEdgesIndex = new HashMap<>();
+    Map<String, List<Edge>> incomingEdgesIndex = new HashMap<>();
+    Map<String, List<Edge>> outgoingEdgesIndex = new HashMap<>();
 
     for (Edge edge : edges) {
       // Index incoming edges
@@ -78,10 +83,24 @@ public class Dag<T> {
       // Index outgoing edges
       outgoingEdgesIndex.computeIfAbsent(edge.getFrom(), k -> new ArrayList<>()).add(edge);
     }
+
+    // Create the indexes container
+    this.indexes = new DagIndexes<>(nodeIndex, incomingEdgesIndex, outgoingEdgesIndex);
+  }
+
+  /**
+   * Ensures that indexes are built. If indexes are null (e.g., after deserialization), rebuilds
+   * them.
+   */
+  private void ensureIndexes() {
+    if (indexes == null) {
+      buildIndexes();
+    }
   }
 
   public Node<T> lookupNode(String nodeId) {
-    Node<T> node = nodeIndex.get(nodeId);
+    ensureIndexes();
+    Node<T> node = indexes.nodeIndex.get(nodeId);
     if (node == null) {
       throw new IllegalArgumentException("Node with ID " + nodeId + " not found");
     }
@@ -89,30 +108,23 @@ public class Dag<T> {
   }
 
   public List<Edge> upstreamEdges(String nodeId) {
-    return incomingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
+    ensureIndexes();
+    return indexes.incomingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
   }
 
   public List<Edge> downstreamEdges(String nodeId) {
-    // Ensure indexes are built
-    if (outgoingEdgesIndex.isEmpty() && !edges.isEmpty()) {
-      buildIndexes();
-    }
-
-    return outgoingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
+    ensureIndexes();
+    return indexes.outgoingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
   }
 
   public List<Node<T>> getEntryNodes() {
-    // Ensure indexes are built
-    if (incomingEdgesIndex.isEmpty() && !edges.isEmpty()) {
-      buildIndexes();
-    }
-
+    ensureIndexes();
     // Find nodes that have no incoming edges (source nodes)
     return nodes.stream()
         .filter(
             node ->
-                !incomingEdgesIndex.containsKey(node.getId())
-                    || incomingEdgesIndex.get(node.getId()).isEmpty())
+                !indexes.incomingEdgesIndex.containsKey(node.getId())
+                    || indexes.incomingEdgesIndex.get(node.getId()).isEmpty())
         .collect(Collectors.toList());
   }
 
@@ -126,7 +138,8 @@ public class Dag<T> {
       return false;
     }
 
-    Set<String> allNodeIds = nodeIndex.keySet();
+    ensureIndexes();
+    Set<String> allNodeIds = indexes.nodeIndex.keySet();
     Set<String> visited = new HashSet<>();
 
     // Start from the first node
@@ -162,11 +175,12 @@ public class Dag<T> {
     }
 
     // Ensure indexes are built
-    buildIndexes();
+    ensureIndexes();
 
     // validate Edge.from and Edge.to values
     for (Edge edge : edges) {
-      if (!nodeIndex.containsKey(edge.getFrom()) || !nodeIndex.containsKey(edge.getTo())) {
+      if (!indexes.nodeIndex.containsKey(edge.getFrom())
+          || !indexes.nodeIndex.containsKey(edge.getTo())) {
         throw new Exception(
             "Edge.from or Edge.to value is not a valid DagNode.nodeId for edge: " + edge);
       }
@@ -180,7 +194,7 @@ public class Dag<T> {
     // Check if the graph has cycles
     List<String> visited = new ArrayList<>();
     List<String> cycleNodes;
-    for (String nodeId : nodeIndex.keySet()) {
+    for (String nodeId : indexes.nodeIndex.keySet()) {
       if ((cycleNodes = hasCycle(nodeId, visited, new ArrayList<>())) != null) {
         String cycleString = String.join(" -> ", cycleNodes);
         throw new Exception("Graph has a cycle: " + cycleString);
@@ -231,12 +245,12 @@ public class Dag<T> {
 
     // Look for neighbors ignoring the direction of the edges
     // Use the edge indexes for faster lookups
-    List<Edge> outgoing = outgoingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
+    List<Edge> outgoing = indexes.outgoingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
     for (Edge edge : outgoing) {
       traverseIgnoringDirection(edge.getTo(), visited);
     }
 
-    List<Edge> incoming = incomingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
+    List<Edge> incoming = indexes.incomingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
     for (Edge edge : incoming) {
       traverseIgnoringDirection(edge.getFrom(), visited);
     }
@@ -252,7 +266,8 @@ public class Dag<T> {
     path.add(nodeId);
 
     // Use the outgoing edges index for faster lookup
-    List<Edge> outgoingEdges = outgoingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
+    List<Edge> outgoingEdges =
+        indexes.outgoingEdgesIndex.getOrDefault(nodeId, Collections.emptyList());
     for (Edge edge : outgoingEdges) {
       List<String> cyclePath = hasCycle(edge.getTo(), visited, path);
       if (cyclePath != null) return cyclePath;

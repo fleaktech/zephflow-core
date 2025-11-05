@@ -103,9 +103,7 @@ public record DagExecutor(
     DagRunCounters counters = createCounters();
     NoSourceDagRunner noSourceDagRunner =
         new NoSourceDagRunner(
-            edgesFromSource,
-            subDagWithoutSource,
-            jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
+            edgesFromSource, subDagWithoutSource, jobConfig.getDagDefinition().getJobContext());
     try {
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
@@ -124,8 +122,7 @@ public record DagExecutor(
                   recordFleakData,
                   jobConfig.getJobId(),
                   new NoSourceDagRunner.DagRunConfig(true, false),
-                  metricClientProvider,
-                  counters);
+                  metricClientProvider);
             }
           });
     } finally {

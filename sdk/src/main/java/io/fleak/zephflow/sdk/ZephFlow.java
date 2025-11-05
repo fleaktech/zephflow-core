@@ -863,9 +863,8 @@ public class ZephFlow {
           dagRunnerService.createForApiBackend(
               dagDefinition.getDag(), dagDefinition.getJobContext());
     }
-    DagRunCounters counters = dagRunnerService.createCounters(buildDag().getJobContext());
     return noSourceDagRunner.run(
-        inputData, callingUser, runConfig, dagRunnerService.metricClientProvider(), counters);
+        inputData, callingUser, runConfig, dagRunnerService.metricClientProvider());
   }
 
   /**

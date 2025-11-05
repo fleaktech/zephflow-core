@@ -18,10 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
-import io.fleak.zephflow.api.ExecutionContext;
-import io.fleak.zephflow.api.OperatorCommand;
-import io.fleak.zephflow.api.ScalarCommand;
-import io.fleak.zephflow.api.ScalarSinkCommand;
+import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dag.Dag;
@@ -41,15 +38,16 @@ import org.slf4j.MDC;
 public record NoSourceDagRunner(
     @NonNull List<Edge> edgesFromSource,
     Dag<OperatorCommand> compiledDagWithoutSource,
-    boolean useDlq)
+    JobContext jobContext)
     implements Serializable {
 
   public DagResult run(
       List<RecordFleakData> events,
       String callingUser,
       NoSourceDagRunner.DagRunConfig runConfig,
-      MetricClientProvider metricClientProvider,
-      DagRunCounters counters) {
+      MetricClientProvider metricClientProvider) {
+    DagRunCounters counters =
+        DagRunCounters.createPipelineCounters(metricClientProvider, jobContext.getMetricTags());
 
     // Initialize all commands once at the start of the run
     initializeAllCommands(metricClientProvider);
@@ -146,7 +144,7 @@ public record NoSourceDagRunner(
           result.getOutput(),
           result.getFailureEvents(),
           counters,
-          useDlq);
+          jobContext.useDlq());
 
       routeToDownstream(
           currentNodeId,
@@ -172,7 +170,7 @@ public record NoSourceDagRunner(
           List.of(sinkOutputEvent),
           result.getFailureEvents(),
           counters,
-          useDlq);
+          jobContext().useDlq());
       Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, currentNodeId);
       tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());

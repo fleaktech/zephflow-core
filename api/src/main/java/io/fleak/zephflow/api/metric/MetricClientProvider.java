@@ -25,12 +25,8 @@ public interface MetricClientProvider {
 
   FleakStopWatch stopWatch(String name, Map<String, String> tags);
 
-  class CompositeMetricClientProvider implements MetricClientProvider {
-    private final List<MetricClientProvider> providers;
-
-    public CompositeMetricClientProvider(List<MetricClientProvider> providers) {
-      this.providers = providers;
-    }
+  record CompositeMetricClientProvider(List<MetricClientProvider> providers)
+      implements MetricClientProvider {
 
     @Override
     public FleakCounter counter(String name, Map<String, String> tags) {

@@ -44,10 +44,6 @@ public record DagRunnerService(
       }
       incomingEdges.add(Edge.builder().from(SYNC_INPUT_NODE_NAME).to(node.getId()).build());
     }
-    return new NoSourceDagRunner(incomingEdges, compiledDag, false);
-  }
-
-  public DagRunCounters createCounters(JobContext jobContext) {
-    return DagRunCounters.createPipelineCounters(metricClientProvider, jobContext.getMetricTags());
+    return new NoSourceDagRunner(incomingEdges, compiledDag, jobContext);
   }
 }
