@@ -44,10 +44,9 @@ public record NoSourceDagRunner(
   public DagResult run(
       List<RecordFleakData> events,
       String callingUser,
-      NoSourceDagRunner.DagRunConfig runConfig,
-      MetricClientProvider metricClientProvider) {
-    DagRunCounters counters =
-        DagRunCounters.createPipelineCounters(metricClientProvider, jobContext.getMetricTags());
+      DagRunConfig runConfig,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters) {
 
     // Initialize all commands once at the start of the run
     initializeAllCommands(metricClientProvider);
@@ -170,7 +169,7 @@ public record NoSourceDagRunner(
           List.of(sinkOutputEvent),
           result.getFailureEvents(),
           counters,
-          jobContext().useDlq());
+          jobContext.useDlq());
       Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, currentNodeId);
       tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
@@ -219,6 +218,6 @@ public record NoSourceDagRunner(
     String callingUser;
     Map<String, String> callingUserTag;
     DagResult dagResult;
-    NoSourceDagRunner.DagRunConfig runConfig;
+    DagRunConfig runConfig;
   }
 }

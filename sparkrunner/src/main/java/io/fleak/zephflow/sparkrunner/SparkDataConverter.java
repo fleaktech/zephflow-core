@@ -55,7 +55,10 @@ public class SparkDataConverter {
 
       for (RecordFleakData event : events) {
         Map<String, VariantVal> dataMap = recordToMap(event);
-        Row row = RowFactory.create(nodeId, dataMap);
+        // Convert Java Map to Scala Map for Spark compatibility
+        scala.collection.Map<String, VariantVal> scalaMap =
+            JavaConverters.mapAsScalaMapConverter(dataMap).asScala();
+        Row row = RowFactory.create(nodeId, scalaMap);
         rows.add(row);
       }
     }

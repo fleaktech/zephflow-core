@@ -1,6 +1,8 @@
 jobContext:
   otherProperties:
   metricTags:
+    service: "test-service"
+    env: "test-env"
   dlqConfig:
 dag:
   #                               /->(even) c

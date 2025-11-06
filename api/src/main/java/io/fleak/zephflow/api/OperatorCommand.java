@@ -31,7 +31,6 @@ public abstract class OperatorCommand implements Serializable {
 
   // Explicit initialization approach
   protected transient volatile ExecutionContext executionContext;
-  private final transient Object initLock = new Object();
 
   protected OperatorCommand(
       String nodeId,
@@ -69,7 +68,7 @@ public abstract class OperatorCommand implements Serializable {
    */
   public void initialize(MetricClientProvider metricClientProvider) {
     if (executionContext == null) {
-      synchronized (initLock) {
+      synchronized (this) {
         if (executionContext == null) {
           executionContext =
               createExecutionContext(metricClientProvider, jobContext, commandConfig, nodeId);

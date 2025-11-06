@@ -100,13 +100,16 @@ public record DagExecutor(
     SourceCommand sourceCommand = (SourceCommand) command;
     List<Edge> edgesFromSource = new ArrayList<>(entryNodesDagAndRest.getKey().getEdges());
     Dag<OperatorCommand> subDagWithoutSource = entryNodesDagAndRest.getValue();
-    DagRunCounters counters = createCounters();
+    ensureMetricsTagsInJobContext(jobConfig.getDagDefinition().getJobContext());
     NoSourceDagRunner noSourceDagRunner =
         new NoSourceDagRunner(
             edgesFromSource, subDagWithoutSource, jobConfig.getDagDefinition().getJobContext());
     try {
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
+      DagRunCounters counters =
+          DagRunCounters.createPipelineCounters(
+              metricClientProvider, jobConfig.getDagDefinition().getJobContext().getMetricTags());
 
       sourceCommand.execute(
           jobConfig.getJobId(),
@@ -122,7 +125,8 @@ public record DagExecutor(
                   recordFleakData,
                   jobConfig.getJobId(),
                   new NoSourceDagRunner.DagRunConfig(true, false),
-                  metricClientProvider);
+                  metricClientProvider,
+                  counters);
             }
           });
     } finally {
@@ -131,17 +135,15 @@ public record DagExecutor(
     }
   }
 
-  private DagRunCounters createCounters() {
+  private void ensureMetricsTagsInJobContext(JobContext jobContext) {
     Map<String, String> basicTags =
         Map.of(
             METRIC_TAG_SERVICE, jobConfig.getService(),
             METRIC_TAG_ENV, jobConfig.getEnvironment());
     Map<String, String> metricTags = new HashMap<>(basicTags);
-    JobContext jobContext = jobConfig.getDagDefinition().getJobContext();
     if (jobContext != null && jobContext.getMetricTags() != null) {
       metricTags.putAll(jobContext.getMetricTags());
       jobContext.setMetricTags(metricTags);
     }
-    return DagRunCounters.createPipelineCounters(metricClientProvider, metricTags);
   }
 }

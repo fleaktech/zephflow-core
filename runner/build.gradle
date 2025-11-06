@@ -7,6 +7,22 @@ dependencies {
   api project(":lib")
 }
 
+// Expose test classes for other modules
+configurations {
+  testClasses {
+    extendsFrom testImplementation
+  }
+}
+
+tasks.register('testJar', Jar) {
+  archiveClassifier = 'tests'
+  from sourceSets.test.output
+}
+
+artifacts {
+  testClasses testJar
+}
+
 tasks.named('test') {
   useJUnitPlatform()
   testLogging.showStandardStreams = true

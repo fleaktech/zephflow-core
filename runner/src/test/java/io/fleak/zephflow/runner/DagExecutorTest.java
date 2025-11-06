@@ -166,7 +166,7 @@ public class DagExecutorTest {
     }
   }
 
-  static class TestSourceFactory extends CommandFactory {
+  public static class TestSourceFactory extends CommandFactory {
     @Override
     public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
       return new TestSource(
@@ -239,7 +239,7 @@ public class DagExecutorTest {
     }
   }
 
-  static class TestSinkFactory extends CommandFactory {
+  public static class TestSinkFactory extends CommandFactory {
 
     @Override
     public OperatorCommand createCommand(String nodeId, JobContext jobContext) {

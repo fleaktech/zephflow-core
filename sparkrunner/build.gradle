@@ -7,6 +7,7 @@ dependencies {
   api project(":lib")
   api project(":runner")
   implementation group: 'org.apache.spark', name: 'spark-sql_2.13', version: sparkVersion
+  testImplementation project(path: ":runner", configuration: "testClasses")
 }
 
 tasks.named('test') {

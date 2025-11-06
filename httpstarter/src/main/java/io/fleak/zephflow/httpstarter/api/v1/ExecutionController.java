@@ -18,9 +18,11 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_EXECUTION_CONTROLLER_PATH;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.httpstarter.dto.ExecuteDto;
 import io.fleak.zephflow.lib.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.DagResult;
+import io.fleak.zephflow.runner.DagRunCounters;
 import io.fleak.zephflow.runner.DagRunnerService;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
 import java.util.List;
@@ -68,13 +70,18 @@ public class ExecutionController {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "workflow not found");
     }
     NoSourceDagRunner noSourceDagRunner = dagPair.getValue();
+    DagRunCounters dagRunCounters =
+        DagRunCounters.createPipelineCounters(
+            new MetricClientProvider.NoopMetricClientProvider(),
+            DEFAULT_JOB_CONTEXT.getMetricTags());
     try {
       DagResult dagResult =
           noSourceDagRunner.run(
               batchPayload.getInputRecords(),
               "http_endpoint_user",
               new NoSourceDagRunner.DagRunConfig(includeErrorByStep, includeOutputByStep),
-              dagRunnerService.metricClientProvider());
+              dagRunnerService.metricClientProvider(),
+              dagRunCounters);
 
       return ExecuteDto.Response.builder()
           .workflowId(workflowId)
