@@ -26,18 +26,12 @@ import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 3/26/25 */
 @Slf4j
-public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> {
-
-  private final FleakDeserializer<?> fleakDeserializer;
-  private final Decompressor decompressor;
+public record BytesRawDataConverter(
+    FleakDeserializer<?> fleakDeserializer, Decompressor decompressor)
+    implements RawDataConverter<SerializedEvent> {
 
   public BytesRawDataConverter(FleakDeserializer<?> fleakDeserializer) {
     this(fleakDeserializer, DecompressorFactory.getDecompressor(List.of()));
-  }
-
-  public BytesRawDataConverter(FleakDeserializer<?> fleakDeserializer, Decompressor decompressor) {
-    this.fleakDeserializer = fleakDeserializer;
-    this.decompressor = decompressor;
   }
 
   @Override

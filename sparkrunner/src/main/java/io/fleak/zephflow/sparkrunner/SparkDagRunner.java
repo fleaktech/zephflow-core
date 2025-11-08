@@ -14,9 +14,15 @@
 package io.fleak.zephflow.sparkrunner;
 
 import io.fleak.zephflow.api.OperatorCommand;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.lib.dag.*;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
 import io.fleak.zephflow.runner.ZephflowDagCompiler;
+import io.fleak.zephflow.sparkrunner.source.SparkSourceExecutor;
+import io.fleak.zephflow.sparkrunner.source.SparkSourceExecutorRegistry;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.Builder;
 import lombok.NonNull;
@@ -25,6 +31,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Dynamic Spark job executor that runs DAG-defined workflows.
@@ -42,6 +49,10 @@ public class SparkDagRunner {
 
   @NonNull private final SparkSession spark;
 
+  @NonNull private final MetricClientProvider metricClientProvider;
+
+  @NonNull private final String jobId;
+
   @NonNull @Builder.Default
   private final SparkDagProcessor.Config config = SparkDagProcessor.Config.builder().build();
 
@@ -49,8 +60,9 @@ public class SparkDagRunner {
    * Execute a complete Spark job defined by the DAG.
    *
    * @param dagDef The DAG definition (from YAML)
+   * @throws Exception if execution fails
    */
-  public void run(AdjacencyListDagDefinition dagDef) {
+  public void run(AdjacencyListDagDefinition dagDef) throws Exception {
     log.info("Starting SparkDagRunner execution");
 
     // 1. Compile DAG definition to OperatorCommands
@@ -99,18 +111,43 @@ public class SparkDagRunner {
   /**
    * Execute source nodes to produce initial Dataset.
    *
-   * <p>TODO: Implement source execution logic. For now, returns empty dataset.
-   *
    * @param sourceDag DAG containing only source nodes
    * @return Dataset of input events
    */
-  private Dataset<Row> executeSource(Dag<OperatorCommand> sourceDag) {
-    log.warn("executeSource() not yet implemented - returning empty dataset");
-    // TODO: Implement source execution
-    // - Get source command from sourceDag
-    // - Execute source to read data
-    // - Convert to Dataset<Row> with INPUT_EVENT_SCHEMA
-    return spark.emptyDataset(org.apache.spark.sql.Encoders.row(SparkSchemas.INPUT_EVENT_SCHEMA));
+  private Dataset<Row> executeSource(Dag<OperatorCommand> sourceDag) throws Exception {
+    List<Node<OperatorCommand>> sourceNodes = new ArrayList<>(sourceDag.getNodes());
+    SimpleSourceCommand<SerializedEvent> sourceCommand = getSourceCommand(sourceNodes);
+    log.info("Executing source node: {}", sourceCommand.commandName());
+
+    SparkSourceExecutor executor =
+        SparkSourceExecutorRegistry.SOURCE_EXECUTOR_MAP.get(sourceCommand.commandName());
+    if (executor == null) {
+      throw new IllegalArgumentException(
+          "Cannot run source command in spark: " + sourceCommand.commandName());
+    }
+    return executor.execute(sourceCommand, spark);
+  }
+
+  private static @NotNull SimpleSourceCommand<SerializedEvent> getSourceCommand(
+      List<Node<OperatorCommand>> sourceNodes) {
+
+    if (sourceNodes.isEmpty()) {
+      throw new IllegalArgumentException("No source nodes provided.");
+    }
+    if (sourceNodes.size() > 1) {
+      throw new IllegalArgumentException(
+          "Multiple source nodes not yet supported. Found: " + sourceNodes.size());
+    }
+
+    Node<OperatorCommand> sourceNode = sourceNodes.get(0);
+    OperatorCommand command = sourceNode.getNodeContent();
+    if (!(command instanceof SimpleSourceCommand)) {
+      throw new IllegalArgumentException(
+          "Source node does not contain SourceCommand: " + command.getClass().getName());
+    }
+
+    //noinspection unchecked
+    return (SimpleSourceCommand<SerializedEvent>) command;
   }
 
   /**

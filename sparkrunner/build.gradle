@@ -7,7 +7,11 @@ dependencies {
   api project(":lib")
   api project(":runner")
   implementation group: 'org.apache.spark', name: 'spark-sql_2.13', version: sparkVersion
+  implementation group: 'org.apache.spark', name: 'spark-sql-kafka-0-10_2.13', version: sparkVersion
   testImplementation project(path: ":runner", configuration: "testClasses")
+  testImplementation group: 'org.testcontainers', name: 'junit-jupiter', version: testContainersVersion
+  testImplementation group: 'org.testcontainers', name: 'kafka', version: testContainersVersion
+  testImplementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
 }
 
 tasks.named('test') {

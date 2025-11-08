@@ -67,6 +67,27 @@ public class SparkDataConverter {
   }
 
   /**
+   * Converts List of RecordFleakData to Spark Rows with INPUT_EVENT_SCHEMA.
+   *
+   * <p>Schema: [data: Map&lt;String, VariantVal&gt;]
+   *
+   * @param records List of RecordFleakData to convert
+   * @return List of Rows with INPUT_EVENT_SCHEMA
+   */
+  public static List<Row> recordsToRows(List<RecordFleakData> records) {
+    List<Row> rows = new ArrayList<>();
+    for (RecordFleakData record : records) {
+      Map<String, VariantVal> dataMap = recordToMap(record);
+      // Convert Java Map to Scala Map for Spark compatibility
+      scala.collection.Map<String, VariantVal> scalaMap =
+          JavaConverters.mapAsScalaMapConverter(dataMap).asScala();
+      Row row = RowFactory.create(scalaMap);
+      rows.add(row);
+    }
+    return rows;
+  }
+
+  /**
    * Converts RecordFleakData to Map&lt;String, VariantVal&gt;.
    *
    * <p>Maps RecordFleakData.payload → Map&lt;String, VariantVal&gt; where each FleakData value is

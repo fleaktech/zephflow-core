@@ -18,6 +18,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.Map;
+import lombok.Getter;
 
 /** Created by bolei on 7/26/24 */
 public abstract class OperatorCommand implements Serializable {
@@ -27,7 +28,7 @@ public abstract class OperatorCommand implements Serializable {
   private final ConfigParser configParser;
   private final ConfigValidator configValidator;
 
-  protected CommandConfig commandConfig;
+  @Getter protected CommandConfig commandConfig;
 
   // Explicit initialization approach
   protected transient volatile ExecutionContext executionContext;
