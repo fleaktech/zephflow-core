@@ -92,13 +92,37 @@ jobs:
           echo "jar_name=$(basename $JAR_FILE)" >> $GITHUB_OUTPUT
           echo "✅ Successfully built: $JAR_FILE"
 
-      # Upload fat jar to the existing GitHub release
-      - name: Upload Fat JAR to Release
+      # Build clistarter fat jar for releases
+      - name: Build clistarter fat jar
+        if: github.event_name == 'release'
+        id: build_cli_jar
+        run: |
+          echo "Building clistarter fat jar for release ${{ github.event.release.tag_name }}..."
+          ./gradlew :clistarter:shadowJar -Prelease.useLastTag=true
+
+          # List the built artifacts
+          echo "=== Built clistarter artifacts ==="
+          ls -la clistarter/build/libs/
+
+          # Find the fat jar
+          CLI_JAR_FILE=$(find clistarter/build/libs/ -name "*-all.jar" -type f | head -1)
+          if [ -z "$CLI_JAR_FILE" ]; then
+            echo "ERROR: No clistarter fat jar found!"
+            exit 1
+          fi
+
+          echo "cli_jar_path=$CLI_JAR_FILE" >> $GITHUB_OUTPUT
+          echo "cli_jar_name=$(basename $CLI_JAR_FILE)" >> $GITHUB_OUTPUT
+          echo "✅ Successfully built: $CLI_JAR_FILE"
+
+      # Upload fat jars to the existing GitHub release
+      - name: Upload Fat JARs to Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ${{ steps.build_jar.outputs.jar_path }}
+            ${{ steps.build_cli_jar.outputs.cli_jar_path }}
           tag_name: ${{ github.event.release.tag_name }}
 
       # Publish Release to Maven Central
