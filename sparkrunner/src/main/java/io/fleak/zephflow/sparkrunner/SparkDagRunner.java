@@ -13,24 +13,36 @@
  */
 package io.fleak.zephflow.sparkrunner;
 
+import static java.util.Collections.emptyList;
+
 import io.fleak.zephflow.api.OperatorCommand;
+import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.lib.dag.*;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.runner.NoSourceDagRunner;
 import io.fleak.zephflow.runner.ZephflowDagCompiler;
+import io.fleak.zephflow.sparkrunner.sink.SparkSinkExecutor;
+import io.fleak.zephflow.sparkrunner.sink.SparkSinkExecutorRegistry;
 import io.fleak.zephflow.sparkrunner.source.SparkSourceExecutor;
 import io.fleak.zephflow.sparkrunner.source.SparkSourceExecutorRegistry;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.expressions.UserDefinedFunction;
+import org.apache.spark.sql.functions;
+import org.apache.spark.sql.types.DataTypes;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -76,34 +88,39 @@ public class SparkDagRunner {
     Dag<OperatorCommand> restDag = split.getRight();
 
     // 3. Extract sink nodes from restDag (nodes with no outgoing edges)
-    List<OperatorCommand> sinkNodes =
+    List<Node<OperatorCommand>> sinkNodeList =
         restDag.getNodes().stream()
-            .filter(node -> restDag.downstreamEdges(node.getId()).isEmpty())
-            .map(Node::getNodeContent)
+            .filter(node -> node.getNodeContent() instanceof ScalarSinkCommand)
             .toList();
 
-    // 4. Extract edges from source and get JobContext
+    // 4. Extract edges pointing to sink nodes from compiled DAG
+    List<String> sinkNodeIds = sinkNodeList.stream().map(Node::getId).toList();
+    List<Edge> edgesToSinks =
+        compiledDag.getEdges().stream().filter(edge -> sinkNodeIds.contains(edge.getTo())).toList();
+
+    // 5. Extract edges from source and get JobContext
     List<Edge> edgesFromSource = sourceDag.getEdges();
     NodesEdgesDagDefinition nodesEdgesDef =
         NodesEdgesDagDefinition.fromAdjacencyListDagDefinition(dagDef);
     var jobContext = nodesEdgesDef.getJobContext();
 
     log.info(
-        "Split DAG - Source nodes: {}, Sink nodes: {}, Intermediate nodes: {}, Edges from source: {}",
+        "Split DAG - Source nodes: {}, Sink nodes: {}, Intermediate nodes: {}, Edges from source: {}, Edges to sinks: {}",
         sourceDag.getNodes().size(),
-        sinkNodes.size(),
-        restDag.getNodes().size() - sinkNodes.size(),
-        edgesFromSource.size());
+        sinkNodeList.size(),
+        restDag.getNodes().size() - sinkNodeList.size(),
+        edgesFromSource.size(),
+        edgesToSinks.size());
 
-    // 5. Create processing pipeline (intermediate DAG without source)
+    // 6. Create processing pipeline (intermediate DAG without source)
     NoSourceDagRunner dagRunner = new NoSourceDagRunner(edgesFromSource, restDag, jobContext);
     SparkDagProcessor processor =
         SparkDagProcessor.builder().dagRunner(dagRunner).config(config).build();
 
-    // 6. Execute Spark job pipeline
+    // 7. Execute Spark job pipeline
     Dataset<Row> sourceData = executeSource(sourceDag);
     Dataset<Row> processedData = processor.process(sourceData);
-    executeSinks(processedData, sinkNodes);
+    executeSinks(processedData, sinkNodeList, edgesToSinks);
 
     log.info("SparkDagRunner execution completed");
   }
@@ -153,18 +170,89 @@ public class SparkDagRunner {
   /**
    * Execute sink nodes to write processed data to destinations.
    *
-   * <p>TODO: Implement multi-destination sink routing logic.
+   * <p>Routes data to multiple sinks based on nodeId field in OUTPUT_EVENT_SCHEMA.
    *
    * @param processedData Dataset with OUTPUT_EVENT_SCHEMA (nodeId, data)
-   * @param sinkNodes List of sink command nodes
+   * @param sinkNodeList List of sink nodes (with IDs)
+   * @param edgesToSinks List of edges pointing to sink nodes (from processing nodes to sinks)
    */
-  private void executeSinks(Dataset<Row> processedData, List<OperatorCommand> sinkNodes) {
-    log.warn("executeSinks() not yet implemented - data not written");
-    log.info("Found {} sink nodes to route data to", sinkNodes.size());
-    // TODO: Implement sink execution
-    // - For each sink node:
-    //   - Filter processedData by nodeId matching sink node
-    //   - Route to appropriate destination (Kafka, file, etc.)
-    //   - Execute sink command to write data
+  private void executeSinks(
+      Dataset<Row> processedData, List<Node<OperatorCommand>> sinkNodeList, List<Edge> edgesToSinks)
+      throws Exception {
+    log.info(
+        "Executing {} sink nodes with {} incoming edges", sinkNodeList.size(), edgesToSinks.size());
+
+    // Step 1: Build processingNodeId -> [sinkIds] map directly from edges
+    Map<String, List<String>> nodeToSinksMap = new HashMap<>();
+    for (Edge edge : edgesToSinks) {
+      nodeToSinksMap.computeIfAbsent(edge.getFrom(), k -> new ArrayList<>()).add(edge.getTo());
+    }
+
+    // Build sinkId -> OperatorCommand map
+    Map<String, OperatorCommand> sinkNodeIdToCommand = new HashMap<>();
+    for (Node<OperatorCommand> node : sinkNodeList) {
+      sinkNodeIdToCommand.put(node.getId(), node.getNodeContent());
+    }
+
+    // Step 2: Broadcast and create UDF
+    Broadcast<Map<String, List<String>>> bNodeToSinksMap;
+    try (JavaSparkContext jsc = JavaSparkContext.fromSparkContext(spark.sparkContext())) {
+      bNodeToSinksMap = jsc.broadcast(nodeToSinksMap);
+    }
+
+    UserDefinedFunction getSinksUDF =
+        functions.udf(
+            (String nodeId) -> {
+              Map<String, List<String>> localMap = bNodeToSinksMap.value();
+              return localMap.getOrDefault(nodeId, emptyList());
+            },
+            DataTypes.createArrayType(DataTypes.StringType));
+
+    spark.udf().register("getSinks", getSinksUDF);
+
+    // Step 3: Add sinks column and explode to duplicate rows
+    Dataset<Row> withSinks =
+        processedData.withColumn("sinks", functions.callUDF("getSinks", functions.col("nodeId")));
+
+    Dataset<Row> dataToRoute =
+        withSinks
+            .withColumn("sinkId", functions.explode(functions.col("sinks")))
+            .drop("sinks", "nodeId");
+
+    // Step 4: Cache and write loop
+    try {
+      dataToRoute.cache();
+      long rowCount = dataToRoute.count();
+      log.info("Cached {} rows for routing to sinks", rowCount);
+
+      for (Map.Entry<String, OperatorCommand> entry : sinkNodeIdToCommand.entrySet()) {
+        String sinkId = entry.getKey();
+        OperatorCommand sink = entry.getValue();
+
+        log.info("Writing data for sink: {}", sinkId);
+
+        // Filter cached data for this sink
+        Dataset<Row> sinkData =
+            dataToRoute.filter(functions.col("sinkId").equalTo(sinkId)).drop("sinkId");
+        // Get executor
+        SparkSinkExecutor executor =
+            SparkSinkExecutorRegistry.SINK_EXECUTOR_MAP.get(sink.commandName());
+
+        if (executor == null) {
+          throw new IllegalArgumentException(
+              String.format("No Spark sink executor found for '%s'", sink.commandName()));
+        }
+
+        // Write using Spark-native sink
+        executor.execute(sinkData, sink, spark);
+        log.info("Successfully wrote to sink '{}'", sinkId);
+      }
+
+      log.info("All sinks executed successfully");
+    } finally {
+      // Clean up cache regardless of success or failure
+      dataToRoute.unpersist();
+      log.info("Unpersisted routing data");
+    }
   }
 }
