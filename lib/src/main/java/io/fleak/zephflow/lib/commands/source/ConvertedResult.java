@@ -15,22 +15,11 @@ package io.fleak.zephflow.lib.commands.source;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.List;
-import lombok.Getter;
 import lombok.NonNull;
 
 /** Created by bolei on 3/26/25 */
-@Getter
-public class ConvertedResult<T> {
-  private final List<RecordFleakData> transformedData;
-  private final Exception error;
-  @NonNull private final T sourceRecord;
-
-  private ConvertedResult(
-      List<RecordFleakData> transformedData, Exception error, @NonNull T sourceRecord) {
-    this.transformedData = transformedData;
-    this.error = error;
-    this.sourceRecord = sourceRecord;
-  }
+public record ConvertedResult<T>(
+    List<RecordFleakData> transformedData, Exception error, @NonNull T sourceRecord) {
 
   public static <T> ConvertedResult<T> success(
       List<RecordFleakData> data, @NonNull T sourceRecord) {

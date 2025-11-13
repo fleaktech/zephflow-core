@@ -36,6 +36,9 @@ allprojects {
 
   repositories {
     mavenCentral()
+    maven {
+      url "https://splunk.jfrog.io/splunk/ext-releases-local"
+    }
   }
 
   ext {

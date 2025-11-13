@@ -130,11 +130,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
     for (ConvertedResult<T> convertedResult : convertedResults) {
       try {
-        if (convertedResult.getTransformedData() == null) {
-          throw convertedResult.getError();
+        if (convertedResult.transformedData() == null) {
+          throw convertedResult.error();
         }
-        log.trace("Transformed data: {}", convertedResult.getTransformedData().size());
-        sourceEventAcceptor.accept(convertedResult.getTransformedData());
+        log.trace("Transformed data: {}", convertedResult.transformedData().size());
+        sourceEventAcceptor.accept(convertedResult.transformedData());
         recordCount++;
 
         long currentTime = System.currentTimeMillis();
@@ -152,9 +152,9 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         }
 
       } catch (Exception e) {
-        log.debug("failed to process data: {}", convertedResult.getTransformedData(), e);
+        log.debug("failed to process data: {}", convertedResult.transformedData(), e);
         if (dlqWriter != null) {
-          SerializedEvent raw = rawDataEncoder.serialize(convertedResult.getSourceRecord());
+          SerializedEvent raw = rawDataEncoder.serialize(convertedResult.sourceRecord());
           dlqWriter.writeToDlq(System.currentTimeMillis(), raw, ExceptionUtils.getStackTrace(e));
         }
       }
