@@ -13,11 +13,13 @@
  */
 package io.fleak.zephflow.api.metric;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.util.List;
 import java.util.Map;
 
 /** Created by bolei on 4/8/24 */
-public interface MetricClientProvider {
+public interface MetricClientProvider extends AutoCloseable {
 
   FleakCounter counter(String name, Map<String, String> tags);
 
@@ -25,6 +27,10 @@ public interface MetricClientProvider {
 
   FleakStopWatch stopWatch(String name, Map<String, String> tags);
 
+  @Override
+  void close();
+
+  @Slf4j
   class CompositeMetricClientProvider implements MetricClientProvider {
     private final List<MetricClientProvider> providers;
 
@@ -45,6 +51,17 @@ public interface MetricClientProvider {
     @Override
     public FleakStopWatch stopWatch(String name, Map<String, String> tags) {
       return new CompositeFleakStopWatch(name, tags);
+    }
+
+    @Override
+    public void close() {
+      for (MetricClientProvider provider : providers) {
+        try {
+          provider.close();
+        } catch (Exception e) {
+          log.error("Failed to closed provider = {}", provider, e);
+        }
+      }
     }
 
     private class CompositeFleakCounter implements FleakCounter {
@@ -137,6 +154,11 @@ public interface MetricClientProvider {
     @Override
     public FleakStopWatch stopWatch(String name, Map<String, String> tags) {
       return new NoopStopWatch();
+    }
+
+    @Override
+    public void close() {
+      // no-op
     }
 
     public static class NoopFleakCounter implements FleakCounter {
