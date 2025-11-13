@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.kafkasource;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
@@ -114,8 +115,7 @@ class KafkaSourceFetcherTest {
     var fetchedData = fetcher.fetch();
     var result =
         fetchedData.stream()
-            .flatMap(
-                x -> converter.convert(x, sourceInitializedConfig).getTransformedData().stream())
+            .flatMap(x -> converter.convert(x, sourceInitializedConfig).transformedData().stream())
             .toList();
     // Verify that the result contains the deserialized data
     assertNotNull(result);
