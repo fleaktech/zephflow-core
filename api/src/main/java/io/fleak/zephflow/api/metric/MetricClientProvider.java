@@ -13,10 +13,9 @@
  */
 package io.fleak.zephflow.api.metric;
 
-import lombok.extern.slf4j.Slf4j;
-
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 4/8/24 */
 public interface MetricClientProvider extends AutoCloseable {
