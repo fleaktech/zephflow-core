@@ -41,6 +41,16 @@ public class InfluxDBMetricClientProvider implements MetricClientProvider {
     return new InfluxDBStopWatch(name, tags, metricSender);
   }
 
+  @Override
+  public void close() {
+    try {
+      metricSender.close();
+      log.info("InfluxDBMetricClientProvider closed successfully");
+    } catch (Exception e) {
+      log.error("Error closing InfluxDBMetricClientProvider", e);
+    }
+  }
+
   public InfluxDBMetricSender getSender() {
     return metricSender;
   }

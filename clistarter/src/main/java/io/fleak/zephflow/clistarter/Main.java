@@ -31,9 +31,10 @@ public class Main {
   public static void main(String[] args) throws Exception {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
-      MetricClientProvider metricClientProvider = createMetricClientProvider(args);
-      DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
-      dagExecutor.executeDag();
+      try (MetricClientProvider metricClientProvider = createMetricClientProvider(args)) {
+        DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
+        dagExecutor.executeDag();
+      }
     } catch (ParseException cliParseException) {
       JobCliParser.printUsage("pipelinejob");
       System.exit(1);
