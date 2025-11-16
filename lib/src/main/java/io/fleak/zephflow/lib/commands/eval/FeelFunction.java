@@ -179,6 +179,9 @@ public interface FeelFunction {
 
       FleakData val1 = visitExpression(visitor, args.get(0));
       FleakData val2 = visitExpression(visitor, args.get(1));
+      if (val1 == null || val2 == null) {
+        return FleakData.wrap(false);
+      }
       boolean contains = val1.getStringValue().contains(val2.getStringValue());
       return FleakData.wrap(contains);
     }
@@ -228,6 +231,9 @@ public interface FeelFunction {
       }
 
       FleakData arg = visitExpression(visitor, args.get(0));
+      if (arg == null) {
+        return null;
+      }
       return FleakData.wrap(arg.getStringValue().toUpperCase());
     }
   }
@@ -250,6 +256,9 @@ public interface FeelFunction {
       }
 
       FleakData arg = visitExpression(visitor, args.get(0));
+      if (arg == null) {
+        return null;
+      }
       return FleakData.wrap(arg.getStringValue().toLowerCase());
     }
   }
@@ -275,6 +284,9 @@ public interface FeelFunction {
       }
 
       FleakData arg = visitExpression(visitor, args.get(0));
+      if (arg == null) {
+        return null;
+      }
       if (arg instanceof RecordFleakData) {
         return new NumberPrimitiveFleakData(
             arg.getPayload().size(), NumberPrimitiveFleakData.NumberType.LONG);
@@ -510,15 +522,23 @@ public interface FeelFunction {
       FleakData stringData = visitExpression(visitor, args.get(0));
       FleakData delimiterData = visitExpression(visitor, args.get(1));
 
+      if (stringData == null) {
+        return null;
+      }
+
+      if (delimiterData == null) {
+        return FleakData.wrap(List.of(stringData));
+      }
+
       Preconditions.checkArgument(
           stringData instanceof StringPrimitiveFleakData,
           "str_split: first argument must be a string but found: %s",
-          stringData != null ? stringData.unwrap() : null);
+          stringData.unwrap());
 
       Preconditions.checkArgument(
           delimiterData instanceof StringPrimitiveFleakData,
           "str_split: second argument (delimiter) must be a string but found: %s",
-          delimiterData != null ? delimiterData.unwrap() : null);
+          delimiterData.unwrap());
 
       String inputString = stringData.getStringValue();
       String delimiter = delimiterData.getStringValue();
@@ -582,6 +602,9 @@ public interface FeelFunction {
       }
 
       FleakData strFd = visitExpression(visitor, args.get(0));
+      if (strFd == null) {
+        return null;
+      }
       String str = strFd.getStringValue();
 
       // Use canonical integer evaluation method from visitor
@@ -1297,10 +1320,14 @@ public interface FeelFunction {
       }
 
       FleakData dictData = visitExpression(visitor, args.get(0));
+      if (dictData == null) {
+        return null;
+      }
+
       Preconditions.checkArgument(
           dictData instanceof RecordFleakData,
           "dict_remove: first argument must be a dictionary but found: %s",
-          dictData != null ? dictData.unwrap() : null);
+          dictData.unwrap());
 
       // Create a copy of the original dictionary
       Map<String, FleakData> resultPayload = new HashMap<>(dictData.getPayload());
@@ -1308,10 +1335,14 @@ public interface FeelFunction {
       // Remove each specified key
       for (int i = 1; i < args.size(); i++) {
         FleakData keyData = visitExpression(visitor, args.get(i));
+        if (keyData == null) {
+          continue;
+        }
+
         Preconditions.checkArgument(
             keyData instanceof StringPrimitiveFleakData,
             "dict_remove: key arguments must be strings but found: %s at position %d",
-            keyData != null ? keyData.unwrap() : null,
+            keyData.unwrap(),
             i + 1);
 
         String keyToRemove = keyData.getStringValue();

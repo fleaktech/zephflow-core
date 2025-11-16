@@ -190,6 +190,18 @@ dict(
   }
 
   @Test
+  public void testStrContainsNullHandling() {
+    FleakData testData = FleakData.wrap(Map.of("text", "Hello World"));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    testFunctionExecution(visitor, "str_contains(null, null)", false);
+    testFunctionExecution(visitor, "str_contains(null, \"world\")", false);
+    testFunctionExecution(visitor, "str_contains(\"hello\", null)", false);
+    testFunctionExecution(visitor, "str_contains($.nonexistent_field, \"test\")", false);
+    testFunctionExecution(visitor, "str_contains(\"hello world\", \"world\")", true);
+  }
+
+  @Test
   public void testArrayFunctions() {
     FleakData testData =
         FleakData.wrap(
@@ -408,6 +420,46 @@ dict(
     testFunctionExecution(visitor, "substr(\"hello\", 0, 0)", "");
     testFunctionExecution(visitor, "substr(\"hello\", 10)", ""); // Start beyond string
     testFunctionExecution(visitor, "range(0)", List.of());
+  }
+
+  @Test
+  public void testNullHandlingAcrossFunctions() {
+    FleakData testData = FleakData.wrap(Map.of("text", "Hello World"));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    testFunctionExecution(visitor, "upper(null)", null);
+    testFunctionExecution(visitor, "upper($.nonexistent)", null);
+    testFunctionExecution(visitor, "lower(null)", null);
+    testFunctionExecution(visitor, "lower($.nonexistent)", null);
+    testFunctionExecution(visitor, "size_of(null)", null);
+    testFunctionExecution(visitor, "size_of($.nonexistent)", null);
+    testFunctionExecution(visitor, "substr(null, 1, 3)", null);
+    testFunctionExecution(visitor, "substr($.nonexistent, 1)", null);
+  }
+
+  @Test
+  public void testStrSplitNullHandling() {
+    FleakData testData = FleakData.wrap(Map.of("text", "a,b,c"));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    testFunctionExecution(visitor, "str_split(null, \",\")", null);
+    testFunctionExecution(visitor, "str_split($.nonexistent, \",\")", null);
+    testFunctionExecution(visitor, "str_split(\"a,b,c\", null)", List.of("a,b,c"));
+    testFunctionExecution(visitor, "str_split(null, null)", null);
+    testFunctionExecution(visitor, "str_split($.text, \",\")", List.of("a", "b", "c"));
+  }
+
+  @Test
+  public void testDictRemoveNullHandling() {
+    FleakData testData =
+        FleakData.wrap(Map.of("dict1", Map.of("a", 1, "b", 2, "c", 3), "key", "b"));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+
+    testFunctionExecution(visitor, "dict_remove(null, \"a\")", null);
+    testFunctionExecution(visitor, "dict_remove($.nonexistent, \"a\")", null);
+    testFunctionExecution(visitor, "dict_remove($.dict1, null)", Map.of("a", 1L, "b", 2L, "c", 3L));
+    testFunctionExecution(visitor, "dict_remove($.dict1, \"b\", null, \"c\")", Map.of("a", 1L));
+    testFunctionExecution(visitor, "dict_remove($.dict1, $.key)", Map.of("a", 1L, "c", 3L));
   }
 
   @Test
