@@ -28,6 +28,8 @@ public interface EvaluatorFuncs {
 
   interface BinaryEvaluatorFunc<T> {
     T evaluate(T left, T right);
+
+    String operatorName();
   }
 
   /****************** Unary Value ******************/
@@ -57,8 +59,8 @@ public interface EvaluatorFuncs {
       if (!validateTypes(left, right)) {
         throw new IllegalArgumentException(
             String.format(
-                "unsupported operand types for + operator: left=%s, right=%s",
-                left.unwrap(), right.unwrap()));
+                "unsupported operand types for %s operator: left=%s, right=%s",
+                operatorName(), left.unwrap(), right.unwrap()));
       }
       return doEvaluate(left, right);
     }
@@ -108,6 +110,11 @@ public interface EvaluatorFuncs {
   ValueBinaryEvaluator PLUS_VALUE_EVALUATOR_FUNC =
       new ValueBinaryEvaluator() {
         @Override
+        public String operatorName() {
+          return "+";
+        }
+
+        @Override
         protected boolean validateTypes(FleakData l, FleakData r) {
           // Allow string + string or number + number
           return (l instanceof StringPrimitiveFleakData && r instanceof StringPrimitiveFleakData)
@@ -131,6 +138,11 @@ public interface EvaluatorFuncs {
   NumericValueBinaryEvaluator MINUS_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
         @Override
+        public String operatorName() {
+          return "-";
+        }
+
+        @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           double minus = l.getNumberValue() - r.getNumberValue();
           NumberPrimitiveFleakData.NumberType promotedType =
@@ -142,6 +154,11 @@ public interface EvaluatorFuncs {
   NumericValueBinaryEvaluator TIMES_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
         @Override
+        public String operatorName() {
+          return "*";
+        }
+
+        @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           double timesResult = l.getNumberValue() * r.getNumberValue();
           NumberPrimitiveFleakData.NumberType promotedType =
@@ -152,6 +169,11 @@ public interface EvaluatorFuncs {
 
   NumericValueBinaryEvaluator DIVIDE_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
+        @Override
+        public String operatorName() {
+          return "/";
+        }
+
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           double divisor = r.getNumberValue();
@@ -165,6 +187,11 @@ public interface EvaluatorFuncs {
 
   NumericValueBinaryEvaluator MOD_VALUE_EVALUATOR_FUNC =
       new NumericValueBinaryEvaluator() {
+        @Override
+        public String operatorName() {
+          return "%";
+        }
+
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           if (r.getNumberValue() == 0) {
@@ -188,12 +215,22 @@ public interface EvaluatorFuncs {
   ComparisonValueBinaryEvaluator LESS_THAN_OR_EQUAL_VALUE_EVALUATOR_FUNC =
       new ComparisonValueBinaryEvaluator() {
         @Override
+        public String operatorName() {
+          return "<=";
+        }
+
+        @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           return new BooleanPrimitiveFleakData(l.compareTo(r) <= 0);
         }
       };
   ComparisonValueBinaryEvaluator LESS_THAN_VALUE_EVALUATOR_FUNC =
       new ComparisonValueBinaryEvaluator() {
+        @Override
+        public String operatorName() {
+          return "<";
+        }
+
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           return new BooleanPrimitiveFleakData(l.compareTo(r) < 0);
@@ -202,12 +239,22 @@ public interface EvaluatorFuncs {
   ComparisonValueBinaryEvaluator GREATER_THAN_OR_EQUAL_VALUE_EVALUATOR_FUNC =
       new ComparisonValueBinaryEvaluator() {
         @Override
+        public String operatorName() {
+          return ">=";
+        }
+
+        @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           return new BooleanPrimitiveFleakData(l.compareTo(r) >= 0);
         }
       };
   ComparisonValueBinaryEvaluator GREATER_THAN_VALUE_EVALUATOR_FUNC =
       new ComparisonValueBinaryEvaluator() {
+        @Override
+        public String operatorName() {
+          return ">";
+        }
+
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           return new BooleanPrimitiveFleakData(l.compareTo(r) > 0);
@@ -222,6 +269,11 @@ public interface EvaluatorFuncs {
         }
 
         @Override
+        public String operatorName() {
+          return "==";
+        }
+
+        @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           throw new UnsupportedOperationException();
         }
@@ -231,6 +283,11 @@ public interface EvaluatorFuncs {
         @Override
         public FleakData evaluate(FleakData left, FleakData right) {
           return new BooleanPrimitiveFleakData(!Objects.equals(left, right));
+        }
+
+        @Override
+        public String operatorName() {
+          return "!=";
         }
 
         @Override
@@ -250,12 +307,22 @@ public interface EvaluatorFuncs {
   BooleanValueBinaryEvaluator AND_VALUE_EVALUATOR_FUNC =
       new BooleanValueBinaryEvaluator() {
         @Override
+        public String operatorName() {
+          return "and";
+        }
+
+        @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           return new BooleanPrimitiveFleakData(l.isTrueValue() && r.isTrueValue());
         }
       };
   BooleanValueBinaryEvaluator OR_VALUE_EVALUATOR_FUNC =
       new BooleanValueBinaryEvaluator() {
+        @Override
+        public String operatorName() {
+          return "or";
+        }
+
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
           return new BooleanPrimitiveFleakData(l.isTrueValue() || r.isTrueValue());
