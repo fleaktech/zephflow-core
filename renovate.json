@@ -3,6 +3,7 @@
   "extends": [
     "config:recommended"
   ],
+  "prHourlyLimit": 10,
   "packageRules": [
     {
       "matchManagers": ["gradle-wrapper", "gradle"],
