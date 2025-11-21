@@ -1,5 +1,5 @@
 dependencies {
-	api group: 'org.apache.avro', name: 'avro', version: avroVersion
+	api libs.avro
 }
 
 tasks.named('test') {

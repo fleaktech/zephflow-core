@@ -1,0 +1,164 @@
+[versions]
+java = "17"
+avro = "1.12.0"
+junit = "5.12.2"
+junitPlatformLauncher = "1.12.2"
+guava = "33.4.0-jre"
+lombok = "1.18.34"
+commonsLang3 = "3.17.0"
+commonsText = "1.12.0"
+commonsCollections4 = "4.4"
+commonsIo = "2.17.0"
+commonsCli = "1.9.0"
+commonsCsv = "1.12.0"
+commonsCodec = "1.17.2"
+slf4j = "2.0.17"
+mockito = "5.7.0"
+antlr = "4.13.2"
+jackson = "2.19.1"
+aws = "2.32.1"
+awsKinesis = "3.1.1"
+opensearchGrok = "2.17.1"
+kafka = "3.8.1"
+testContainers = "1.21.2"
+springdoc = "2.3.0"
+hamcrest = "2.2"
+log4j2 = "2.24.3"
+graalvm = "24.2.1"
+influxdb = "2.23"
+clickhouse = "0.9.0"
+hadoop = "3.4.0"
+deltaKernel = "4.0.0"
+netty = "4.1.122.Final"
+splunk = "1.9.5"
+springCore = "6.2.8"
+
+nebulaDependencyLock = "12.7.1"
+nebulaMavenPublish = "18.4.0"
+nebulaRelease = "17.2.2"
+spotless = "6.25.0"
+versionsPlugin = "0.51.0"
+license = "0.16.1"
+jreleaser = "1.17.0"
+avroPlugin = "1.3.0"
+shadow = "8.3.3"
+springBoot = "3.5.3"
+springDependencyManagement = "1.1.7"
+googleJavaFormat = "1.22.0"
+
+[libraries]
+avro = { module = "org.apache.avro:avro", version.ref = "avro" }
+
+guava = { module = "com.google.guava:guava", version.ref = "guava" }
+
+commons-lang3 = { module = "org.apache.commons:commons-lang3", version.ref = "commonsLang3" }
+commons-text = { module = "org.apache.commons:commons-text", version.ref = "commonsText" }
+commons-collections4 = { module = "org.apache.commons:commons-collections4", version.ref = "commonsCollections4" }
+commons-io = { module = "commons-io:commons-io", version.ref = "commonsIo" }
+commons-cli = { module = "commons-cli:commons-cli", version.ref = "commonsCli" }
+commons-csv = { module = "org.apache.commons:commons-csv", version.ref = "commonsCsv" }
+commons-codec = { module = "commons-codec:commons-codec", version.ref = "commonsCodec" }
+
+jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jackson" }
+jackson-datatype-jsr310 = { module = "com.fasterxml.jackson.datatype:jackson-datatype-jsr310" }
+jackson-dataformat-xml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-xml" }
+jackson-dataformat-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml" }
+
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+
+log4j-api = { module = "org.apache.logging.log4j:log4j-api", version.ref = "log4j2" }
+log4j-core = { module = "org.apache.logging.log4j:log4j-core", version.ref = "log4j2" }
+log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", version.ref = "log4j2" }
+
+opensearch-grok = { module = "org.opensearch:opensearch-grok", version.ref = "opensearchGrok" }
+
+influxdb-java = { module = "org.influxdb:influxdb-java", version.ref = "influxdb" }
+
+aws-s3 = { module = "software.amazon.awssdk:s3", version.ref = "aws" }
+aws-kinesis = { module = "software.amazon.awssdk:kinesis", version.ref = "aws" }
+aws-s3-transfer-manager = { module = "software.amazon.awssdk:s3-transfer-manager", version.ref = "aws" }
+aws-kinesis-client = { module = "software.amazon.kinesis:amazon-kinesis-client", version.ref = "awsKinesis" }
+aws-dynamodb = { module = "software.amazon.awssdk:dynamodb", version.ref = "aws" }
+aws-cloudwatch = { module = "software.amazon.awssdk:cloudwatch", version.ref = "aws" }
+
+kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafka" }
+
+clickhouse-client = { module = "com.clickhouse:client-v2", version.ref = "clickhouse" }
+clickhouse-jdbc = { module = "com.clickhouse:clickhouse-jdbc", version.ref = "clickhouse" }
+
+graalvm-sdk = { module = "org.graalvm.sdk:graal-sdk", version.ref = "graalvm" }
+graalvm-polyglot-python = { module = "org.graalvm.polyglot:python", version.ref = "graalvm" }
+
+hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "hadoop" }
+hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "hadoop" }
+hadoop-aws = { module = "org.apache.hadoop:hadoop-aws", version.ref = "hadoop" }
+
+delta-kernel-api = { module = "io.delta:delta-kernel-api", version.ref = "deltaKernel" }
+delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref = "deltaKernel" }
+
+splunk = { module = "com.splunk:splunk", version.ref = "splunk" }
+
+springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+spring-core = { module = "org.springframework:spring-core", version.ref = "springCore" }
+
+netty-all = { module = "io.netty:netty-all", version.ref = "netty" }
+netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty" }
+netty-codec = { module = "io.netty:netty-codec", version.ref = "netty" }
+netty-codec-dns = { module = "io.netty:netty-codec-dns", version.ref = "netty" }
+netty-codec-haproxy = { module = "io.netty:netty-codec-haproxy", version.ref = "netty" }
+netty-codec-http = { module = "io.netty:netty-codec-http", version.ref = "netty" }
+netty-codec-http2 = { module = "io.netty:netty-codec-http2", version.ref = "netty" }
+netty-codec-memcache = { module = "io.netty:netty-codec-memcache", version.ref = "netty" }
+netty-codec-mqtt = { module = "io.netty:netty-codec-mqtt", version.ref = "netty" }
+netty-codec-redis = { module = "io.netty:netty-codec-redis", version.ref = "netty" }
+netty-codec-smtp = { module = "io.netty:netty-codec-smtp", version.ref = "netty" }
+netty-codec-socks = { module = "io.netty:netty-codec-socks", version.ref = "netty" }
+netty-codec-stomp = { module = "io.netty:netty-codec-stomp", version.ref = "netty" }
+netty-codec-xml = { module = "io.netty:netty-codec-xml", version.ref = "netty" }
+netty-common = { module = "io.netty:netty-common", version.ref = "netty" }
+netty-handler = { module = "io.netty:netty-handler", version.ref = "netty" }
+netty-handler-proxy = { module = "io.netty:netty-handler-proxy", version.ref = "netty" }
+netty-handler-ssl-ocsp = { module = "io.netty:netty-handler-ssl-ocsp", version.ref = "netty" }
+netty-resolver = { module = "io.netty:netty-resolver", version.ref = "netty" }
+netty-resolver-dns = { module = "io.netty:netty-resolver-dns", version.ref = "netty" }
+netty-resolver-dns-classes-macos = { module = "io.netty:netty-resolver-dns-classes-macos", version.ref = "netty" }
+netty-resolver-dns-native-macos = { module = "io.netty:netty-resolver-dns-native-macos", version.ref = "netty" }
+netty-transport = { module = "io.netty:netty-transport", version.ref = "netty" }
+netty-transport-classes-epoll = { module = "io.netty:netty-transport-classes-epoll", version.ref = "netty" }
+netty-transport-classes-kqueue = { module = "io.netty:netty-transport-classes-kqueue", version.ref = "netty" }
+netty-transport-native-epoll = { module = "io.netty:netty-transport-native-epoll", version.ref = "netty" }
+netty-transport-native-kqueue = { module = "io.netty:netty-transport-native-kqueue", version.ref = "netty" }
+netty-transport-native-unix-common = { module = "io.netty:netty-transport-native-unix-common", version.ref = "netty" }
+
+lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
+
+antlr4 = { module = "org.antlr:antlr4", version.ref = "antlr" }
+
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
+junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junitPlatformLauncher" }
+
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+
+hamcrest-core = { module = "org.hamcrest:hamcrest-core", version.ref = "hamcrest" }
+
+testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter", version.ref = "testContainers" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testContainers" }
+testcontainers-minio = { module = "org.testcontainers:minio", version.ref = "testContainers" }
+testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testContainers" }
+testcontainers-localstack = { module = "org.testcontainers:localstack", version.ref = "testContainers" }
+testcontainers-clickhouse = { module = "org.testcontainers:clickhouse", version.ref = "testContainers" }
+
+[plugins]
+nebula-dependency-lock = { id = "nebula.dependency-lock", version.ref = "nebulaDependencyLock" }
+nebula-maven-publish = { id = "nebula.maven-base-publish", version.ref = "nebulaMavenPublish" }
+nebula-release = { id = "nebula.release", version.ref = "nebulaRelease" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin" }
+license = { id = "com.github.hierynomus.license", version.ref = "license" }
+jreleaser = { id = "org.jreleaser", version.ref = "jreleaser" }
+avro = { id = "com.github.davidmc24.gradle.plugin.avro", version.ref = "avroPlugin" }
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }

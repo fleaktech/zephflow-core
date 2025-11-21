@@ -1,5 +1,5 @@
 plugins {
-  id 'com.gradleup.shadow' version '8.3.3'
+  alias(libs.plugins.shadow)
   id 'java'
   id 'application'
 }
@@ -20,7 +20,7 @@ shadowJar {
 
 dependencies {
   implementation project(":runner")
-  implementation group: 'commons-cli', name: 'commons-cli', version: commonsCliVersion
+  implementation libs.commons.cli
 }
 
 tasks.named('test') {
