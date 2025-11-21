@@ -1,8 +1,8 @@
 plugins {
   id 'java'
   id 'application'
-  id 'org.springframework.boot' version '3.5.3'
-  id 'io.spring.dependency-management' version '1.1.7'
+  alias(libs.plugins.spring.boot)
+  alias(libs.plugins.spring.dependency.management)
 }
 
 bootJar {
@@ -26,8 +26,7 @@ dependencies {
   }
   implementation 'org.springframework.boot:spring-boot-starter-log4j2'
 
-  implementation group: 'org.springdoc', name: 'springdoc-openapi-starter-webmvc-ui', version: springdocVersion
-
+  implementation libs.springdoc.openapi
 
   testImplementation('org.springframework.boot:spring-boot-starter-test') {
     exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
