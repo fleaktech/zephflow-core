@@ -5,18 +5,18 @@
   ],
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch"],
-      "matchCurrentVersion": "!/^0/",
-      "groupName": "all non-major dependencies",
-      "automerge": true
-    },
-    {
       "matchManagers": ["gradle-wrapper", "gradle"],
       "groupName": "Gradle and plugins"
     },
     {
-      "matchPackagePatterns": ["^io\\.fleak\\."],
-      "groupName": "io.fleak libraries"
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "groupName": "all non-major dependencies",
+      "automerge": true
     }
   ],
   "automerge": true,
