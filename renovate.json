@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "groupName": "all non-major dependencies",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["gradle-wrapper", "gradle"],
+      "groupName": "Gradle and plugins"
+    },
+    {
+      "matchPackagePatterns": ["^io\\.fleak\\."],
+      "groupName": "io.fleak libraries"
+    }
+  ],
+  "automerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash"
+}
