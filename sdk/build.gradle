@@ -1,5 +1,5 @@
 plugins {
-  id 'com.gradleup.shadow' version '8.3.3'
+  alias(libs.plugins.shadow)
   id 'java'
   id 'java-library'
 }
@@ -7,10 +7,9 @@ plugins {
 dependencies {
   api project(":runner")
 
-  testImplementation group: 'software.amazon.awssdk', name: 's3', version: awsVersion
-  testImplementation group: 'software.amazon.awssdk', name: 'kinesis', version: awsVersion
-  testImplementation group: 'org.apache.kafka', name: 'kafka-clients', version: kafkaVersion
-
+  testImplementation libs.aws.s3
+  testImplementation libs.aws.kinesis
+  testImplementation libs.kafka.clients
 }
 
 tasks.named('test') {

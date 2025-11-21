@@ -5,7 +5,7 @@ buildscript {
   dependencies {
     // This constraint forces a modern version of spring-core onto the build classpath
     constraints {
-      classpath('org.springframework:spring-core:6.2.8') {
+      classpath(libs.spring.core) {
         because 'The license plugin brings in Spring 3.x, which conflicts with the Spring Boot 3.x plugin.'
       }
     }
@@ -13,16 +13,16 @@ buildscript {
 }
 
 plugins {
-  id 'nebula.dependency-lock' version '12.7.1'
-  id 'nebula.maven-base-publish' version '18.4.0'
-  id 'nebula.release' version '17.2.2'
+  alias(libs.plugins.nebula.dependency.lock)
+  alias(libs.plugins.nebula.maven.publish)
+  alias(libs.plugins.nebula.release)
   id 'idea'
-  id 'com.diffplug.spotless' version '6.25.0'
-  id "com.github.ben-manes.versions" version "0.51.0"
-  id 'com.github.hierynomus.license' version '0.16.1'
+  alias(libs.plugins.spotless)
+  alias(libs.plugins.versions)
+  alias(libs.plugins.license)
   id 'jacoco'
   id 'signing'
-  id 'org.jreleaser' version '1.17.0'
+  alias(libs.plugins.jreleaser)
 }
 
 
@@ -44,42 +44,10 @@ allprojects {
   ext {
     licenseName = 'Apache License, Version 2.0'
     licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-
-    javaVersion = '17'
-    avroVersion = '1.12.0'
-    junitVersion = '5.12.2' // make sure the version is the same as spring boot
-    junitPlatformLauncherVersion = '1.12.2'
-    guavaVersion = '33.4.0-jre'
-    lombokVersion = '1.18.34'
-    commonsLang3Version = '3.17.0'
-    commonsTextVersion = '1.12.0'
-    commonsCollections4Version = '4.4'
-    commonsIoVersion = '2.17.0'
-    commonsCliVersion = '1.9.0'
-    commonsCsvVersion = '1.12.0'
-    commonsCodecVersion = '1.17.2'
-    slf4jVersion = '2.0.17'
-    mockitoVersion = '5.7.0'
-    antlrVersion = '4.13.2'
-    jacksonVersion = '2.19.1'
-    awsVersion = '2.32.1'
-    awsKensisClientVersion = '3.1.1'
-    opensearchGrok = '2.17.1'
-    kafkaVersion = '3.8.1'
-    testContainersVersion = '1.21.2' // align with spring boot version
-    springdocVersion = '2.3.0'
-    hamcrestVersion = '2.2'
-    log4j2Version = '2.24.3'
-    graalvmVersion = '24.2.1'
-    influxDBClientVersion = '2.23'
-    clickHouseVersion = '0.9.0'
-    hadoopVersion = '3.4.0'
-    deltaKernelVersion = '4.0.0'
-    nettyVersion = '4.1.122.Final'
   }
 
-  sourceCompatibility = javaVersion
-  targetCompatibility = javaVersion
+  sourceCompatibility = libs.versions.java.get()
+  targetCompatibility = libs.versions.java.get()
   tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
   }
@@ -193,82 +161,81 @@ subprojects {
   }
 
   dependencies {
-    implementation platform("com.fasterxml.jackson:jackson-bom:${jacksonVersion}")
-    implementation group: 'org.apache.commons', name: 'commons-lang3', version: commonsLang3Version
-    implementation group: 'org.apache.commons', name: 'commons-text', version: commonsTextVersion
-    implementation group: 'org.apache.commons', name: 'commons-collections4', version: commonsCollections4Version
-    implementation group: 'com.google.guava', name: 'guava', version: guavaVersion
-    implementation group: 'com.fasterxml.jackson.datatype', name: 'jackson-datatype-jsr310'
-    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-xml'
-    implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-yaml'
-    implementation group: 'org.opensearch', name: 'opensearch-grok', version: opensearchGrok
-    implementation "org.apache.logging.log4j:log4j-api:${log4j2Version}"
-    implementation "org.apache.logging.log4j:log4j-core:${log4j2Version}"
-    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:$log4j2Version")
-    implementation "org.influxdb:influxdb-java:${influxDBClientVersion}"
+    implementation platform(libs.jackson.bom)
+    implementation libs.commons.lang3
+    implementation libs.commons.text
+    implementation libs.commons.collections4
+    implementation libs.guava
+    implementation libs.jackson.datatype.jsr310
+    implementation libs.jackson.dataformat.xml
+    implementation libs.jackson.dataformat.yaml
+    implementation libs.opensearch.grok
+    implementation libs.log4j.api
+    implementation libs.log4j.core
+    implementation libs.log4j.slf4j2.impl
+    implementation libs.influxdb.java
 
+    compileOnly libs.lombok
+    annotationProcessor libs.lombok
+    testImplementation libs.junit.jupiter.api
+    testImplementation libs.junit.jupiter.params
+    testRuntimeOnly libs.junit.jupiter.engine
+    testRuntimeOnly libs.junit.platform.launcher
+    testImplementation libs.mockito.core
+    testCompileOnly libs.lombok
+    testAnnotationProcessor libs.lombok
 
-    compileOnly group: 'org.projectlombok', name: 'lombok', version: lombokVersion
-    annotationProcessor group: 'org.projectlombok', name: 'lombok', version: lombokVersion
-    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: junitVersion
-    testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-params', version: junitVersion
-    testRuntimeOnly group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: junitVersion
-    testRuntimeOnly group: 'org.junit.platform', name: 'junit-platform-launcher', version: junitPlatformLauncherVersion
-    testImplementation group: 'org.mockito', name: 'mockito-core', version: mockitoVersion
-    testCompileOnly group: 'org.projectlombok', name: 'lombok', version: lombokVersion
-    testAnnotationProcessor group: 'org.projectlombok', name: 'lombok', version: lombokVersion
-
-    testImplementation group: 'org.testcontainers', name: 'junit-jupiter', version: testContainersVersion
-    testImplementation group: 'org.testcontainers', name: 'postgresql', version: testContainersVersion
-    testImplementation group: 'org.testcontainers', name: 'minio', version: testContainersVersion
-    testImplementation group: 'org.testcontainers', name: 'kafka', version: testContainersVersion
-    testImplementation group: 'org.testcontainers', name: 'localstack', version: testContainersVersion
-    testImplementation group: 'org.apache.logging.log4j', name: 'log4j-core', version: log4j2Version
-    testImplementation group: 'org.apache.logging.log4j', name: 'log4j-slf4j2-impl', version: log4j2Version
+    testImplementation libs.testcontainers.junit.jupiter
+    testImplementation libs.testcontainers.postgresql
+    testImplementation libs.testcontainers.minio
+    testImplementation libs.testcontainers.kafka
+    testImplementation libs.testcontainers.localstack
+    testImplementation libs.log4j.core
+    testImplementation libs.log4j.slf4j2.impl
 
     constraints {
-      implementation("commons-codec:commons-codec:${commonsCodecVersion}")
-      implementation("commons-io:commons-io:${commonsIoVersion}")
-      implementation("org.slf4j:slf4j-api:${slf4jVersion}")
-      implementation "org.apache.logging.log4j:log4j-api:${log4j2Version}"
-      implementation "org.apache.logging.log4j:log4j-core:${log4j2Version}"
-      testImplementation("org.hamcrest:hamcrest-core:${hamcrestVersion}")
+      implementation(libs.commons.codec)
+      implementation(libs.commons.io)
+      implementation(libs.slf4j.api)
+      implementation(libs.log4j.api)
+      implementation(libs.log4j.core)
+      testImplementation(libs.hamcrest.core)
 
-      implementation("io.netty:netty-all:${nettyVersion}")
-      implementation("io.netty:netty-buffer:${nettyVersion}")
-      implementation("io.netty:netty-codec:${nettyVersion}")
-      implementation("io.netty:netty-codec-dns:${nettyVersion}")
-      implementation("io.netty:netty-codec-haproxy:${nettyVersion}")
-      implementation("io.netty:netty-codec-http:${nettyVersion}")
-      implementation("io.netty:netty-codec-http2:${nettyVersion}")
-      implementation("io.netty:netty-codec-memcache:${nettyVersion}")
-      implementation("io.netty:netty-codec-mqtt:${nettyVersion}")
-      implementation("io.netty:netty-codec-redis:${nettyVersion}")
-      implementation("io.netty:netty-codec-smtp:${nettyVersion}")
-      implementation("io.netty:netty-codec-socks:${nettyVersion}")
-      implementation("io.netty:netty-codec-stomp:${nettyVersion}")
-      implementation("io.netty:netty-codec-xml:${nettyVersion}")
-      implementation("io.netty:netty-common:${nettyVersion}")
-      implementation("io.netty:netty-handler:${nettyVersion}")
-      implementation("io.netty:netty-handler-proxy:${nettyVersion}")
-      implementation("io.netty:netty-handler-ssl-ocsp:${nettyVersion}")
-      implementation("io.netty:netty-resolver:${nettyVersion}")
-      implementation("io.netty:netty-resolver-dns:${nettyVersion}")
-      implementation("io.netty:netty-resolver-dns-classes-macos:${nettyVersion}")
-      implementation("io.netty:netty-resolver-dns-native-macos:${nettyVersion}")
-      implementation("io.netty:netty-transport:${nettyVersion}")
-      implementation("io.netty:netty-transport-classes-epoll:${nettyVersion}")
-      implementation("io.netty:netty-transport-classes-kqueue:${nettyVersion}")
-      implementation("io.netty:netty-transport-native-epoll:${nettyVersion}")
-      implementation("io.netty:netty-transport-native-kqueue:${nettyVersion}")
-      implementation("io.netty:netty-transport-native-unix-common:${nettyVersion}")
+      implementation(libs.netty.all)
+      implementation(libs.netty.buffer)
+      implementation(libs.netty.codec)
+      implementation(libs.netty.codec.dns)
+      implementation(libs.netty.codec.haproxy)
+      implementation(libs.netty.codec.http)
+      implementation(libs.netty.codec.http2)
+      implementation(libs.netty.codec.memcache)
+      implementation(libs.netty.codec.mqtt)
+      implementation(libs.netty.codec.redis)
+      implementation(libs.netty.codec.smtp)
+      implementation(libs.netty.codec.socks)
+      implementation(libs.netty.codec.stomp)
+      implementation(libs.netty.codec.xml)
+      implementation(libs.netty.common)
+      implementation(libs.netty.handler)
+      implementation(libs.netty.handler.proxy)
+      implementation(libs.netty.handler.ssl.ocsp)
+      implementation(libs.netty.resolver)
+      implementation(libs.netty.resolver.dns)
+      implementation(libs.netty.resolver.dns.classes.macos)
+      implementation(libs.netty.resolver.dns.native.macos)
+      implementation(libs.netty.transport)
+      implementation(libs.netty.transport.classes.epoll)
+      implementation(libs.netty.transport.classes.kqueue)
+      implementation(libs.netty.transport.native.epoll)
+      implementation(libs.netty.transport.native.kqueue)
+      implementation(libs.netty.transport.native.unix.common)
     }
   }
 
   spotless {
     java {
       target 'src/main/java/**/*.java'
-      googleJavaFormat('1.22.0') // Use an appropriate version
+      googleJavaFormat(libs.versions.googleJavaFormat.get())
     }
   }
   tasks.named('compileJava') {
