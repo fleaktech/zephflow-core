@@ -21,7 +21,9 @@ dependencies {
   implementation libs.clickhouse.client
 
   implementation libs.graalvm.sdk
-  runtimeOnly libs.graalvm.polyglot.python
+  runtimeOnly(libs.graalvm.polyglot.python) {
+    exclude group: 'org.graalvm.truffle', module: 'truffle-enterprise'
+  }
 
   implementation libs.clickhouse.jdbc
 
@@ -52,22 +54,35 @@ generateGrammarSource {
   arguments << "-lib" << "src/main/antlr/io/fleak/zephflow/lib/antlr"
   arguments += ['-visitor', '-package', 'io.fleak.zephflow.lib.antlr']
   maxHeapSize = '64m'
-  outputDirectory = file("${project.buildDir}/generated/sources/main/java")
-  mustRunAfter tasks.named('licenseMain')
+  outputDirectory = project.layout.buildDirectory.dir("generated/sources/main/java").get().asFile
 }
 
 generateAvroJava {
   source('src/main/avro')
-  outputDir = file("${buildDir}/generated/sources/main/java")
-  mustRunAfter tasks.named('licenseMain')
+  outputDir = project.layout.buildDirectory.dir("generated/sources/main/java").get().asFile
 }
 
 sourceSets {
   main {
     java {
-      srcDirs += "${project.buildDir}/generated/sources/main/java"
+      srcDirs += project.layout.buildDirectory.dir("generated/sources/main/java").get().asFile
     }
   }
+}
+
+tasks.named('compileJava') {
+  dependsOn 'generateGrammarSource'
+  dependsOn 'generateAvroJava'
+}
+
+tasks.named('licenseMain') {
+  mustRunAfter 'generateGrammarSource'
+  mustRunAfter 'generateAvroJava'
+  source = fileTree(dir: 'src/main/java', include: '**/*.java')
+}
+
+license {
+  include 'src/**/*.java'
 }
 
 tasks.named('test') {
