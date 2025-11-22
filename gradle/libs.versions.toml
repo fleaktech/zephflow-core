@@ -33,15 +33,15 @@ netty = "4.1.122.Final"
 splunk = "1.9.5"
 springCore = "6.2.8"
 
-nebulaDependencyLock = "12.7.1"
-nebulaMavenPublish = "18.4.0"
-nebulaRelease = "17.2.2"
-spotless = "6.25.0"
+nebulaDependencyLock = "16.1.0"
+nebulaMavenPublish = "22.1.0"
+nebulaRelease = "21.0.0"
+spotless = "8.1.0"
 versionsPlugin = "0.53.0"
 license = "0.16.1"
-jreleaser = "1.17.0"
-avroPlugin = "1.3.0"
-shadow = "8.3.3"
+jreleaser = "1.21.0"
+avroPlugin = "1.9.1"
+shadow = "9.2.2"
 springBoot = "3.5.3"
 springDependencyManagement = "1.1.7"
 googleJavaFormat = "1.22.0"
@@ -151,8 +151,8 @@ testcontainers-localstack = { module = "org.testcontainers:localstack", version.
 testcontainers-clickhouse = { module = "org.testcontainers:clickhouse", version.ref = "testContainers" }
 
 [plugins]
-nebula-dependency-lock = { id = "nebula.dependency-lock", version.ref = "nebulaDependencyLock" }
-nebula-maven-publish = { id = "nebula.maven-base-publish", version.ref = "nebulaMavenPublish" }
+nebula-dependency-lock = { id = "com.netflix.nebula.dependency-lock", version.ref = "nebulaDependencyLock" }
+nebula-maven-publish = { id = "com.netflix.nebula.maven-base-publish", version.ref = "nebulaMavenPublish" }
 nebula-release = { id = "nebula.release", version.ref = "nebulaRelease" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin" }

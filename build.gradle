@@ -30,7 +30,7 @@ allprojects {
   group 'io.fleak.zephflow'
   apply plugin: 'java'
   apply plugin: 'java-library'
-  apply plugin: 'nebula.dependency-lock'
+  apply plugin: 'com.netflix.nebula.dependency-lock'
   apply plugin: 'nebula.release'
   apply plugin: 'jacoco'
 
@@ -46,8 +46,10 @@ allprojects {
     licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
   }
 
-  sourceCompatibility = libs.versions.java.get()
-  targetCompatibility = libs.versions.java.get()
+  java {
+    sourceCompatibility = libs.versions.java.get()
+    targetCompatibility = libs.versions.java.get()
+  }
   tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
   }
@@ -89,7 +91,7 @@ jreleaser {
 
 subprojects {
   apply plugin: 'java-library'
-  apply plugin: 'nebula.maven-base-publish'
+  apply plugin: 'com.netflix.nebula.maven-base-publish'
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'com.github.hierynomus.license'
   apply plugin: 'signing'
