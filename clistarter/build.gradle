@@ -5,7 +5,7 @@ plugins {
 }
 
 application {
-  mainClassName = 'io.fleak.zephflow.clistarter.Main'
+  mainClass = 'io.fleak.zephflow.clistarter.Main'
 }
 
 import com.github.jengelman.gradle.plugins.shadow.transformers.ServiceFileTransformer
@@ -14,6 +14,13 @@ shadowJar {
   zip64 true
   archiveClassifier.set('all')
   transform(ServiceFileTransformer) {
+  }
+
+  // Exclude POM-only GraalVM artifacts (no JARs) while keeping actual implementation JARs
+  dependencies {
+    exclude(dependency('org.graalvm.polyglot:python'))
+    exclude(dependency('org.graalvm.python:python'))
+    exclude(dependency('org.graalvm.python:python-community'))
   }
 }
 
