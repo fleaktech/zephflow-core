@@ -24,52 +24,45 @@ import org.junit.jupiter.api.Test;
 
 public class CaseSensitivityTest {
 
-    @Test
-    public void caseTables() {
-        var rows = runSQL("select id col1 from EventS").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void caseTables() {
+    var rows = runSQL("select id col1 from EventS").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        var resultSet = Set.of(1, 2, 3);
-        for(var row : rows ){
-            Assertions.assertTrue(resultSet.contains(row.asMap().get("col1")));
-        }
+    var resultSet = Set.of(1, 2, 3);
+    for (var row : rows) {
+      Assertions.assertTrue(resultSet.contains(row.asMap().get("col1")));
     }
+  }
 
-    @Test
-    public void caseColumns() {
-        var rows = runSQL("select Id col1 from events").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void caseColumns() {
+    var rows = runSQL("select Id col1 from events").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        var resultSet = Set.of(1, 2, 3);
-        for(var row : rows ){
-            Assertions.assertTrue(resultSet.contains(row.asMap().get("col1")));
-        }
+    var resultSet = Set.of(1, 2, 3);
+    for (var row : rows) {
+      Assertions.assertTrue(resultSet.contains(row.asMap().get("col1")));
     }
+  }
 
-    private static Stream<Row> runSQL(String sql) {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+  private static Stream<Row> runSQL(String sql) {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-        return TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of("name", "abc", "id", 1),
-                                                Map.of("name", "edf", "id", 1),
-                                                Map.of("name", "ghi", "id", 1)
-                                        )),
-                                "ids",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "ids",
-                                        List.of(
-                                                Map.of("id", 1),
-                                                Map.of("id", 2)
-                                        )))),
-                sql);
-    }
+    return TestSQLUtils.runSQL(
+        Catalog.fromMap(
+            Map.of(
+                "events",
+                Table.ofListOfMaps(
+                    typeSystem,
+                    "events",
+                    List.of(
+                        Map.of("name", "abc", "id", 1),
+                        Map.of("name", "edf", "id", 1),
+                        Map.of("name", "ghi", "id", 1))),
+                "ids",
+                Table.ofListOfMaps(typeSystem, "ids", List.of(Map.of("id", 1), Map.of("id", 2))))),
+        sql);
+  }
 }

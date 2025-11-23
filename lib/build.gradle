@@ -75,13 +75,9 @@ tasks.named('compileJava') {
   dependsOn 'generateAvroJava'
 }
 
-tasks.configureEach {
-  if (name.startsWith('applyLicenses') || name.startsWith('checkLicenses')) {
-    mustRunAfter 'generateGrammarSource'
-    mustRunAfter 'generateAvroJava'
-    mustRunAfter 'generateTestAvroJava'
-    mustRunAfter 'generateTestGrammarSource'
-  }
+tasks.named('spotlessJava') {
+  mustRunAfter 'generateGrammarSource'
+  mustRunAfter 'generateAvroJava'
 }
 
 tasks.named('test') {

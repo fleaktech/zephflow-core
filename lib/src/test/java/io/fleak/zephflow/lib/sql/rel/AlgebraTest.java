@@ -13,27 +13,26 @@
  */
 package io.fleak.zephflow.lib.sql.rel;
 
+import static io.fleak.zephflow.lib.sql.rel.Algebra.*;
+
 import io.fleak.zephflow.lib.sql.ast.QueryAST;
 import io.fleak.zephflow.lib.sql.ast.QueryASTParser;
 import io.fleak.zephflow.lib.sql.exec.functions.JsonGetToJson;
+import java.util.List;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
-
-import static io.fleak.zephflow.lib.sql.rel.Algebra.*;
 
 public class AlgebraTest {
 
   @Test
   public void testSubSelectInFromAlgebra() {
 
-      var sql = "select * from (select * from events) e;";
+    var sql = "select * from (select * from events) e;";
 
-      var translation =
-              QueryTranslator.translate(QueryASTParser.astParser().parseSelectStatement(sql));
+    var translation =
+        QueryTranslator.translate(QueryASTParser.astParser().parseSelectStatement(sql));
 
-      Assertions.assertNotNull(translation);
+    Assertions.assertNotNull(translation);
   }
 
   @Test
@@ -144,34 +143,37 @@ public class AlgebraTest {
           {
             "select t.a, count(t.a) b from t group by t.a",
             Algebras.rename(
-                    Algebras.project(
-                            Algebras.aggregate("t",
-                                    Algebras.group(
-                                            Algebras.table("t"),
-                                            List.of(Algebras.column("t", "a", -1)),
-                                            "t",
-                                            List.of()
-                                    ),
-                                    List.of(Algebras.aggregateFunc(QueryAST.function("count", List.of(QueryAST.columnFromString("t", "a", "")), "col_1", null), "t")),
-                                    -1
-                            ),
-                            List.of(Algebras.column("t", "a", 0), Algebras.column("t", "col_1", 0, "a"))
-                    )
-                    ,
-                    List.of(Algebras.renameField(Algebras.column("col_1", "t", 0, "b"), "b"))
-            )
+                Algebras.project(
+                    Algebras.aggregate(
+                        "t",
+                        Algebras.group(
+                            Algebras.table("t"),
+                            List.of(Algebras.column("t", "a", -1)),
+                            "t",
+                            List.of()),
+                        List.of(
+                            Algebras.aggregateFunc(
+                                QueryAST.function(
+                                    "count",
+                                    List.of(QueryAST.columnFromString("t", "a", "")),
+                                    "col_1",
+                                    null),
+                                "t")),
+                        -1),
+                    List.of(Algebras.column("t", "a", 0), Algebras.column("t", "col_1", 0, "a"))),
+                List.of(Algebras.renameField(Algebras.column("col_1", "t", 0, "b"), "b")))
           },
-
-                {
-                        "select t.a from t limit 10",
-                        Algebras.limit(
-                                Algebras.project(Algebras.table("t"), List.of(Algebras.column("t", "a", 0))), 10)
-                },
-//          {
-//            "select distinct t.a from t",
-//            Algebras.distinct(
-//                Algebras.project(Algebras.table("t"), List.of(Algebras.column("t", "a", 0))))
-//          },
+          {
+            "select t.a from t limit 10",
+            Algebras.limit(
+                Algebras.project(Algebras.table("t"), List.of(Algebras.column("t", "a", 0))), 10)
+          },
+          //          {
+          //            "select distinct t.a from t",
+          //            Algebras.distinct(
+          //                Algebras.project(Algebras.table("t"), List.of(Algebras.column("t", "a",
+          // 0))))
+          //          },
           {
             "select * from t",
             Algebras.project(
@@ -185,7 +187,7 @@ public class AlgebraTest {
                     "t",
                     Algebras.astExpr(
                         QueryAST.function(
-                                JsonGetToJson.NAME,
+                            JsonGetToJson.NAME,
                             List.of(QueryAST.constant("b"), QueryAST.columnFromString("t", "a")))),
                     0),
                 List.of(Algebras.column("t", "col_1", 0)))
@@ -222,15 +224,17 @@ public class AlgebraTest {
                     0),
                 List.of(Algebras.column("t", "v", 0), Algebras.column("t", "a", 1)))
           },
-//                {
-//                    "SELECT b.b, string_agg(event.a, ',') from event, json_array_elements(event.b) b group by b.b",
-//                        Algebras.table("test")
-//                }
-//          ,
-//          {
-//            "SELECT article ->> 'text' AS \"text\" FROM event, json_array_elements(articles) AS article;",
-//            Algebras.table("test")
-//          }
+          //                {
+          //                    "SELECT b.b, string_agg(event.a, ',') from event,
+          // json_array_elements(event.b) b group by b.b",
+          //                        Algebras.table("test")
+          //                }
+          //          ,
+          //          {
+          //            "SELECT article ->> 'text' AS \"text\" FROM event,
+          // json_array_elements(articles) AS article;",
+          //            Algebras.table("test")
+          //          }
         };
 
     for (int i = 0; i < testData.length; i++) {

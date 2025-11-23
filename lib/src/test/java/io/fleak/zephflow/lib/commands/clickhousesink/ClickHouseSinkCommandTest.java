@@ -130,7 +130,7 @@ class ClickHouseSinkCommandTest {
 
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
-      var context = command.getExecutionContext();
+    var context = command.getExecutionContext();
     command.writeToSink(SOURCE_EVENTS, "test_user", context);
 
     var rows =

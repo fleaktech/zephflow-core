@@ -336,7 +336,7 @@ class BatchKafkaSinkFlusherTest {
   void testTimeBased_ScheduledFlushTrigger() throws Exception {
     // Arrange: Create a real scheduler to test actual timer behavior
     ScheduledExecutorService realScheduler = Executors.newSingleThreadScheduledExecutor();
-    
+
     BatchKafkaSinkFlusher timerFlusher =
         new BatchKafkaSinkFlusher(
             mockProducer, topic, mockSerializer, null, 1000, 200L, realScheduler); // 200ms interval
@@ -354,7 +354,7 @@ class BatchKafkaSinkFlusherTest {
     // Assert: Scheduled flush should have occurred
     //noinspection unchecked
     verify(mockProducer, times(2)).send(any(ProducerRecord.class), any(Callback.class));
-    
+
     // Cleanup
     timerFlusher.close();
     realScheduler.shutdown();
@@ -365,7 +365,7 @@ class BatchKafkaSinkFlusherTest {
   void testErrorHandling_AsyncCallbackTimeout() throws Exception {
     // Test timeout handling by verifying the CountDownLatch timeout logic
     // Note: This tests the timeout mechanism without actually waiting 30 seconds
-    
+
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, batchSize));
 
@@ -377,7 +377,7 @@ class BatchKafkaSinkFlusherTest {
     assertEquals(batchSize, result.successCount());
     //noinspection unchecked
     verify(mockProducer, times(batchSize)).send(any(ProducerRecord.class), any(Callback.class));
-    
+
     // The timeout logic is validated by the integration tests with real Kafka
     System.out.println("✅ Timeout handling logic test completed");
   }
@@ -386,20 +386,25 @@ class BatchKafkaSinkFlusherTest {
   void testErrorHandling_InterruptedDuringWait() throws Exception {
     // Arrange: Mock producer that delays callback
     KafkaProducer<byte[], byte[]> delayProducer = mock(KafkaProducer.class);
-    
-    doAnswer(invocation -> {
-      // Simulate a long delay before calling callback
-      new Thread(() -> {
-        try {
-          Thread.sleep(5000); // 5 second delay
-          Callback callback = invocation.getArgument(1);
-          callback.onCompletion(mock(RecordMetadata.class), null);
-        } catch (InterruptedException e) {
-          // Expected during test
-        }
-      }).start();
-      return null;
-    }).when(delayProducer).send(any(ProducerRecord.class), any(Callback.class));
+
+    doAnswer(
+            invocation -> {
+              // Simulate a long delay before calling callback
+              new Thread(
+                      () -> {
+                        try {
+                          Thread.sleep(5000); // 5 second delay
+                          Callback callback = invocation.getArgument(1);
+                          callback.onCompletion(mock(RecordMetadata.class), null);
+                        } catch (InterruptedException e) {
+                          // Expected during test
+                        }
+                      })
+                  .start();
+              return null;
+            })
+        .when(delayProducer)
+        .send(any(ProducerRecord.class), any(Callback.class));
 
     BatchKafkaSinkFlusher interruptFlusher =
         new BatchKafkaSinkFlusher(
@@ -409,14 +414,16 @@ class BatchKafkaSinkFlusherTest {
         createPreparedEvents(testEvents.subList(0, batchSize));
 
     // Act: Start flush in separate thread and interrupt it
-    Thread flushThread = new Thread(() -> {
-      try {
-        interruptFlusher.flush(preparedEvents);
-      } catch (Exception e) {
-        // Expected when interrupted
-      }
-    });
-    
+    Thread flushThread =
+        new Thread(
+            () -> {
+              try {
+                interruptFlusher.flush(preparedEvents);
+              } catch (Exception e) {
+                // Expected when interrupted
+              }
+            });
+
     flushThread.start();
     Thread.sleep(100); // Let flush start
     flushThread.interrupt(); // Interrupt during wait
@@ -424,7 +431,7 @@ class BatchKafkaSinkFlusherTest {
     // Assert: Thread should handle interruption gracefully
     flushThread.join(2000); // Wait for graceful termination
     assertFalse(flushThread.isAlive(), "Thread should terminate gracefully when interrupted");
-    
+
     interruptFlusher.close();
   }
 
@@ -432,7 +439,7 @@ class BatchKafkaSinkFlusherTest {
   void testResourceManagement_ProperCleanup() throws Exception {
     // Arrange: Create flusher with real scheduler to test cleanup
     ScheduledExecutorService realScheduler = Executors.newSingleThreadScheduledExecutor();
-    
+
     BatchKafkaSinkFlusher cleanupFlusher =
         new BatchKafkaSinkFlusher(
             mockProducer, topic, mockSerializer, null, batchSize, flushIntervalMs, realScheduler);
@@ -442,13 +449,14 @@ class BatchKafkaSinkFlusherTest {
 
     // Assert: Resources should be properly cleaned up
     verify(mockProducer, times(1)).close();
-    
+
     // Verify close() is idempotent (safe to call multiple times)
-    assertDoesNotThrow(() -> {
-      cleanupFlusher.close();
-      cleanupFlusher.close();
-    });
-    
+    assertDoesNotThrow(
+        () -> {
+          cleanupFlusher.close();
+          cleanupFlusher.close();
+        });
+
     // Cleanup test resources
     realScheduler.shutdown();
     assertTrue(realScheduler.awaitTermination(1, TimeUnit.SECONDS));
@@ -472,7 +480,13 @@ class BatchKafkaSinkFlusherTest {
 
     BatchKafkaSinkFlusher nullValueFlusher =
         new BatchKafkaSinkFlusher(
-            mockProducer, topic, nullValueSerializer, null, batchSize, flushIntervalMs, mockScheduler);
+            mockProducer,
+            topic,
+            nullValueSerializer,
+            null,
+            batchSize,
+            flushIntervalMs,
+            mockScheduler);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> nullValueEvents =
         createPreparedEvents(List.of(nullValueRecord, nullValueRecord, nullValueRecord));
@@ -481,7 +495,7 @@ class BatchKafkaSinkFlusherTest {
     SimpleSinkCommand.FlushResult nullResult = nullValueFlusher.flush(nullValueEvents);
     assertNotNull(nullResult);
     assertEquals(0, nullResult.successCount()); // No valid data to send
-    
+
     nullValueFlusher.close();
   }
 
@@ -493,16 +507,23 @@ class BatchKafkaSinkFlusherTest {
 
     BatchKafkaSinkFlusher nullKeyFlusher =
         new BatchKafkaSinkFlusher(
-            mockProducer, topic, mockSerializer, nullKeyExpression, batchSize, flushIntervalMs, mockScheduler);
+            mockProducer,
+            topic,
+            mockSerializer,
+            nullKeyExpression,
+            batchSize,
+            flushIntervalMs,
+            mockScheduler);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, batchSize));
 
     // Should handle null partition key gracefully
-    assertDoesNotThrow(() -> {
-      SimpleSinkCommand.FlushResult result = nullKeyFlusher.flush(preparedEvents);
-      assertNotNull(result);
-    });
+    assertDoesNotThrow(
+        () -> {
+          SimpleSinkCommand.FlushResult result = nullKeyFlusher.flush(preparedEvents);
+          assertNotNull(result);
+        });
 
     nullKeyFlusher.close();
 
@@ -513,15 +534,22 @@ class BatchKafkaSinkFlusherTest {
 
     BatchKafkaSinkFlusher errorKeyFlusher =
         new BatchKafkaSinkFlusher(
-            mockProducer, topic, mockSerializer, errorKeyExpression, batchSize, flushIntervalMs, mockScheduler);
+            mockProducer,
+            topic,
+            mockSerializer,
+            errorKeyExpression,
+            batchSize,
+            flushIntervalMs,
+            mockScheduler);
 
     // Should handle path expression errors gracefully
-    assertDoesNotThrow(() -> {
-      SimpleSinkCommand.FlushResult result = errorKeyFlusher.flush(preparedEvents);
-      assertNotNull(result);
-      // Errors should be captured in error outputs
-      assertTrue(result.errorOutputList().size() >= 0);
-    });
+    assertDoesNotThrow(
+        () -> {
+          SimpleSinkCommand.FlushResult result = errorKeyFlusher.flush(preparedEvents);
+          assertNotNull(result);
+          // Errors should be captured in error outputs
+          assertTrue(result.errorOutputList().size() >= 0);
+        });
 
     errorKeyFlusher.close();
   }
@@ -529,15 +557,15 @@ class BatchKafkaSinkFlusherTest {
   @Test
   void testSequentialFlushCalls_BufferManagement() throws Exception {
     // Test multiple sequential flush calls with single-thread assumption
-    List<RecordFleakData> batch1 = testEvents.subList(0, 1);  // 1 record
-    List<RecordFleakData> batch2 = testEvents.subList(1, 2);  // 1 record
-    List<RecordFleakData> batch3 = testEvents.subList(2, 3);  // 1 record - total = 3 = batchSize
+    List<RecordFleakData> batch1 = testEvents.subList(0, 1); // 1 record
+    List<RecordFleakData> batch2 = testEvents.subList(1, 2); // 1 record
+    List<RecordFleakData> batch3 = testEvents.subList(2, 3); // 1 record - total = 3 = batchSize
 
     // Act: Sequential flush calls
     SimpleSinkCommand.FlushResult result1 = flusher.flush(createPreparedEvents(batch1));
     assertEquals(0, result1.successCount()); // Buffered, no flush (1 < 3)
 
-    SimpleSinkCommand.FlushResult result2 = flusher.flush(createPreparedEvents(batch2)); 
+    SimpleSinkCommand.FlushResult result2 = flusher.flush(createPreparedEvents(batch2));
     assertEquals(0, result2.successCount()); // Still buffered, no flush (2 < 3)
 
     SimpleSinkCommand.FlushResult result3 = flusher.flush(createPreparedEvents(batch3));

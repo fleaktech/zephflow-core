@@ -15,17 +15,11 @@ package io.fleak.zephflow.lib.sql;
 
 import io.fleak.zephflow.lib.sql.exec.Catalog;
 import io.fleak.zephflow.lib.sql.exec.Row;
-import io.fleak.zephflow.lib.sql.exec.Table;
-
-import java.util.List;
-import java.util.Map;
 import java.util.stream.Stream;
 
 public class TestSQLUtils {
 
-  /**
-   * Uses the default interpreter and type system to run sql queries
-   */
+  /** Uses the default interpreter and type system to run sql queries */
   public static Stream<Row> runSQL(Catalog catalog, String sql) {
     var sqlInterpreter = SQLInterpreter.defaultInterpreter();
     var typeSystem = sqlInterpreter.getTypeSystem();

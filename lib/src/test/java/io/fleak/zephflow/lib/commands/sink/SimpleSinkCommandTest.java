@@ -99,9 +99,8 @@ class SimpleSinkCommandTest {
     List<RecordFleakData> input =
         fleakData.getArrayPayload().stream().map(fd -> (RecordFleakData) fd).toList();
     sinkCommand.initialize(metricClientProvider);
-      var context = sinkCommand.getExecutionContext();
-    ScalarSinkCommand.SinkResult sinkResult =
-        sinkCommand.writeToSink(input, callingUser, context);
+    var context = sinkCommand.getExecutionContext();
+    ScalarSinkCommand.SinkResult sinkResult = sinkCommand.writeToSink(input, callingUser, context);
     ScalarSinkCommand.SinkResult expected =
         new ScalarSinkCommand.SinkResult(
             5,
@@ -151,9 +150,8 @@ class SimpleSinkCommandTest {
             .filter(fd -> ((int) fd.getPayload().get("val").getNumberValue()) % 3 == 1)
             .toList();
     sinkCommand.initialize(metricClientProvider);
-      var context = sinkCommand.getExecutionContext();
-    ScalarSinkCommand.SinkResult sinkResult =
-        sinkCommand.writeToSink(input, callingUser, context);
+    var context = sinkCommand.getExecutionContext();
+    ScalarSinkCommand.SinkResult sinkResult = sinkCommand.writeToSink(input, callingUser, context);
     ScalarSinkCommand.SinkResult expected =
         new ScalarSinkCommand.SinkResult(
             2,
@@ -238,7 +236,8 @@ class SimpleSinkCommandTest {
           metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, jobContext.getMetricTags()),
           metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, jobContext.getMetricTags()),
           metricClientProvider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, jobContext.getMetricTags()),
-          metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(
+              METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, jobContext.getMetricTags()),
           metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, jobContext.getMetricTags()));
     }
   }

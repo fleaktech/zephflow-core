@@ -19,12 +19,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-
-import io.fleak.zephflow.api.structure.FleakData;
-import io.fleak.zephflow.api.structure.RecordFleakData;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.junit.jupiter.api.DisplayName;
@@ -71,13 +70,16 @@ class MiscUtilsTest {
   @Test
   @DisplayName("should extract event tags when event has tag field")
   void getCallingUserTag_shouldExtractEventTags_whenEventHasTagField() {
-    var event = (RecordFleakData) FleakData.wrap(Map.of(
-            "__tag__", Map.of(
-                    "tag_1", "tag_value_1",
-                    "tag_2", "tag_value_2"
-            ),
-            "other_field", "other_value"
-    ));
+    var event =
+        (RecordFleakData)
+            FleakData.wrap(
+                Map.of(
+                    "__tag__",
+                    Map.of(
+                        "tag_1", "tag_value_1",
+                        "tag_2", "tag_value_2"),
+                    "other_field",
+                    "other_value"));
 
     Map<String, String> result = getCallingUserTagAndEventTags("test-user", event);
 
@@ -90,10 +92,12 @@ class MiscUtilsTest {
   @Test
   @DisplayName("should handle event without tag field")
   void getCallingUserTag_shouldHandleEventWithoutTagField() {
-    var event = (RecordFleakData) FleakData.wrap(Map.of(
-            "key1", "value1",
-            "key2", "value2"
-    ));
+    var event =
+        (RecordFleakData)
+            FleakData.wrap(
+                Map.of(
+                    "key1", "value1",
+                    "key2", "value2"));
 
     Map<String, String> result = getCallingUserTagAndEventTags("test-user", event);
 

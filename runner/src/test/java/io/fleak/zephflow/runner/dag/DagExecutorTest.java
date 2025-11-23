@@ -169,8 +169,7 @@ public class DagExecutorTest {
   static class TestSourceFactory extends CommandFactory {
     @Override
     public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
-      return new TestSource(
-          nodeId, jobContext, new NoopConfigParser(), new NoopConfigValidator());
+      return new TestSource(nodeId, jobContext, new NoopConfigParser(), new NoopConfigValidator());
     }
 
     @Override
@@ -243,8 +242,7 @@ public class DagExecutorTest {
 
     @Override
     public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
-      return new TestSink(
-          nodeId, jobContext, new NoopConfigParser(), new NoopConfigValidator());
+      return new TestSink(nodeId, jobContext, new NoopConfigParser(), new NoopConfigValidator());
     }
 
     @Override

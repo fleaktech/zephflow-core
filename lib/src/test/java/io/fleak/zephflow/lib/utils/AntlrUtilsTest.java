@@ -28,7 +28,7 @@ class AntlrUtilsTest {
   public void testGenericGrammarBehavior() {
     // With new generic grammar, parse_int() should parse successfully
     String expression =
-"""
+        """
 dict(
   x=dict(
     k=parse_int()
@@ -50,7 +50,7 @@ dict(
   @Test
   public void testParseError2() {
     String badExpr =
-"""
+        """
 abc def
 """;
 

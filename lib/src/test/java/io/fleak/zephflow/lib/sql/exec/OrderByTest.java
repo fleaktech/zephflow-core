@@ -15,120 +15,111 @@ package io.fleak.zephflow.lib.sql.exec;
 
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.TestSQLUtils;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class OrderByTest {
 
-    @Test
-    public void testOrderByNoDirection() {
-        var rows = runSQL("select * from events order by name").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderByNoDirection() {
+    var rows = runSQL("select * from events order by name").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
-        Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
-    }
+    Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
+    Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
+  }
 
-    @Test
-    public void testOrderByNoDirectionMultipleColumns() {
-        var rows = runSQL("select * from events order by name, id + 1").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderByNoDirectionMultipleColumns() {
+    var rows = runSQL("select * from events order by name, id + 1").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
-        Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
-    }
+    Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
+    Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
+  }
 
-    @Test
-    public void testOrderByCol2DescMultipleColumns() {
-        var rows = runSQL("select * from events order by name, id + 1 desc").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderByCol2DescMultipleColumns() {
+    var rows = runSQL("select * from events order by name, id + 1 desc").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
-        Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
-    }
+    Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
+    Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
+  }
 
-    @Test
-    public void testOrderByCol2AscMultipleColumns() {
-        var rows = runSQL("select * from events order by name, id + 1 asc").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderByCol2AscMultipleColumns() {
+    var rows = runSQL("select * from events order by name, id + 1 asc").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
-        Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
-    }
+    Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
+    Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
+  }
 
-    @Test
-    public void testOrderByAsc() {
-        var rows = runSQL("select * from events order by name asc").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderByAsc() {
+    var rows = runSQL("select * from events order by name asc").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
-        Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
-    }
+    Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
+    Assertions.assertEquals("ghi", rows.get(2).asMap().get("name"));
+  }
 
-    @Test
-    public void testOrderByASC() {
-        var rows = runSQL("select * from events order by name desc").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderByASC() {
+    var rows = runSQL("select * from events order by name desc").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("ghi", rows.get(0).asMap().get("name"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
-        Assertions.assertEquals("abc", rows.get(2).asMap().get("name"));
-    }
+    Assertions.assertEquals("ghi", rows.get(0).asMap().get("name"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("name"));
+    Assertions.assertEquals("abc", rows.get(2).asMap().get("name"));
+  }
 
-    @Test
-    public void testOrderBySelectColumn() {
-        var rows = runSQL("select name as n from events order by name desc").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderBySelectColumn() {
+    var rows = runSQL("select name as n from events order by name desc").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("ghi", rows.get(0).asMap().get("n"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("n"));
-        Assertions.assertEquals("abc", rows.get(2).asMap().get("n"));
-    }
+    Assertions.assertEquals("ghi", rows.get(0).asMap().get("n"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("n"));
+    Assertions.assertEquals("abc", rows.get(2).asMap().get("n"));
+  }
 
-    @Test
-    public void testOrderBySelectColumnAndNonSelect() {
-        var rows = runSQL("select name as n from events order by name desc").toList();
-        Assertions.assertEquals(3, rows.size());
+  @Test
+  public void testOrderBySelectColumnAndNonSelect() {
+    var rows = runSQL("select name as n from events order by name desc").toList();
+    Assertions.assertEquals(3, rows.size());
 
-        Assertions.assertEquals("ghi", rows.get(0).asMap().get("n"));
-        Assertions.assertEquals("edf", rows.get(1).asMap().get("n"));
-        Assertions.assertEquals("abc", rows.get(2).asMap().get("n"));
-    }
+    Assertions.assertEquals("ghi", rows.get(0).asMap().get("n"));
+    Assertions.assertEquals("edf", rows.get(1).asMap().get("n"));
+    Assertions.assertEquals("abc", rows.get(2).asMap().get("n"));
+  }
 
-    private static Stream<Row> runSQL(String sql) {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+  private static Stream<Row> runSQL(String sql) {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-        return TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of("name", "abc", "id", 1),
-                                                Map.of("name", "edf", "id", 3),
-                                                Map.of("name", "ghi", "id", 2)
-                                        )),
-                                "ids",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "ids",
-                                        List.of(
-                                                Map.of("id", 1),
-                                                Map.of("id", 2)
-                                        )))),
-                sql);
-    }
+    return TestSQLUtils.runSQL(
+        Catalog.fromMap(
+            Map.of(
+                "events",
+                Table.ofListOfMaps(
+                    typeSystem,
+                    "events",
+                    List.of(
+                        Map.of("name", "abc", "id", 1),
+                        Map.of("name", "edf", "id", 3),
+                        Map.of("name", "ghi", "id", 2))),
+                "ids",
+                Table.ofListOfMaps(typeSystem, "ids", List.of(Map.of("id", 1), Map.of("id", 2))))),
+        sql);
+  }
 }

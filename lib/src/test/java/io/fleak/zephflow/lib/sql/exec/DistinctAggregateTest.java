@@ -48,52 +48,40 @@ public class DistinctAggregateTest {
 
   @Test
   public void distinctGlobal() {
-    var rows =
-            runSQL(
-                    "select distinct id from events")
-                    .toList();
+    var rows = runSQL("select distinct id from events").toList();
     Assertions.assertEquals(2, rows.size());
 
     for (var row : rows) {
 
       var m = row.asMap();
-      var id = ((Number)m.get("id")).intValue();
-      Assertions.assertTrue( id == 1 || id == 2);
-
+      var id = ((Number) m.get("id")).intValue();
+      Assertions.assertTrue(id == 1 || id == 2);
     }
   }
 
   @Test
   public void distinctOn1() {
-    var rows =
-            runSQL(
-                    "select distinct on (id) id, name from events")
-                    .toList();
+    var rows = runSQL("select distinct on (id) id, name from events").toList();
     Assertions.assertEquals(2, rows.size());
 
     for (var row : rows) {
 
       var m = row.asMap();
-      var id = ((Number)m.get("id")).intValue();
-      Assertions.assertTrue( id == 1 || id == 2);
-
+      var id = ((Number) m.get("id")).intValue();
+      Assertions.assertTrue(id == 1 || id == 2);
     }
   }
 
   @Test
   public void distinctOn2() {
-    var rows =
-            runSQL(
-                    "select distinct on (id, name) id, name from events")
-                    .toList();
+    var rows = runSQL("select distinct on (id, name) id, name from events").toList();
     Assertions.assertEquals(3, rows.size());
 
     for (var row : rows) {
 
       var m = row.asMap();
-      var id = ((Number)m.get("id")).intValue();
-      Assertions.assertTrue( id == 1 || id == 2);
-
+      var id = ((Number) m.get("id")).intValue();
+      Assertions.assertTrue(id == 1 || id == 2);
     }
   }
 
@@ -116,5 +104,4 @@ public class DistinctAggregateTest {
                 Table.ofListOfMaps(typeSystem, "ids", List.of(Map.of("id", 1), Map.of("id", 2))))),
         sql);
   }
-
 }

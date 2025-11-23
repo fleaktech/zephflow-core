@@ -113,7 +113,7 @@ class FeelFunctionTest {
   public void testComplexExpression() {
     // Test the user's original complex expression (but with correct syntax)
     String complexExpr =
-"""
+        """
 dict(
   duration=case(
     $["tiIndicator.validUntil"] != null
@@ -694,7 +694,7 @@ dict(
 
     // Test simple Python function with real PythonExecutor
     String simpleScript =
-"""
+        """
 python(
   '
 def add_one(x):

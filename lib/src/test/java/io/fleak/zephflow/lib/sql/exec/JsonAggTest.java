@@ -15,60 +15,54 @@ package io.fleak.zephflow.lib.sql.exec;
 
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.TestSQLUtils;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class JsonAggTest {
 
-    @Test
-    public void aggWithJsonBuildObj() {
-        var rows = runSQL("select json_agg(json_build_object('name', name, 'ord', id)) objects from events group by 1").toList();
-        Assertions.assertEquals(1, rows.size());
+  @Test
+  public void aggWithJsonBuildObj() {
+    var rows =
+        runSQL(
+                "select json_agg(json_build_object('name', name, 'ord', id)) objects from events group by 1")
+            .toList();
+    Assertions.assertEquals(1, rows.size());
 
-        for(var row : rows ){
-            var objs = row.asMap().get("objects");
-            Assertions.assertTrue(objs instanceof Collection);
-            Assertions.assertEquals(3, ((Collection)objs).size());
+    for (var row : rows) {
+      var objs = row.asMap().get("objects");
+      Assertions.assertTrue(objs instanceof Collection);
+      Assertions.assertEquals(3, ((Collection) objs).size());
 
-            for(var obj : (Collection<?>)objs) {
-                Assertions.assertTrue(obj instanceof Map);
-                var m = (Map)obj;
-                Assertions.assertTrue(m.containsKey("name"));
-                Assertions.assertTrue(m.containsKey("ord"));
-            }
-        }
+      for (var obj : (Collection<?>) objs) {
+        Assertions.assertTrue(obj instanceof Map);
+        var m = (Map) obj;
+        Assertions.assertTrue(m.containsKey("name"));
+        Assertions.assertTrue(m.containsKey("ord"));
+      }
     }
+  }
 
-    private static Stream<Row> runSQL(String sql) {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+  private static Stream<Row> runSQL(String sql) {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-        return TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of("name", "abc", "id", 1),
-                                                Map.of("name", "edf", "id", 1),
-                                                Map.of("name", "ghi", "id", 1)
-                                        )),
-                                "ids",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "ids",
-                                        List.of(
-                                                Map.of("id", 1),
-                                                Map.of("id", 2)
-                                        )))),
-                sql);
-    }
+    return TestSQLUtils.runSQL(
+        Catalog.fromMap(
+            Map.of(
+                "events",
+                Table.ofListOfMaps(
+                    typeSystem,
+                    "events",
+                    List.of(
+                        Map.of("name", "abc", "id", 1),
+                        Map.of("name", "edf", "id", 1),
+                        Map.of("name", "ghi", "id", 1))),
+                "ids",
+                Table.ofListOfMaps(typeSystem, "ids", List.of(Map.of("id", 1), Map.of("id", 2))))),
+        sql);
+  }
 }

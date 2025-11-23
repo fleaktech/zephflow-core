@@ -38,7 +38,6 @@ nebulaMavenPublish = "22.1.0"
 nebulaRelease = "21.0.0"
 spotless = "8.1.0"
 versionsPlugin = "0.53.0"
-license = "0.16.1"
 jreleaser = "1.21.0"
 avroPlugin = "1.9.1"
 shadow = "9.2.2"
@@ -156,7 +155,6 @@ nebula-maven-publish = { id = "com.netflix.nebula.maven-base-publish", version.r
 nebula-release = { id = "nebula.release", version.ref = "nebulaRelease" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin" }
-license = { id = "com.github.hierynomus.license", version.ref = "license" }
 jreleaser = { id = "org.jreleaser", version.ref = "jreleaser" }
 avro = { id = "com.github.davidmc24.gradle.plugin.avro", version.ref = "avroPlugin" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }

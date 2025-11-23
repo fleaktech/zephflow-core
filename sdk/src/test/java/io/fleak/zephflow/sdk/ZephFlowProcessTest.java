@@ -42,7 +42,7 @@ public class ZephFlowProcessTest {
     assertEquals(1, dagResult.getOutputEvents().size());
     assertEquals(
         fromJsonString(
-"""
+            """
 [
   {
     "num": 0,
