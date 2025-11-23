@@ -75,20 +75,13 @@ tasks.named('compileJava') {
   dependsOn 'generateAvroJava'
 }
 
-tasks.named('licenseMain') {
-  mustRunAfter 'generateGrammarSource'
-  mustRunAfter 'generateAvroJava'
-  source = fileTree(dir: 'src/main/java', include: '**/*.java')
-}
-
-tasks.named('licenseTest') {
-  mustRunAfter 'generateTestAvroJava'
-  mustRunAfter 'generateTestGrammarSource'
-  source = fileTree(dir: 'src/test/java', include: '**/*.java')
-}
-
-license {
-  include 'src/**/*.java'
+tasks.configureEach {
+  if (name.startsWith('applyLicenses') || name.startsWith('checkLicenses')) {
+    mustRunAfter 'generateGrammarSource'
+    mustRunAfter 'generateAvroJava'
+    mustRunAfter 'generateTestAvroJava'
+    mustRunAfter 'generateTestGrammarSource'
+  }
 }
 
 tasks.named('test') {
