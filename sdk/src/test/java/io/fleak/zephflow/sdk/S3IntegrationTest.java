@@ -77,7 +77,7 @@ public class S3IntegrationTest {
             BUCKET_NAME,
             FOLDER_NAME,
             EncodingType.JSON_OBJECT_LINE,
-            null,  // No credentials - use default credential chain
+            null, // No credentials - use default credential chain
             minioContainer.getS3URL());
     outputStream.execute("test_jobid", "test_env", "test_service");
 
@@ -106,8 +106,9 @@ public class S3IntegrationTest {
     FileUtils.copyInputStreamToFile(in, tmpFile.toFile());
 
     // Create test credentials (MinIO uses these defaults)
-    var credentials = new io.fleak.zephflow.lib.credentials.UsernamePasswordCredential(
-        "minioadmin", "minioadmin");
+    var credentials =
+        new io.fleak.zephflow.lib.credentials.UsernamePasswordCredential(
+            "minioadmin", "minioadmin");
 
     ZephFlow flow = ZephFlow.startFlow();
     var inputStream = flow.fileSource(tmpFile.toString(), EncodingType.JSON_ARRAY);
@@ -117,7 +118,7 @@ public class S3IntegrationTest {
             BUCKET_NAME,
             "test-credentials-folder",
             EncodingType.JSON_OBJECT_LINE,
-            credentials,  // Pass credential object directly
+            credentials, // Pass credential object directly
             minioContainer.getS3URL());
     outputStream.execute("test_jobid_with_creds", "test_env", "test_service");
 

@@ -91,7 +91,8 @@ class KafkaSinkErrorRecoveryTest {
             .batchSize(5)
             .flushIntervalMs(1000L)
             .build();
-    kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    kafkaSinkCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Create test data with potential serialization challenges
     List<RecordFleakData> testData = new ArrayList<>();
@@ -107,8 +108,9 @@ class KafkaSinkErrorRecoveryTest {
 
     // Act: Process mixed data including edge cases
     kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
-      var context = kafkaSinkCommand.getExecutionContext();
-    ScalarSinkCommand.SinkResult result = kafkaSinkCommand.writeToSink(testData, "json_test_user", context);
+    var context = kafkaSinkCommand.getExecutionContext();
+    ScalarSinkCommand.SinkResult result =
+        kafkaSinkCommand.writeToSink(testData, "json_test_user", context);
 
     // Assert: Should handle mixed data appropriately
     assertNotNull(result);

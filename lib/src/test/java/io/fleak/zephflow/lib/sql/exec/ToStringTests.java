@@ -14,15 +14,14 @@
 package io.fleak.zephflow.lib.sql.exec;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.TestSQLUtils;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ToStringTests {
 
@@ -30,8 +29,10 @@ public class ToStringTests {
   public void testMapToString() {
     var row = runSQL("select family::text as family from events").toList().get(0);
 
-    var family = JsonUtils.fromJsonString(row.asMap().get("family").toString(), new TypeReference<>() {});
-    var expected = Map.of("wife", "Diane Sanchez","daughter", "Beth Smith","grandson","Morty Smith");
+    var family =
+        JsonUtils.fromJsonString(row.asMap().get("family").toString(), new TypeReference<>() {});
+    var expected =
+        Map.of("wife", "Diane Sanchez", "daughter", "Beth Smith", "grandson", "Morty Smith");
 
     Assertions.assertEquals(expected, family);
   }

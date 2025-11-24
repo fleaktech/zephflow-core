@@ -36,7 +36,8 @@ import org.junit.jupiter.api.Test;
 class ParserCommandTest {
   @Test
   public void testParse() throws IOException {
-    Map<String, Object> parserConfigMap = JsonUtils.fromJsonResource("/parser/cisco_asa_config.json", new TypeReference<>() {});
+    Map<String, Object> parserConfigMap =
+        JsonUtils.fromJsonResource("/parser/cisco_asa_config.json", new TypeReference<>() {});
     ParserCommand command =
         (ParserCommand) new ParserCommandFactory().createCommand("my_node", JOB_CONTEXT);
     command.parseAndValidateArg(parserConfigMap);

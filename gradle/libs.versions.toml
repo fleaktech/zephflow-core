@@ -1,8 +1,8 @@
 [versions]
 java = "17"
 avro = "1.12.0"
-junit = "5.12.2"
-junitPlatformLauncher = "1.12.2"
+junit = "6.0.1"
+junitPlatformLauncher = "6.0.1"
 guava = "33.4.0-jre"
 lombok = "1.18.34"
 commonsLang3 = "3.17.0"
@@ -18,31 +18,30 @@ antlr = "4.13.2"
 jackson = "2.19.1"
 aws = "2.32.1"
 awsKinesis = "3.1.1"
-opensearchGrok = "2.17.1"
-kafka = "3.8.1"
+opensearchGrok = "2.19.4"
+kafka = "4.1.1"
 testContainers = "1.21.2"
-springdoc = "2.3.0"
-hamcrest = "2.2"
+springdoc = "3.0.0"
+hamcrest = "3.0"
 log4j2 = "2.24.3"
-graalvm = "24.2.1"
+graalvm = "25.0.1"
 influxdb = "2.23"
 clickhouse = "0.9.4"
 hadoop = "3.4.0"
 deltaKernel = "4.0.0"
 netty = "4.1.122.Final"
 splunk = "1.9.5"
-springCore = "6.2.8"
+springCore = "7.0.1"
 
 nebulaDependencyLock = "16.1.0"
 nebulaMavenPublish = "22.1.0"
 nebulaRelease = "21.0.0"
 spotless = "8.1.0"
 versionsPlugin = "0.53.0"
-license = "0.16.1"
 jreleaser = "1.21.0"
 avroPlugin = "1.9.1"
 shadow = "9.2.2"
-springBoot = "3.5.3"
+springBoot = "4.0.0"
 springDependencyManagement = "1.1.7"
 googleJavaFormat = "1.22.0"
 
@@ -156,7 +155,6 @@ nebula-maven-publish = { id = "com.netflix.nebula.maven-base-publish", version.r
 nebula-release = { id = "nebula.release", version.ref = "nebulaRelease" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin" }
-license = { id = "com.github.hierynomus.license", version.ref = "license" }
 jreleaser = { id = "org.jreleaser", version.ref = "jreleaser" }
 avro = { id = "com.github.davidmc24.gradle.plugin.avro", version.ref = "avroPlugin" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }

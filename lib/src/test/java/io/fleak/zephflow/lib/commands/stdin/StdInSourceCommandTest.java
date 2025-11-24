@@ -37,7 +37,8 @@ class StdInSourceCommandTest {
                 .createCommand("my_node", JOB_CONTEXT);
     command.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(
-            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(), new TypeReference<>() {}));
+            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(),
+            new TypeReference<>() {}));
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     command.execute("my_user", eventConsumer);
   }

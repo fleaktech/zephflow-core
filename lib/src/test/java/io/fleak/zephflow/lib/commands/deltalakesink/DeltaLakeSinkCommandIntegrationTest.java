@@ -244,11 +244,12 @@ class DeltaLakeSinkCommandIntegrationTest {
     // This simulates the INVOICE_ID vs INVOICE_I scenario
 
     // Create a schema with a non-nullable field (like INVOICE_ID in the ATTACHMENT table)
-    List<StructField> fields = List.of(
-        new StructField("ATTACHMENT_ID", StringType.STRING, true), // nullable
-        new StructField("INVOICE_ID", StringType.STRING, false), // non-nullable (required)
-        new StructField("DESCRIPTION", StringType.STRING, true) // nullable
-    );
+    List<StructField> fields =
+        List.of(
+            new StructField("ATTACHMENT_ID", StringType.STRING, true), // nullable
+            new StructField("INVOICE_ID", StringType.STRING, false), // non-nullable (required)
+            new StructField("DESCRIPTION", StringType.STRING, true) // nullable
+            );
     StructType schema = new StructType(fields);
 
     // Create input data that's missing the required INVOICE_ID field
@@ -261,10 +262,10 @@ class DeltaLakeSinkCommandIntegrationTest {
     List<Map<String, Object>> data = List.of(recordMissingRequiredField);
 
     // Attempt to convert - should throw exception
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema)
-    );
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
 
     // Verify the error message is helpful
     String errorMessage = exception.getMessage();
@@ -278,10 +279,11 @@ class DeltaLakeSinkCommandIntegrationTest {
   @Test
   void testNullableFieldAllowsNull() {
     // Test that NULL values are allowed for nullable fields
-    List<StructField> fields = List.of(
-        new StructField("ID", StringType.STRING, false), // non-nullable
-        new StructField("OPTIONAL_FIELD", StringType.STRING, true) // nullable
-    );
+    List<StructField> fields =
+        List.of(
+            new StructField("ID", StringType.STRING, false), // non-nullable
+            new StructField("OPTIONAL_FIELD", StringType.STRING, true) // nullable
+            );
     StructType schema = new StructType(fields);
 
     Map<String, Object> record = new HashMap<>();

@@ -15,63 +15,69 @@ package io.fleak.zephflow.lib.sql.exec;
 
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.TestSQLUtils;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class SQLMinMaxTests {
 
+  @Test
+  public void maxText() {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-    @Test
-    public void maxText() {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+    var res =
+        TestSQLUtils.runSQL(
+            Catalog.fromMap(
+                Map.of(
+                    "events",
+                    Table.ofListOfMaps(
+                        typeSystem,
+                        "events",
+                        List.of(
+                            Map.of("name", "abc", "age", 10),
+                            Map.of("name", "abc", "age", 20),
+                            Map.of("name", "abc", "age", 30))))),
+            "select max(age) as age from events group by name");
 
-        var res =  TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of("name", "abc", "age", 10),
-                                                Map.of("name", "abc", "age", 20),
-                                                Map.of("name", "abc", "age", 30)
-                                        )))),
-                "select max(age) as age from events group by name");
+    var maxAgeEntry =
+        Arrays.stream(res.findFirst().get().getEntries())
+            .filter(e -> e.key().name().equals("age"))
+            .findFirst()
+            .get();
 
-        var maxAgeEntry = Arrays.stream(res.findFirst().get().getEntries()).filter(e -> e.key().name().equals("age")).findFirst().get();
+    Assertions.assertNotNull(maxAgeEntry);
+    Assertions.assertEquals(30L, ((Number) maxAgeEntry.value().asObject()).longValue());
+  }
 
-        Assertions.assertNotNull(maxAgeEntry);
-        Assertions.assertEquals(30L, ((Number)maxAgeEntry.value().asObject()).longValue());
-    }
+  @Test
+  public void minText() {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-    @Test
-    public void minText() {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+    var res =
+        TestSQLUtils.runSQL(
+            Catalog.fromMap(
+                Map.of(
+                    "events",
+                    Table.ofListOfMaps(
+                        typeSystem,
+                        "events",
+                        List.of(
+                            Map.of("name", "abc", "age", 10),
+                            Map.of("name", "abc", "age", 20),
+                            Map.of("name", "abc", "age", 30))))),
+            "select min(age) as age from events group by name");
 
-        var res =  TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of("name", "abc", "age", 10),
-                                                Map.of("name", "abc", "age", 20),
-                                                Map.of("name", "abc", "age", 30)
-                                        )))),
-                "select min(age) as age from events group by name");
+    var maxAgeEntry =
+        Arrays.stream(res.findFirst().get().getEntries())
+            .filter(e -> e.key().name().equals("age"))
+            .findFirst()
+            .get();
 
-        var maxAgeEntry = Arrays.stream(res.findFirst().get().getEntries()).filter(e -> e.key().name().equals("age")).findFirst().get();
-
-        Assertions.assertNotNull(maxAgeEntry);
-        Assertions.assertEquals(10L, ((Number)maxAgeEntry.value().asObject()).longValue());
-    }
+    Assertions.assertNotNull(maxAgeEntry);
+    Assertions.assertEquals(10L, ((Number) maxAgeEntry.value().asObject()).longValue());
+  }
 }

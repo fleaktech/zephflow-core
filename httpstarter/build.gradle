@@ -31,6 +31,7 @@ dependencies {
   testImplementation('org.springframework.boot:spring-boot-starter-test') {
     exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
   }
+  testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
 }
 
 tasks.named('test') {

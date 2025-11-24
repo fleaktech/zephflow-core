@@ -16,22 +16,20 @@ package io.fleak.zephflow.lib.sql.exec;
 import io.fleak.zephflow.lib.sql.ast.QueryAST;
 import io.fleak.zephflow.lib.sql.ast.QueryASTParser;
 import io.fleak.zephflow.lib.sql.exec.types.TypeSystems;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
-import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class QueryASTInterpreterTest {
 
   @Test
   public void testSpecialCharactersInIdentifiers() {
 
-      var typeSystem = TypeSystems.sqlTypeSystem();
-      var interpreter = Interpreter.astInterpreter(typeSystem);
+    var typeSystem = TypeSystems.sqlTypeSystem();
+    var interpreter = Interpreter.astInterpreter(typeSystem);
 
     var testData =
         new Object[][] {
@@ -44,70 +42,70 @@ public class QueryASTInterpreterTest {
           }
         };
 
-      for(int i =0; i < testData.length; i++) {
-          var testItem = testData[i];
-          System.out.println("Testing [" + i + "]: " + Arrays.toString(testItem));
-          var identifierName = testItem[0].toString();
-          var recordFieldName = testItem[1];
+    for (int i = 0; i < testData.length; i++) {
+      var testItem = testData[i];
+      System.out.println("Testing [" + i + "]: " + Arrays.toString(testItem));
+      var identifierName = testItem[0].toString();
+      var recordFieldName = testItem[1];
 
-          QueryAST.Query query =
-                  QueryASTParser.astParser().parseSelectStatement("select " + identifierName + " from events");
+      QueryAST.Query query =
+          QueryASTParser.astParser()
+              .parseSelectStatement("select " + identifierName + " from events");
 
-          var inputMap = new HashMap<String, Object>(); // don't use Map.of, we need to support null values
-          inputMap.put(recordFieldName.toString(), 1L);
-          var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "events", inputMap);
-          var expr = query.getColumns().get(0);
-          var v = interpreter.eval(table.iterator().next(), expr, Object.class);
+      var inputMap =
+          new HashMap<String, Object>(); // don't use Map.of, we need to support null values
+      inputMap.put(recordFieldName.toString(), 1L);
+      var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "events", inputMap);
+      var expr = query.getColumns().get(0);
+      var v = interpreter.eval(table.iterator().next(), expr, Object.class);
 
-          Assertions.assertEquals(v, 1L);
-
-      }
+      Assertions.assertEquals(v, 1L);
+    }
   }
-
 
   @Test
   public void testBooleanCasts() {
     var typeSystem = TypeSystems.sqlTypeSystem();
     var interpreter = Interpreter.astInterpreter(typeSystem);
 
-      Object[][] testData =
-              new Object[][] {
-                      {"true", true},
-                      {"t", true},
-                      {"yes", true},
-                      {"y", true},
-                      {"1", true},
-                      {"on", true},
-                      {"false", false},
-                      {"f", false},
-                      {"no", false},
-                      {"n", false},
-                      {"0", false},
-                      {"off", false},
-                      {"2", "error"},
-                      {"maybe", "error"},
-                      {"foo", "error"},
-                      {null, false},
-                      {"-1", "error"},
-                      {"123", "error"},
-                      {"0.0", "error"},
-                      {"1.0", "error"},
-                      {"-0.0", "error"},
-                      {"42", "error"},
-                      {"3.14", "error"},
-                      {true, true},
-                      {false, false},
-                      {1, true},
-                      {0, false},
-                      {-1, true},
-                      {-123, true},
-                      {123, true},
-                      {0.0, "error"},
-                      {1.0, "error"},
-                      {-0.0, "error"},
-                      {42, true},
-                      {3.14, "error"}
-              };
+    Object[][] testData =
+        new Object[][] {
+          {"true", true},
+          {"t", true},
+          {"yes", true},
+          {"y", true},
+          {"1", true},
+          {"on", true},
+          {"false", false},
+          {"f", false},
+          {"no", false},
+          {"n", false},
+          {"0", false},
+          {"off", false},
+          {"2", "error"},
+          {"maybe", "error"},
+          {"foo", "error"},
+          {null, false},
+          {"-1", "error"},
+          {"123", "error"},
+          {"0.0", "error"},
+          {"1.0", "error"},
+          {"-0.0", "error"},
+          {"42", "error"},
+          {"3.14", "error"},
+          {true, true},
+          {false, false},
+          {1, true},
+          {0, false},
+          {-1, true},
+          {-123, true},
+          {123, true},
+          {0.0, "error"},
+          {1.0, "error"},
+          {-0.0, "error"},
+          {42, true},
+          {3.14, "error"}
+        };
 
     for (int i = 0; i < testData.length; i++) {
       var testItem = testData[i];
@@ -116,27 +114,27 @@ public class QueryASTInterpreterTest {
       var val = testItem[0];
       var expected = testItem[1];
 
-        QueryAST.Query query =
-                QueryASTParser.astParser().parseSelectStatement("select a::bool from events");
+      QueryAST.Query query =
+          QueryASTParser.astParser().parseSelectStatement("select a::bool from events");
 
-        var inputMap = new HashMap<String, Object>(); // don't use Map.of, we need to support null values
-        inputMap.put("a", val);
-        var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "events", inputMap);
-        var expr = query.getColumns().get(0);
-        try{
+      var inputMap =
+          new HashMap<String, Object>(); // don't use Map.of, we need to support null values
+      inputMap.put("a", val);
+      var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "events", inputMap);
+      var expr = query.getColumns().get(0);
+      try {
         var v = interpreter.eval(table.iterator().next(), expr, Object.class);
         Assertions.assertTrue(v instanceof Boolean);
 
-        Assertions.assertEquals(((Boolean)expected).booleanValue(), ((Boolean) v).booleanValue());
+        Assertions.assertEquals(((Boolean) expected).booleanValue(), ((Boolean) v).booleanValue());
 
-        } catch (RuntimeException rte) {
-            if(expected.equals("error")){
-                Assertions.assertTrue(rte.toString().contains("cast"));
-            } else {
-                Assertions.fail("Expected a cast exception but got " + rte);
-            }
-
+      } catch (RuntimeException rte) {
+        if (expected.equals("error")) {
+          Assertions.assertTrue(rte.toString().contains("cast"));
+        } else {
+          Assertions.fail("Expected a cast exception but got " + rte);
         }
+      }
     }
   }
 
