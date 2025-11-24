@@ -3,8 +3,10 @@ buildscript {
     mavenCentral()
   }
   dependencies {
-    // Required for JReleaser Gradle plugin's internal JGit operations
-    classpath 'org.eclipse.jgit:org.eclipse.jgit.gpg.bc:6.10.0.202406032230-r'
+    // Force JGit 6.x for JReleaser compatibility (JGit 7.x removed GpgObjectSigner)
+    classpath('org.eclipse.jgit:org.eclipse.jgit:6.10.0.202406032230-r!!') {
+      because 'JReleaser 1.21.0 incompatible with JGit 7.x API changes'
+    }
 
     constraints {
       classpath(libs.spring.core) {
