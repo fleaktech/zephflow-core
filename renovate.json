@@ -10,6 +10,10 @@
       "groupName": "Gradle and plugins"
     },
     {
+      "matchPackageNames": ["org.opensearch:opensearch-grok"],
+      "allowedVersions": "< 3.0.0"
+    },
+    {
       "matchUpdateTypes": ["major"],
       "automerge": false
     },
