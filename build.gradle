@@ -3,6 +3,9 @@ buildscript {
     mavenCentral()
   }
   dependencies {
+    // Required for JReleaser Gradle plugin's internal JGit operations
+    classpath 'org.eclipse.jgit:org.eclipse.jgit.gpg.bc:6.10.0.202406032230-r'
+
     constraints {
       classpath(libs.spring.core) {
         because 'The license plugin brings in Spring 3.x, which conflicts with the Spring Boot 3.x plugin.'
