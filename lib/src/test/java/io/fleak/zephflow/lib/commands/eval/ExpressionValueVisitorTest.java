@@ -52,7 +52,7 @@ class ExpressionValueVisitorTest {
   @Test
   public void testEvaluateExpression_runtimeErrorInArrayForeach() {
     String evalExpr =
-"""
+        """
 dict(
    resources=arr_foreach(
       $.devices,
@@ -99,7 +99,7 @@ dict(
   @Test
   public void test_goodExpression() {
     String evalExpr =
-"""
+        """
 dict(
   version= 'TLSv1.3',
   fingerprints= array(
@@ -271,7 +271,7 @@ dict(
   @Test
   public void testArrForeach_ObjectAsArray() {
     String evalExpr =
-"""
+        """
 arr_foreach(
     $,
     elem,
@@ -284,7 +284,7 @@ arr_foreach(
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     String inputEventJsonStr =
-"""
+        """
 {
   "integration": "snmp",
   "attachments": {
@@ -299,7 +299,7 @@ arr_foreach(
     FleakData actual = visitor.visit(parser.language());
 
     String outputEventJsonStr =
-"""
+        """
 [
   {
     "source": "snmp",
@@ -318,7 +318,7 @@ arr_foreach(
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
 
     String inputEventJsonStr =
-"""
+        """
 {
  "type": "odd",
  "num": 1
@@ -333,11 +333,11 @@ arr_foreach(
   @Test
   public void testFunctionResultPath1() {
     String evalExpr =
-"""
+        """
 grok($.proc_name, "(?<parent_folder>.*?)\\\\\\\\(?<name>[^\\\\\\\\]+)$").parent_folder
 """;
     String inputEventJsonStr =
-"""
+        """
 {
   "proc_name": "C:\\\\Windows\\\\System32\\\\services.exe"
 }
@@ -353,7 +353,7 @@ grok($.proc_name, "(?<parent_folder>.*?)\\\\\\\\(?<name>[^\\\\\\\\]+)$").parent_
   @Test
   public void testFunctionResultPath2() {
     String evalExpr =
-"""
+        """
 arr_foreach(
     $,
     elem,
@@ -364,7 +364,7 @@ arr_foreach(
     )
 )[0].osVersion""";
     String inputEventJsonStr =
-"""
+        """
 {
   "integration": "snmp",
   "attachments": {
@@ -384,7 +384,7 @@ arr_foreach(
   @Test
   public void testStrSplit() {
     String evalExpr =
-"""
+        """
 str_split("a,b,c", ",")
 """;
     FleakData inputEvent = FleakData.wrap(Map.of());
@@ -448,7 +448,7 @@ str_split("a,b,c", ",")
   @Test
   public void testDictKeyWithSpecialChars() {
     String evalExpr =
-"""
+        """
   dict(
       "key with spaces" = "value1",
       "key.with.dots" = "value2",
@@ -486,7 +486,7 @@ str_split("a,b,c", ",")
   @Test
   public void testProblematicPython() {
     String evalExpr =
-"""
+        """
 dict(
   pyData=python(
     'invalid python script',
@@ -553,7 +553,7 @@ dict(
   public void testExpressionWithoutSpaces() {
     // 1-1 should be a valid expression
     String evalExpr =
-"""
+        """
 dict(
   a= 1-1
 )
@@ -637,7 +637,7 @@ dict(
         FleakData.wrap(Map.of("responseElements", Map.of("directConnectGateways", List.of())));
 
     evalExpr =
-"""
+        """
 dict(
  status=case(
     size($.responseElements.directConnectGateways) == 0 => 'Failed',

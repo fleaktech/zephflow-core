@@ -23,7 +23,6 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.utils.JsonUtils;
-
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
@@ -47,11 +46,12 @@ public class TestUtils {
   }
 
   public static JobContext buildJobContext() {
-    return buildJobContext( new HashMap<>(
+    return buildJobContext(
+        new HashMap<>(
             Map.of(
-                    "credential_2",
-                    OBJECT_MAPPER.convertValue(
-                            USERNAME_PASSWORD_CREDENTIAL, new TypeReference<>() {}))));
+                "credential_2",
+                OBJECT_MAPPER.convertValue(
+                    USERNAME_PASSWORD_CREDENTIAL, new TypeReference<>() {}))));
   }
 
   public static class TestSourceEventAcceptor implements SourceEventAcceptor {

@@ -46,12 +46,14 @@ class FileSourceCommandTest {
             FileSourceDto.Config.builder()
                 .encodingType(EncodingType.CSV)
                 .filePath(inputFile.toString())
-                .build(), new TypeReference<>() {}));
+                .build(),
+            new TypeReference<>() {}));
     KafkaSourceCommandTest.TestSourceEventAcceptor eventConsumer =
         new KafkaSourceCommandTest.TestSourceEventAcceptor();
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     command.execute("test_user", eventConsumer);
-    List<RecordFleakData> expected = fromJsonResource("/serdes/test_csv_expected_output.json", new TypeReference<>() {});
+    List<RecordFleakData> expected =
+        fromJsonResource("/serdes/test_csv_expected_output.json", new TypeReference<>() {});
     assertEquals(expected, eventConsumer.getReceivedEvents());
   }
 }

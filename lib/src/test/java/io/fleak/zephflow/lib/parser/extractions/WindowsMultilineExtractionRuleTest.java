@@ -62,25 +62,29 @@ class WindowsMultilineExtractionRuleTest {
 
   @Test
   public void testExtract_windowsEventViewer() throws Exception {
-    String rawLog = loadStringFromResource("/parser/windows_multiline_4624_windows_eventviewer.txt");
+    String rawLog =
+        loadStringFromResource("/parser/windows_multiline_4624_windows_eventviewer.txt");
     WindowsMultilineExtractionRule rule =
-            new WindowsMultilineExtractionRule(
-                    new WindowsMultilineExtractionRule.FromFieldTimestampExtractor("Date"));
+        new WindowsMultilineExtractionRule(
+            new WindowsMultilineExtractionRule.FromFieldTimestampExtractor("Date"));
     FleakData result = rule.extract(rawLog);
     FleakData expected =
-            loadFleakDataFromJsonResource("/parser/windows_multiline_4624_windows_eventviewer_parsed.json");
+        loadFleakDataFromJsonResource(
+            "/parser/windows_multiline_4624_windows_eventviewer_parsed.json");
     assertEquals(expected, result);
   }
 
   @Test
   public void testExtract_windowsEventViewer_List() throws Exception {
-    String rawLog = loadStringFromResource("/parser/windows_multiline_4672_windows_eventviewer.txt");
+    String rawLog =
+        loadStringFromResource("/parser/windows_multiline_4672_windows_eventviewer.txt");
     WindowsMultilineExtractionRule rule =
-            new WindowsMultilineExtractionRule(
-                    new WindowsMultilineExtractionRule.FromFieldTimestampExtractor("Date"));
+        new WindowsMultilineExtractionRule(
+            new WindowsMultilineExtractionRule.FromFieldTimestampExtractor("Date"));
     FleakData result = rule.extract(rawLog);
     FleakData expected =
-            loadFleakDataFromJsonResource("/parser/windows_multiline_4672_windows_eventviewer_parsed.json");
+        loadFleakDataFromJsonResource(
+            "/parser/windows_multiline_4672_windows_eventviewer_parsed.json");
     assertEquals(expected, result);
   }
 }

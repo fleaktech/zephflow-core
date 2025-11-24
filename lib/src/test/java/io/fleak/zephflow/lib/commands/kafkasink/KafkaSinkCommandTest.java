@@ -47,7 +47,8 @@ class KafkaSinkCommandTest {
   private static final String TOPIC_NAME = "test_topic";
 
   @Container
-  private static final KafkaContainer KAFKA_CONTAINER = new KafkaContainer("apache/kafka-native:3.8.0");
+  private static final KafkaContainer KAFKA_CONTAINER =
+      new KafkaContainer("apache/kafka-native:3.8.0");
 
   private static AdminClient adminClient;
   private static KafkaConsumer<byte[], byte[]> consumer;
@@ -117,11 +118,12 @@ class KafkaSinkCommandTest {
             .batchSize(5) // Small batch size for test
             .flushIntervalMs(100L) // Quick flush interval for test
             .build();
-    kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    kafkaSinkCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Initialize and process
     kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
-      var context = kafkaSinkCommand.getExecutionContext();
+    var context = kafkaSinkCommand.getExecutionContext();
     kafkaSinkCommand.writeToSink(SOURCE_EVENTS, "test_user", context);
 
     // Wait for records to be processed (simulating batch processing delay)
@@ -144,13 +146,14 @@ class KafkaSinkCommandTest {
     // Create a large number of test records to simulate the original performance problem
     List<RecordFleakData> largeEventSet = new ArrayList<>();
     for (int i = 0; i < 1000; i++) { // 1000 records to simulate high volume
-      largeEventSet.add((RecordFleakData) FleakData.wrap(Map.of("id", i, "data", "large-test-" + i)));
+      largeEventSet.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", i, "data", "large-test-" + i)));
     }
 
     KafkaSinkCommandFactory commandFactory = new KafkaSinkCommandFactory();
     KafkaSinkCommand kafkaSinkCommand =
         (KafkaSinkCommand) commandFactory.createCommand("perf_test_node", TestUtils.JOB_CONTEXT);
-    
+
     // Use production-like configuration
     KafkaSinkDto.Config config =
         KafkaSinkDto.Config.builder()
@@ -160,28 +163,38 @@ class KafkaSinkCommandTest {
             .batchSize(500) // Reasonable batch size for performance testing
             .flushIntervalMs(1000L) // 1 second flush interval
             .build();
-    kafkaSinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    kafkaSinkCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
     // Measure performance - this is the main validation
     long startTime = System.currentTimeMillis();
 
     // Initialize command
     kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
-      var context = kafkaSinkCommand.getExecutionContext();
+    var context = kafkaSinkCommand.getExecutionContext();
 
     // Process large batch - this should NOT cause 1000 individual flushes
-    assertDoesNotThrow(() -> {
-      kafkaSinkCommand.writeToSink(largeEventSet, "perf_test_user", context);
-    }, "High volume write should not throw exceptions");
-    
-    long processingTime = System.currentTimeMillis() - startTime;
-    
-    // Should complete quickly due to batching (not 1000 individual flush operations)
-    assertTrue(processingTime < 10000, // Should complete within 10 seconds
-               "High volume processing took too long: " + processingTime + "ms. " +
-               "This suggests batching is not working effectively.");
+    assertDoesNotThrow(
+        () -> {
+          kafkaSinkCommand.writeToSink(largeEventSet, "perf_test_user", context);
+        },
+        "High volume write should not throw exceptions");
 
-    System.out.println("✅ High volume test: Processed " + largeEventSet.size() + 
-                       " records in " + processingTime + "ms - Performance test PASSED");
+    long processingTime = System.currentTimeMillis() - startTime;
+
+    // Should complete quickly due to batching (not 1000 individual flush operations)
+    assertTrue(
+        processingTime < 10000, // Should complete within 10 seconds
+        "High volume processing took too long: "
+            + processingTime
+            + "ms. "
+            + "This suggests batching is not working effectively.");
+
+    System.out.println(
+        "✅ High volume test: Processed "
+            + largeEventSet.size()
+            + " records in "
+            + processingTime
+            + "ms - Performance test PASSED");
   }
 }

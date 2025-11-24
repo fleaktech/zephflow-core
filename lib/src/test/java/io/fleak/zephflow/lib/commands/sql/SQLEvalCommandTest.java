@@ -200,7 +200,7 @@ public class SQLEvalCommandTest {
     RecordFleakData recordFleakData =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/event_with_stringified_json.json");
     String arg =
-"""
+        """
 SELECT
     json_data ->> 'ticker' AS ticker,
     json_data ->> 'label' AS label
@@ -231,7 +231,7 @@ FROM
     RecordFleakData inputEvent =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/event_embedding_result.json");
     String arg =
-"""
+        """
 SELECT
     embedding_output -> 'embedding' AS embedding,
     json_build_object('text', txt) AS metadata
@@ -279,7 +279,7 @@ FROM
     RecordFleakData inputEvent =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/event_json_get.json");
     String arg =
-"""
+        """
 SELECT
     json_data ->> 'ticker' AS ticker,
     json_data ->> 'label' AS label
@@ -291,7 +291,7 @@ FROM
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
     sqlEvalCommand.initialize(metricClientProvider);
-      var context = sqlEvalCommand.getExecutionContext();
+    var context = sqlEvalCommand.getExecutionContext();
     var output = sqlEvalCommand.process(List.of(inputEvent), null, context);
     assertTrue(output.getFailureEvents().isEmpty());
   }
@@ -301,7 +301,7 @@ FROM
     RecordFleakData inputEvent =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/event_json_get_2.json");
     String arg =
-"""
+        """
 SELECT
     json_data ->> 'ticker' AS ticker,
     json_data ->> 'label' AS label
@@ -312,12 +312,12 @@ FROM
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
     sqlEvalCommand.initialize(metricClientProvider);
-      var context = sqlEvalCommand.getExecutionContext();
+    var context = sqlEvalCommand.getExecutionContext();
     var output = sqlEvalCommand.process(List.of(inputEvent), null, context);
     assertTrue(output.getOutput().isEmpty());
     assertEquals(1, output.getFailureEvents().size());
     assertEquals(
-"""
+        """
 cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label": "negative"}, {"ticker": "INTC", "label": "neutral"} to a JsonNode""",
         output.getFailureEvents().get(0).errorMessage());
   }
@@ -362,7 +362,7 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
     sqlEvalCommand.initialize(metricClientProvider);
-      var context = sqlEvalCommand.getExecutionContext();
+    var context = sqlEvalCommand.getExecutionContext();
     ScalarCommand.ProcessResult result = sqlEvalCommand.process(List.of(fleakData), null, context);
     if (fieldAndExpectedValues == null) {
       assertTrue(result.getFailureEvents().isEmpty());
@@ -389,7 +389,7 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
 
     sqlEvalCommand.parseAndValidateArg(Map.of("sql", arg));
     sqlEvalCommand.initialize(metricClientProvider);
-      var context = sqlEvalCommand.getExecutionContext();
+    var context = sqlEvalCommand.getExecutionContext();
     ScalarCommand.ProcessResult result = sqlEvalCommand.process(List.of(fleakData), null, context);
     List<RecordFleakData> outputEvents = result.getOutput();
     System.out.println("outputEvents:");
@@ -424,7 +424,7 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
     SQLEvalCommand command = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
     command.parseAndValidateArg(Map.of("sql", arg));
     command.initialize(metricClientProvider);
-      var context = command.getExecutionContext();
+    var context = command.getExecutionContext();
     ScalarCommand.ProcessResult output = command.process(List.of(event1, event2), null, context);
     assertTrue(output.getFailureEvents().isEmpty());
     assertEquals(1, output.getOutput().size());

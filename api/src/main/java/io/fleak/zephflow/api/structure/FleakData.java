@@ -11,8 +11,6 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// First, let's add Jackson serialization/deserialization support to the FleakData interface
-
 package io.fleak.zephflow.api.structure;
 
 import com.fasterxml.jackson.annotation.JsonValue;

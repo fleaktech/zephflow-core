@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.sql;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,23 +24,24 @@ import java.util.Map;
 @SuppressWarnings("unchecked")
 public class TestResources {
 
-    public static Map<String, Map<String, List<String>>> getTestQueries() {
-        try {
-            var queryData = Files.readString(Path.of("src", "test","resources", "sql", "queries.yaml"));
-            ObjectMapper mapper = new YAMLMapper();
-            return mapper.readValue(queryData, Map.class);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+  public static Map<String, Map<String, List<String>>> getTestQueries() {
+    try {
+      var queryData = Files.readString(Path.of("src", "test", "resources", "sql", "queries.yaml"));
+      ObjectMapper mapper = new YAMLMapper();
+      return mapper.readValue(queryData, Map.class);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
+  }
 
-    public static Map<String, List<String>> getSqlAsAstQueries() {
-        try {
-            var queryData = Files.readString(Path.of("src", "test", "resources", "sql", "sql_to_ast.yaml"));
-            ObjectMapper mapper = new YAMLMapper();
-            return mapper.readValue(queryData, Map.class);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+  public static Map<String, List<String>> getSqlAsAstQueries() {
+    try {
+      var queryData =
+          Files.readString(Path.of("src", "test", "resources", "sql", "sql_to_ast.yaml"));
+      ObjectMapper mapper = new YAMLMapper();
+      return mapper.readValue(queryData, Map.class);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
+  }
 }

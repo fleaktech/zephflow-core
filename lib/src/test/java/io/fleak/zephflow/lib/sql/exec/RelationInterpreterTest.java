@@ -18,10 +18,9 @@ import io.fleak.zephflow.lib.sql.ast.QueryASTParser;
 import io.fleak.zephflow.lib.sql.exec.types.TypeSystems;
 import io.fleak.zephflow.lib.sql.exec.utils.Streams;
 import io.fleak.zephflow.lib.sql.rel.QueryTranslator;
+import java.util.*;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.*;
 
 public class RelationInterpreterTest {
 
@@ -32,16 +31,15 @@ public class RelationInterpreterTest {
 
     var testData =
         new Object[][] {
-                {
-                        "select a, b, count(*) as c from event group by a, b",
-                        Map.of("a", 1, "b", 2, "c", 3),
-                        new Row.Entry[] {
-                                Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(1)),
-                                Row.asEntry(Row.asKey("event", "b", 1), Row.asValue(2)),
-                                Row.asEntry(Row.asKey("event", "c", 1), Row.asValue(1))
-
-                        }
-                },
+          {
+            "select a, b, count(*) as c from event group by a, b",
+            Map.of("a", 1, "b", 2, "c", 3),
+            new Row.Entry[] {
+              Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(1)),
+              Row.asEntry(Row.asKey("event", "b", 1), Row.asValue(2)),
+              Row.asEntry(Row.asKey("event", "c", 1), Row.asValue(1))
+            }
+          },
           {
             "select a, b from event",
             Map.of("a", 1, "b", 2, "c", 3),
@@ -194,79 +192,78 @@ public class RelationInterpreterTest {
                   Row.asEntry(Row.asKey("rel_1", "col_1", 0), Row.asValue(Map.of("text", "edf")))
                 })
           },
-                    {
-                      "SELECT b.b from event, json_array_elements(event.b) b group by b.b",
-                      Catalog.fromMap(
-                          Map.of(
-                              "event",
-                                  Table.ofListOfMaps(
-                                      typeSystem,
-                                      "event",
-                                      List.of(Map.of("a", 1L, "b", List.of(1,2,3)),
-                                              Map.of("a", 1L, "b", List.of(1)),
-                                              Map.of("a", 2L, "b", List.of(1,2)))))),
-                      List.of(
-                          new Row.Entry[] {
-                            Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(1L)),
-                          },
-                          new Row.Entry[] {
-                            Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(2L)),
-                          },
-                          new Row.Entry[] {
-                            Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(3L)),
-                          }
-                          )
-                    },
-                {
-                        "SELECT b.b, string_agg(event.a, ',') from event, json_array_elements(event.b) b group by b.b",
-                        Catalog.fromMap(
-                                Map.of(
-                                        "event",
-                                        Table.ofListOfMaps(
-                                                typeSystem,
-                                                "event",
-                                                List.of(Map.of("a", 1L, "b", List.of(1,2,3)),
-                                                        Map.of("a", 1L, "b", List.of(1)),
-                                                        Map.of("a", 2L, "b", List.of(1,2)))))),
+          {
+            "SELECT b.b from event, json_array_elements(event.b) b group by b.b",
+            Catalog.fromMap(
+                Map.of(
+                    "event",
+                    Table.ofListOfMaps(
+                        typeSystem,
+                        "event",
                         List.of(
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(1L)),
-                                        Row.asEntry(Row.asKey("event", "col_1", 0), Row.asValue("1,1,2")),
-
-                                },
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(2L)),
-                                        Row.asEntry(Row.asKey("event", "col_1", 0), Row.asValue("1,2")),
-                                },
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(3L)),
-                                        Row.asEntry(Row.asKey("event", "col_1", 0), Row.asValue("1")),
-                                }
-                        )
+                            Map.of("a", 1L, "b", List.of(1, 2, 3)),
+                            Map.of("a", 1L, "b", List.of(1)),
+                            Map.of("a", 2L, "b", List.of(1, 2)))))),
+            List.of(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(1L)),
                 },
-                {
-                        "SELECT a, count(*) as b from event group by a",
-                        Catalog.fromMap(
-                                Map.of(
-                                        "event",
-                                        Table.ofListOfMaps(
-                                                typeSystem,
-                                                "event",
-                                                List.of(Map.of("a", 1L, "b", List.of(1,2,3)),
-                                                        Map.of("a", 1L, "b", List.of(1)),
-                                                        Map.of("a", 2L, "b", List.of(1,2)))))),
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(2L)),
+                },
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(3L)),
+                })
+          },
+          {
+            "SELECT b.b, string_agg(event.a, ',') from event, json_array_elements(event.b) b group by b.b",
+            Catalog.fromMap(
+                Map.of(
+                    "event",
+                    Table.ofListOfMaps(
+                        typeSystem,
+                        "event",
                         List.of(
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(1L)),
-                                        Row.asEntry(Row.asKey("event", "b", 0), Row.asValue(2L)),
-                                },
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(2L)),
-                                        Row.asEntry(Row.asKey("event", "b", 0), Row.asValue(1L)),
-                                }
-                        )
+                            Map.of("a", 1L, "b", List.of(1, 2, 3)),
+                            Map.of("a", 1L, "b", List.of(1)),
+                            Map.of("a", 2L, "b", List.of(1, 2)))))),
+            List.of(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(1L)),
+                  Row.asEntry(Row.asKey("event", "col_1", 0), Row.asValue("1,1,2")),
                 },
-                          {
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(2L)),
+                  Row.asEntry(Row.asKey("event", "col_1", 0), Row.asValue("1,2")),
+                },
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("b", "b", 0), Row.asValue(3L)),
+                  Row.asEntry(Row.asKey("event", "col_1", 0), Row.asValue("1")),
+                })
+          },
+          {
+            "SELECT a, count(*) as b from event group by a",
+            Catalog.fromMap(
+                Map.of(
+                    "event",
+                    Table.ofListOfMaps(
+                        typeSystem,
+                        "event",
+                        List.of(
+                            Map.of("a", 1L, "b", List.of(1, 2, 3)),
+                            Map.of("a", 1L, "b", List.of(1)),
+                            Map.of("a", 2L, "b", List.of(1, 2)))))),
+            List.of(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(1L)),
+                  Row.asEntry(Row.asKey("event", "b", 0), Row.asValue(2L)),
+                },
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(2L)),
+                  Row.asEntry(Row.asKey("event", "b", 0), Row.asValue(1L)),
+                })
+          },
+          {
             "select table.a, table.b from table limit 2",
             Catalog.fromMap(
                 Map.of(
@@ -292,66 +289,57 @@ public class RelationInterpreterTest {
             "SELECT * FROM event",
             Map.of("a", 0L, "b", 10L),
             asList(
-                    new Row.Entry[] {
-                            Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(0L)),
-                            Row.asEntry(Row.asKey("event", "b", 0), Row.asValue(10L)),
-
-                    }
-            ),
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "a", 0), Row.asValue(0L)),
+                  Row.asEntry(Row.asKey("event", "b", 0), Row.asValue(10L)),
+                }),
           },
           {
             "SELECT count(nums) as cnt FROM event, json_array_elements(b) as nums group by 1",
-            Map.of("a", 0L, "b", new int[]{1,2,3}),
+            Map.of("a", 0L, "b", new int[] {1, 2, 3}),
             asList(
-                    new Row.Entry[] {
-                            Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
-                    }
-            ),
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
+                }),
           },
-                {
-                        "SELECT count(*) as cnt FROM event, json_array_elements(b)",
-                        Map.of("a", 0L, "b", new int[]{1,2,3}),
-                        asList(
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
-                                }
-                        ),
+          {
+            "SELECT count(*) as cnt FROM event, json_array_elements(b)",
+            Map.of("a", 0L, "b", new int[] {1, 2, 3}),
+            asList(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
+                }),
+          },
+          {
+            "SELECT count(els) as cnt FROM event, json_array_elements(b) as els",
+            Map.of("a", 0L, "b", new int[] {1, 2, 3}),
+            asList(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
+                }),
+          },
+          {
+            "SELECT concat(els, a) as cnt FROM event, json_array_elements(b) as els",
+            Map.of("a", 0L, "b", new int[] {1, 2, 3}),
+            List.of(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue("10")),
                 },
-                {
-                        "SELECT count(els) as cnt FROM event, json_array_elements(b) as els",
-                        Map.of("a", 0L, "b", new int[]{1,2,3}),
-                        asList(
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
-                                }
-                        ),
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue("20")),
                 },
-                {
-                        "SELECT concat(els, a) as cnt FROM event, json_array_elements(b) as els",
-                        Map.of("a", 0L, "b", new int[]{1,2,3}),
-                        List.of(
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue("10")),
-                                },
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue("20")),
-                                },
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue("30")),
-                                }
-
-                        ),
-                },
-                {
-                        "SELECT json_array_length(b) as cnt FROM event",
-                        Map.of("a", 0L, "b", new int[]{1,2,3}),
-                        asList(
-                                new Row.Entry[] {
-                                        Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
-                                }
-                        ),
-                },
-
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue("30")),
+                }),
+          },
+          {
+            "SELECT json_array_length(b) as cnt FROM event",
+            Map.of("a", 0L, "b", new int[] {1, 2, 3}),
+            asList(
+                new Row.Entry[] {
+                  Row.asEntry(Row.asKey("event", "cnt", 0), Row.asValue(3L)),
+                }),
+          },
         };
 
     var interpreter = Interpreter.astInterpreter(typeSystem);
@@ -380,7 +368,7 @@ public class RelationInterpreterTest {
       var result = Streams.asStream(it).toList();
 
       if (expected instanceof List<?> ls) {
-          Assertions.assertEquals(ls.size(), result.size());
+        Assertions.assertEquals(ls.size(), result.size());
         for (int a = 0; a < ls.size(); a++) {
           var expectedEntries = ls.get(a);
           var resultEntries = result.get(a).getEntries();

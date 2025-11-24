@@ -13,16 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.clickhousesink;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.fleak.zephflow.lib.TestUtils;
+import java.util.stream.Stream;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClickHouseSinkConfigValidatorTest {
 
@@ -34,31 +32,28 @@ class ClickHouseSinkConfigValidatorTest {
       validator.validateConfig(config, "test-node", TestUtils.JOB_CONTEXT);
       assertFalse(error, "An error was expected for config: " + config);
     } catch (Exception e) {
-      assertTrue(error, "An error was not expected for config " + config + " exception: " + e.getMessage());
+      assertTrue(
+          error,
+          "An error was not expected for config " + config + " exception: " + e.getMessage());
     }
   }
 
   public static Stream<Arguments> getTestConfigs() {
     return Stream.of(
-            Arguments.of(
-                    ClickHouseSinkDto.Config.builder()
-                            .database("test")
-                            .table("test")
-                            .endpoint("test")
-                            .build(),
-                    false
-            ),
-            Arguments.of(
-                    ClickHouseSinkDto.Config.builder()
-                            .database("test")
-                            .table("test")
-                            .endpoint("test")
-                            .credentialId("test")
-                            .build(),
-                    true
-            )
-    );
+        Arguments.of(
+            ClickHouseSinkDto.Config.builder()
+                .database("test")
+                .table("test")
+                .endpoint("test")
+                .build(),
+            false),
+        Arguments.of(
+            ClickHouseSinkDto.Config.builder()
+                .database("test")
+                .table("test")
+                .endpoint("test")
+                .credentialId("test")
+                .build(),
+            true));
   }
-
 }
-

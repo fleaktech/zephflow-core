@@ -244,7 +244,6 @@ class DeltaLakeStorageCredentialUtilsTest {
     assertFalse(hadoopConf.iterator().hasNext());
   }
 
-
   @Test
   void testHdfsCredentialApplier() {
     DeltaLakeStorageCredentialUtils.HdfsCredentialApplier applier =

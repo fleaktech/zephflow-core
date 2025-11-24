@@ -33,160 +33,146 @@ class DeltaLakeSinkConfigValidatorTest {
 
   @Test
   void testValidConfig() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .build();
+    Config config = Config.builder().tablePath("/tmp/delta-table").build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testValidS3Path() {
-    Config config = Config.builder()
-        .tablePath("s3a://bucket/path/to/table")
-        .build();
+    Config config = Config.builder().tablePath("s3a://bucket/path/to/table").build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testValidHdfsPath() {
-    Config config = Config.builder()
-        .tablePath("hdfs://namenode:9000/path/to/table")
-        .build();
+    Config config = Config.builder().tablePath("hdfs://namenode:9000/path/to/table").build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testNullTablePath() {
-    Config config = Config.builder()
-        .tablePath(null)
-        .build();
+    Config config = Config.builder().tablePath(null).build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("tablePath is required"));
   }
 
   @Test
   void testEmptyTablePath() {
-    Config config = Config.builder()
-        .tablePath("")
-        .build();
+    Config config = Config.builder().tablePath("").build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("tablePath is required"));
   }
 
   @Test
   void testInvalidScheme() {
-    Config config = Config.builder()
-        .tablePath("ftp://server/path/to/table")
-        .build();
+    Config config = Config.builder().tablePath("ftp://server/path/to/table").build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("Unsupported scheme: ftp"));
   }
 
   @Test
   void testInvalidUriFormat() {
-    Config config = Config.builder()
-        .tablePath("not a valid uri ://")
-        .build();
+    Config config = Config.builder().tablePath("not a valid uri ://").build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("Invalid URI format"));
   }
 
   @Test
   void testValidBatchSize() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .batchSize(2000)
-        .build();
+    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(2000).build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testInvalidBatchSize() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .batchSize(-1)
-        .build();
+    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(-1).build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("batchSize must be positive"));
   }
 
   @Test
   void testZeroBatchSize() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .batchSize(0)
-        .build();
+    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(0).build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("batchSize must be positive"));
   }
 
   @Test
   void testExcessiveBatchSize() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .batchSize(15000)
-        .build();
+    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(15000).build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("batchSize should not exceed 10,000"));
   }
 
   @Test
   void testEmptyPartitionColumn() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .partitionColumns(List.of("valid_column", ""))
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .partitionColumns(List.of("valid_column", ""))
+            .build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("Partition column names cannot be null or empty"));
   }
 
   @Test
   void testNullPartitionColumn() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .partitionColumns(Arrays.asList("valid_column", null))
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .partitionColumns(Arrays.asList("valid_column", null))
+            .build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
     assertTrue(exception.getMessage().contains("Partition column names cannot be null or empty"));
   }
 
   @Test
   void testValidPartitionColumns() {
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .partitionColumns(List.of("year", "month", "day"))
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .partitionColumns(List.of("year", "month", "day"))
+            .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
@@ -197,15 +183,15 @@ class DeltaLakeSinkConfigValidatorTest {
     hadoopConfig.put("", "value");
     hadoopConfig.put("valid.key", "value");
 
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .hadoopConfiguration(hadoopConfig)
-        .build();
+    Config config =
+        Config.builder().tablePath("/tmp/delta-table").hadoopConfiguration(hadoopConfig).build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
-    assertTrue(exception.getMessage().contains("Hadoop configuration keys cannot be null or empty"));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(
+        exception.getMessage().contains("Hadoop configuration keys cannot be null or empty"));
   }
 
   @Test
@@ -214,15 +200,15 @@ class DeltaLakeSinkConfigValidatorTest {
     hadoopConfig.put(null, "value");
     hadoopConfig.put("valid.key", "value");
 
-    Config config = Config.builder()
-        .tablePath("/tmp/delta-table")
-        .hadoopConfiguration(hadoopConfig)
-        .build();
+    Config config =
+        Config.builder().tablePath("/tmp/delta-table").hadoopConfiguration(hadoopConfig).build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
-    assertTrue(exception.getMessage().contains("Hadoop configuration keys cannot be null or empty"));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(
+        exception.getMessage().contains("Hadoop configuration keys cannot be null or empty"));
   }
 
   @Test
@@ -232,10 +218,11 @@ class DeltaLakeSinkConfigValidatorTest {
     hadoopConfig.put("fs.s3a.path.style.access", "true");
     hadoopConfig.put("fs.defaultFS", "s3a://bucket");
 
-    Config config = Config.builder()
-        .tablePath("s3a://bucket/delta-table")
-        .hadoopConfiguration(hadoopConfig)
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("s3a://bucket/delta-table")
+            .hadoopConfiguration(hadoopConfig)
+            .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
@@ -247,28 +234,36 @@ class DeltaLakeSinkConfigValidatorTest {
     hadoopConfig.put("fs.s3a.secret.key", "secret-key");
     hadoopConfig.put("fs.s3a.endpoint", "s3.amazonaws.com");
 
-    Config config = Config.builder()
-        .tablePath("s3a://bucket/delta-table")
-        .hadoopConfiguration(hadoopConfig)
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("s3a://bucket/delta-table")
+            .hadoopConfiguration(hadoopConfig)
+            .build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
-    assertTrue(exception.getMessage().contains("S3 credentials (fs.s3a.access.key, fs.s3a.secret.key) should not be set in hadoopConfiguration"));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(
+        exception
+            .getMessage()
+            .contains(
+                "S3 credentials (fs.s3a.access.key, fs.s3a.secret.key) should not be set in hadoopConfiguration"));
     assertTrue(exception.getMessage().contains("Use 'credentialId' field instead"));
   }
 
   @Test
   void testValidCredentialId() {
     // Mock the job context to have a valid credential
-    UsernamePasswordCredential mockCredential = new UsernamePasswordCredential("access-key", "secret-key");
+    UsernamePasswordCredential mockCredential =
+        new UsernamePasswordCredential("access-key", "secret-key");
     when(jobContext.getOtherProperties()).thenReturn(Map.of("test-credential-id", mockCredential));
 
-    Config config = Config.builder()
-        .tablePath("s3a://bucket/delta-table")
-        .credentialId("test-credential-id")
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("s3a://bucket/delta-table")
+            .credentialId("test-credential-id")
+            .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
@@ -278,15 +273,20 @@ class DeltaLakeSinkConfigValidatorTest {
     // Mock the job context with no credentials
     when(jobContext.getOtherProperties()).thenReturn(Map.of());
 
-    Config config = Config.builder()
-        .tablePath("s3a://bucket/delta-table")
-        .credentialId("non-existent-credential-id")
-        .build();
+    Config config =
+        Config.builder()
+            .tablePath("s3a://bucket/delta-table")
+            .credentialId("non-existent-credential-id")
+            .build();
 
-    IllegalArgumentException exception = assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "test-node", jobContext));
-    assertTrue(exception.getMessage().contains("credentialId 'non-existent-credential-id' was specified but no credential found"));
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(
+        exception
+            .getMessage()
+            .contains(
+                "credentialId 'non-existent-credential-id' was specified but no credential found"));
   }
-
 }

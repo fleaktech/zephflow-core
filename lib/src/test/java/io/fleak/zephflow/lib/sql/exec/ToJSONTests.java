@@ -15,39 +15,33 @@ package io.fleak.zephflow.lib.sql.exec;
 
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.TestSQLUtils;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 
 public class ToJSONTests {
 
-    @Test
-    public void testJsonCast() {
-        var row = runSQL("select stringified_json::json as dat from events").toList().get(0);
+  @Test
+  public void testJsonCast() {
+    var row = runSQL("select stringified_json::json as dat from events").toList().get(0);
 
-        System.out.println(row);
-    }
+    System.out.println(row);
+  }
 
-    private static Stream<Row> runSQL(String sql) {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+  private static Stream<Row> runSQL(String sql) {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-        //{
-        //  "stringified_json": "{\"k\":100}"
-        //}
-        return TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of(
-                                                        "stringified_json", "{\"k\":100}"))))),
-                sql);
-    }
-
+    // {
+    //  "stringified_json": "{\"k\":100}"
+    // }
+    return TestSQLUtils.runSQL(
+        Catalog.fromMap(
+            Map.of(
+                "events",
+                Table.ofListOfMaps(
+                    typeSystem, "events", List.of(Map.of("stringified_json", "{\"k\":100}"))))),
+        sql);
+  }
 }

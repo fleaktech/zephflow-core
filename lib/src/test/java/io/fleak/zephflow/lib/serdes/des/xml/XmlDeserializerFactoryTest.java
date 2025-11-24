@@ -42,7 +42,8 @@ class XmlDeserializerFactoryTest {
     List<RecordFleakData> actual = deser.deserialize(new SerializedEvent(null, raw, null));
     var expected =
         fromJsonResource(
-            "/serdes/unittest_xml_expected_output.json", new TypeReference<Map<String, Object>>() {});
+            "/serdes/unittest_xml_expected_output.json",
+            new TypeReference<Map<String, Object>>() {});
     assertEquals(1, actual.size());
     assertEquals(expected, actual.get(0).unwrap());
   }

@@ -202,7 +202,7 @@ class KvPairsExtractionRuleTest {
   void extract() throws IOException {
 
     String raw =
-"""
+        """
 date=2025-07-25 time=07:43:43 devname="FortiGate-40F-SVA" devid="FGT40FTK2409BDPZ" eventtime=1753454623318460180 tz="-0700" logid="0001000014" type="traffic" subtype="local" level="notice" vd="root" srcip=fe80::2a70:4eff:fe71:34f1 srcport=5353 srcintf="wan" srcintfrole="wan" dstip=ff02::fb dstport=5353 dstintf="root" dstintfrole="undefined" sessionid=99717 proto=17 action="deny" policyid=0 policytype="local-in-policy6" service="udp/5353" trandisp="noop" app="udp/5353" duration=0 sentbyte=0 rcvdbyte=0 sentpkt=0 rcvdpkt=0 appcat="unscanned\"""";
 
     ParserConfigs.ParserConfig parserConfig =

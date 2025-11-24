@@ -118,7 +118,7 @@ public class ZephFlowParserNodeTest {
     assertEquals(1, objects.size());
 
     var parsedStr =
-"""
+        """
   {
     "level": "6",
     "message_number": "305011",

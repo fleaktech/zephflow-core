@@ -20,65 +20,66 @@ import org.junit.jupiter.api.Test;
 
 public class QueryASTRulesTest {
 
-    @Test
-    public void testJoinLateralInSelect() {
-        var listener = ParserHelper.selectStatementToAST("SELECT json_array_elements(articles) ->> 'text' AS \"text\" FROM event;");
-        var queryAst = QueryASTRules.apply(listener.getInnerQuery());
-        Assertions.assertTrue(queryAst.getLateralFroms().size() == 1);
-        Assertions.assertTrue(queryAst.getLateralFroms().get(0).getAliasOrName().equals("rel_1"));
-        var cols = queryAst.getColumns();
-        var col = cols.iterator().next();
-        Assertions.assertTrue(col instanceof QueryAST.FuncCall);
-        var fnCall = (QueryAST.FuncCall) col;
-        Assertions.assertTrue(fnCall.getArgs().size() == 2);
-        Assertions.assertEquals(fnCall.getAlias(), "text");
-        var argTwo= fnCall.getArgs().get(1);
-        Assertions.assertTrue(argTwo instanceof QueryAST.SimpleColumn);
-        var col2 = (QueryAST.SimpleColumn)argTwo;
-        Assertions.assertEquals(col2.getRelName(), "rel_1");
-        Assertions.assertEquals(col2.getName(), "col_1");
+  @Test
+  public void testJoinLateralInSelect() {
+    var listener =
+        ParserHelper.selectStatementToAST(
+            "SELECT json_array_elements(articles) ->> 'text' AS \"text\" FROM event;");
+    var queryAst = QueryASTRules.apply(listener.getInnerQuery());
+    Assertions.assertTrue(queryAst.getLateralFroms().size() == 1);
+    Assertions.assertTrue(queryAst.getLateralFroms().get(0).getAliasOrName().equals("rel_1"));
+    var cols = queryAst.getColumns();
+    var col = cols.iterator().next();
+    Assertions.assertTrue(col instanceof QueryAST.FuncCall);
+    var fnCall = (QueryAST.FuncCall) col;
+    Assertions.assertTrue(fnCall.getArgs().size() == 2);
+    Assertions.assertEquals(fnCall.getAlias(), "text");
+    var argTwo = fnCall.getArgs().get(1);
+    Assertions.assertTrue(argTwo instanceof QueryAST.SimpleColumn);
+    var col2 = (QueryAST.SimpleColumn) argTwo;
+    Assertions.assertEquals(col2.getRelName(), "rel_1");
+    Assertions.assertEquals(col2.getName(), "col_1");
+  }
+
+  @Test
+  public void testJoinLateralInFromClause() {
+    var listener =
+        ParserHelper.selectStatementToAST(
+            "SELECT article ->> 'text' AS \"text\" FROM event, json_array_elements(articles) AS article;");
+    var queryAst = QueryASTRules.apply(listener.getInnerQuery());
+    Assertions.assertTrue(queryAst.getLateralFroms().size() == 1);
+    Assertions.assertTrue(queryAst.getLateralFroms().get(0).getAliasOrName().equals("article"));
+    var cols = queryAst.getColumns();
+    var col = cols.iterator().next();
+    Assertions.assertTrue(col instanceof QueryAST.FuncCall);
+    var fnCall = (QueryAST.FuncCall) col;
+    Assertions.assertTrue(fnCall.getArgs().size() == 2);
+    Assertions.assertEquals(fnCall.getAlias(), "text");
+    var argTwo = fnCall.getArgs().get(1);
+    Assertions.assertTrue(argTwo instanceof QueryAST.SimpleColumn);
+    var col2 = (QueryAST.SimpleColumn) argTwo;
+    Assertions.assertEquals(col2.getRelName(), "article");
+    Assertions.assertEquals(col2.getName(), "article");
+  }
+
+  @Test
+  public void testRenameRules() {
+    var testResources = TestResources.getSqlAsAstQueries();
+    var queries = testResources.get("queries");
+    for (var query : queries) {
+      System.out.println(query);
+      var listener = ParserHelper.selectStatementToAST(query);
+
+      var queryAst = QueryASTRules.apply(listener.getInnerQuery());
+
+      queryAst.walk(
+          datum -> {
+            if (datum instanceof QueryAST.SimpleColumn) {
+              var relName = ((QueryAST.SimpleColumn) datum).getRelName();
+              Assertions.assertFalse(
+                  Strings.isNullOrEmpty(relName), "Rel name cannot be null for " + datum);
+            }
+          });
     }
-
-    @Test
-    public void testJoinLateralInFromClause() {
-        var listener = ParserHelper.selectStatementToAST("SELECT article ->> 'text' AS \"text\" FROM event, json_array_elements(articles) AS article;");
-        var queryAst = QueryASTRules.apply(listener.getInnerQuery());
-        Assertions.assertTrue(queryAst.getLateralFroms().size() == 1);
-        Assertions.assertTrue(queryAst.getLateralFroms().get(0).getAliasOrName().equals("article"));
-        var cols = queryAst.getColumns();
-        var col = cols.iterator().next();
-        Assertions.assertTrue(col instanceof QueryAST.FuncCall);
-        var fnCall = (QueryAST.FuncCall) col;
-        Assertions.assertTrue(fnCall.getArgs().size() == 2);
-        Assertions.assertEquals(fnCall.getAlias(), "text");
-        var argTwo= fnCall.getArgs().get(1);
-        Assertions.assertTrue(argTwo instanceof QueryAST.SimpleColumn);
-        var col2 = (QueryAST.SimpleColumn)argTwo;
-        Assertions.assertEquals(col2.getRelName(), "article");
-        Assertions.assertEquals(col2.getName(), "article");
-    }
-
-    @Test
-    public void testRenameRules() {
-        var testResources = TestResources.getSqlAsAstQueries();
-        var queries = testResources.get("queries");
-        for (var query : queries) {
-            System.out.println(query);
-            var listener = ParserHelper.selectStatementToAST(query);
-
-            var queryAst = QueryASTRules.apply(listener.getInnerQuery());
-
-            queryAst.walk(datum -> {
-                if (datum instanceof QueryAST.SimpleColumn) {
-                    var relName = ((QueryAST.SimpleColumn) datum).getRelName();
-                    Assertions.assertFalse(
-                            Strings.isNullOrEmpty(relName),
-                            "Rel name cannot be null for " + datum
-                    );
-                }
-            });
-
-        }
-    }
-
+  }
 }

@@ -54,9 +54,9 @@ class SimpleSourceCommandCommitTest {
     System.out.println("Starting testPerRecordCommitStrategy");
     TestSourceCommand command = new TestSourceCommand();
     List<SerializedEvent> testData = createTestData(5);
-    
+
     command.testProcessFetchedData(testData, PerRecordCommitStrategy.INSTANCE);
-    
+
     // Should commit after each record (5 commits)
     System.out.println("Expected: 5 commits, Actual: " + commitCount.get());
     assertEquals(5, commitCount.get(), "Per-record strategy should commit after each record");
@@ -67,12 +67,13 @@ class SimpleSourceCommandCommitTest {
     System.out.println("Starting testBatchCommitStrategy");
     TestSourceCommand command = new TestSourceCommand();
     List<SerializedEvent> testData = createTestData(7);
-    
+
     command.testProcessFetchedData(testData, BatchCommitStrategy.ofBatchSize(3));
-    
+
     // Should commit after 3 records, then after 3 more records, then final commit for remaining 1
     System.out.println("Expected: 3 commits, Actual: " + commitCount.get());
-    assertEquals(3, commitCount.get(), "Batch strategy should commit every 3 records plus final commit");
+    assertEquals(
+        3, commitCount.get(), "Batch strategy should commit every 3 records plus final commit");
   }
 
   @Test
@@ -80,9 +81,9 @@ class SimpleSourceCommandCommitTest {
     System.out.println("Starting testNoCommitStrategy");
     TestSourceCommand command = new TestSourceCommand();
     List<SerializedEvent> testData = createTestData(5);
-    
+
     command.testProcessFetchedData(testData, NoCommitStrategy.INSTANCE);
-    
+
     // Should never commit
     System.out.println("Expected: 0 commits, Actual: " + commitCount.get());
     assertEquals(0, commitCount.get(), "No-commit strategy should never commit");
@@ -118,39 +119,36 @@ class SimpleSourceCommandCommitTest {
         JobContext jobContext,
         CommandConfig commandConfig,
         String nodeId) {
-      return new SourceExecutionContext<>(
-          null,
-          converter,
-          encoder,
-          null,
-          null,
-          null,
-          dlqWriter);
+      return new SourceExecutionContext<>(null, converter, encoder, null, null, null, dlqWriter);
     }
 
-    public void testProcessFetchedData(List<SerializedEvent> testData, CommitStrategy strategy) throws Exception {
+    public void testProcessFetchedData(List<SerializedEvent> testData, CommitStrategy strategy)
+        throws Exception {
       // Mock converter to return successful results
-      when(converter.convert(any(), any())).thenAnswer(invocation -> {
-        SerializedEvent event = invocation.getArgument(0);
-        return ConvertedResult.success(Arrays.asList(mock(RecordFleakData.class)), event);
-      });
+      when(converter.convert(any(), any()))
+          .thenAnswer(
+              invocation -> {
+                SerializedEvent event = invocation.getArgument(0);
+                return ConvertedResult.success(Arrays.asList(mock(RecordFleakData.class)), event);
+              });
 
-      List<ConvertedResult<SerializedEvent>> convertedResults = testData.stream()
-          .map(data -> converter.convert(data, null))
-          .toList();
+      List<ConvertedResult<SerializedEvent>> convertedResults =
+          testData.stream().map(data -> converter.convert(data, null)).toList();
 
       // Use reflection to call the private processFetchedData method
-      Method method = SimpleSourceCommand.class.getDeclaredMethod(
-          "processFetchedData", 
-          List.class, 
-          SourceEventAcceptor.class, 
-          Fetcher.Committer.class, 
-          DlqWriter.class, 
-          RawDataEncoder.class, 
-          CommitStrategy.class);
+      Method method =
+          SimpleSourceCommand.class.getDeclaredMethod(
+              "processFetchedData",
+              List.class,
+              SourceEventAcceptor.class,
+              Fetcher.Committer.class,
+              DlqWriter.class,
+              RawDataEncoder.class,
+              CommitStrategy.class);
       method.setAccessible(true);
-      
-      method.invoke(this, convertedResults, sourceEventAcceptor, mockCommitter, dlqWriter, encoder, strategy);
+
+      method.invoke(
+          this, convertedResults, sourceEventAcceptor, mockCommitter, dlqWriter, encoder, strategy);
     }
   }
 }

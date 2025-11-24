@@ -223,7 +223,8 @@ class NoSourceDagRunnerTest {
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
 
       // Verify command processing
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
+      verify(mockScalarCmd1)
+          .process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockSinkCmd)
           .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), any(ExecutionContext.class));
       assertEquals(
@@ -286,7 +287,8 @@ class NoSourceDagRunnerTest {
 
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
 
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
+      verify(mockScalarCmd1)
+          .process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockScalarCmd2)
           .process(eventListCaptor.capture(), eq(CALLING_USER), any(ExecutionContext.class));
       assertEquals(inputEvents.size(), eventListCaptor.getValue().size());
@@ -341,8 +343,10 @@ class NoSourceDagRunnerTest {
 
       DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
 
-      verify(mockScalarCmd1).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
-      verify(mockScalarCmd2).process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
+      verify(mockScalarCmd1)
+          .process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
+      verify(mockScalarCmd2)
+          .process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class));
       verify(mockSinkCmd, times(2))
           .writeToSink(eventListCaptor.capture(), eq(CALLING_USER), any(ExecutionContext.class));
       assertEquals(inputEvents.size(), eventListCaptor.getAllValues().get(0).size());

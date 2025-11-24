@@ -15,51 +15,45 @@ package io.fleak.zephflow.lib.sql.exec;
 
 import io.fleak.zephflow.lib.sql.SQLInterpreter;
 import io.fleak.zephflow.lib.sql.TestSQLUtils;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class NoFromClauseTests {
 
-    @Test
-    public void expressionsAndNoFromClause() {
+  @Test
+  public void expressionsAndNoFromClause() {
 
-        var rows = TestSQLUtils.runSQL(Catalog.fromMap(Map.of()), "select 1+1, 2*3 as b;").toList();
+    var rows = TestSQLUtils.runSQL(Catalog.fromMap(Map.of()), "select 1+1, 2*3 as b;").toList();
 
-        Assertions.assertFalse(rows.isEmpty());
+    Assertions.assertFalse(rows.isEmpty());
 
-        var row = rows.get(0);
-        var rowMap = row.asMap();
+    var row = rows.get(0);
+    var rowMap = row.asMap();
 
-        Assertions.assertEquals(2L,rowMap.get("col_1"));
-        Assertions.assertEquals(6L,rowMap.get("b"));
-    }
+    Assertions.assertEquals(2L, rowMap.get("col_1"));
+    Assertions.assertEquals(6L, rowMap.get("b"));
+  }
 
-    @Test
-    public void constantNoFromClause() {
-        var rows = TestSQLUtils.runSQL(Catalog.fromMap(Map.of()), "select 1;").toList();
-        Assertions.assertFalse(rows.isEmpty());
-        var row = rows.get(0);
-    }
+  @Test
+  public void constantNoFromClause() {
+    var rows = TestSQLUtils.runSQL(Catalog.fromMap(Map.of()), "select 1;").toList();
+    Assertions.assertFalse(rows.isEmpty());
+    var row = rows.get(0);
+  }
 
-    private static Stream<Row> runSQL(String sql) {
-        var sqlInterpreter = SQLInterpreter.defaultInterpreter();
-        var typeSystem = sqlInterpreter.getTypeSystem();
+  private static Stream<Row> runSQL(String sql) {
+    var sqlInterpreter = SQLInterpreter.defaultInterpreter();
+    var typeSystem = sqlInterpreter.getTypeSystem();
 
-        return TestSQLUtils.runSQL(
-                Catalog.fromMap(
-                        Map.of(
-                                "events",
-                                Table.ofListOfMaps(
-                                        typeSystem,
-                                        "events",
-                                        List.of(
-                                                Map.of("name", "abc", "age", 30)
-                                        )))),
-                sql);
-    }
-
+    return TestSQLUtils.runSQL(
+        Catalog.fromMap(
+            Map.of(
+                "events",
+                Table.ofListOfMaps(
+                    typeSystem, "events", List.of(Map.of("name", "abc", "age", 30))))),
+        sql);
+  }
 }

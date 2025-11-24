@@ -142,7 +142,7 @@ class DeltaLakeS3IntegrationTest {
     // Step 6: Execute end-to-end write operation (full ZephFlow pipeline)
     ScalarSinkCommand deltaLakeSink = (ScalarSinkCommand) sinkCommand;
     deltaLakeSink.initialize(metricProvider);
-      var context = deltaLakeSink.getExecutionContext();
+    var context = deltaLakeSink.getExecutionContext();
     SinkResult result = deltaLakeSink.writeToSink(testEvents, "test-user", context);
 
     // Step 7: Verify successful end-to-end behavior
