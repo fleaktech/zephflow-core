@@ -69,13 +69,6 @@ allprojects {
 jreleaser {
   gitRootSearch = false
 
-  release {
-    github {
-      skipRelease = true
-      overwrite = true
-    }
-  }
-
   signing {
     active = 'ALWAYS'
     armored = true
