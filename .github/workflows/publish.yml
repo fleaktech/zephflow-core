@@ -44,8 +44,9 @@ jobs:
       - name: Test Report
         uses: dorny/test-reporter@v1
         if: success() || failure()
+        timeout-minutes: 10
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
+          NODE_OPTIONS: --max-old-space-size=16384
         with:
           name: JUnit Tests
           path: '**/build/test-results/test/TEST-*.xml'
