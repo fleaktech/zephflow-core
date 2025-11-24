@@ -70,6 +70,11 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
+      # Disable Git commit signing to avoid JGit GpgObjectSigner dependency issue
+      - name: Disable Git commit signing
+        if: github.event_name == 'release'
+        run: git config --global commit.gpgsign false
+
       # Build SDK fat jar for releases
       - name: Build SDK fat jar
         if: github.event_name == 'release'
