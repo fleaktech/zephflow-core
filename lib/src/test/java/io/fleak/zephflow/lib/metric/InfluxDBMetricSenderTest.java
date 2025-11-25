@@ -117,6 +117,7 @@ class InfluxDBMetricSenderTest {
   void close_ClosesInfluxDBClient() {
     influxDBMetricSender.close();
 
+    verify(mockInfluxDB, times(1)).disableBatch();
     verify(mockInfluxDB, times(1)).close();
   }
 
@@ -129,6 +130,7 @@ class InfluxDBMetricSenderTest {
           influxDBMetricSender.close();
         });
 
+    verify(mockInfluxDB, times(1)).disableBatch();
     verify(mockInfluxDB, times(1)).close();
   }
 }

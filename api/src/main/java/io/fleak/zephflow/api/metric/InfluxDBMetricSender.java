@@ -154,6 +154,9 @@ public class InfluxDBMetricSender implements AutoCloseable {
   public void close() {
     try {
       if (influxDB != null) {
+        influxDB.disableBatch();
+        log.debug("InfluxDB batch mode disabled");
+
         influxDB.close();
         log.debug("InfluxDB client closed");
       }
