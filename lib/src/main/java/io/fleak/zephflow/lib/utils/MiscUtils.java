@@ -21,6 +21,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
+import io.fleak.zephflow.lib.credentials.DatabricksCredential;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.File;
@@ -87,6 +88,7 @@ public interface MiscUtils {
 
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";
   String COMMAND_NAME_DELTA_LAKE_SINK = "deltalakesink";
+  String COMMAND_NAME_DATABRICKS_SINK = "databrickssink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";
@@ -364,6 +366,29 @@ public interface MiscUtils {
     } catch (Exception e) {
       throw new RuntimeException(
           "failed to load GCP credential for credentialId: " + credentialId, e);
+    }
+  }
+
+  /** Helper method to look up DatabricksCredential from JobContext */
+  static Optional<DatabricksCredential> lookupDatabricksCredentialOpt(
+      JobContext jobContext, String credentialId) {
+    try {
+      var credential = lookupDatabricksCredential(jobContext, credentialId);
+      return Optional.of(credential);
+    } catch (Exception e) {
+      return Optional.empty();
+    }
+  }
+
+  static DatabricksCredential lookupDatabricksCredential(
+      JobContext jobContext, String credentialId) {
+    Preconditions.checkNotNull(credentialId, "credentialId not provided");
+    try {
+      return lookupFromMapOrThrow(
+          jobContext.getOtherProperties(), credentialId, DatabricksCredential.class);
+    } catch (Exception e) {
+      throw new RuntimeException(
+          "failed to load Databricks credential for credentialId: " + credentialId, e);
     }
   }
 

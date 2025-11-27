@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
@@ -58,5 +59,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
           .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
           .put(COMMAND_NAME_READER_SOURCE, new ReaderCommandFactory())
+          .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .build();
 }

@@ -36,14 +36,7 @@ public class KafkaSourceConnectionFailureTest {
 
     consumerProps.put("bootstrap.servers", "localhost:9091");
     var exception = new AtomicReference<Exception>();
-    var monitor =
-        consumerFactory.createAndStartHealthMonitor(
-            consumerProps,
-            500,
-            (e) -> {
-              System.out.println("Expected monitor exception: " + e);
-              exception.set(e);
-            });
+    var monitor = consumerFactory.createAndStartHealthMonitor(consumerProps, 500, exception::set);
     try {
       Thread.sleep(3000);
       assertNotNull(exception.get());
