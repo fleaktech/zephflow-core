@@ -7,6 +7,9 @@
     </Appenders>
 
     <Loggers>
+        <Logger name="org.apache.kafka.clients.admin" level="WARN" additivity="false">
+            <AppenderRef ref="Console" />
+        </Logger>
         <Root level="info">
             <AppenderRef ref="Console" />
         </Root>
