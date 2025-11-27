@@ -28,6 +28,7 @@ graalvm = "25.0.1"
 influxdb = "2.23"
 clickhouse = "0.9.4"
 hadoop = "3.4.0"
+databricksSdk = "0.71.0"
 deltaKernel = "4.0.0"
 netty = "4.1.122.Final"
 splunk = "1.9.5"
@@ -91,6 +92,8 @@ graalvm-polyglot-python = { module = "org.graalvm.polyglot:python", version.ref 
 hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "hadoop" }
 hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "hadoop" }
 hadoop-aws = { module = "org.apache.hadoop:hadoop-aws", version.ref = "hadoop" }
+
+databricks-sdk = { module = "com.databricks:databricks-sdk-java", version.ref = "databricksSdk" }
 
 delta-kernel-api = { module = "io.delta:delta-kernel-api", version.ref = "deltaKernel" }
 delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref = "deltaKernel" }

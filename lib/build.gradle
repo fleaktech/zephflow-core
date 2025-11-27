@@ -36,6 +36,8 @@ dependencies {
   implementation libs.delta.kernel.api
   implementation libs.delta.kernel.defaults
 
+  implementation libs.databricks.sdk
+
   implementation libs.splunk
 
   testImplementation libs.jackson.dataformat.yaml
