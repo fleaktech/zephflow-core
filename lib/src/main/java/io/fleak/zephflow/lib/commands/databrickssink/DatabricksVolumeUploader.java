@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.databrickssink;
 
 import com.databricks.sdk.WorkspaceClient;
+import com.databricks.sdk.service.files.DirectoryEntry;
 import com.databricks.sdk.service.files.UploadRequest;
 import java.io.*;
 import java.nio.file.Files;
@@ -23,18 +24,40 @@ import lombok.extern.slf4j.Slf4j;
 public record DatabricksVolumeUploader(WorkspaceClient workspaceClient) {
 
   public void uploadFile(File file, String remotePath) throws IOException {
-    log.debug("Uploading {} to {}", file.getName(), remotePath);
+    log.info("Uploading {} ({} bytes) to {}", file.getName(), file.length(), remotePath);
 
     try (InputStream inputStream = Files.newInputStream(file.toPath())) {
-      UploadRequest request = new UploadRequest().setFilePath(remotePath).setContents(inputStream);
+      UploadRequest request =
+          new UploadRequest().setFilePath(remotePath).setContents(inputStream).setOverwrite(true);
       workspaceClient.files().upload(request);
-      log.info("Uploaded {} ({} bytes) to {}", file.getName(), file.length(), remotePath);
+      log.info("Upload completed for {}", file.getName());
+    } catch (Exception e) {
+      log.error(
+          "Upload failed for {} to {}: {} - {}",
+          file.getName(),
+          remotePath,
+          e.getClass().getName(),
+          e.getMessage(),
+          e);
+      if (e instanceof IOException) {
+        throw (IOException) e;
+      }
+      throw new IOException("Upload failed: " + e.getMessage(), e);
     }
   }
 
   public void deleteDirectory(String directoryPath) {
     log.debug("Deleting directory: {}", directoryPath);
     try {
+      // Delete all files in the directory first
+      for (DirectoryEntry entry : workspaceClient.files().listDirectoryContents(directoryPath)) {
+        if (entry.getIsDirectory()) {
+          deleteDirectory(entry.getPath());
+        } else {
+          workspaceClient.files().delete(entry.getPath());
+          log.debug("Deleted file: {}", entry.getPath());
+        }
+      }
       workspaceClient.files().deleteDirectory(directoryPath);
       log.info("Deleted directory: {}", directoryPath);
     } catch (Exception e) {

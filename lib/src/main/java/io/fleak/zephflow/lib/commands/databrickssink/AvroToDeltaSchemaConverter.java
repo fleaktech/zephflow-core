@@ -75,7 +75,7 @@ public class AvroToDeltaSchemaConverter {
       case FLOAT -> FloatType.FLOAT;
       case DOUBLE -> DoubleType.DOUBLE;
       case BOOLEAN -> BooleanType.BOOLEAN;
-      case BYTES -> {
+      case BYTES, FIXED -> {
         String logicalType = getLogicalType(effectiveSchema);
         if ("decimal".equals(logicalType)) {
           int precision =
@@ -108,21 +108,6 @@ public class AvroToDeltaSchemaConverter {
           fields.add(new StructField(field.name(), fieldType, fieldNullable));
         }
         yield new StructType(fields);
-      }
-      case FIXED -> {
-        String logicalType = getLogicalType(effectiveSchema);
-        if ("decimal".equals(logicalType)) {
-          int precision =
-              effectiveSchema.getObjectProp("precision") != null
-                  ? ((Number) effectiveSchema.getObjectProp("precision")).intValue()
-                  : 38;
-          int scale =
-              effectiveSchema.getObjectProp("scale") != null
-                  ? ((Number) effectiveSchema.getObjectProp("scale")).intValue()
-                  : 0;
-          yield new DecimalType(precision, scale);
-        }
-        yield BinaryType.BINARY;
       }
       case UNION ->
           throw new IllegalArgumentException(

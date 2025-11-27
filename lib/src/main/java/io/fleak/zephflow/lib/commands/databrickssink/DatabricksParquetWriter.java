@@ -22,6 +22,7 @@ import io.delta.kernel.utils.DataFileStatus;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
@@ -57,7 +58,12 @@ public class DatabricksParquetWriter {
 
         while (fileStatusIter.hasNext()) {
           DataFileStatus fileStatus = fileStatusIter.next();
-          File file = new File(fileStatus.getPath());
+          String path = fileStatus.getPath();
+          // Delta Kernel returns paths in file:// URI format, convert to filesystem path
+          if (path.startsWith("file:")) {
+            path = URI.create(path).getPath();
+          }
+          File file = new File(path);
           generatedFiles.add(file);
           log.debug("Generated Parquet file: {} ({} bytes)", file.getName(), fileStatus.getSize());
         }

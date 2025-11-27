@@ -33,7 +33,7 @@ public class DatabricksSinkDto {
 
     @Builder.Default private int batchSize = 10000;
 
-    @Builder.Default private long flushIntervalMillis = 60000;
+    @Builder.Default private long flushIntervalMillis = 30_000;
 
     @Builder.Default private boolean cleanupAfterCopy = true;
 

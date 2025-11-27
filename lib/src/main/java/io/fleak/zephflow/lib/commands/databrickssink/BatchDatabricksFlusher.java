@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.databrickssink;
 
 import com.databricks.sdk.WorkspaceClient;
+import com.google.common.annotations.VisibleForTesting;
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -81,6 +82,27 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
         "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms",
         config.getBatchSize(),
         config.getFlushIntervalMillis());
+  }
+
+  // Package-private constructor for testing with injected dependencies
+  @VisibleForTesting
+  BatchDatabricksFlusher(
+      DatabricksSinkDto.Config config,
+      DatabricksParquetWriter parquetWriter,
+      DatabricksVolumeUploader volumeUploader,
+      DatabricksSqlExecutor sqlExecutor,
+      Path tempDirectory,
+      DlqWriter dlqWriter,
+      StructType schema,
+      ScheduledFuture<?> scheduledFuture) {
+    this.config = config;
+    this.parquetWriter = parquetWriter;
+    this.volumeUploader = volumeUploader;
+    this.sqlExecutor = sqlExecutor;
+    this.tempDirectory = tempDirectory;
+    this.dlqWriter = dlqWriter;
+    this.schema = schema;
+    this.scheduledFuture = scheduledFuture;
   }
 
   @Override
@@ -261,6 +283,7 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
         if (copyResult.recordsLoaded > 0) {
           log.warn("Partial success: {} records loaded before error", copyResult.recordsLoaded);
         }
+        return createCompleteFailureResult(batch, "COPY INTO failed: " + copyResult.errorMessage);
       }
 
       log.info(
@@ -268,7 +291,7 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
 
     } catch (Exception e) {
       log.error("Critical error during COPY INTO", e);
-      return new SimpleSinkCommand.FlushResult(0, 0, allErrors);
+      return createCompleteFailureResult(batch, "COPY INTO failed: " + e.getMessage());
     } finally {
       cleanupTempFiles(parquetResult.generatedFiles);
       cleanupRemoteBatchDirectory(batchId);
