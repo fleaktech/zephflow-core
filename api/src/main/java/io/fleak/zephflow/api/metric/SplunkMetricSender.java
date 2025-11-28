@@ -15,9 +15,6 @@ package io.fleak.zephflow.api.metric;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.Data;
-import lombok.extern.slf4j.Slf4j;
-
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -29,9 +26,19 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class SplunkMetricSender implements AutoCloseable {
+
+  @Data
+  public static class SplunkConfig {
+    private String hecUrl;
+    private String token;
+    private String source;
+    private String index;
+  }
 
   private static final int BATCH_SIZE = 100;
   private static final int QUEUE_CAPACITY = 10000;
@@ -50,36 +57,7 @@ public class SplunkMetricSender implements AutoCloseable {
   private final AtomicReference<CountDownLatch> flushLatch = new AtomicReference<>();
 
   public SplunkMetricSender(SplunkConfig config) {
-    this.hecUrl = config.getHecUrl();
-    this.token = config.getToken();
-    this.source = config.getSource() != null ? config.getSource() : "zephflow";
-    this.index = config.getIndex();
-    this.httpClient =
-        HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .version(HttpClient.Version.HTTP_1_1)
-            .build();
-    this.objectMapper = configureObjectMapper();
-    this.metricQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-    this.workerExecutor =
-        Executors.newSingleThreadExecutor(
-            r -> {
-              Thread t = new Thread(r, "splunk-metric-sender");
-              t.setDaemon(true);
-              return t;
-            });
-    this.scheduledExecutor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "splunk-metric-flusher");
-              t.setDaemon(true);
-              return t;
-            });
-
-    startBackgroundWorker();
-    startPeriodicFlusher();
-
-    log.info("Splunk Metric Sender initialized with HEC URL: {}", hecUrl);
+    this(config, createDefaultHttpClient());
   }
 
   public SplunkMetricSender(SplunkConfig config, HttpClient httpClient) {
@@ -90,25 +68,160 @@ public class SplunkMetricSender implements AutoCloseable {
     this.httpClient = httpClient;
     this.objectMapper = configureObjectMapper();
     this.metricQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-    this.workerExecutor =
-        Executors.newSingleThreadExecutor(
-            r -> {
-              Thread thread = new Thread(r, "splunk-metric-sender");
-              thread.setDaemon(true);
-              return thread;
-            });
-    this.scheduledExecutor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread thread = new Thread(r, "splunk-metric-flusher");
-              thread.setDaemon(true);
-              return thread;
-            });
+    this.workerExecutor = createWorkerExecutor();
+    this.scheduledExecutor = createScheduledExecutor();
 
     startBackgroundWorker();
     startPeriodicFlusher();
 
     log.info("Splunk Metric Sender initialized with HEC URL: {}", hecUrl);
+  }
+
+  public void sendMetric(
+      String type,
+      String name,
+      Object value,
+      Map<String, String> tags,
+      Map<String, String> additionalTags) {
+    try {
+      Map<String, String> allTags = mergeTags(tags, additionalTags);
+      addEnvironmentTags(allTags);
+
+      String metricName = type + "_" + name;
+      Map<String, Object> event = buildMetricEvent(metricName, value, allTags);
+
+      boolean added = metricQueue.offer(event);
+      if (added) {
+        log.debug(
+            "Enqueued metric: {} = {} (queue size: {})", metricName, value, metricQueue.size());
+      } else {
+        log.warn("Metric queue full, dropping metric: {} = {}", metricName, value);
+      }
+    } catch (Exception e) {
+      log.warn("Error enqueuing metric: {} = {}", name, value, e);
+    }
+  }
+
+  public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags) {
+    sendMetrics(metrics, tags, System.currentTimeMillis());
+  }
+
+  public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags, long timestamp) {
+    if (metrics == null || metrics.isEmpty()) {
+      log.debug("No metrics to send");
+      return;
+    }
+
+    try {
+      Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
+      addEnvironmentTags(allTags);
+
+      for (Map.Entry<String, Object> metric : metrics.entrySet()) {
+        Map<String, Object> event = buildMetricEvent(metric.getKey(), metric.getValue(), allTags);
+        event.put("time", BigDecimal.valueOf(timestamp / 1000.0));
+
+        boolean added = metricQueue.offer(event);
+        if (!added) {
+          log.warn("Metric queue full, dropping metric: {}", metric.getKey());
+        }
+      }
+    } catch (Exception e) {
+      log.warn("Error enqueuing batch metrics", e);
+    }
+  }
+
+  public void flush() {
+    CountDownLatch latch = new CountDownLatch(1);
+    if (flushLatch.compareAndSet(null, latch)) {
+      try {
+        boolean completed = latch.await(5, TimeUnit.SECONDS);
+        if (!completed) {
+          log.warn("Flush timeout - background worker did not complete in time");
+          flushLatch.compareAndSet(latch, null);
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.warn("Flush interrupted", e);
+        flushLatch.compareAndSet(latch, null);
+      }
+    } else {
+      log.debug("Flush already in progress, skipping");
+    }
+  }
+
+  @Override
+  public void close() {
+    log.info("Closing Splunk Metric Sender, {} metrics in queue", metricQueue.size());
+
+    running.set(false);
+
+    scheduledExecutor.shutdown();
+    try {
+      if (!scheduledExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        scheduledExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      scheduledExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+
+    workerExecutor.shutdown();
+    try {
+      if (!workerExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+        log.warn("Worker did not terminate in time, forcing shutdown");
+        workerExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      workerExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+
+    log.info("Splunk Metric Sender closed");
+  }
+
+  private void sendBatchAsync(List<Map<String, Object>> batch) {
+    if (batch.isEmpty()) {
+      return;
+    }
+
+    try {
+      StringBuilder batchPayload = new StringBuilder();
+      for (Map<String, Object> event : batch) {
+        batchPayload.append(toJson(event)).append("\n");
+      }
+
+      String payload = batchPayload.toString();
+      sendBatch(payload);
+
+      log.debug("Sent batch of {} metrics", batch.size());
+    } catch (Exception e) {
+      log.warn("Error sending batch of {} metrics", batch.size(), e);
+    }
+  }
+
+  private static HttpClient createDefaultHttpClient() {
+    return HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .version(HttpClient.Version.HTTP_1_1)
+        .build();
+  }
+
+  private static ExecutorService createWorkerExecutor() {
+    return Executors.newSingleThreadExecutor(
+        runnable -> {
+          Thread thread = new Thread(runnable, "splunk-metric-sender");
+          thread.setDaemon(true);
+          return thread;
+        });
+  }
+
+  private static ScheduledExecutorService createScheduledExecutor() {
+    return Executors.newSingleThreadScheduledExecutor(
+        runnable -> {
+          Thread thread = new Thread(runnable, "splunk-metric-flusher");
+          thread.setDaemon(true);
+          return thread;
+        });
   }
 
   private ObjectMapper configureObjectMapper() {
@@ -138,12 +251,17 @@ public class SplunkMetricSender implements AutoCloseable {
 
               CountDownLatch latch = flushLatch.get();
               if (latch != null) {
-                if (!batch.isEmpty()) {
-                  sendBatchAsync(batch);
-                  batch.clear();
+                try {
+                  if (!batch.isEmpty()) {
+                    sendBatchAsync(batch);
+                    batch.clear();
+                  }
+                  latch.countDown();
+                } catch (Exception e) {
+                  log.error("Flush failed, not signaling completion", e);
+                } finally {
+                  flushLatch.compareAndSet(latch, null);
                 }
-                latch.countDown();
-                flushLatch.compareAndSet(latch, null);
               }
             } catch (InterruptedException e) {
               Thread.currentThread().interrupt();
@@ -186,98 +304,6 @@ public class SplunkMetricSender implements AutoCloseable {
     }
   }
 
-  public void sendMetric(
-      String type,
-      String name,
-      Object value,
-      Map<String, String> tags,
-      Map<String, String> additionalTags) {
-    try {
-      Map<String, String> allTags = mergeTags(tags, additionalTags);
-      addEnvironmentTags(allTags);
-
-      String metricName = type + "_" + name;
-      Map<String, Object> event = buildMetricEvent(metricName, value, allTags);
-
-      boolean added = metricQueue.offer(event);
-      if (added) {
-        log.debug(
-            "Enqueued metric: {} = {} (queue size: {})", metricName, value, metricQueue.size());
-      } else {
-        log.warn("Metric queue full, dropping metric: {} = {}", metricName, value);
-      }
-    } catch (Exception e) {
-      log.warn("Error enqueuing metric: {} = {}", name, value, e);
-    }
-  }
-
-  public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags) {
-    sendMetrics(metrics, tags, System.currentTimeMillis());
-  }
-
-  public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags, long timestamp) {
-    if (metrics == null || metrics.isEmpty()) {
-      log.debug("No metrics to send");
-      return;
-    }
-
-    try {
-      Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
-      addEnvironmentTags(allTags);
-
-      StringBuilder batchPayload = new StringBuilder();
-      for (Map.Entry<String, Object> metric : metrics.entrySet()) {
-        Map<String, Object> event = buildMetricEvent(metric.getKey(), metric.getValue(), allTags);
-        event.put("time", BigDecimal.valueOf(timestamp / 1000.0));
-        batchPayload.append(toJson(event)).append("\n");
-      }
-
-      String payload = batchPayload.toString();
-      sendBatch(payload);
-    } catch (Exception e) {
-      log.warn("Error sending batch metrics", e);
-    }
-  }
-
-  public void flush() {
-    CountDownLatch latch = new CountDownLatch(1);
-    if (flushLatch.compareAndSet(null, latch)) {
-      try {
-        boolean completed = latch.await(5, TimeUnit.SECONDS);
-        if (!completed) {
-          log.warn("Flush timeout - background worker did not complete in time");
-          flushLatch.compareAndSet(latch, null);
-        }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        log.warn("Flush interrupted", e);
-        flushLatch.compareAndSet(latch, null);
-      }
-    } else {
-      log.debug("Flush already in progress, skipping");
-    }
-  }
-
-  private void sendBatchAsync(List<Map<String, Object>> batch) {
-    if (batch.isEmpty()) {
-      return;
-    }
-
-    try {
-      StringBuilder batchPayload = new StringBuilder();
-      for (Map<String, Object> event : batch) {
-        batchPayload.append(toJson(event)).append("\n");
-      }
-
-      String payload = batchPayload.toString();
-      sendBatch(payload);
-
-      log.debug("Sent batch of {} metrics", batch.size());
-    } catch (Exception e) {
-      log.warn("Error sending batch of {} metrics", batch.size(), e);
-    }
-  }
-
   private Map<String, Object> buildMetricEvent(
       String metricName, Object value, Map<String, String> dimensions) {
     Map<String, Object> event = new HashMap<>();
@@ -296,11 +322,6 @@ public class SplunkMetricSender implements AutoCloseable {
 
     event.put("fields", fields);
     return event;
-  }
-
-  private void sendEvent(Map<String, Object> event) throws IOException, InterruptedException {
-    String jsonPayload = toJson(event);
-    sendBatch(jsonPayload);
   }
 
   private void sendBatch(String jsonPayload) throws IOException, InterruptedException {
@@ -346,43 +367,5 @@ public class SplunkMetricSender implements AutoCloseable {
     if (namespace != null && !namespace.isEmpty()) {
       tags.put("namespace", namespace);
     }
-  }
-
-  @Override
-  public void close() {
-    log.info("Closing Splunk Metric Sender, {} metrics in queue", metricQueue.size());
-
-    running.set(false);
-
-    scheduledExecutor.shutdown();
-    try {
-      if (!scheduledExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        scheduledExecutor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      scheduledExecutor.shutdownNow();
-      Thread.currentThread().interrupt();
-    }
-
-    workerExecutor.shutdown();
-    try {
-      if (!workerExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
-        log.warn("Worker did not terminate in time, forcing shutdown");
-        workerExecutor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      workerExecutor.shutdownNow();
-      Thread.currentThread().interrupt();
-    }
-
-    log.info("Splunk Metric Sender closed");
-  }
-
-  @Data
-  public static class SplunkConfig {
-    private String hecUrl;
-    private String token;
-    private String source;
-    private String index;
   }
 }
