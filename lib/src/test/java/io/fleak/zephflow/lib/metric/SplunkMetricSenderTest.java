@@ -63,7 +63,7 @@ class SplunkMetricSenderTest {
     additionalTags.put("tag2", "value2");
 
     splunkMetricSender.sendMetric("counter", "test_metric", 1, tags, additionalTags);
-    splunkMetricSender.flush();
+    splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -77,7 +77,7 @@ class SplunkMetricSenderTest {
     additionalTags.put("tag2", "value2");
 
     splunkMetricSender.sendMetric("gauge", "testmetric", 1.5, tags, additionalTags);
-    splunkMetricSender.flush();
+    splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -89,7 +89,7 @@ class SplunkMetricSenderTest {
     tags.put("tag1", "value1");
 
     splunkMetricSender.sendMetric("status", "testmetric", true, tags, null);
-    splunkMetricSender.flush();
+    splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -101,7 +101,7 @@ class SplunkMetricSenderTest {
     tags.put("tag1", "value1");
 
     splunkMetricSender.sendMetric("info", "test_metric", "test_value", tags, null);
-    splunkMetricSender.flush();
+    splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -110,7 +110,7 @@ class SplunkMetricSenderTest {
   @Test
   void sendMetricWithNullTags() throws IOException, InterruptedException {
     splunkMetricSender.sendMetric("counter", "test_metric", 1, null, null);
-    splunkMetricSender.flush();
+    splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -127,7 +127,7 @@ class SplunkMetricSenderTest {
     assertDoesNotThrow(
         () -> {
           splunkMetricSender.sendMetric("timer", "test_metric", 100, tags, additionalTags);
-          splunkMetricSender.flush();
+          splunkMetricSender.close();
         });
 
     verify(mockHttpClient, times(1))
@@ -145,7 +145,7 @@ class SplunkMetricSenderTest {
     assertDoesNotThrow(
         () -> {
           splunkMetricSender.sendMetric("counter", "test_metric", 1, tags, null);
-          splunkMetricSender.flush();
+          splunkMetricSender.close();
         });
 
     verify(mockHttpClient, times(1))
@@ -242,6 +242,8 @@ class SplunkMetricSenderTest {
       splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
     }
 
+    Thread.sleep(500);
+
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
@@ -254,6 +256,8 @@ class SplunkMetricSenderTest {
     for (int i = 0; i < 250; i++) {
       splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
     }
+
+    Thread.sleep(500);
 
     verify(mockHttpClient, times(2))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -268,10 +272,13 @@ class SplunkMetricSenderTest {
       splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
     }
 
+    Thread.sleep(100);
+
     verify(mockHttpClient, never())
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
 
     splunkMetricSender.flush();
+    Thread.sleep(500);
 
     verify(mockHttpClient, times(1))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
@@ -299,6 +306,7 @@ class SplunkMetricSenderTest {
   @Test
   void flushEmptyBatchDoesNothing() throws IOException, InterruptedException {
     splunkMetricSender.flush();
+    Thread.sleep(100);
 
     verify(mockHttpClient, never())
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
