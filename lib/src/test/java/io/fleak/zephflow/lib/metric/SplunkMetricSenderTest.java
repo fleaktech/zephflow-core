@@ -13,30 +13,28 @@
  */
 package io.fleak.zephflow.lib.metric;
 
-import io.fleak.zephflow.api.metric.SplunkMetricSender;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
 class SplunkMetricSenderTest {
 
-  @Mock
-  private HttpClient mockHttpClient;
+  @Mock private HttpClient mockHttpClient;
 
-  @Mock
-  private HttpResponse<String> mockHttpResponse;
+  @Mock private HttpResponse<String> mockHttpResponse;
 
   private SplunkMetricSender splunkMetricSender;
 
@@ -133,7 +131,8 @@ class SplunkMetricSenderTest {
           splunkMetricSender.close();
         });
 
-    verify(mockHttpClient, times(1))
+    // With retry logic: 1 initial attempt + 3 retries = 4 total attempts
+    verify(mockHttpClient, times(4))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
@@ -227,7 +226,8 @@ class SplunkMetricSenderTest {
           splunkMetricSender.close();
         });
 
-    verify(mockHttpClient, times(1))
+    // With retry logic: 1 initial attempt + 3 retries = 4 total attempts
+    verify(mockHttpClient, times(4))
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
@@ -316,5 +316,96 @@ class SplunkMetricSenderTest {
 
     verify(mockHttpClient, never())
         .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+  }
+
+  @Test
+  void batchTimeBasedAutoFlush() throws IOException, InterruptedException {
+    Map<String, String> tags = new HashMap<>();
+    tags.put("tag1", "value1");
+
+    // Send 30 metrics (less than batch size of 100)
+    for (int i = 0; i < 30; i++) {
+      splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
+    }
+
+    // Should not flush yet
+    Thread.sleep(1000);
+    verify(mockHttpClient, never())
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+
+    // Wait for time-based flush (5 seconds + buffer)
+    Thread.sleep(5000);
+
+    // Should have flushed by now
+    verify(mockHttpClient, times(1))
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+  }
+
+  @Test
+  void retryOnServerError() throws IOException, InterruptedException {
+    // Return 503 three times, then 200
+    when(mockHttpResponse.statusCode()).thenReturn(503, 503, 503, 200);
+    when(mockHttpResponse.body())
+        .thenReturn(
+            "Service Unavailable",
+            "Service Unavailable",
+            "Service Unavailable",
+            "{\"text\":\"Success\",\"code\":0}");
+
+    Map<String, String> tags = new HashMap<>();
+    tags.put("tag1", "value1");
+
+    // Send 100 metrics to trigger immediate batch send (batch size is 100)
+    for (int i = 0; i < 100; i++) {
+      splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
+    }
+
+    // Wait for batch processing and retries to complete
+    Thread.sleep(2000);
+
+    splunkMetricSender.close();
+
+    // Should retry 3 times and succeed on 4th attempt
+    verify(mockHttpClient, times(4))
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+  }
+
+  @Test
+  void noRetryOnClientError() throws IOException, InterruptedException {
+    when(mockHttpResponse.statusCode()).thenReturn(401);
+    when(mockHttpResponse.body()).thenReturn("Unauthorized");
+
+    Map<String, String> tags = new HashMap<>();
+    tags.put("tag1", "value1");
+
+    splunkMetricSender.sendMetric("counter", "test_metric", 1, tags, null);
+    splunkMetricSender.close();
+
+    verify(mockHttpClient, times(1))
+        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+  }
+
+  @Test
+  void droppedMetricsCounter() throws IOException, InterruptedException {
+    when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+        .thenAnswer(
+            invocation -> {
+              Thread.sleep(200); // Delay each HTTP call
+              return mockHttpResponse;
+            });
+
+    Map<String, String> tags = new HashMap<>();
+    tags.put("tag1", "value1");
+
+    for (int i = 0; i < 1200; i++) {
+      splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
+    }
+
+    long droppedCount = splunkMetricSender.getDroppedMetricsCount();
+    assertTrue(
+        droppedCount > 0,
+        "Expected that some metrics ware dropped, but was dropped " + droppedCount);
+
+    splunkMetricSender.close();
   }
 }
