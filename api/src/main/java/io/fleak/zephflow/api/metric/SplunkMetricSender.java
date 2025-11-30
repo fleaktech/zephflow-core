@@ -15,6 +15,9 @@ package io.fleak.zephflow.api.metric;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
+
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -28,8 +31,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import lombok.Data;
-import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class SplunkMetricSender implements AutoCloseable {
