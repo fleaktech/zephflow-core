@@ -28,29 +28,36 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
+import lombok.Builder;
 import lombok.Data;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class SplunkMetricSender implements AutoCloseable {
+public final class SplunkMetricSender implements AutoCloseable {
 
-  @Data
+  private static final Pattern UNSAFE_CHARS = Pattern.compile("[^a-zA-Z0-9_\\-.:]+");
+  private static final Pattern LEADING_TRAILING_UNDERSCORES = Pattern.compile("^_+|_+$");
+
+  @Builder
+  @Value
   public static class SplunkConfig {
-    private String hecUrl;
-    private String token;
-    private String source;
-    private String index;
+    String hecUrl;
+    String token;
+    String source;
+    String index;
 
-    private int batchSize = 100;
-    private int queueCapacity = 1000;
-    private long flushIntervalSeconds = 5;
-    private int maxRetries = 3;
-    private long initialRetryDelayMs = 100;
-    private long maxRetryDelayMs = 30000;
-    private int httpConnectTimeoutSeconds = 10;
-    private int httpRequestTimeoutSeconds = 30;
-    private int shutdownTimeoutSeconds = 10;
-    private int flushTimeoutSeconds = 5;
+    int batchSize = 100;
+    int queueCapacity = 1000;
+    long flushIntervalSeconds = 5;
+    int maxRetries = 3;
+    long initialRetryDelayMs = 100;
+    long maxRetryDelayMs = 30000;
+    int httpConnectTimeoutSeconds = 10;
+    int httpRequestTimeoutSeconds = 30;
+    int shutdownTimeoutSeconds = 10;
+    int flushTimeoutSeconds = 5;
   }
 
   @Data
@@ -83,6 +90,7 @@ public class SplunkMetricSender implements AutoCloseable {
   private final ObjectMapper objectMapper;
   private final LinkedBlockingQueue<Map<String, Object>> metricQueue;
   private final ExecutorService workerExecutor;
+  private final Map<String, String> environmentTags;
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicReference<CountDownLatch> flushLatch = new AtomicReference<>();
@@ -120,6 +128,7 @@ public class SplunkMetricSender implements AutoCloseable {
     this.objectMapper = configureObjectMapper();
     this.metricQueue = new LinkedBlockingQueue<>(queueCapacity);
     this.workerExecutor = createWorkerExecutor();
+    this.environmentTags = getEnvironmentTags();
 
     try {
       log.info(
@@ -150,7 +159,7 @@ public class SplunkMetricSender implements AutoCloseable {
     }
     try {
       Map<String, String> allTags = mergeTags(tags, additionalTags);
-      addEnvironmentTags(allTags);
+      allTags.putAll(environmentTags);
 
       String metricName = sanitizeMetricName(type + "_" + name);
       Map<String, Object> event = buildMetricEvent(metricName, value, allTags);
@@ -192,7 +201,7 @@ public class SplunkMetricSender implements AutoCloseable {
 
     try {
       Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
-      addEnvironmentTags(allTags);
+      allTags.putAll(environmentTags);
 
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
         String sanitizedName = sanitizeMetricName(metric.getKey());
@@ -284,8 +293,9 @@ public class SplunkMetricSender implements AutoCloseable {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         log.warn("Flush interrupted", e);
-        flushLatch.compareAndSet(latch, null);
         return false;
+      } finally {
+        flushLatch.compareAndSet(latch, null);
       }
     } else {
       log.debug("Flush already in progress, skipping");
@@ -394,9 +404,8 @@ public class SplunkMetricSender implements AutoCloseable {
       return "unknown";
     }
 
-    String sanitized = metricName.replaceAll("[^a-zA-Z0-9_\\-.:]+", "_");
-
-    sanitized = sanitized.replaceAll("^_+|_+$", "");
+    String sanitized = UNSAFE_CHARS.matcher(metricName).replaceAll("_");
+    sanitized = LEADING_TRAILING_UNDERSCORES.matcher(sanitized).replaceAll("");
 
     if (sanitized.isEmpty()) {
       log.warn("Metric name '{}' became empty after sanitization, using 'invalid'", metricName);
@@ -488,7 +497,7 @@ public class SplunkMetricSender implements AutoCloseable {
                 } catch (Exception e) {
                   log.error("Flush failed", e);
                 } finally {
-                  latch.countDown(); // Always signal completion, even on failure
+                  latch.countDown();
                   flushLatch.compareAndSet(latch, null);
                 }
                 continue;
@@ -628,7 +637,8 @@ public class SplunkMetricSender implements AutoCloseable {
     return merged;
   }
 
-  private void addEnvironmentTags(Map<String, String> tags) {
+  private Map<String, String> getEnvironmentTags() {
+    Map<String, String> tags = new HashMap<>();
     String podName = System.getenv("HOSTNAME");
     String namespace = System.getenv("POD_NAMESPACE");
 
@@ -638,5 +648,6 @@ public class SplunkMetricSender implements AutoCloseable {
     if (namespace != null && !namespace.isEmpty()) {
       tags.put("namespace", namespace);
     }
+    return tags;
   }
 }

@@ -47,13 +47,14 @@ class SplunkMetricSenderTest {
     when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenReturn(mockHttpResponse);
 
-    SplunkMetricSender.SplunkConfig config = new SplunkMetricSender.SplunkConfig();
-    config.setHecUrl("http://localhost:8088/services/collector");
-    config.setToken("test-token");
-    config.setSource("test-source");
-    config.setIndex("test-index");
+    SplunkMetricSender.SplunkConfig.SplunkConfigBuilder config =
+        SplunkMetricSender.SplunkConfig.builder();
+    config.hecUrl("http://localhost:8088/services/collector");
+    config.token("test-token");
+    config.source("test-source");
+    config.index("test-index");
 
-    splunkMetricSender = new SplunkMetricSender(config, mockHttpClient);
+    splunkMetricSender = new SplunkMetricSender(config.build(), mockHttpClient);
   }
 
   @Test

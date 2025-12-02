@@ -251,22 +251,23 @@ public class JobCliParser {
     CommandLineParser commandLineParser = new DefaultParser();
     CommandLine commandLine = commandLineParser.parse(CLI_OPTIONS, args);
 
-    SplunkMetricSender.SplunkConfig config = new SplunkMetricSender.SplunkConfig();
+    SplunkMetricSender.SplunkConfig.SplunkConfigBuilder config =
+        SplunkMetricSender.SplunkConfig.builder();
 
     if (commandLine.hasOption("splunk-hec-url")) {
-      config.setHecUrl(commandLine.getOptionValue("splunk-hec-url"));
+      config.hecUrl(commandLine.getOptionValue("splunk-hec-url"));
     }
     if (commandLine.hasOption("splunk-token")) {
-      config.setToken(commandLine.getOptionValue("splunk-token"));
+      config.token(commandLine.getOptionValue("splunk-token"));
     }
     if (commandLine.hasOption("splunk-source")) {
-      config.setSource(commandLine.getOptionValue("splunk-source"));
+      config.source(commandLine.getOptionValue("splunk-source"));
     }
     if (commandLine.hasOption("splunk-index")) {
-      config.setIndex(commandLine.getOptionValue("splunk-index"));
+      config.index(commandLine.getOptionValue("splunk-index"));
     }
 
-    return config;
+    return config.build();
   }
 
   @Getter
