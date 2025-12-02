@@ -35,7 +35,7 @@ splunk = "1.9.5"
 springCore = "7.0.1"
 
 nebulaDependencyLock = "16.1.0"
-nebulaMavenPublish = "22.1.0"
+nebulaMavenPublish = "23.0.0"
 nebulaRelease = "21.0.0"
 spotless = "8.1.0"
 versionsPlugin = "0.53.0"
