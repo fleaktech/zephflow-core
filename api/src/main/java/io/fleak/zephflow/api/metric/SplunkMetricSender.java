@@ -15,7 +15,7 @@ package io.fleak.zephflow.api.metric;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
+import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -40,24 +40,25 @@ public final class SplunkMetricSender implements AutoCloseable {
   private static final Pattern UNSAFE_CHARS = Pattern.compile("[^a-zA-Z0-9_\\-.:]+");
   private static final Pattern LEADING_TRAILING_UNDERSCORES = Pattern.compile("^_+|_+$");
 
-  @Builder
   @Value
+  @Builder
   public static class SplunkConfig {
     String hecUrl;
     String token;
     String source;
     String index;
 
-    int batchSize = 100;
-    int queueCapacity = 1000;
-    long flushIntervalSeconds = 5;
-    int maxRetries = 3;
-    long initialRetryDelayMs = 100;
-    long maxRetryDelayMs = 30000;
-    int httpConnectTimeoutSeconds = 10;
-    int httpRequestTimeoutSeconds = 30;
-    int shutdownTimeoutSeconds = 10;
-    int flushTimeoutSeconds = 5;
+    @Builder.Default int batchSize = 100;
+    @Builder.Default int queueCapacity = 10000;
+    @Builder.Default long flushIntervalSeconds = 5;
+    @Builder.Default int maxRetries = 3;
+    @Builder.Default long initialRetryDelayMs = 100;
+    @Builder.Default long maxRetryDelayMs = 30000;
+    @Builder.Default int httpConnectTimeoutSeconds = 10;
+    @Builder.Default int httpRequestTimeoutSeconds = 30;
+    @Builder.Default int shutdownTimeoutSeconds = 10;
+    @Builder.Default int flushTimeoutSeconds = 5;
+    @Builder.Default int maxConcurrentRequests = 5;
   }
 
   @Data
@@ -90,7 +91,11 @@ public final class SplunkMetricSender implements AutoCloseable {
   private final ObjectMapper objectMapper;
   private final LinkedBlockingQueue<Map<String, Object>> metricQueue;
   private final ExecutorService workerExecutor;
+  private final ScheduledExecutorService scheduledExecutor;
   private final Map<String, String> environmentTags;
+  private final ConcurrentHashMap<String, String> sanitizedNameCache;
+  private final Semaphore concurrencyLimiter;
+  private final AtomicLong inFlightRequests = new AtomicLong(0);
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicReference<CountDownLatch> flushLatch = new AtomicReference<>();
@@ -128,21 +133,34 @@ public final class SplunkMetricSender implements AutoCloseable {
     this.objectMapper = configureObjectMapper();
     this.metricQueue = new LinkedBlockingQueue<>(queueCapacity);
     this.workerExecutor = createWorkerExecutor();
+    this.scheduledExecutor =
+        Executors.newScheduledThreadPool(
+            1,
+            runnable -> {
+              Thread thread = new Thread(runnable, "splunk-metric-retry");
+              thread.setDaemon(true);
+              return thread;
+            });
     this.environmentTags = getEnvironmentTags();
+    this.sanitizedNameCache = new ConcurrentHashMap<>();
+    this.concurrencyLimiter = new Semaphore(config.getMaxConcurrentRequests());
 
     try {
       log.info(
-          "Splunk Metric Sender initialized (destination={}, batchSize={}, queueCapacity={}, flushInterval={}s, maxRetries={}, maxRetryDelay={}ms)",
+          "Splunk Metric Sender initialized (destination={}, batchSize={}, queueCapacity={}, flushInterval={}s, " +
+              "maxRetries={}, maxRetryDelay={}ms, maxConcurrentRequests={})",
           maskUrl(hecUrl),
           batchSize,
           queueCapacity,
           flushIntervalSeconds,
           maxRetries,
-          maxRetryDelayMs);
+          maxRetryDelayMs,
+          config.getMaxConcurrentRequests());
 
       startBackgroundWorker();
     } catch (Exception e) {
       workerExecutor.shutdownNow();
+      scheduledExecutor.shutdownNow();
       throw new IllegalStateException("Failed to initialize Splunk Metric Sender", e);
     }
   }
@@ -158,8 +176,18 @@ public final class SplunkMetricSender implements AutoCloseable {
       return false;
     }
     try {
-      Map<String, String> allTags = mergeTags(tags, additionalTags);
+      int capacity =
+          environmentTags.size()
+              + (tags != null ? tags.size() : 0)
+              + (additionalTags != null ? additionalTags.size() : 0);
+      Map<String, String> allTags = new HashMap<>(capacity);
       allTags.putAll(environmentTags);
+      if (tags != null) {
+        allTags.putAll(tags);
+      }
+      if (additionalTags != null) {
+        allTags.putAll(additionalTags);
+      }
 
       String metricName = sanitizeMetricName(type + "_" + name);
       Map<String, Object> event = buildMetricEvent(metricName, value, allTags);
@@ -167,8 +195,10 @@ public final class SplunkMetricSender implements AutoCloseable {
       boolean added = metricQueue.offer(event);
       if (added) {
         metricsEnqueuedCount.incrementAndGet();
-        log.debug(
-            "Enqueued metric: {} = {} (queue size: {})", metricName, value, metricQueue.size());
+        if (log.isDebugEnabled()) {
+          log.debug(
+              "Enqueued metric: {} = {} (queue size: {})", metricName, value, metricQueue.size());
+        }
       } else {
         droppedMetricsCount.incrementAndGet();
         log.warn(
@@ -200,8 +230,12 @@ public final class SplunkMetricSender implements AutoCloseable {
     }
 
     try {
-      Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
+      int capacity = environmentTags.size() + (tags != null ? tags.size() : 0);
+      Map<String, String> allTags = new HashMap<>(capacity);
       allTags.putAll(environmentTags);
+      if (tags != null) {
+        allTags.putAll(tags);
+      }
 
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
         String sanitizedName = sanitizeMetricName(metric.getKey());
@@ -247,21 +281,47 @@ public final class SplunkMetricSender implements AutoCloseable {
     }
 
     log.info(
-        "Closing Splunk Metric Sender, {} metrics in queue, {} total dropped",
+        "Closing Splunk Metric Sender, {} metrics in queue, {} in-flight requests, {} total dropped",
         metricQueue.size(),
+        inFlightRequests.get(),
         droppedMetricsCount.get());
 
     running.set(false);
 
     workerExecutor.shutdown();
+    scheduledExecutor.shutdown();
     try {
       if (!workerExecutor.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS)) {
         log.warn("Worker did not terminate in time, forcing shutdown");
         workerExecutor.shutdownNow();
       }
+      if (!scheduledExecutor.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS)) {
+        log.warn("Scheduled executor did not terminate in time, forcing shutdown");
+        scheduledExecutor.shutdownNow();
+      }
     } catch (InterruptedException e) {
       workerExecutor.shutdownNow();
+      scheduledExecutor.shutdownNow();
       Thread.currentThread().interrupt();
+    }
+
+    long waitStart = System.currentTimeMillis();
+    long maxWaitMs = shutdownTimeoutSeconds * 1000L;
+    while (inFlightRequests.get() > 0) {
+      long elapsed = System.currentTimeMillis() - waitStart;
+      if (elapsed >= maxWaitMs) {
+        log.warn(
+            "Shutdown timeout reached with {} requests still in-flight", inFlightRequests.get());
+        break;
+      }
+      try {
+        log.debug("Waiting for {} in-flight requests to complete...", inFlightRequests.get());
+        Thread.sleep(100);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.warn("Interrupted while waiting for in-flight requests");
+        break;
+      }
     }
 
     MetricStats finalStats = getStats();
@@ -396,6 +456,11 @@ public final class SplunkMetricSender implements AutoCloseable {
           config.getBatchSize(),
           config.getQueueCapacity());
     }
+
+    if (config.getMaxConcurrentRequests() <= 0) {
+      throw new IllegalArgumentException(
+          "Max concurrent requests must be positive, got: " + config.getMaxConcurrentRequests());
+    }
   }
 
   private String sanitizeMetricName(String metricName) {
@@ -404,6 +469,10 @@ public final class SplunkMetricSender implements AutoCloseable {
       return "unknown";
     }
 
+    return sanitizedNameCache.computeIfAbsent(metricName, this::performSanitization);
+  }
+
+  private String performSanitization(String metricName) {
     String sanitized = UNSAFE_CHARS.matcher(metricName).replaceAll("_");
     sanitized = LEADING_TRAILING_UNDERSCORES.matcher(sanitized).replaceAll("");
 
@@ -412,7 +481,7 @@ public final class SplunkMetricSender implements AutoCloseable {
       return "invalid";
     }
 
-    if (!sanitized.equals(metricName)) {
+    if (!sanitized.equals(metricName) && log.isDebugEnabled()) {
       log.debug("Metric name sanitized: '{}' -> '{}'", metricName, sanitized);
     }
 
@@ -430,28 +499,51 @@ public final class SplunkMetricSender implements AutoCloseable {
 
     int batchSize = batch.size();
     try {
-      StringBuilder batchPayload = new StringBuilder();
+      StringWriter stringWriter =
+          new StringWriter(batchSize * 256); // Pre-allocate ~256 bytes per event
       for (Map<String, Object> event : batch) {
-        batchPayload.append(toJson(event)).append("\n");
+        try (JsonGenerator generator = objectMapper.getFactory().createGenerator(stringWriter)) {
+          objectMapper.writeValue(generator, event);
+        }
+        stringWriter.write('\n');
       }
 
-      String payload = batchPayload.toString();
-      sendBatch(payload);
+      String payload = stringWriter.toString();
+      if (!concurrencyLimiter.tryAcquire()) {
+        log.debug("Max concurrent requests reached, waiting for slot...");
+        concurrencyLimiter.acquire();
+      }
 
-      metricsSentCount.addAndGet(batchSize);
-      batchesSentCount.incrementAndGet();
+      inFlightRequests.incrementAndGet();
 
-      log.debug("Sent batch of {} metrics", batchSize);
+      sendBatchAsyncWithRetry(payload, batchSize, 0)
+          .whenComplete(
+              (success, error) -> {
+                inFlightRequests.decrementAndGet();
+                concurrencyLimiter.release();
+
+                if (error != null) {
+                  totalFailuresCount.incrementAndGet();
+                  log.warn("Error sending batch of {} metrics", batchSize, error);
+                } else if (success) {
+                  metricsSentCount.addAndGet(batchSize);
+                  batchesSentCount.incrementAndGet();
+                  log.debug("Sent batch of {} metrics", batchSize);
+                } else {
+                  totalFailuresCount.incrementAndGet();
+                  log.warn("Failed to send batch of {} metrics after retries", batchSize);
+                }
+              });
     } catch (Exception e) {
       totalFailuresCount.incrementAndGet();
-      log.warn("Error sending batch of {} metrics", batchSize, e);
+      log.warn("Error preparing batch of {} metrics", batchSize, e);
     }
   }
 
   private static HttpClient createDefaultHttpClient(SplunkConfig config) {
     return HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(config.getHttpConnectTimeoutSeconds()))
-        .version(HttpClient.Version.HTTP_1_1)
+        .version(HttpClient.Version.HTTP_2)
         .build();
   }
 
@@ -537,14 +629,16 @@ public final class SplunkMetricSender implements AutoCloseable {
 
   private Map<String, Object> buildMetricEvent(
       String metricName, Object value, Map<String, String> dimensions, long timestampMillis) {
-    Map<String, Object> event = new HashMap<>();
+    // Optimize: pre-allocate with known size (4 fields: index, source, time, event, fields)
+    Map<String, Object> event = new HashMap<>(5);
 
     event.put("index", index);
     event.put("source", source);
     event.put("time", BigDecimal.valueOf(timestampMillis / 1000.0));
     event.put("event", "metric");
 
-    Map<String, Object> fields = new HashMap<>();
+    int fieldsCapacity = 1 + (dimensions != null ? dimensions.size() : 0);
+    Map<String, Object> fields = new HashMap<>(fieldsCapacity);
     fields.put("metric_name:" + metricName, value);
 
     if (dimensions != null && !dimensions.isEmpty()) {
@@ -555,11 +649,13 @@ public final class SplunkMetricSender implements AutoCloseable {
     return event;
   }
 
-  private void sendBatch(String jsonPayload) throws IOException, InterruptedException {
+  private CompletableFuture<Boolean> sendBatchAsyncWithRetry(
+      String jsonPayload, int batchSize, int attempt) {
     int payloadSize = jsonPayload.getBytes(StandardCharsets.UTF_8).length;
-    if (payloadSize > 800_000) {
+    if (payloadSize > 800_000 && attempt == 0) {
       log.warn(
-          "Batch payload size {} bytes exceeds 800KB threshold (approaching Splunk 1MB limit). Consider reducing batch size or tag verbosity.",
+          "Batch payload size {} bytes exceeds 800KB threshold (approaching Splunk 1MB limit). " +
+              "Consider reducing batch size or tag verbosity.",
           payloadSize);
     }
 
@@ -572,69 +668,69 @@ public final class SplunkMetricSender implements AutoCloseable {
             .timeout(Duration.ofSeconds(httpRequestTimeoutSeconds))
             .build();
 
-    Exception lastException = null;
-    for (int attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        HttpResponse<String> response =
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        int statusCode = response.statusCode();
-        if (statusCode == 200) {
-          log.debug("Splunk HEC response: {}", response.body());
-          return;
-        } else if (statusCode >= 500) {
-          log.warn(
-              "Splunk HEC returned server error (attempt {}/{}): {} - {}",
-              attempt + 1,
-              maxRetries + 1,
-              statusCode,
-              response.body());
-          lastException = new IOException("Server error: " + statusCode + " - " + response.body());
-        } else {
-          log.warn("Splunk HEC returned client error: {} - {}", statusCode, response.body());
-          return;
-        }
-      } catch (IOException e) {
-        log.warn(
-            "Network error sending to Splunk HEC (attempt {}/{}): {}",
-            attempt + 1,
-            maxRetries + 1,
-            e.getMessage());
-        lastException = e;
-      }
-
-      if (attempt < maxRetries) {
-        totalRetriesCount.incrementAndGet();
-
-        long baseDelayMs = initialRetryDelayMs * (1L << attempt);
-        long cappedBaseDelayMs = Math.min(baseDelayMs, maxRetryDelayMs);
-        long delayMs = ThreadLocalRandom.current().nextLong(cappedBaseDelayMs + 1);
-        log.debug(
-            "Retrying in {} ms (base: {} ms, capped: {} ms)",
-            delayMs,
-            baseDelayMs,
-            cappedBaseDelayMs);
-        Thread.sleep(delayMs);
-      }
-    }
-
-    if (lastException != null) {
-      throw new IOException(
-          "Failed to send batch after " + (maxRetries + 1) + " attempts", lastException);
-    }
+    return httpClient
+        .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+        .handle(
+            (response, error) -> {
+              if (error != null) {
+                // Network error occurred
+                if (attempt < maxRetries) {
+                  log.warn(
+                      "Network error sending to Splunk HEC (attempt {}/{}): {}",
+                      attempt + 1,
+                      maxRetries + 1,
+                      error.getMessage());
+                  totalRetriesCount.incrementAndGet();
+                  return retryWithBackoff(jsonPayload, batchSize, attempt + 1);
+                } else {
+                  log.warn(
+                      "Network error sending to Splunk HEC (final attempt): {}",
+                      error.getMessage());
+                  return CompletableFuture.completedFuture(false);
+                }
+              } else {
+                // Response received
+                int statusCode = response.statusCode();
+                if (statusCode == 200) {
+                  log.debug("Splunk HEC response: {}", response.body());
+                  return CompletableFuture.completedFuture(true);
+                } else if (statusCode >= 500 && attempt < maxRetries) {
+                  log.warn(
+                      "Splunk HEC returned server error (attempt {}/{}): {} - {}",
+                      attempt + 1,
+                      maxRetries + 1,
+                      statusCode,
+                      response.body());
+                  totalRetriesCount.incrementAndGet();
+                  return retryWithBackoff(jsonPayload, batchSize, attempt + 1);
+                } else if (statusCode >= 500) {
+                  log.warn(
+                      "Splunk HEC returned server error (final attempt): {} - {}",
+                      statusCode,
+                      response.body());
+                  return CompletableFuture.completedFuture(false);
+                } else {
+                  log.warn(
+                      "Splunk HEC returned client error: {} - {}", statusCode, response.body());
+                  return CompletableFuture.completedFuture(false);
+                }
+              }
+            })
+        .thenCompose(futureResult -> futureResult);
   }
 
-  private String toJson(Object obj) throws IOException {
-    return objectMapper.writeValueAsString(obj);
-  }
+  private CompletableFuture<Boolean> retryWithBackoff(
+      String jsonPayload, int batchSize, int attempt) {
+    long baseDelayMs = initialRetryDelayMs * (1L << (attempt - 1));
+    long cappedBaseDelayMs = Math.min(baseDelayMs, maxRetryDelayMs);
+    long delayMs = ThreadLocalRandom.current().nextLong(cappedBaseDelayMs + 1);
+    log.debug(
+        "Retrying in {} ms (base: {} ms, capped: {} ms)", delayMs, baseDelayMs, cappedBaseDelayMs);
 
-  private Map<String, String> mergeTags(
-      Map<String, String> tags, Map<String, String> additionalTags) {
-    Map<String, String> merged = new HashMap<>(tags != null ? tags : Map.of());
-    if (additionalTags != null) {
-      merged.putAll(additionalTags);
-    }
-    return merged;
+    return CompletableFuture.supplyAsync(
+            () -> null,
+            CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS, scheduledExecutor))
+        .thenCompose(ignored -> sendBatchAsyncWithRetry(jsonPayload, batchSize, attempt));
   }
 
   private Map<String, String> getEnvironmentTags() {

@@ -25,6 +25,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -39,13 +40,13 @@ class SplunkMetricSenderTest {
   private SplunkMetricSender splunkMetricSender;
 
   @BeforeEach
-  void setUp() throws IOException, InterruptedException {
+  void setUp() {
     MockitoAnnotations.openMocks(this);
 
     when(mockHttpResponse.statusCode()).thenReturn(200);
     when(mockHttpResponse.body()).thenReturn("{\"text\":\"Success\",\"code\":0}");
-    when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-        .thenReturn(mockHttpResponse);
+    when(mockHttpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+        .thenReturn(CompletableFuture.completedFuture(mockHttpResponse));
 
     SplunkMetricSender.SplunkConfig.SplunkConfigBuilder config =
         SplunkMetricSender.SplunkConfig.builder();
@@ -58,7 +59,7 @@ class SplunkMetricSenderTest {
   }
 
   @Test
-  void sendMetricSuccess() throws IOException, InterruptedException {
+  void sendMetricSuccess() {
     Map<String, String> tags = new HashMap<>();
     tags.put("tag1", "value1");
     Map<String, String> additionalTags = new HashMap<>();
@@ -68,11 +69,11 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricWithDoubleValue() throws IOException, InterruptedException {
+  void sendMetricWithDoubleValue() {
     Map<String, String> tags = new HashMap<>();
     tags.put("tag1", "value1");
     Map<String, String> additionalTags = new HashMap<>();
@@ -82,11 +83,11 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricWithBooleanValue() throws IOException, InterruptedException {
+  void sendMetricWithBooleanValue() {
     Map<String, String> tags = new HashMap<>();
     tags.put("tag1", "value1");
 
@@ -94,11 +95,11 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricWithStringValue() throws IOException, InterruptedException {
+  void sendMetricWithStringValue() {
     Map<String, String> tags = new HashMap<>();
     tags.put("tag1", "value1");
 
@@ -106,22 +107,22 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricWithNullTags() throws IOException, InterruptedException {
+  void sendMetricWithNullTags() {
     splunkMetricSender.sendMetric("counter", "test_metric", 1, null, null);
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricException() throws IOException, InterruptedException {
-    when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-        .thenThrow(new IOException("Test exception"));
+  void sendMetricException() throws InterruptedException {
+    when(mockHttpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+        .thenReturn(CompletableFuture.failedFuture(new IOException("Test exception")));
 
     Map<String, String> tags = new HashMap<>();
     Map<String, String> additionalTags = new HashMap<>();
@@ -129,16 +130,17 @@ class SplunkMetricSenderTest {
     assertDoesNotThrow(
         () -> {
           splunkMetricSender.sendMetric("timer", "test_metric", 100, tags, additionalTags);
+          splunkMetricSender.flush();
+          Thread.sleep(2000); // Wait for retries to complete (async with delays)
           splunkMetricSender.close();
         });
 
-    // With retry logic: 1 initial attempt + 3 retries = 4 total attempts
     verify(mockHttpClient, times(4))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricNonSuccessResponse() throws IOException, InterruptedException {
+  void sendMetricNonSuccessResponse() {
     when(mockHttpResponse.statusCode()).thenReturn(400);
     when(mockHttpResponse.body()).thenReturn("{\"text\":\"Invalid token\",\"code\":4}");
 
@@ -152,11 +154,11 @@ class SplunkMetricSenderTest {
         });
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricsSuccess() throws IOException, InterruptedException {
+  void sendMetricsSuccess() {
     Map<String, Object> metrics = new HashMap<>();
     metrics.put("metric1", 100);
     metrics.put("metric2", 200.5);
@@ -169,11 +171,11 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricsWithTimestamp() throws IOException, InterruptedException {
+  void sendMetricsWithTimestamp() {
     Map<String, Object> metrics = new HashMap<>();
     metrics.put("metric1", 100);
     metrics.put("metric2", 200.5);
@@ -186,34 +188,34 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricsEmptyMetrics() throws IOException, InterruptedException {
+  void sendMetricsEmptyMetrics() {
     Map<String, Object> metrics = new HashMap<>();
     Map<String, String> tags = new HashMap<>();
 
     splunkMetricSender.sendMetrics(metrics, tags);
 
     verify(mockHttpClient, never())
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricsNullMetrics() throws IOException, InterruptedException {
+  void sendMetricsNullMetrics() {
     Map<String, String> tags = new HashMap<>();
 
     splunkMetricSender.sendMetrics(null, tags);
 
     verify(mockHttpClient, never())
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
-  void sendMetricsException() throws IOException, InterruptedException {
-    when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
-        .thenThrow(new IOException("Test exception"));
+  void sendMetricsException() throws InterruptedException {
+    when(mockHttpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+        .thenReturn(CompletableFuture.failedFuture(new IOException("Test exception")));
 
     Map<String, Object> metrics = new HashMap<>();
     metrics.put("metric1", 100);
@@ -224,12 +226,13 @@ class SplunkMetricSenderTest {
     assertDoesNotThrow(
         () -> {
           splunkMetricSender.sendMetrics(metrics, tags);
+          splunkMetricSender.flush();
+          Thread.sleep(2000); // Wait for retries to complete (async with delays)
           splunkMetricSender.close();
         });
 
-    // With retry logic: 1 initial attempt + 3 retries = 4 total attempts
     verify(mockHttpClient, times(4))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -252,7 +255,7 @@ class SplunkMetricSenderTest {
     Thread.sleep(500);
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -267,7 +270,7 @@ class SplunkMetricSenderTest {
     Thread.sleep(500);
 
     verify(mockHttpClient, times(2))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -282,13 +285,13 @@ class SplunkMetricSenderTest {
     Thread.sleep(100);
 
     verify(mockHttpClient, never())
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
 
     splunkMetricSender.flush();
     Thread.sleep(500);
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -302,12 +305,12 @@ class SplunkMetricSenderTest {
     }
 
     verify(mockHttpClient, never())
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
 
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -316,7 +319,7 @@ class SplunkMetricSenderTest {
     Thread.sleep(100);
 
     verify(mockHttpClient, never())
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -332,14 +335,14 @@ class SplunkMetricSenderTest {
     // Should not flush yet
     Thread.sleep(1000);
     verify(mockHttpClient, never())
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
 
     // Wait for time-based flush (5 seconds + buffer)
     Thread.sleep(5000);
 
     // Should have flushed by now
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -368,7 +371,7 @@ class SplunkMetricSenderTest {
 
     // Should retry 3 times and succeed on 4th attempt
     verify(mockHttpClient, times(4))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
@@ -383,30 +386,41 @@ class SplunkMetricSenderTest {
     splunkMetricSender.close();
 
     verify(mockHttpClient, times(1))
-        .send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        .sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
   }
 
   @Test
   void droppedMetricsCounter() throws IOException, InterruptedException {
-    when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+    SplunkMetricSender.SplunkConfig smallQueueConfig =
+        SplunkMetricSender.SplunkConfig.builder()
+            .hecUrl("http://localhost:8088/services/collector")
+            .token("test-token")
+            .source("test-source")
+            .index("test-index")
+            .queueCapacity(1000)
+            .build();
+
+    SplunkMetricSender smallQueueSender = new SplunkMetricSender(smallQueueConfig, mockHttpClient);
+
+    when(mockHttpClient.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenAnswer(
             invocation -> {
-              Thread.sleep(200); // Delay each HTTP call
-              return mockHttpResponse;
+              Thread.sleep(200);
+              return CompletableFuture.completedFuture(mockHttpResponse);
             });
 
     Map<String, String> tags = new HashMap<>();
     tags.put("tag1", "value1");
 
     for (int i = 0; i < 1200; i++) {
-      splunkMetricSender.sendMetric("counter", "metric_" + i, i, tags, null);
+      smallQueueSender.sendMetric("counter", "metric_" + i, i, tags, null);
     }
 
-    long droppedCount = splunkMetricSender.getDroppedMetricsCount();
+    long droppedCount = smallQueueSender.getDroppedMetricsCount();
     assertTrue(
         droppedCount > 0,
-        "Expected that some metrics ware dropped, but was dropped " + droppedCount);
+        "Expected that some metrics were dropped, but was dropped " + droppedCount);
 
-    splunkMetricSender.close();
+    smallQueueSender.close();
   }
 }
