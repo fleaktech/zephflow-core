@@ -39,6 +39,7 @@ public final class SplunkMetricSender implements AutoCloseable {
 
   private static final Pattern UNSAFE_CHARS = Pattern.compile("[^a-zA-Z0-9_\\-.:]+");
   private static final Pattern LEADING_TRAILING_UNDERSCORES = Pattern.compile("^_+|_+$");
+  private static final int MAX_CACHE_SIZE = 10_000;
 
   @Value
   @Builder
@@ -93,7 +94,7 @@ public final class SplunkMetricSender implements AutoCloseable {
   private final ExecutorService workerExecutor;
   private final ScheduledExecutorService scheduledExecutor;
   private final Map<String, String> environmentTags;
-  private final ConcurrentHashMap<String, String> sanitizedNameCache;
+  private final Map<String, String> sanitizedNameCache;
   private final Semaphore concurrencyLimiter;
   private final AtomicLong inFlightRequests = new AtomicLong(0);
   private final AtomicBoolean running = new AtomicBoolean(true);
@@ -142,13 +143,13 @@ public final class SplunkMetricSender implements AutoCloseable {
               return thread;
             });
     this.environmentTags = getEnvironmentTags();
-    this.sanitizedNameCache = new ConcurrentHashMap<>();
+    this.sanitizedNameCache = createBoundedLRUCache(MAX_CACHE_SIZE);
     this.concurrencyLimiter = new Semaphore(config.getMaxConcurrentRequests());
 
     try {
       log.info(
-          "Splunk Metric Sender initialized (destination={}, batchSize={}, queueCapacity={}, flushInterval={}s, " +
-              "maxRetries={}, maxRetryDelay={}ms, maxConcurrentRequests={})",
+          "Splunk Metric Sender initialized (destination={}, batchSize={}, queueCapacity={}, flushInterval={}s, "
+              + "maxRetries={}, maxRetryDelay={}ms, maxConcurrentRequests={})",
           maskUrl(hecUrl),
           batchSize,
           queueCapacity,
@@ -176,6 +177,9 @@ public final class SplunkMetricSender implements AutoCloseable {
       return false;
     }
     try {
+      String metricName = type + "_" + name;
+      validateMetricValue(value, metricName);
+
       int capacity =
           environmentTags.size()
               + (tags != null ? tags.size() : 0)
@@ -189,8 +193,8 @@ public final class SplunkMetricSender implements AutoCloseable {
         allTags.putAll(additionalTags);
       }
 
-      String metricName = sanitizeMetricName(type + "_" + name);
-      Map<String, Object> event = buildMetricEvent(metricName, value, allTags);
+      String sanitizedName = sanitizeMetricName(metricName);
+      Map<String, Object> event = buildMetricEvent(sanitizedName, value, allTags);
 
       boolean added = metricQueue.offer(event);
       if (added) {
@@ -237,7 +241,16 @@ public final class SplunkMetricSender implements AutoCloseable {
         allTags.putAll(tags);
       }
 
+      boolean allSucceeded = true;
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
+        try {
+          validateMetricValue(metric.getValue(), metric.getKey());
+        } catch (IllegalArgumentException e) {
+          log.warn("Skipping invalid metric: {}", e.getMessage());
+          allSucceeded = false;
+          continue;
+        }
+
         String sanitizedName = sanitizeMetricName(metric.getKey());
         Map<String, Object> event =
             buildMetricEvent(sanitizedName, metric.getValue(), allTags, timestamp);
@@ -246,6 +259,7 @@ public final class SplunkMetricSender implements AutoCloseable {
         if (added) {
           metricsEnqueuedCount.incrementAndGet();
         } else {
+          allSucceeded = false;
           droppedMetricsCount.incrementAndGet();
           log.warn(
               "Metric queue full, dropping metric: {} (total dropped: {})",
@@ -254,7 +268,7 @@ public final class SplunkMetricSender implements AutoCloseable {
         }
       }
 
-      return true;
+      return allSucceeded;
     } catch (Exception e) {
       log.warn("Error enqueuing batch metrics", e);
       return false;
@@ -371,6 +385,20 @@ public final class SplunkMetricSender implements AutoCloseable {
       return scheme + "://" + host;
     } catch (Exception e) {
       return "<masked>";
+    }
+  }
+
+  private void validateMetricValue(Object value, String metricName) {
+    if (value == null) {
+      throw new IllegalArgumentException("Metric value cannot be null for metric: " + metricName);
+    }
+
+    // Allow numeric types, boolean, and string
+    if (!(value instanceof Number || value instanceof Boolean || value instanceof String)) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Invalid metric value type for '%s': %s. Expected Number, Boolean, or String",
+              metricName, value.getClass().getName()));
     }
   }
 
@@ -556,6 +584,16 @@ public final class SplunkMetricSender implements AutoCloseable {
         });
   }
 
+  private static Map<String, String> createBoundedLRUCache(int maxSize) {
+    return Collections.synchronizedMap(
+        new LinkedHashMap<String, String>(maxSize + 1, 0.75f, true) {
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > maxSize;
+          }
+        });
+  }
+
   private ObjectMapper configureObjectMapper() {
     ObjectMapper mapper = new ObjectMapper();
     mapper.setLocale(Locale.US);
@@ -567,7 +605,7 @@ public final class SplunkMetricSender implements AutoCloseable {
     workerExecutor.submit(
         () -> {
           List<Map<String, Object>> batch = new ArrayList<>(batchSize);
-          long lastFlushTime = System.currentTimeMillis();
+          long lastFlushTimeNanos = System.nanoTime();
 
           while (running.get() || !metricQueue.isEmpty()) {
             try {
@@ -584,7 +622,7 @@ public final class SplunkMetricSender implements AutoCloseable {
                   if (!batch.isEmpty()) {
                     sendBatchAsync(batch);
                     batch.clear();
-                    lastFlushTime = System.currentTimeMillis();
+                    lastFlushTimeNanos = System.nanoTime();
                   }
                 } catch (Exception e) {
                   log.error("Flush failed", e);
@@ -595,14 +633,15 @@ public final class SplunkMetricSender implements AutoCloseable {
                 continue;
               }
 
-              long now = System.currentTimeMillis();
-              long timeSinceLastFlush = now - lastFlushTime;
-              boolean timeThresholdReached = timeSinceLastFlush >= (flushIntervalSeconds * 1000);
+              long nowNanos = System.nanoTime();
+              long timeSinceLastFlushNanos = nowNanos - lastFlushTimeNanos;
+              boolean timeThresholdReached =
+                  timeSinceLastFlushNanos >= (flushIntervalSeconds * 1_000_000_000L);
 
               if (batch.size() >= batchSize || (timeThresholdReached && !batch.isEmpty())) {
                 sendBatchAsync(batch);
                 batch.clear();
-                lastFlushTime = now;
+                lastFlushTimeNanos = nowNanos;
               }
 
             } catch (InterruptedException e) {
@@ -654,8 +693,8 @@ public final class SplunkMetricSender implements AutoCloseable {
     int payloadSize = jsonPayload.getBytes(StandardCharsets.UTF_8).length;
     if (payloadSize > 800_000 && attempt == 0) {
       log.warn(
-          "Batch payload size {} bytes exceeds 800KB threshold (approaching Splunk 1MB limit). " +
-              "Consider reducing batch size or tag verbosity.",
+          "Batch payload size {} bytes exceeds 800KB threshold (approaching Splunk 1MB limit). "
+              + "Consider reducing batch size or tag verbosity.",
           payloadSize);
     }
 
