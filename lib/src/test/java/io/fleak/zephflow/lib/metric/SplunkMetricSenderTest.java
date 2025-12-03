@@ -13,8 +13,8 @@
  */
 package io.fleak.zephflow.lib.metric;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -422,5 +422,141 @@ class SplunkMetricSenderTest {
         "Expected that some metrics were dropped, but was dropped " + droppedCount);
 
     smallQueueSender.close();
+  }
+
+  @Test
+  void realSplunkIntegrationTest() throws InterruptedException {
+    String hecUrl = System.getenv("SPLUNK_HEC_URL");
+    String hecToken = System.getenv("SPLUNK_HEC_TOKEN");
+    String index = System.getenv("SPLUNK_INDEX");
+
+    assumeTrue(
+        hecUrl != null && !hecUrl.isEmpty(),
+        "SPLUNK_HEC_URL environment variable not set - skipping integration test");
+    assumeTrue(
+        hecToken != null && !hecToken.isEmpty(),
+        "SPLUNK_HEC_TOKEN environment variable not set - skipping integration test");
+    assumeTrue(
+        index != null && !index.isEmpty(),
+        "SPLUNK_INDEX environment variable not set - skipping integration test");
+
+    System.out.println("Running integration test against Splunk instance: " + hecUrl);
+
+    SplunkMetricSender.SplunkConfig config =
+        SplunkMetricSender.SplunkConfig.builder()
+            .hecUrl(hecUrl)
+            .token(hecToken)
+            .source("integration-test")
+            .index(index)
+            .batchSize(10)
+            .flushIntervalSeconds(2)
+            .maxRetries(2)
+            .httpRequestTimeoutSeconds(10)
+            .shutdownTimeoutSeconds(15)
+            .build();
+
+    SplunkMetricSender sender = new SplunkMetricSender(config);
+
+    try {
+      long timestamp = System.currentTimeMillis();
+      String testId = "test_" + timestamp;
+
+      Map<String, String> tags = new HashMap<>();
+      tags.put("environment", "integration-test");
+      tags.put("test_id", testId);
+      tags.put("test_run", String.valueOf(timestamp));
+
+      System.out.println("Sending individual metrics...");
+      assertTrue(
+          sender.sendMetric("counter", "integration_counter", 42, tags, null),
+          "Failed to enqueue counter metric");
+      assertTrue(
+          sender.sendMetric("gauge", "integration_gauge", 99.5, tags, null),
+          "Failed to enqueue gauge metric");
+      assertTrue(
+          sender.sendMetric("timer", "integration_timer", 1234L, tags, null),
+          "Failed to enqueue timer metric");
+      assertTrue(
+          sender.sendMetric("status", "integration_status", true, tags, null),
+          "Failed to enqueue boolean metric");
+      assertTrue(
+          sender.sendMetric("info", "integration_info", "test_value", tags, null),
+          "Failed to enqueue string metric");
+
+      System.out.println("Sending batch metrics...");
+      Map<String, Object> batchMetrics = new HashMap<>();
+      batchMetrics.put("batch_metric_1", 100);
+      batchMetrics.put("batch_metric_2", 200.5);
+      batchMetrics.put("batch_metric_3", 300L);
+      batchMetrics.put("batch_metric_4", true);
+      batchMetrics.put("batch_metric_5", "batch_value");
+
+      assertTrue(
+          sender.sendMetrics(batchMetrics, tags, timestamp), "Failed to enqueue batch metrics");
+
+      System.out.println("Sending metrics to trigger batch flush...");
+      for (int i = 0; i < 15; i++) {
+        sender.sendMetric("counter", "bulk_metric_" + i, i * 10, tags, null);
+      }
+
+      System.out.println("Triggering manual flush...");
+      assertTrue(sender.flush(), "Flush operation failed");
+
+      Thread.sleep(1000);
+
+      SplunkMetricSender.MetricStats stats = sender.getStats();
+      System.out.println("Stats after sending:");
+      System.out.println("  Enqueued: " + stats.getMetricsEnqueued());
+      System.out.println("  Sent: " + stats.getMetricsSent());
+      System.out.println("  Batches: " + stats.getBatchesSent());
+      System.out.println("  Dropped: " + stats.getMetricsDropped());
+      System.out.println("  Retries: " + stats.getTotalRetries());
+      System.out.println("  Failures: " + stats.getTotalFailures());
+
+      assertTrue(
+          stats.getMetricsEnqueued() >= 25,
+          "Expected at least 25 metrics enqueued, got: " + stats.getMetricsEnqueued());
+
+      assertEquals(
+          0,
+          stats.getMetricsDropped(),
+          "No metrics should be dropped in integration test, but got: "
+              + stats.getMetricsDropped());
+
+      System.out.println("Waiting for metrics to be sent...");
+      Thread.sleep(3000);
+
+      stats = sender.getStats();
+      System.out.println("Final stats:");
+      System.out.println("  Enqueued: " + stats.getMetricsEnqueued());
+      System.out.println("  Sent: " + stats.getMetricsSent());
+      System.out.println("  Batches: " + stats.getBatchesSent());
+      System.out.println("  Failures: " + stats.getTotalFailures());
+
+      assertTrue(
+          stats.getMetricsSent() > 0,
+          "Expected metrics to be sent to Splunk, but sent count is: " + stats.getMetricsSent());
+
+      assertTrue(
+          stats.getBatchesSent() > 0,
+          "Expected batches to be sent to Splunk, but batch count is: " + stats.getBatchesSent());
+
+      System.out.println(
+          "\n✅ Integration test PASSED - Successfully sent "
+              + stats.getMetricsSent()
+              + " metrics in "
+              + stats.getBatchesSent()
+              + " batches to Splunk");
+      System.out.println(
+          "   Search in Splunk with: index="
+              + index
+              + " source=integration-test test_id="
+              + testId);
+
+    } finally {
+      System.out.println("Closing sender...");
+      sender.close();
+      System.out.println("Sender closed");
+    }
   }
 }

@@ -97,6 +97,7 @@ public final class SplunkMetricSender implements AutoCloseable {
   private final Map<String, String> sanitizedNameCache;
   private final Semaphore concurrencyLimiter;
   private final AtomicLong inFlightRequests = new AtomicLong(0);
+  private final Phaser inFlightPhaser = new Phaser(1); // 1 = main thread registered
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicReference<CountDownLatch> flushLatch = new AtomicReference<>();
@@ -319,23 +320,16 @@ public final class SplunkMetricSender implements AutoCloseable {
       Thread.currentThread().interrupt();
     }
 
-    long waitStart = System.currentTimeMillis();
-    long maxWaitMs = shutdownTimeoutSeconds * 1000L;
-    while (inFlightRequests.get() > 0) {
-      long elapsed = System.currentTimeMillis() - waitStart;
-      if (elapsed >= maxWaitMs) {
-        log.warn(
-            "Shutdown timeout reached with {} requests still in-flight", inFlightRequests.get());
-        break;
-      }
-      try {
-        log.debug("Waiting for {} in-flight requests to complete...", inFlightRequests.get());
-        Thread.sleep(100);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        log.warn("Interrupted while waiting for in-flight requests");
-        break;
-      }
+    int phase = inFlightPhaser.getPhase();
+    try {
+      log.debug("Waiting for {} in-flight requests to complete...", inFlightRequests.get());
+      inFlightPhaser.arriveAndDeregister(); // Deregister main thread
+      inFlightPhaser.awaitAdvanceInterruptibly(phase, shutdownTimeoutSeconds, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.warn("Interrupted while waiting for in-flight requests");
+    } catch (TimeoutException e) {
+      log.warn("Shutdown timeout reached with {} requests still in-flight", inFlightRequests.get());
     }
 
     MetricStats finalStats = getStats();
@@ -526,46 +520,57 @@ public final class SplunkMetricSender implements AutoCloseable {
     }
 
     int batchSize = batch.size();
+
+    String payload;
     try {
       StringWriter stringWriter =
           new StringWriter(batchSize * 256); // Pre-allocate ~256 bytes per event
       for (Map<String, Object> event : batch) {
-        try (JsonGenerator generator = objectMapper.getFactory().createGenerator(stringWriter)) {
-          objectMapper.writeValue(generator, event);
-        }
+        objectMapper.writeValue(stringWriter, event);
         stringWriter.write('\n');
       }
+      payload = stringWriter.toString();
+    } catch (Exception e) {
+      totalFailuresCount.incrementAndGet();
+      log.warn("Error preparing batch of {} metrics", batchSize, e);
+      return;
+    }
 
-      String payload = stringWriter.toString();
+    try {
       if (!concurrencyLimiter.tryAcquire()) {
         log.debug("Max concurrent requests reached, waiting for slot...");
         concurrencyLimiter.acquire();
       }
-
-      inFlightRequests.incrementAndGet();
-
-      sendBatchAsyncWithRetry(payload, batchSize, 0)
-          .whenComplete(
-              (success, error) -> {
-                inFlightRequests.decrementAndGet();
-                concurrencyLimiter.release();
-
-                if (error != null) {
-                  totalFailuresCount.incrementAndGet();
-                  log.warn("Error sending batch of {} metrics", batchSize, error);
-                } else if (success) {
-                  metricsSentCount.addAndGet(batchSize);
-                  batchesSentCount.incrementAndGet();
-                  log.debug("Sent batch of {} metrics", batchSize);
-                } else {
-                  totalFailuresCount.incrementAndGet();
-                  log.warn("Failed to send batch of {} metrics after retries", batchSize);
-                }
-              });
-    } catch (Exception e) {
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.warn("Interrupted while acquiring concurrency slot", e);
       totalFailuresCount.incrementAndGet();
-      log.warn("Error preparing batch of {} metrics", batchSize, e);
+      return;
     }
+
+    inFlightRequests.incrementAndGet();
+    inFlightPhaser.register();
+
+    sendBatchAsyncWithRetry(payload, batchSize, 0)
+        .whenComplete(
+            (success, error) -> {
+              // Always cleanup resources, regardless of success/failure
+              inFlightRequests.decrementAndGet();
+              concurrencyLimiter.release();
+              inFlightPhaser.arriveAndDeregister();
+
+              if (error != null) {
+                totalFailuresCount.incrementAndGet();
+                log.warn("Error sending batch of {} metrics", batchSize, error);
+              } else if (success) {
+                metricsSentCount.addAndGet(batchSize);
+                batchesSentCount.incrementAndGet();
+                log.debug("Sent batch of {} metrics", batchSize);
+              } else {
+                totalFailuresCount.incrementAndGet();
+                log.warn("Failed to send batch of {} metrics after retries", batchSize);
+              }
+            });
   }
 
   private static HttpClient createDefaultHttpClient(SplunkConfig config) {
