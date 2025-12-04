@@ -20,12 +20,21 @@ import lombok.Getter;
 @Getter
 @EqualsAndHashCode(callSuper = true)
 public class DagCompilationException extends RuntimeException {
+
+  public enum ErrorType {
+    UNKNOWN_COMMAND,
+    VALIDATION_FAILED,
+    NODE_COMPILATION
+  }
+
   private final String nodeId;
   private final String commandName;
+  private final ErrorType errorType;
 
   public DagCompilationException(
-      String nodeId, String commandName, String message, Exception cause) {
+      ErrorType errorType, String nodeId, String commandName, String message, Exception cause) {
     super(message, cause);
+    this.errorType = errorType;
     this.nodeId = nodeId;
     this.commandName = commandName;
   }
