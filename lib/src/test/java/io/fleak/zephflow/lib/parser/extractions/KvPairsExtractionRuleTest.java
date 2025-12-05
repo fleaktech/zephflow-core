@@ -37,7 +37,7 @@ class KvPairsExtractionRuleTest {
   class StandardParsingTests {
 
     private final ExtractionRule rule =
-        new KvPairsExtractionRule(new KvPairExtractionConfig(',', '='));
+        new KvPairsExtractionRule(new KvPairExtractionConfig(",", "="));
 
     @Test
     @DisplayName("Should parse a simple, well-formed log string")
@@ -131,7 +131,7 @@ class KvPairsExtractionRuleTest {
   class MalformedInputTests {
 
     private final ExtractionRule rule =
-        new KvPairsExtractionRule(new KvPairExtractionConfig(',', '='));
+        new KvPairsExtractionRule(new KvPairExtractionConfig(",", "="));
 
     @Test
     @DisplayName("Should return an empty map for null, empty, or blank input")
@@ -185,7 +185,7 @@ class KvPairsExtractionRuleTest {
     @DisplayName("Should work correctly with pipe and colon separators")
     void testExtract_WithPipeAndColonSeparators() throws Exception {
       // Use pipe '|' to separate pairs and colon ':' to separate key/value
-      ExtractionRule rule = new KvPairsExtractionRule(new KvPairExtractionConfig('|', ':'));
+      ExtractionRule rule = new KvPairsExtractionRule(new KvPairExtractionConfig("|", ":"));
       String input = "user:alice|role:\"admin|manager\"|id:1234";
       RecordFleakData result = rule.extract(input);
 
@@ -195,6 +195,38 @@ class KvPairsExtractionRuleTest {
           () -> assertEquals("alice", result.unwrap().get("user")),
           () -> assertEquals("admin|manager", result.unwrap().get("role")),
           () -> assertEquals("1234", result.unwrap().get("id")));
+    }
+
+    @Test
+    @DisplayName("Should work with multi-character separators")
+    void testExtract_WithMultiCharSeparators() throws Exception {
+      // Use " | " to separate pairs and "=>" to separate key/value
+      ExtractionRule rule = new KvPairsExtractionRule(new KvPairExtractionConfig(" | ", "=>"));
+      String input = "user=>alice | role=>admin | status=>active";
+      RecordFleakData result = rule.extract(input);
+
+      assertAll(
+          "Should parse correctly with multi-char separators",
+          () -> assertEquals(3, result.unwrap().size()),
+          () -> assertEquals("alice", result.unwrap().get("user")),
+          () -> assertEquals("admin", result.unwrap().get("role")),
+          () -> assertEquals("active", result.unwrap().get("status")));
+    }
+
+    @Test
+    @DisplayName("Should work with escape sequences like tab")
+    void testExtract_WithEscapeSequence() throws Exception {
+      // Use \\t which should be unescaped to actual tab
+      ExtractionRule rule = new KvPairsExtractionRule(new KvPairExtractionConfig("\\t", "="));
+      String input = "key1=value1\tkey2=value2\tkey3=value3";
+      RecordFleakData result = rule.extract(input);
+
+      assertAll(
+          "Should parse tab-separated values",
+          () -> assertEquals(3, result.unwrap().size()),
+          () -> assertEquals("value1", result.unwrap().get("key1")),
+          () -> assertEquals("value2", result.unwrap().get("key2")),
+          () -> assertEquals("value3", result.unwrap().get("key3")));
     }
   }
 
@@ -209,7 +241,7 @@ date=2025-07-25 time=07:43:43 devname="FortiGate-40F-SVA" devid="FGT40FTK2409BDP
         ParserConfigs.ParserConfig.builder()
             .targetField(FIELD_NAME_RAW)
             .extractionConfig(
-                KvPairExtractionConfig.builder().kvSeparator('=').pairSeparator(' ').build())
+                KvPairExtractionConfig.builder().kvSeparator("=").pairSeparator(" ").build())
             .build();
     CompiledRules.ParseRule parseRule = new ParserConfigCompiler().compile(parserConfig);
     RecordFleakData input = (RecordFleakData) FleakData.wrap(Map.of(FIELD_NAME_RAW, raw));
