@@ -47,6 +47,7 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
     validateBatchSize(config.getBatchSize(), errors);
     validatePartitionColumns(config.getPartitionColumns(), errors);
     validateHadoopConfiguration(config.getHadoopConfiguration(), errors);
+    validateCheckpointSettings(config, errors);
 
     if (!errors.isEmpty()) {
       throw new IllegalArgumentException(
@@ -132,6 +133,25 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
               "GCS credentials should not be set in hadoopConfiguration. "
                   + "Use 'credentialId' field instead to reference stored credentials");
         }
+      }
+    }
+  }
+
+  private void validateCheckpointSettings(Config config, List<String> errors) {
+    if (config.getCheckpointInterval() != null) {
+      int interval = config.getCheckpointInterval();
+      if (interval <= 0) {
+        errors.add("checkpointInterval must be positive, got: " + interval);
+      } else if (interval < 5) {
+        errors.add(
+            "checkpointInterval should be at least 5 to avoid excessive checkpoint overhead. "
+                + "Consider using a higher value (recommended: 10 or more)");
+      }
+
+      if (!config.isEnableAutoCheckpoint()) {
+        errors.add(
+            "checkpointInterval is specified but enableAutoCheckpoint is false. "
+                + "The checkpointInterval setting will be ignored.");
       }
     }
   }

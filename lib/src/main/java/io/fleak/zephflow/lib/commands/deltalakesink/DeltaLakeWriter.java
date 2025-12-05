@@ -18,17 +18,13 @@ import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCrede
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static java.util.stream.Collectors.toList;
 
-import io.delta.kernel.DataWriteContext;
-import io.delta.kernel.Operation;
-import io.delta.kernel.Table;
-import io.delta.kernel.Transaction;
-import io.delta.kernel.TransactionBuilder;
-import io.delta.kernel.TransactionCommitResult;
+import io.delta.kernel.*;
 import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Literal;
+import io.delta.kernel.hook.PostCommitHook;
 import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
@@ -37,10 +33,12 @@ import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.DataFileStatus;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.jetbrains.annotations.NotNull;
 
@@ -52,6 +50,9 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   private Engine engine;
   private Table table;
   private boolean initialized = false;
+
+  private final List<Pair<RecordFleakData, Map<String, Object>>> buffer = new ArrayList<>();
+  private final Object bufferLock = new Object();
 
   public DeltaLakeWriter(DeltaLakeSinkDto.Config config, JobContext jobContext) {
     this.config = config;
@@ -117,18 +118,57 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    List<Map<String, Object>> dataToWrite = preparedInputEvents.preparedList();
+    List<Pair<RecordFleakData, Map<String, Object>>> incomingEventPairs =
+        preparedInputEvents.rawAndPreparedList();
+    int batchSize = config.getBatchSize();
+
+    synchronized (bufferLock) {
+      buffer.addAll(incomingEventPairs);
+      log.debug(
+          "Accumulated {} events in buffer. Total buffer size: {} / {}",
+          incomingEventPairs.size(),
+          buffer.size(),
+          batchSize);
+
+      if (buffer.size() >= batchSize) {
+        log.info(
+            "Buffer reached batch size ({}). Flushing {} events to Delta table.",
+            batchSize,
+            buffer.size());
+        return flushBuffer();
+      }
+
+      log.debug(
+          "Buffer not full yet ({} / {}). Waiting for more events before flushing to Delta.",
+          buffer.size(),
+          batchSize);
+      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+    }
+  }
+
+  private SimpleSinkCommand.FlushResult flushBuffer() throws Exception {
+    if (buffer.isEmpty()) {
+      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+    }
+
+    List<Pair<RecordFleakData, Map<String, Object>>> bufferedEventPairs = new ArrayList<>(buffer);
+    buffer.clear();
+
+    // Extract just the prepared maps for writing
+    List<Map<String, Object>> dataToWrite =
+        bufferedEventPairs.stream().map(Pair::getRight).collect(toList());
+
     log.info(
-        "Writing {} records to Delta table at path: {}", dataToWrite.size(), config.getTablePath());
+        "Flushing buffer with {} events to Delta table at path: {}",
+        dataToWrite.size(),
+        config.getTablePath());
 
     try {
       return writeDataToDeltaTable(dataToWrite);
-
     } catch (Exception e) {
       log.error("Error writing to Delta table at path: {}", config.getTablePath(), e);
-      // Create ErrorOutput for each failed event
       List<ErrorOutput> errorOutputs =
-          preparedInputEvents.rawAndPreparedList().stream()
+          bufferedEventPairs.stream()
               .map(
                   pair ->
                       new ErrorOutput(
@@ -138,7 +178,6 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     }
   }
 
-  /** Write data to Delta table using Delta Kernel API */
   private SimpleSinkCommand.FlushResult writeDataToDeltaTable(List<Map<String, Object>> dataToWrite)
       throws Exception {
     log.debug("Starting Delta Lake write operation for {} records", dataToWrite.size());
@@ -195,6 +234,11 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
             "Delta Lake write operation completed successfully for {} records, committed as version {}",
             dataToWrite.size(),
             commitResult.getVersion());
+
+        if (config.isEnableAutoCheckpoint()) {
+          createCheckpointIfReady(commitResult);
+        }
+
         return new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
       }
 
@@ -297,9 +341,76 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     return null; // Column not found
   }
 
+  private void createCheckpointIfReady(TransactionCommitResult commitResult) {
+    List<PostCommitHook> postCommitHooks = commitResult.getPostCommitHooks();
+
+    if (postCommitHooks == null || postCommitHooks.isEmpty()) {
+      log.debug(
+          "No post-commit hooks to execute at version {} for path: {}",
+          commitResult.getVersion(),
+          config.getTablePath());
+      return;
+    }
+
+    List<PostCommitHook> checkpointHooks =
+        postCommitHooks.stream()
+            .filter(hook -> hook.getType() == PostCommitHook.PostCommitHookType.CHECKPOINT)
+            .toList();
+
+    if (checkpointHooks.isEmpty()) {
+      log.debug(
+          "Table not ready for checkpoint at version {} for path: {}",
+          commitResult.getVersion(),
+          config.getTablePath());
+      return;
+    }
+
+    for (PostCommitHook hook : checkpointHooks) {
+      try {
+        long version = commitResult.getVersion();
+        log.info(
+            "Table is ready for checkpoint at version {}. Creating checkpoint for path: {}",
+            version,
+            config.getTablePath());
+
+        long startTime = System.currentTimeMillis();
+        hook.threadSafeInvoke(engine);
+        long duration = System.currentTimeMillis() - startTime;
+
+        log.info(
+            "Successfully created checkpoint at version {} for path: {} (took {}ms)",
+            version,
+            config.getTablePath(),
+            duration);
+      } catch (Exception e) {
+        log.warn(
+            "Failed to create checkpoint at version {} for path: {}. "
+                + "This is not critical - the table is still consistent, but subsequent reads may be slower.",
+            commitResult.getVersion(),
+            config.getTablePath(),
+            e);
+      }
+    }
+  }
+
   @Override
   public void close() throws IOException {
     log.info("Closing Delta Lake writer for path: {}", config.getTablePath());
+
+    synchronized (bufferLock) {
+      if (!buffer.isEmpty()) {
+        log.info(
+            "Flushing {} remaining buffered events before closing writer for path: {}",
+            buffer.size(),
+            config.getTablePath());
+        try {
+          flushBuffer();
+        } catch (Exception e) {
+          log.error("Error flushing buffer during close for path: {}", config.getTablePath(), e);
+          throw new IOException("Failed to flush remaining events during close", e);
+        }
+      }
+    }
   }
 
   /**
