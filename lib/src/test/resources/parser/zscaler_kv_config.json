@@ -1,0 +1,9 @@
+{
+  "targetField": "f",
+  "removeTargetField": true,
+  "extractionConfig": {
+    "type": "kv_pair",
+    "pairSeparator": "\\t",
+    "kvSeparator": "="
+  }
+}
