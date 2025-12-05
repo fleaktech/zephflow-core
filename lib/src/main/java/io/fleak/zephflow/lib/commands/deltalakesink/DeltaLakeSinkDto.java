@@ -38,17 +38,8 @@ public class DeltaLakeSinkDto {
     @Builder.Default private Map<String, String> hadoopConfiguration = new HashMap<>();
     private String credentialId;
 
-    /**
-     * Enable automatic checkpoint creation after transactions. When enabled, the sink will create
-     * checkpoints when Delta Kernel indicates the table is ready for checkpoint. Default: true.
-     */
     @Builder.Default private boolean enableAutoCheckpoint = true;
 
-    /**
-     * Number of commits between checkpoints. Default is 5 to ensure checkpoints are created
-     * reasonably quickly. Delta Kernel will create checkpoints at versions that are multiples of
-     * this interval (e.g., 5, 10, 15, ...). Only applicable when enableAutoCheckpoint is true.
-     */
     @Builder.Default private Integer checkpointInterval = 5;
   }
 }

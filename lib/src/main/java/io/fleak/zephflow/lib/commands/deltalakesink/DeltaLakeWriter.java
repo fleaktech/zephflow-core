@@ -178,6 +178,7 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     }
   }
 
+  /** Write data to Delta table using Delta Kernel API */
   private SimpleSinkCommand.FlushResult writeDataToDeltaTable(List<Map<String, Object>> dataToWrite)
       throws Exception {
     log.debug("Starting Delta Lake write operation for {} records", dataToWrite.size());
