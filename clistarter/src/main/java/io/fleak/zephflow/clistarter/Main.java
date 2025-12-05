@@ -16,6 +16,8 @@ package io.fleak.zephflow.clistarter;
 import io.fleak.zephflow.api.metric.InfluxDBMetricClientProvider;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.metric.SplunkMetricClientProvider;
+import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +50,7 @@ public class Main {
 
       return switch (metricClientType) {
         case INFLUXDB -> createInfluxDBMetricClientProvider(args);
+        case SPLUNK -> createSplunkMetricClientProvider(args);
         case NOOP -> new MetricClientProvider.NoopMetricClientProvider();
       };
     } catch (Exception e) {
@@ -123,6 +126,20 @@ public class Main {
       }
     } else {
       log.warn("InfluxDB database name is null or empty, skipping database setup");
+    }
+  }
+
+  private static MetricClientProvider createSplunkMetricClientProvider(String[] args)
+      throws ParseException {
+    try {
+      SplunkMetricSender.SplunkConfig splunkConfig = JobCliParser.parseSplunkConfig(args);
+      log.info("Splunk config: {}", splunkConfig);
+
+      SplunkMetricSender splunkMetricSender = new SplunkMetricSender(splunkConfig);
+      return new SplunkMetricClientProvider(splunkMetricSender);
+    } catch (Exception e) {
+      log.error("Failed to initialize Splunk: {}", e.getMessage());
+      throw e;
     }
   }
 }

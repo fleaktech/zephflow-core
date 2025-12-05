@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
+import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
@@ -83,6 +84,19 @@ public class JobCliParser {
           .hasArg()
           .build();
 
+  // Splunk related options
+  private static final Option SPLUNK_HEC_URL_OPT =
+      Option.builder().longOpt("splunk-hec-url").desc("Splunk HEC URL").hasArg().build();
+
+  private static final Option SPLUNK_TOKEN_OPT =
+      Option.builder().longOpt("splunk-token").desc("Splunk HEC token").hasArg().build();
+
+  private static final Option SPLUNK_SOURCE_OPT =
+      Option.builder().longOpt("splunk-source").desc("Splunk source").hasArg().build();
+
+  private static final Option SPLUNK_INDEX_OPT =
+      Option.builder().longOpt("splunk-index").desc("Splunk index name").hasArg().build();
+
   static {
     CLI_OPTIONS = new Options();
     CLI_OPTIONS
@@ -97,7 +111,11 @@ public class JobCliParser {
         .addOption(INFLUXDB_MEASUREMENT_OPT)
         .addOption(INFLUXDB_USERNAME_OPT)
         .addOption(INFLUXDB_PASSWORD_OPT)
-        .addOption(INFLUXDB_RETENTION_POLICY_OPT);
+        .addOption(INFLUXDB_RETENTION_POLICY_OPT)
+        .addOption(SPLUNK_HEC_URL_OPT)
+        .addOption(SPLUNK_TOKEN_OPT)
+        .addOption(SPLUNK_SOURCE_OPT)
+        .addOption(SPLUNK_INDEX_OPT);
   }
 
   public static JobConfig parseArgs(String[] args) throws ParseException {
@@ -227,9 +245,35 @@ public class JobCliParser {
     return config;
   }
 
+  public static SplunkMetricSender.SplunkConfig parseSplunkConfig(String[] args)
+      throws ParseException {
+
+    CommandLineParser commandLineParser = new DefaultParser();
+    CommandLine commandLine = commandLineParser.parse(CLI_OPTIONS, args);
+
+    SplunkMetricSender.SplunkConfig.SplunkConfigBuilder config =
+        SplunkMetricSender.SplunkConfig.builder();
+
+    if (commandLine.hasOption("splunk-hec-url")) {
+      config.hecUrl(commandLine.getOptionValue("splunk-hec-url"));
+    }
+    if (commandLine.hasOption("splunk-token")) {
+      config.token(commandLine.getOptionValue("splunk-token"));
+    }
+    if (commandLine.hasOption("splunk-source")) {
+      config.source(commandLine.getOptionValue("splunk-source"));
+    }
+    if (commandLine.hasOption("splunk-index")) {
+      config.index(commandLine.getOptionValue("splunk-index"));
+    }
+
+    return config.build();
+  }
+
   @Getter
   public enum MetricClientType {
     INFLUXDB("influxdb"),
+    SPLUNK("splunk"),
     NOOP("noop");
 
     private final String value;
