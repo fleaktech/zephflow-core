@@ -64,6 +64,7 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   private final int instanceId = INSTANCE_COUNTER.incrementAndGet();
   private ScheduledExecutorService flushScheduler;
   private ScheduledFuture<?> flushTask;
+  private int minTimerBatchSize;
 
   public DeltaLakeWriter(DeltaLakeSinkDto.Config config, JobContext jobContext) {
     this.config = config;
@@ -71,7 +72,7 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   }
 
   /** Initialize the Delta Lake writer. Must be called before using flush(). */
-  public void initialize() {
+  public synchronized void initialize() {
     if (initialized) {
       log.warn("Delta Lake writer already initialized for path: {}", config.getTablePath());
       return;
@@ -123,13 +124,14 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     }
   }
 
-  private void startFlushTimer() {
+  private synchronized void startFlushTimer() {
     if (flushScheduler != null || flushTask != null) {
       log.warn("Flush timer already running for path: {}, skipping restart", config.getTablePath());
       return;
     }
 
     int intervalSeconds = config.getFlushIntervalSeconds();
+    minTimerBatchSize = Math.min(10, Math.max(1, config.getBatchSize() / 10));
     log.info(
         "Starting timer-based flush with interval of {} seconds for path: {}",
         intervalSeconds,
@@ -178,7 +180,6 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
         return;
       }
 
-      int minTimerBatchSize = Math.min(10, Math.max(1, config.getBatchSize() / 10));
       if (buffer.size() < minTimerBatchSize) {
         log.trace(
             "Timer-based flush skipped: buffer too small ({} < {} minimum)",
@@ -256,7 +257,6 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     }
 
     List<Pair<RecordFleakData, Map<String, Object>>> bufferedEventPairs = new ArrayList<>(buffer);
-    buffer.clear();
 
     // Extract just the prepared maps for writing
     List<Map<String, Object>> dataToWrite =
@@ -268,7 +268,9 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
         config.getTablePath());
 
     try {
-      return writeDataToDeltaTable(dataToWrite);
+      SimpleSinkCommand.FlushResult result = writeDataToDeltaTable(dataToWrite);
+      buffer.clear();
+      return result;
     } catch (Exception e) {
       log.error("Error writing to Delta table at path: {}", config.getTablePath(), e);
       List<ErrorOutput> errorOutputs =
@@ -525,7 +527,7 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     log.info("Delta Lake writer closed successfully for path: {}", config.getTablePath());
   }
 
-  private void stopFlushTimer() {
+  private synchronized void stopFlushTimer() {
     if (flushTask != null) {
       log.info("Stopping timer-based flush for path: {}", config.getTablePath());
       flushTask.cancel(false);
