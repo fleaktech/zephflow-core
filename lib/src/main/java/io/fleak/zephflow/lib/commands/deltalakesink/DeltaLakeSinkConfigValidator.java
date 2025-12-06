@@ -48,6 +48,7 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
     validatePartitionColumns(config.getPartitionColumns(), errors);
     validateHadoopConfiguration(config.getHadoopConfiguration(), errors);
     validateCheckpointSettings(config, errors);
+    validateFlushInterval(config.getFlushIntervalSeconds(), errors);
 
     if (!errors.isEmpty()) {
       throw new IllegalArgumentException(
@@ -153,6 +154,12 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
             "checkpointInterval is specified but enableAutoCheckpoint is false. "
                 + "The checkpointInterval setting will be ignored.");
       }
+    }
+  }
+
+  private void validateFlushInterval(int flushIntervalSeconds, List<String> errors) {
+    if (flushIntervalSeconds < 0) {
+      errors.add("flushIntervalSeconds must be >= 0, got: " + flushIntervalSeconds);
     }
   }
 }

@@ -37,6 +37,12 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
@@ -52,7 +58,12 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   private boolean initialized = false;
 
   private final List<Pair<RecordFleakData, Map<String, Object>>> buffer = new ArrayList<>();
-  private final Object bufferLock = new Object();
+  private final ReentrantLock bufferLock = new ReentrantLock();
+
+  private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
+  private final int instanceId = INSTANCE_COUNTER.incrementAndGet();
+  private ScheduledExecutorService flushScheduler;
+  private ScheduledFuture<?> flushTask;
 
   public DeltaLakeWriter(DeltaLakeSinkDto.Config config, JobContext jobContext) {
     this.config = config;
@@ -102,6 +113,96 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
 
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
+
+    if (config.getFlushIntervalSeconds() > 0) {
+      startFlushTimer();
+    } else {
+      log.info(
+          "Timer-based flushing disabled (flushIntervalSeconds={})",
+          config.getFlushIntervalSeconds());
+    }
+  }
+
+  private void startFlushTimer() {
+    if (flushScheduler != null || flushTask != null) {
+      log.warn("Flush timer already running for path: {}, skipping restart", config.getTablePath());
+      return;
+    }
+
+    int intervalSeconds = config.getFlushIntervalSeconds();
+    log.info(
+        "Starting timer-based flush with interval of {} seconds for path: {}",
+        intervalSeconds,
+        config.getTablePath());
+
+    String threadName =
+        String.format(
+            "DeltaLakeWriter-Flush-%04X-%d", config.getTablePath().hashCode() & 0xFFFF, instanceId);
+
+    flushScheduler =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread thread = new Thread(r, threadName);
+              thread.setDaemon(true); // Don't prevent JVM shutdown
+              return thread;
+            });
+
+    flushTask =
+        flushScheduler.scheduleWithFixedDelay(
+            () -> {
+              try {
+                timerFlush();
+              } catch (Exception e) {
+                log.error("Error during timer-based flush for path: {}", config.getTablePath(), e);
+              }
+            },
+            1, // Initial delay: 1 second
+            intervalSeconds, // Subsequent delay: configured interval
+            TimeUnit.SECONDS);
+
+    log.info(
+        "Timer-based flush started successfully for path: {} (initial delay: 1s, interval: {}s)",
+        config.getTablePath(),
+        intervalSeconds);
+  }
+
+  private void timerFlush() {
+    if (!bufferLock.tryLock()) {
+      log.trace("Timer-based flush skipped: another flush in progress");
+      return;
+    }
+
+    try {
+      if (buffer.isEmpty()) {
+        log.trace("Timer-based flush skipped: buffer is empty");
+        return;
+      }
+
+      int minTimerBatchSize = Math.min(10, Math.max(1, config.getBatchSize() / 10));
+      if (buffer.size() < minTimerBatchSize) {
+        log.trace(
+            "Timer-based flush skipped: buffer too small ({} < {} minimum)",
+            buffer.size(),
+            minTimerBatchSize);
+        return;
+      }
+
+      log.info(
+          "Timer-based flush triggered with {} buffered events for path: {}",
+          buffer.size(),
+          config.getTablePath());
+
+      try {
+        flushBuffer();
+      } catch (Exception e) {
+        log.error(
+            "Failed to flush buffer during timer-based flush for path: {}",
+            config.getTablePath(),
+            e);
+      }
+    } finally {
+      bufferLock.unlock();
+    }
   }
 
   @Override
@@ -122,7 +223,8 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
         preparedInputEvents.rawAndPreparedList();
     int batchSize = config.getBatchSize();
 
-    synchronized (bufferLock) {
+    bufferLock.lock();
+    try {
       buffer.addAll(incomingEventPairs);
       log.debug(
           "Accumulated {} events in buffer. Total buffer size: {} / {}",
@@ -143,6 +245,8 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
           buffer.size(),
           batchSize);
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+    } finally {
+      bufferLock.unlock();
     }
   }
 
@@ -398,7 +502,10 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   public void close() throws IOException {
     log.info("Closing Delta Lake writer for path: {}", config.getTablePath());
 
-    synchronized (bufferLock) {
+    stopFlushTimer();
+
+    bufferLock.lock();
+    try {
       if (!buffer.isEmpty()) {
         log.info(
             "Flushing {} remaining buffered events before closing writer for path: {}",
@@ -411,6 +518,35 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
           throw new IOException("Failed to flush remaining events during close", e);
         }
       }
+    } finally {
+      bufferLock.unlock();
+    }
+
+    log.info("Delta Lake writer closed successfully for path: {}", config.getTablePath());
+  }
+
+  private void stopFlushTimer() {
+    if (flushTask != null) {
+      log.info("Stopping timer-based flush for path: {}", config.getTablePath());
+      flushTask.cancel(false);
+      flushTask = null;
+    }
+
+    if (flushScheduler != null) {
+      flushScheduler.shutdown();
+      try {
+        if (!flushScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+          log.warn(
+              "Timer-based flush scheduler did not terminate in time, forcing shutdown for path: {}",
+              config.getTablePath());
+          flushScheduler.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        log.warn("Interrupted while waiting for flush scheduler to terminate", e);
+        flushScheduler.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
+      flushScheduler = null;
     }
   }
 
