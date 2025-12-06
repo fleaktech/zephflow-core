@@ -121,7 +121,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     }
     FlushResult flushResult;
     try {
-      flushResult = sinkContext.flusher().flush(preparedInputEvents);
+      flushResult = sinkContext.flusher().flush(preparedInputEvents, callingUserTag);
     } catch (Exception e) {
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure
@@ -151,10 +151,13 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
      * If an exception is thrown, it means complete failure
      *
      * @param preparedInputEvents preprocessed input events and their corresponding raw input
+     * @param metricTags tags to use when reporting metrics (e.g., callingUser, event metadata)
      * @return the flush result. It contains - successful write count - error event list if any
      * @throws Exception If any exception is thrown, it means nothing is written
      */
-    FlushResult flush(final PreparedInputEvents<T> preparedInputEvents) throws Exception;
+    FlushResult flush(
+        final PreparedInputEvents<T> preparedInputEvents, Map<String, String> metricTags)
+        throws Exception;
   }
 
   public record PreparedInputEvents<T>(

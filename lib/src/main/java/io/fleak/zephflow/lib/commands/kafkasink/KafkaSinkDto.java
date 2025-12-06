@@ -28,7 +28,5 @@ public interface KafkaSinkDto {
     private String partitionKeyFieldExpressionStr;
     @NonNull private String encodingType;
     private Map<String, String> properties;
-    @Builder.Default private Integer batchSize = 10000;
-    @Builder.Default private Long flushIntervalMs = 5000L;
   }
 }

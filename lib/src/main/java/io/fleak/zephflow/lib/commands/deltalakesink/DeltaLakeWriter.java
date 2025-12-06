@@ -105,7 +105,8 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents)
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents,
+      Map<String, String> metricTags)
       throws Exception {
 
     if (!initialized) {

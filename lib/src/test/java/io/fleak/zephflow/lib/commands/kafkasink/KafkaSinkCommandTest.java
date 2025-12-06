@@ -115,8 +115,6 @@ class KafkaSinkCommandTest {
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .encodingType(EncodingType.JSON_OBJECT.toString())
-            .batchSize(5) // Small batch size for test
-            .flushIntervalMs(100L) // Quick flush interval for test
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
@@ -154,14 +152,11 @@ class KafkaSinkCommandTest {
     KafkaSinkCommand kafkaSinkCommand =
         (KafkaSinkCommand) commandFactory.createCommand("perf_test_node", TestUtils.JOB_CONTEXT);
 
-    // Use production-like configuration
     KafkaSinkDto.Config config =
         KafkaSinkDto.Config.builder()
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .encodingType(EncodingType.JSON_OBJECT.toString())
-            .batchSize(500) // Reasonable batch size for performance testing
-            .flushIntervalMs(1000L) // 1 second flush interval
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));

@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kafkasink;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_KAFKA_SINK;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
@@ -27,12 +28,11 @@ import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.jetbrains.annotations.NotNull;
 
 public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
@@ -59,15 +59,13 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       JobContext jobContext,
       CommandConfig commandConfig,
       String nodeId) {
-    // Create counters using helper
     SinkCounters counters =
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
-    // Create flusher
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
-    SimpleSinkCommand.Flusher<RecordFleakData> flusher = createKafkaFlusher(config);
+    SimpleSinkCommand.Flusher<RecordFleakData> flusher =
+        createKafkaFlusher(config, counters.sinkErrorCounter());
 
-    // Create message preprocessor
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
 
@@ -82,20 +80,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
-      KafkaSinkDto.Config config) {
-    Properties props = new Properties();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBroker());
-    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-
-    // Performance optimizations for batching
-    props.put(ProducerConfig.BATCH_SIZE_CONFIG, "65536");
-    props.put(ProducerConfig.LINGER_MS_CONFIG, "10");
-    props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, "67108864");
-    props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
-    props.put(ProducerConfig.ACKS_CONFIG, "1");
-    props.put(ProducerConfig.RETRIES_CONFIG, "3");
-    props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
+      KafkaSinkDto.Config config, FleakCounter asyncErrorCounter) {
+    Properties props = getProperties(config);
 
     if (config.getProperties() != null) {
       props.putAll(config.getProperties());
@@ -113,31 +99,32 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
             .orElse(null);
 
     KafkaProducer<byte[], byte[]> producer = kafkaProducerClientFactory.createKafkaProducer(props);
-    int batchSize = config.getBatchSize() != null ? config.getBatchSize() : 10000;
-    long flushIntervalMs =
-        config.getFlushIntervalMs() != null ? config.getFlushIntervalMs() : 5000L;
 
-    ScheduledExecutorService scheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "kafka-sink-batch-flusher");
-              t.setDaemon(true);
-              return t;
-            });
-    return new BatchKafkaSinkFlusher(
-        producer,
-        config.getTopic(),
-        serializer,
-        partitionKeyExpression,
-        batchSize,
-        flushIntervalMs,
-        scheduler);
+    return new KafkaSinkFlusher(
+        producer, config.getTopic(), serializer, partitionKeyExpression, asyncErrorCounter);
+  }
+
+  private static @NotNull Properties getProperties(KafkaSinkDto.Config config) {
+    Properties props = new Properties();
+    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBroker());
+    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+
+    // Performance optimizations - Kafka's native batching handles throughput
+    props.put(ProducerConfig.BATCH_SIZE_CONFIG, "65536");
+    props.put(ProducerConfig.LINGER_MS_CONFIG, "10");
+    props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, "67108864");
+    props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
+    props.put(ProducerConfig.ACKS_CONFIG, "1");
+    props.put(ProducerConfig.RETRIES_CONFIG, "3");
+    props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
+    return props;
   }
 
   @Override
   protected int batchSize() {
     // Use very large batch size to effectively disable SimpleSinkCommand-level batching
-    // Let BatchKafkaSinkFlusher handle all batching logic instead
+    // Let Kafka's native batching handle throughput optimization
     return Integer.MAX_VALUE;
   }
 }
