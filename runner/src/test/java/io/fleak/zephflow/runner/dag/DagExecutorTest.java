@@ -209,7 +209,8 @@ public class DagExecutorTest {
           new SimpleSinkCommand.Flusher<>() {
             @Override
             public SimpleSinkCommand.FlushResult flush(
-                SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
+                SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
+                Map<String, String> metricTags) {
               Set<Map<String, Object>> sink =
                   IN_MEM_SINK.computeIfAbsent(nodeId, k -> new HashSet<>());
               sink.addAll(

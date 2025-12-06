@@ -29,7 +29,9 @@ public class S3Flusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) throws Exception {
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
+      Map<String, String> metricTags)
+      throws Exception {
     List<RecordFleakData> events = preparedInputEvents.preparedList();
 
     long size = s3Commiter.commit(events);

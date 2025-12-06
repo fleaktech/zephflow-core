@@ -84,7 +84,8 @@ public class ClickHouseWriter implements SimpleSinkCommand.Flusher<Map<String, O
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents)
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents,
+      Map<String, String> metricTags)
       throws Exception {
     if (tableSchema == null) {
       throw new IllegalArgumentException("First register schema is required");

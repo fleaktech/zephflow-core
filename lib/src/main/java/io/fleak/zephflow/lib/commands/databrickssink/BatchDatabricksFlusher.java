@@ -107,7 +107,9 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events) throws Exception {
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events,
+      Map<String, String> metricTags)
+      throws Exception {
 
     if (closed) {
       throw new IllegalStateException("BatchDatabricksFlusher is closed");

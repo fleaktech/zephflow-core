@@ -72,7 +72,7 @@ class S3FlusherTest {
         new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
     s3Flusher = new S3Flusher(commiter);
 
-    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
 
     ArgumentCaptor<PutObjectRequest> putObjectRequestCaptor =
         ArgumentCaptor.forClass(PutObjectRequest.class);
@@ -109,7 +109,7 @@ class S3FlusherTest {
         new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
     s3Flusher = new S3Flusher(commiter);
 
-    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
 
     ArgumentCaptor<PutObjectRequest> putObjectRequestCaptor =
         ArgumentCaptor.forClass(PutObjectRequest.class);
@@ -146,7 +146,7 @@ class S3FlusherTest {
         new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
     s3Flusher = new S3Flusher(commiter);
 
-    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
 
     ArgumentCaptor<PutObjectRequest> putObjectRequestCaptor =
         ArgumentCaptor.forClass(PutObjectRequest.class);

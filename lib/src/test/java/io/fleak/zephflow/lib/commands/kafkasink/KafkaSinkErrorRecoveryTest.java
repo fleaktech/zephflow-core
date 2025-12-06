@@ -88,8 +88,6 @@ class KafkaSinkErrorRecoveryTest {
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .encodingType(EncodingType.JSON_OBJECT.toString())
-            .batchSize(5)
-            .flushIntervalMs(1000L)
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));

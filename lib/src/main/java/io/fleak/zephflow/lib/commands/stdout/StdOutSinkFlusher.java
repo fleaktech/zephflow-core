@@ -20,6 +20,7 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 12/20/24 */
@@ -33,7 +34,8 @@ public class StdOutSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakD
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
+      Map<String, String> metricTags) {
     int successCount = 0;
     long flushedDataSize = 0;
     for (RecordFleakData event : preparedInputEvents.preparedList()) {

@@ -246,7 +246,8 @@ class SimpleSinkCommandTest {
 
     @Override
     public SimpleSinkCommand.FlushResult flush(
-        SimpleSinkCommand.PreparedInputEvents<Integer> preparedInputEvents) {
+        SimpleSinkCommand.PreparedInputEvents<Integer> preparedInputEvents,
+        Map<String, String> metricTags) {
       int successSize = 0;
       List<ErrorOutput> errorOutputList = new ArrayList<>();
       for (Pair<RecordFleakData, Integer> pair : preparedInputEvents.rawAndPreparedList()) {
