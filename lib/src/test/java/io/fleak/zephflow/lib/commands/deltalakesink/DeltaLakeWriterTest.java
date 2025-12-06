@@ -65,7 +65,7 @@ class DeltaLakeWriterTest {
     SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> emptyEvents =
         new SimpleSinkCommand.PreparedInputEvents<>();
 
-    SimpleSinkCommand.FlushResult result = writer.flush(emptyEvents);
+    SimpleSinkCommand.FlushResult result = writer.flush(emptyEvents, Map.of());
 
     assertEquals(0, result.successCount());
     assertEquals(0, result.flushedDataSize());
@@ -94,7 +94,7 @@ class DeltaLakeWriterTest {
     // This test might fail due to Delta Kernel dependencies not being available in test environment
     // In a real scenario, you would set up test containers or mock the Delta Kernel components
     try {
-      SimpleSinkCommand.FlushResult result = writer.flush(events);
+      SimpleSinkCommand.FlushResult result = writer.flush(events, Map.of());
 
       // If successful, verify the result
       assertTrue(result.successCount() >= 0);

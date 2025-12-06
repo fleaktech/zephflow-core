@@ -96,7 +96,7 @@ class BatchDatabricksFlusherTest {
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> emptyEvents =
           new SimpleSinkCommand.PreparedInputEvents<>();
 
-      SimpleSinkCommand.FlushResult result = flusher.flush(emptyEvents);
+      SimpleSinkCommand.FlushResult result = flusher.flush(emptyEvents, Map.of());
       assertEquals(0, result.successCount());
       assertEquals(0, result.flushedDataSize());
       assertTrue(result.errorOutputList().isEmpty());
@@ -116,7 +116,7 @@ class BatchDatabricksFlusherTest {
           new SimpleSinkCommand.PreparedInputEvents<>();
       events.add(testRecord, testData);
 
-      SimpleSinkCommand.FlushResult result = flusher.flush(events);
+      SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
       assertEquals(0, result.successCount());
       verifyNoInteractions(parquetWriter, volumeUploader, sqlExecutor);
@@ -163,7 +163,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 2, "name", "test2")),
         Map.of("id", 2, "name", "test2"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events);
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
     assertEquals(2, result.successCount());
     assertTrue(result.errorOutputList().isEmpty());
@@ -205,7 +205,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events);
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
     assertEquals(0, result.successCount());
     assertEquals(1, result.errorOutputList().size());
@@ -251,7 +251,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events);
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
     assertEquals(0, result.successCount());
     assertEquals(1, result.errorOutputList().size());
@@ -296,7 +296,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events);
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
     assertEquals(0, result.successCount());
     assertEquals(1, result.errorOutputList().size());
@@ -317,7 +317,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
 
-    assertThrows(IllegalStateException.class, () -> flusher.flush(events));
+    assertThrows(IllegalStateException.class, () -> flusher.flush(events, Map.of()));
   }
 
   @Test
@@ -357,7 +357,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
 
-    flusher.flush(events);
+    flusher.flush(events, Map.of());
 
     verifyNoInteractions(parquetWriter);
 
@@ -425,7 +425,7 @@ class BatchDatabricksFlusherTest {
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
 
-    flusher.flush(events);
+    flusher.flush(events, Map.of());
 
     verify(volumeUploader)
         .uploadFile(
@@ -441,7 +441,7 @@ class BatchDatabricksFlusherTest {
     events.add(
         (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
         Map.of("id", 1, "name", "test"));
-    flusher.flush(events);
+    flusher.flush(events, Map.of());
 
     when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
         .thenThrow(new RuntimeException("Scheduled flush error"));
@@ -471,7 +471,7 @@ class BatchDatabricksFlusherTest {
       events.add(
           (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
           Map.of("id", 1, "name", "test"));
-      flusher.flush(events);
+      flusher.flush(events, Map.of());
 
       when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
           .thenThrow(new RuntimeException("Scheduled flush error"));
@@ -529,7 +529,7 @@ class BatchDatabricksFlusherTest {
     CopyIntoStats stats = new CopyIntoStats(1, 1, 1, List.of());
     when(sqlExecutor.executeCopyIntoWithStats(any(), any(), any(), any())).thenReturn(stats);
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events);
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
     assertEquals(1, result.successCount(), "Should successfully recover the valid record");
     assertEquals(1, result.errorOutputList().size(), "Should report the invalid record as error");
