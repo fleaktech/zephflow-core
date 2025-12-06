@@ -88,11 +88,11 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
 
   /** Helper record to hold sink counters */
   protected record SinkCounters(
-      FleakCounter inputMessageCounter,
-      FleakCounter errorCounter,
-      FleakCounter sinkOutputCounter,
-      FleakCounter outputSizeCounter,
-      FleakCounter sinkErrorCounter) {}
+      @NonNull FleakCounter inputMessageCounter,
+      @NonNull FleakCounter errorCounter,
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {}
 
   private SinkResult writeOneBatch(
       List<RecordFleakData> batch,
