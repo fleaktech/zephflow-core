@@ -29,5 +29,6 @@ public interface SplunkSourceDto {
     private String searchQuery;
     private String credentialId;
     @Builder.Default private boolean validateCertificates = false;
+    @Builder.Default private int batchSize = 10000;
   }
 }

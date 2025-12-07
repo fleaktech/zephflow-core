@@ -23,6 +23,8 @@ import com.splunk.Service;
 import io.fleak.zephflow.lib.commands.source.NoCommitStrategy;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class SplunkSourceFetcherTest {
@@ -34,6 +36,7 @@ class SplunkSourceFetcherTest {
             .splunkUrl("https://splunk.example.com:8089")
             .searchQuery("search index=main | head 5")
             .credentialId("splunk-cred")
+            .batchSize(100)
             .build();
 
     Service mockService = mock(Service.class);
@@ -44,6 +47,7 @@ class SplunkSourceFetcherTest {
     when(mockJobCollection.create("search index=main | head 5")).thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-123");
     when(mockJob.isDone()).thenReturn(false, false, true);
+    when(mockJob.getResultCount()).thenReturn(1);
 
     String jsonResults =
         "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[{\"name\":\"host\"},{\"name\":\"_raw\"}],\"results\":[{\"host\":\"server1\",\"_raw\":\"Event 1\"}]}";
@@ -55,11 +59,95 @@ class SplunkSourceFetcherTest {
     var results = fetcher.fetch();
 
     assertNotNull(results);
+    assertEquals(1, results.size());
 
-    verify(mockJob, times(1)).cancel();
     verify(mockJob, times(3)).isDone();
     verify(mockJob, times(2)).refresh();
+    verify(mockJob, times(1)).getResultCount();
     verify(mockJobCollection, times(1)).create("search index=main | head 5");
+  }
+
+  @Test
+  void testPaginationMultipleBatches() throws Exception {
+    var config =
+        SplunkSourceDto.Config.builder()
+            .splunkUrl("https://splunk.example.com:8089")
+            .searchQuery("search index=main")
+            .credentialId("splunk-cred")
+            .batchSize(2)
+            .build();
+
+    Service mockService = mock(Service.class);
+    JobCollection mockJobCollection = mock(JobCollection.class);
+    Job mockJob = mock(Job.class);
+
+    when(mockService.getJobs()).thenReturn(mockJobCollection);
+    when(mockJobCollection.create("search index=main")).thenReturn(mockJob);
+    when(mockJob.getSid()).thenReturn("search-job-123");
+    when(mockJob.isDone()).thenReturn(true);
+    when(mockJob.getResultCount()).thenReturn(3);
+
+    String batch1Json =
+        "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[{\"name\":\"host\"}],\"results\":[{\"host\":\"server1\"},{\"host\":\"server2\"}]}";
+    String batch2Json =
+        "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[{\"name\":\"host\"}],\"results\":[{\"host\":\"server3\"}]}";
+    String emptyJson =
+        "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[{\"name\":\"host\"}],\"results\":[]}";
+
+    when(mockJob.getResults(any(JobResultsArgs.class)))
+        .thenReturn(new ByteArrayInputStream(batch1Json.getBytes()))
+        .thenReturn(new ByteArrayInputStream(batch2Json.getBytes()))
+        .thenReturn(new ByteArrayInputStream(emptyJson.getBytes()));
+
+    var fetcher = new SplunkSourceFetcher(config, mockService);
+
+    assertFalse(fetcher.isExhausted());
+
+    List<Map<String, String>> batch1 = fetcher.fetch();
+    assertEquals(2, batch1.size());
+    assertFalse(fetcher.isExhausted());
+
+    List<Map<String, String>> batch2 = fetcher.fetch();
+    assertEquals(1, batch2.size());
+    assertTrue(fetcher.isExhausted());
+
+    List<Map<String, String>> batch3 = fetcher.fetch();
+    assertTrue(batch3.isEmpty());
+
+    verify(mockJobCollection, times(1)).create("search index=main");
+  }
+
+  @Test
+  void testExhaustedWithZeroResults() throws Exception {
+    var config =
+        SplunkSourceDto.Config.builder()
+            .splunkUrl("https://splunk.example.com:8089")
+            .searchQuery("search index=main | head 0")
+            .credentialId("splunk-cred")
+            .build();
+
+    Service mockService = mock(Service.class);
+    JobCollection mockJobCollection = mock(JobCollection.class);
+    Job mockJob = mock(Job.class);
+
+    when(mockService.getJobs()).thenReturn(mockJobCollection);
+    when(mockJobCollection.create("search index=main | head 0")).thenReturn(mockJob);
+    when(mockJob.getSid()).thenReturn("search-job-123");
+    when(mockJob.isDone()).thenReturn(true);
+    when(mockJob.getResultCount()).thenReturn(0);
+
+    String emptyJson =
+        "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[],\"results\":[]}";
+    when(mockJob.getResults(any(JobResultsArgs.class)))
+        .thenReturn(new ByteArrayInputStream(emptyJson.getBytes()));
+
+    var fetcher = new SplunkSourceFetcher(config, mockService);
+
+    assertFalse(fetcher.isExhausted());
+
+    List<Map<String, String>> results = fetcher.fetch();
+    assertTrue(results.isEmpty());
+    assertTrue(fetcher.isExhausted());
   }
 
   @Test
@@ -78,7 +166,7 @@ class SplunkSourceFetcherTest {
   }
 
   @Test
-  void testSplunkSourceFetcherClose() throws Exception {
+  void testCloseWithoutFetch() throws Exception {
     var config =
         SplunkSourceDto.Config.builder()
             .splunkUrl("https://splunk.example.com:8089")
@@ -91,6 +179,38 @@ class SplunkSourceFetcherTest {
 
     fetcher.close();
 
+    verify(mockService, times(1)).logout();
+  }
+
+  @Test
+  void testCloseAfterFetch() throws Exception {
+    var config =
+        SplunkSourceDto.Config.builder()
+            .splunkUrl("https://splunk.example.com:8089")
+            .searchQuery("search index=main")
+            .credentialId("splunk-cred")
+            .build();
+
+    Service mockService = mock(Service.class);
+    JobCollection mockJobCollection = mock(JobCollection.class);
+    Job mockJob = mock(Job.class);
+
+    when(mockService.getJobs()).thenReturn(mockJobCollection);
+    when(mockJobCollection.create("search index=main")).thenReturn(mockJob);
+    when(mockJob.getSid()).thenReturn("search-job-123");
+    when(mockJob.isDone()).thenReturn(true);
+    when(mockJob.getResultCount()).thenReturn(0);
+
+    String emptyJson =
+        "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[],\"results\":[]}";
+    when(mockJob.getResults(any(JobResultsArgs.class)))
+        .thenReturn(new ByteArrayInputStream(emptyJson.getBytes()));
+
+    var fetcher = new SplunkSourceFetcher(config, mockService);
+    fetcher.fetch();
+    fetcher.close();
+
+    verify(mockJob, times(1)).cancel();
     verify(mockService, times(1)).logout();
   }
 }

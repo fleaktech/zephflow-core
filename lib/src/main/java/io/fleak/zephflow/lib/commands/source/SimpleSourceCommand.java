@@ -33,24 +33,13 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   private static final int SLEEP_MAX = 2000;
 
   private final AtomicBoolean finished = new AtomicBoolean();
-  private final boolean singleEventSource;
 
   protected SimpleSourceCommand(
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
       ConfigValidator configValidator) {
-    this(nodeId, jobContext, configParser, configValidator, false);
-  }
-
-  protected SimpleSourceCommand(
-      String nodeId,
-      JobContext jobContext,
-      ConfigParser configParser,
-      ConfigValidator configValidator,
-      boolean singleEventSource) {
     super(nodeId, jobContext, configParser, configValidator);
-    this.singleEventSource = singleEventSource;
   }
 
   @Override
@@ -61,17 +50,24 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
     RawDataConverter<T> converter = sourceInitializedConfig.converter();
     RawDataEncoder<T> encoder = sourceInitializedConfig.encoder();
-    Fetcher.Committer committer = sourceInitializedConfig.fetcher().commiter();
+    Fetcher<T> fetcher = sourceInitializedConfig.fetcher();
+    Fetcher.Committer committer = fetcher.committer();
 
     DlqWriter dlqWriter = sourceInitializedConfig.dlqWriter();
     try {
       int sleep = SLEEP_INIT;
       while (!finished.get()) {
         // 1. Fetch source-specific records
-        List<T> fetchedData = doFetch(sourceInitializedConfig.fetcher());
-        if (singleEventSource) {
+        List<T> fetchedData = doFetch(fetcher);
+
+        // Check if source is exhausted
+        if (fetcher.isExhausted()) {
           finished.set(true);
+          if (CollectionUtils.isEmpty(fetchedData)) {
+            break;
+          }
         }
+
         if (CollectionUtils.isEmpty(fetchedData)) {
           log.trace("No fetched data found, sleeping for {} ms", sleep);
           threadSleep(sleep);
@@ -82,7 +78,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         List<ConvertedResult<T>> convertedResults =
             fetchedData.stream().map(fd -> converter.convert(fd, sourceInitializedConfig)).toList();
 
-        CommitStrategy commitStrategy = sourceInitializedConfig.fetcher().commitStrategy();
+        CommitStrategy commitStrategy = fetcher.commitStrategy();
         processFetchedData(
             convertedResults, sourceEventAcceptor, committer, dlqWriter, encoder, commitStrategy);
       }
@@ -109,7 +105,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       log.debug("fetched {} records from source", CollectionUtils.size(fetchedData));
       return fetchedData;
     }
-    return null;
+    return List.of();
   }
 
   private void processFetchedData(

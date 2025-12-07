@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.splunksource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
+
 import com.splunk.*;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
@@ -23,29 +25,37 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public record SplunkSourceFetcher(SplunkSourceDto.Config config, Service service)
-    implements Fetcher<Map<String, String>> {
+@RequiredArgsConstructor
+public class SplunkSourceFetcher implements Fetcher<Map<String, String>> {
 
   private static final int POLL_INTERVAL_MS = 1000;
 
+  private final SplunkSourceDto.Config config;
+  private final Service service;
+
+  private Job job;
+  private int currentOffset = 0;
+  private long totalResultCount = -1;
+
   @Override
   public List<Map<String, String>> fetch() {
-    log.info("Creating Splunk search job for query: {}", config.getSearchQuery());
-    Job job = service.getJobs().create(config.getSearchQuery());
     try {
-      log.info("Polling for job completion (job ID: {})", job.getSid());
-      while (!job.isDone()) {
-        //noinspection BusyWait
-        Thread.sleep(POLL_INTERVAL_MS);
-        job.refresh();
+      if (job == null) {
+        initializeJob();
       }
 
-      log.info("Job completed. Fetching results...");
+      if (isExhausted()) {
+        return List.of();
+      }
+
+      log.debug("Fetching batch at offset {} (total: {})", currentOffset, totalResultCount);
       JobResultsArgs resultsArgs = new JobResultsArgs();
-      resultsArgs.setCount(0);
+      resultsArgs.setOffset(currentOffset);
+      resultsArgs.setCount(config.getBatchSize());
       resultsArgs.setOutputMode(JobResultsArgs.OutputMode.JSON);
 
       List<Map<String, String>> results = new ArrayList<>();
@@ -57,16 +67,34 @@ public record SplunkSourceFetcher(SplunkSourceDto.Config config, Service service
         }
       }
 
-      log.info("Fetched {} events from Splunk", results.size());
+      currentOffset += results.size();
+      log.info("Fetched {} events from Splunk (offset now: {})", results.size(), currentOffset);
       return results;
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException("Splunk search job polling was interrupted", e);
     } catch (Exception e) {
       throw new RuntimeException("Failed to fetch data from Splunk", e);
-    } finally {
-      job.cancel();
     }
+  }
+
+  private void initializeJob() throws InterruptedException {
+    log.info("Creating Splunk search job for query: {}", config.getSearchQuery());
+    job = service.getJobs().create(config.getSearchQuery());
+
+    log.info("Polling for job completion (job ID: {})", job.getSid());
+    while (!job.isDone()) {
+      threadSleep(POLL_INTERVAL_MS);
+      job.refresh();
+    }
+
+    totalResultCount = job.getResultCount();
+    log.info("Job completed. Total result count: {}", totalResultCount);
+  }
+
+  @Override
+  public boolean isExhausted() {
+    return totalResultCount >= 0 && currentOffset >= totalResultCount;
   }
 
   @Override
@@ -76,6 +104,9 @@ public record SplunkSourceFetcher(SplunkSourceDto.Config config, Service service
 
   @Override
   public void close() throws IOException {
+    if (job != null) {
+      job.cancel();
+    }
     if (service != null) {
       service.logout();
     }
