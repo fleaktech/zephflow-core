@@ -83,7 +83,16 @@ public class SplunkSourceFetcher implements Fetcher<Map<String, String>> {
     job = service.getJobs().create(config.getSearchQuery());
 
     log.info("Polling for job completion (job ID: {})", job.getSid());
+    long timeoutMs = config.getJobInitTimeoutMs();
+    long startTime = System.currentTimeMillis();
+
     while (!job.isDone()) {
+      if (timeoutMs > 0 && System.currentTimeMillis() - startTime >= timeoutMs) {
+        job.cancel();
+        throw new SplunkSourceFetcherError(
+            String.format(
+                "Splunk job timed out after %d ms (job ID: %s)", timeoutMs, job.getSid()));
+      }
       threadSleep(POLL_INTERVAL_MS);
       job.refresh();
     }

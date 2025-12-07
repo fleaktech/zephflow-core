@@ -28,7 +28,6 @@ import io.fleak.zephflow.lib.dlq.S3DlqWriter;
 import java.net.URL;
 import java.util.Map;
 import java.util.Optional;
-import javax.net.ssl.HttpsURLConnection;
 
 public class SplunkSourceCommand extends SimpleSourceCommand<Map<String, String>> {
 
@@ -88,7 +87,6 @@ public class SplunkSourceCommand extends SimpleSourceCommand<Map<String, String>
 
       if (!config.isValidateCertificates()) {
         HttpService.setValidateCertificates(false);
-        HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
       }
 
       URL url = new URL(config.getSplunkUrl());
