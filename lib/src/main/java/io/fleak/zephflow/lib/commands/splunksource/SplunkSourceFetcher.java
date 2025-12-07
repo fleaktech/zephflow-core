@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -80,7 +81,16 @@ public class SplunkSourceFetcher implements Fetcher<Map<String, String>> {
 
   private void initializeJob() throws InterruptedException {
     log.info("Creating Splunk search job for query: {}", config.getSearchQuery());
-    job = service.getJobs().create(config.getSearchQuery());
+
+    JobArgs jobArgs = new JobArgs();
+    if (StringUtils.isNotBlank(config.getEarliestTime())) {
+      jobArgs.setEarliestTime(config.getEarliestTime());
+    }
+    if (StringUtils.isNotBlank(config.getLatestTime())) {
+      jobArgs.setLatestTime(config.getLatestTime());
+    }
+
+    job = service.getJobs().create(config.getSearchQuery(), jobArgs);
 
     log.info("Polling for job completion (job ID: {})", job.getSid());
     long timeoutMs = config.getJobInitTimeoutMs();

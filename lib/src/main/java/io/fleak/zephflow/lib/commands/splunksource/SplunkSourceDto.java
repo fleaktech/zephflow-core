@@ -31,5 +31,7 @@ public interface SplunkSourceDto {
     @Builder.Default private boolean validateCertificates = false;
     @Builder.Default private int batchSize = 10000;
     @Builder.Default private long jobInitTimeoutMs = 300000L;
+    private String earliestTime;
+    private String latestTime;
   }
 }

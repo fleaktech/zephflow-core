@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.splunk.Job;
+import com.splunk.JobArgs;
 import com.splunk.JobCollection;
 import com.splunk.JobResultsArgs;
 import com.splunk.Service;
@@ -26,6 +27,7 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class SplunkSourceFetcherTest {
 
@@ -44,7 +46,8 @@ class SplunkSourceFetcherTest {
     Job mockJob = mock(Job.class);
 
     when(mockService.getJobs()).thenReturn(mockJobCollection);
-    when(mockJobCollection.create("search index=main | head 5")).thenReturn(mockJob);
+    when(mockJobCollection.create(eq("search index=main | head 5"), any(JobArgs.class)))
+        .thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-123");
     when(mockJob.isDone()).thenReturn(false, false, true);
     when(mockJob.getResultCount()).thenReturn(1);
@@ -64,7 +67,8 @@ class SplunkSourceFetcherTest {
     verify(mockJob, times(3)).isDone();
     verify(mockJob, times(2)).refresh();
     verify(mockJob, times(1)).getResultCount();
-    verify(mockJobCollection, times(1)).create("search index=main | head 5");
+    verify(mockJobCollection, times(1))
+        .create(eq("search index=main | head 5"), any(JobArgs.class));
   }
 
   @Test
@@ -82,7 +86,7 @@ class SplunkSourceFetcherTest {
     Job mockJob = mock(Job.class);
 
     when(mockService.getJobs()).thenReturn(mockJobCollection);
-    when(mockJobCollection.create("search index=main")).thenReturn(mockJob);
+    when(mockJobCollection.create(eq("search index=main"), any(JobArgs.class))).thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-123");
     when(mockJob.isDone()).thenReturn(true);
     when(mockJob.getResultCount()).thenReturn(3);
@@ -114,7 +118,7 @@ class SplunkSourceFetcherTest {
     List<Map<String, String>> batch3 = fetcher.fetch();
     assertTrue(batch3.isEmpty());
 
-    verify(mockJobCollection, times(1)).create("search index=main");
+    verify(mockJobCollection, times(1)).create(eq("search index=main"), any(JobArgs.class));
   }
 
   @Test
@@ -131,7 +135,8 @@ class SplunkSourceFetcherTest {
     Job mockJob = mock(Job.class);
 
     when(mockService.getJobs()).thenReturn(mockJobCollection);
-    when(mockJobCollection.create("search index=main | head 0")).thenReturn(mockJob);
+    when(mockJobCollection.create(eq("search index=main | head 0"), any(JobArgs.class)))
+        .thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-123");
     when(mockJob.isDone()).thenReturn(true);
     when(mockJob.getResultCount()).thenReturn(0);
@@ -196,7 +201,7 @@ class SplunkSourceFetcherTest {
     Job mockJob = mock(Job.class);
 
     when(mockService.getJobs()).thenReturn(mockJobCollection);
-    when(mockJobCollection.create("search index=main")).thenReturn(mockJob);
+    when(mockJobCollection.create(eq("search index=main"), any(JobArgs.class))).thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-123");
     when(mockJob.isDone()).thenReturn(true);
     when(mockJob.getResultCount()).thenReturn(0);
@@ -230,7 +235,8 @@ class SplunkSourceFetcherTest {
     Job mockJob = mock(Job.class);
 
     when(mockService.getJobs()).thenReturn(mockJobCollection);
-    when(mockJobCollection.create("search index=main | head 5")).thenReturn(mockJob);
+    when(mockJobCollection.create(eq("search index=main | head 5"), any(JobArgs.class)))
+        .thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-timeout-test");
     when(mockJob.isDone()).thenReturn(false);
 
@@ -260,7 +266,8 @@ class SplunkSourceFetcherTest {
     Job mockJob = mock(Job.class);
 
     when(mockService.getJobs()).thenReturn(mockJobCollection);
-    when(mockJobCollection.create("search index=main | head 5")).thenReturn(mockJob);
+    when(mockJobCollection.create(eq("search index=main | head 5"), any(JobArgs.class)))
+        .thenReturn(mockJob);
     when(mockJob.getSid()).thenReturn("search-job-123");
     when(mockJob.isDone()).thenReturn(false, false, true);
     when(mockJob.getResultCount()).thenReturn(1);
@@ -276,5 +283,42 @@ class SplunkSourceFetcherTest {
     assertNotNull(results);
     assertEquals(1, results.size());
     verify(mockJob, times(3)).isDone();
+  }
+
+  @Test
+  void testTimeRangeConfiguration() throws Exception {
+    var config =
+        SplunkSourceDto.Config.builder()
+            .splunkUrl("https://splunk.example.com:8089")
+            .searchQuery("search index=main")
+            .credentialId("splunk-cred")
+            .earliestTime("-24h")
+            .latestTime("now")
+            .build();
+
+    Service mockService = mock(Service.class);
+    JobCollection mockJobCollection = mock(JobCollection.class);
+    Job mockJob = mock(Job.class);
+
+    when(mockService.getJobs()).thenReturn(mockJobCollection);
+    when(mockJobCollection.create(eq("search index=main"), any(JobArgs.class))).thenReturn(mockJob);
+    when(mockJob.getSid()).thenReturn("search-job-123");
+    when(mockJob.isDone()).thenReturn(true);
+    when(mockJob.getResultCount()).thenReturn(1);
+
+    String jsonResults =
+        "{\"preview\":false,\"init_offset\":0,\"messages\":[],\"fields\":[{\"name\":\"host\"}],\"results\":[{\"host\":\"server1\"}]}";
+    when(mockJob.getResults(any(JobResultsArgs.class)))
+        .thenReturn(new ByteArrayInputStream(jsonResults.getBytes()));
+
+    var fetcher = new SplunkSourceFetcher(config, mockService);
+    fetcher.fetch();
+
+    ArgumentCaptor<JobArgs> jobArgsCaptor = ArgumentCaptor.forClass(JobArgs.class);
+    verify(mockJobCollection).create(eq("search index=main"), jobArgsCaptor.capture());
+
+    JobArgs capturedArgs = jobArgsCaptor.getValue();
+    assertEquals("-24h", capturedArgs.get("earliest_time"));
+    assertEquals("now", capturedArgs.get("latest_time"));
   }
 }
