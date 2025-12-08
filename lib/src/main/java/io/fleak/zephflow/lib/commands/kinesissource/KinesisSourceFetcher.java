@@ -217,7 +217,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   }
 
   @Override
-  public Committer commiter() {
+  public Committer committer() {
     return () -> {
       RecordProcessorCheckpointer checkpointer = lastSeenCheckpointer.get();
       if (checkpointer != null) {

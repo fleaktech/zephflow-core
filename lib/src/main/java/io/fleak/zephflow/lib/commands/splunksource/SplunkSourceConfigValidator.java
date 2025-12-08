@@ -50,5 +50,8 @@ public class SplunkSourceConfigValidator implements ConfigValidator {
       throw new IllegalArgumentException(
           "splunkUrl is not a valid URL: " + config.getSplunkUrl(), e);
     }
+
+    Preconditions.checkArgument(
+        config.getJobInitTimeoutMs() >= 0, "jobInitTimeoutMs must be non-negative");
   }
 }

@@ -164,4 +164,39 @@ class SplunkSourceConfigValidatorTest {
         IllegalArgumentException.class,
         () -> validator.validateConfig(invalidConfig, "test-node", TestUtils.JOB_CONTEXT));
   }
+
+  @Test
+  void testConfigValidationNegativeJobInitTimeout() {
+    var validator = new SplunkSourceConfigValidator();
+
+    var invalidConfig =
+        SplunkSourceDto.Config.builder()
+            .splunkUrl("https://splunk.example.com:8089")
+            .searchQuery("search index=main")
+            .credentialId("splunk-cred")
+            .jobInitTimeoutMs(-1L)
+            .build();
+
+    var exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(invalidConfig, "test-node", TestUtils.JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("jobInitTimeoutMs must be non-negative"));
+  }
+
+  @Test
+  void testConfigValidationZeroJobInitTimeoutAllowed() {
+    var validator = new SplunkSourceConfigValidator();
+
+    var validConfig =
+        SplunkSourceDto.Config.builder()
+            .splunkUrl("https://splunk.example.com:8089")
+            .searchQuery("search index=main")
+            .credentialId("splunk-cred")
+            .jobInitTimeoutMs(0L)
+            .build();
+
+    assertDoesNotThrow(
+        () -> validator.validateConfig(validConfig, "test-node", TestUtils.JOB_CONTEXT));
+  }
 }
