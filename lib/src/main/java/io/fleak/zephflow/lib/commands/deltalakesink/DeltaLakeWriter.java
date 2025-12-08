@@ -270,7 +270,6 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
 
     try {
       SimpleSinkCommand.FlushResult result = writeDataToDeltaTable(dataToWrite);
-      buffer.clear();
       return result;
     } catch (Exception e) {
       log.error("Error writing to Delta table at path: {}", config.getTablePath(), e);
@@ -282,6 +281,8 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
                           pair.getLeft(), "Failed to write to Delta table: " + e.getMessage()))
               .toList();
       return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
+    } finally {
+      buffer.clear();
     }
   }
 

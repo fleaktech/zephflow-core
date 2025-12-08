@@ -22,11 +22,13 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import org.apache.commons.lang3.tuple.Pair;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -76,7 +78,7 @@ class DeltaLakeWriterTest {
   }
 
   @Test
-  void testFlushWithData() throws Exception {
+  void testFlushWithData() {
     DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext);
     writer.initialize();
 
@@ -242,7 +244,6 @@ class DeltaLakeWriterTest {
 
     // Manually clear buffer (simulating flush)
     buffer.clear();
-    assertEquals(0, buffer.size());
 
     // Add more events after "flush"
     for (int i = 0; i < 3; i++) {
@@ -363,7 +364,6 @@ class DeltaLakeWriterTest {
     // Use reflection to access the private buffer field
     java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
     bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
     List<?> buffer = (List<?>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
@@ -376,7 +376,7 @@ class DeltaLakeWriterTest {
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
           new SimpleSinkCommand.PreparedInputEvents<>();
       events.add(record, new HashMap<>(testData));
-      writer.flush(events);
+      writer.flush(events, Map.of());
     }
 
     // Verify buffer has 5 events
@@ -408,7 +408,6 @@ class DeltaLakeWriterTest {
     // Use reflection to access the private buffer field
     java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
     bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
     List<?> buffer = (List<?>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
@@ -423,7 +422,7 @@ class DeltaLakeWriterTest {
       Map<String, Object> eventData = new HashMap<>(testData);
       eventData.put("id", i);
       events.add(record, eventData);
-      writer.flush(events);
+      writer.flush(events, Map.of());
     }
 
     // Verify buffer has 15 events
@@ -538,5 +537,42 @@ class DeltaLakeWriterTest {
 
     writer1.close();
     writer2.close();
+  }
+
+  @Test
+  void testBufferClearedOnFlushException() throws Exception {
+    Config testConfig = Config.builder().tablePath(tablePath + "_failure").batchSize(10).build();
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+
+    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    bufferField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
+        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
+
+    Map<String, Object> testData = new HashMap<>();
+    testData.put("id", 1);
+    testData.put("name", "test");
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
+
+    for (int i = 0; i < 5; i++) {
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
+    }
+    assertEquals(5, buffer.size());
+
+    Method flushBufferMethod = DeltaLakeWriter.class.getDeclaredMethod("flushBuffer");
+    flushBufferMethod.setAccessible(true);
+
+    SimpleSinkCommand.FlushResult result =
+        (SimpleSinkCommand.FlushResult) flushBufferMethod.invoke(writer);
+
+    assertEquals(0, result.successCount());
+    assertFalse(result.errorOutputList().isEmpty());
+    assertEquals(0, buffer.size(), "Buffer should be cleared even on failure");
+
+    for (int i = 0; i < 3; i++) {
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
+    }
+    assertEquals(3, buffer.size(), "New records should not contain old failed records");
   }
 }
