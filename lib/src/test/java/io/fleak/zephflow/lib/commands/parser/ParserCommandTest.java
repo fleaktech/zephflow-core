@@ -74,4 +74,38 @@ class ParserCommandTest {
       throw new RuntimeException(e);
     }
   }
+
+  @Test
+  void testParseKvWithTabSeparator() throws Exception {
+    Map<String, Object> parserConfigMap =
+        JsonUtils.fromJsonResource("/parser/zscaler_kv_config.json", new TypeReference<>() {});
+    ParserCommand command =
+        (ParserCommand) new ParserCommandFactory().createCommand("my_node", JOB_CONTEXT);
+    command.parseAndValidateArg(parserConfigMap);
+
+    DeserializerFactory<?> deserializerFactory =
+        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT);
+    FleakDeserializer<?> deserializer = deserializerFactory.createDeserializer();
+
+    try (InputStream testInput =
+            this.getClass().getResourceAsStream("/parser/zscaler_kv_data.json");
+        InputStream expectedIn =
+            this.getClass().getResourceAsStream("/parser/zscaler_kv_parsed.json")) {
+      byte[] input = IOUtils.toByteArray(Objects.requireNonNull(testInput));
+      SerializedEvent serializedEvent = new SerializedEvent(null, input, null);
+
+      byte[] expectedOutput = IOUtils.toByteArray(Objects.requireNonNull(expectedIn));
+      SerializedEvent expectedDataSerializedEvent = new SerializedEvent(null, expectedOutput, null);
+
+      List<RecordFleakData> inputEvents = deserializer.deserialize(serializedEvent);
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = command.getExecutionContext();
+      var processResult = command.process(inputEvents, "test_user", context);
+
+      List<RecordFleakData> parsedEvents = processResult.getOutput();
+
+      List<RecordFleakData> expected = deserializer.deserialize(expectedDataSerializedEvent);
+      assertEquals(expected, parsedEvents);
+    }
+  }
 }

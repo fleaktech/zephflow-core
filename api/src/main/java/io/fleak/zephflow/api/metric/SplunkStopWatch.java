@@ -11,22 +11,24 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.kafkasink;
+package io.fleak.zephflow.api.metric;
 
-import io.fleak.zephflow.api.CommandConfig;
 import java.util.Map;
-import lombok.*;
 
-public interface KafkaSinkDto {
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String broker;
-    @NonNull private String topic;
-    private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
-    private Map<String, String> properties;
+public class SplunkStopWatch extends FleakStopWatch {
+
+  private final String name;
+  private final Map<String, String> tags;
+  private final SplunkMetricSender metricSender;
+
+  public SplunkStopWatch(String name, Map<String, String> tags, SplunkMetricSender metricSender) {
+    this.name = name;
+    this.tags = tags;
+    this.metricSender = metricSender;
+  }
+
+  @Override
+  protected void reportDuration(long duration, Map<String, String> additionalTags) {
+    metricSender.sendMetric("timer", name, duration, tags, additionalTags);
   }
 }

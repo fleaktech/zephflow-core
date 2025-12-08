@@ -25,6 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class StdInSourceFetcher implements Fetcher<SerializedEvent> {
 
+  private volatile boolean exhausted = false;
+
   @Override
   public List<SerializedEvent> fetch() {
     log.debug("Waiting for event from stdin...");
@@ -38,11 +40,17 @@ public class StdInSourceFetcher implements Fetcher<SerializedEvent> {
       log.debug("read data from stdin:\n {}", inputData);
       byte[] raw = inputData.toString().getBytes();
       SerializedEvent serializedEvent = new SerializedEvent(null, raw, null);
+      exhausted = true;
       return List.of(serializedEvent);
     } catch (Exception e) {
       log.error("failed to read data from stdin", e);
       return null;
     }
+  }
+
+  @Override
+  public boolean isExhausted() {
+    return exhausted;
   }
 
   @Override

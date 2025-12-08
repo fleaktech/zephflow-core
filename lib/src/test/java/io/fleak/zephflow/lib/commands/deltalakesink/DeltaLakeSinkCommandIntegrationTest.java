@@ -85,7 +85,7 @@ class DeltaLakeSinkCommandIntegrationTest {
     when(preparedEvents.rawAndPreparedList()).thenReturn(List.of(Pair.of(mockEvent, testData)));
 
     // Test flush operation - should fail because table doesn't exist
-    SimpleSinkCommand.FlushResult result = writer.flush(preparedEvents);
+    SimpleSinkCommand.FlushResult result = writer.flush(preparedEvents, Map.of());
 
     // Verify error behavior - table doesn't exist so write should fail
     assertNotNull(result);

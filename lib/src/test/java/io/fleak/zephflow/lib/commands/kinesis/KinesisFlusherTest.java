@@ -85,7 +85,7 @@ class KinesisFlusherTest {
 
     when(kinesisClient.putRecords(any(PutRecordsRequest.class))).thenReturn(mockResponse);
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents, Map.of());
 
     assertEquals(2, result.successCount());
     assertTrue(result.errorOutputList().isEmpty());
@@ -146,7 +146,7 @@ class KinesisFlusherTest {
 
     when(kinesisClient.putRecords(any(PutRecordsRequest.class))).thenReturn(mockResponse);
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents, Map.of());
 
     assertEquals(1, result.successCount());
     assertEquals(1, result.errorOutputList().size());
@@ -173,7 +173,7 @@ class KinesisFlusherTest {
 
     when(kinesisClient.putRecords(any(PutRecordsRequest.class))).thenReturn(null);
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents, Map.of());
 
     assertEquals(0, result.successCount());
     assertEquals(1, result.errorOutputList().size());
@@ -193,7 +193,7 @@ class KinesisFlusherTest {
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents =
         new SimpleSinkCommand.PreparedInputEvents<>();
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents);
+    SimpleSinkCommand.FlushResult result = flusher.flush(preparedInputEvents, Map.of());
 
     assertEquals(0, result.successCount());
     assertTrue(result.errorOutputList().isEmpty());

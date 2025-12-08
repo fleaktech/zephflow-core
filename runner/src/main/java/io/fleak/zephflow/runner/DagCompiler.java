@@ -51,8 +51,15 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
     // Validate the DAG structure
     try {
       rawDag.validate(checkConnected, rawSourceNodePredicate, rawSinkNodePredicate);
+    } catch (DagCompilationException e) {
+      throw e; // preserve original error type (e.g., UNKNOWN_COMMAND)
     } catch (Exception e) {
-      throw new DagCompilationException(null, null, "Dag validation failed: " + e.getMessage(), e);
+      throw new DagCompilationException(
+          DagCompilationException.ErrorType.VALIDATION_FAILED,
+          null,
+          null,
+          "Dag validation failed: " + e.getMessage(),
+          e);
     }
 
     // Compile nodes
@@ -74,6 +81,7 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                   } catch (Exception e) {
                     log.error("dag compilation error at node {}: {}", n.getId(), rdn, e);
                     throw new DagCompilationException(
+                        DagCompilationException.ErrorType.NODE_COMPILATION,
                         n.getId(),
                         n.getNodeContent().getCommandName(),
                         String.format(
@@ -96,7 +104,11 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
     CommandFactory commandFactory = commandFactoryMap.get(commandName);
     if (commandFactory == null) {
       throw new DagCompilationException(
-          nodeId, commandName, "unknown command: " + commandName, null);
+          DagCompilationException.ErrorType.UNKNOWN_COMMAND,
+          nodeId,
+          commandName,
+          "unknown command: " + commandName,
+          null);
     }
     return commandFactory;
   }

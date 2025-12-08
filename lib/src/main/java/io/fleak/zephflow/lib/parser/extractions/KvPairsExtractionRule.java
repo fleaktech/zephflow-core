@@ -25,22 +25,32 @@ import org.apache.commons.lang3.StringUtils;
 /**
  * An extraction rule that parses a string of key-value pairs into a Map.
  *
- * <p>This class is configurable for both the pair separator (e.g., ',') and the key-value separator
- * (e.g., '='). It correctly handles values that are enclosed in double quotes, allowing them to
- * contain separators. It leverages the Apache Commons CSV library for robust parsing.
+ * <p>This class is configurable for both the pair separator (e.g., ",") and the key-value separator
+ * (e.g., "="). It supports multi-character separators (e.g., "=>", ", ") and escape sequences
+ * (e.g., "\t" for tab). It correctly handles values that are enclosed in double quotes, allowing
+ * them to contain separators.
  */
 public class KvPairsExtractionRule implements ExtractionRule {
-  private final KvPairExtractionConfig kvPairExtractionConfig;
+  private final String pairSeparator;
+  private final String kvSeparator;
   private final char quoteChar = '"';
   private final char escapeChar = '\\';
 
   /** Constructs a new extraction rule with specified separators. */
   public KvPairsExtractionRule(KvPairExtractionConfig kvPairExtractionConfig) {
-    if (kvPairExtractionConfig.getPairSeparator() == kvPairExtractionConfig.getKvSeparator()) {
+    this.pairSeparator = kvPairExtractionConfig.getUnescapedPairSeparator();
+    this.kvSeparator = kvPairExtractionConfig.getUnescapedKvSeparator();
+
+    if (StringUtils.isEmpty(pairSeparator)) {
+      throw new IllegalArgumentException("Pair separator cannot be empty.");
+    }
+    if (StringUtils.isEmpty(kvSeparator)) {
+      throw new IllegalArgumentException("Key-Value separator cannot be empty.");
+    }
+    if (pairSeparator.equals(kvSeparator)) {
       throw new IllegalArgumentException(
           "Pair separator and Key-Value separator cannot be the same.");
     }
-    this.kvPairExtractionConfig = kvPairExtractionConfig;
   }
 
   /**
@@ -57,7 +67,7 @@ public class KvPairsExtractionRule implements ExtractionRule {
       return new RecordFleakData();
     }
 
-    List<String> pairs = splitRespectingQuotes(raw, kvPairExtractionConfig.getPairSeparator());
+    List<String> pairs = splitRespectingQuotes(raw, pairSeparator);
 
     for (String pair : pairs) {
       if (StringUtils.isBlank(pair)) {
@@ -65,22 +75,21 @@ public class KvPairsExtractionRule implements ExtractionRule {
       }
 
       // For each pair, find the key-value separator, also respecting quotes.
-      int separatorIndex =
-          findSeparatorOutsideQuotes(pair, kvPairExtractionConfig.getKvSeparator());
+      int separatorIndex = findSeparatorOutsideQuotes(pair, kvSeparator);
 
       if (separatorIndex == -1) {
         throw new IllegalArgumentException("no valid key-value separator found: " + pair);
       }
 
       String key = pair.substring(0, separatorIndex).trim();
-      String value = pair.substring(separatorIndex + 1).trim();
+      String value = pair.substring(separatorIndex + kvSeparator.length()).trim();
 
       resultMap.put(unquoteAndUnescape(key), unquoteAndUnescape(value));
     }
     return (RecordFleakData) FleakData.wrap(resultMap);
   }
 
-  private int findSeparatorOutsideQuotes(String str, char separator) {
+  private int findSeparatorOutsideQuotes(String str, String separator) {
     boolean inQuotes = false;
     for (int i = 0; i < str.length(); i++) {
       char c = str.charAt(i);
@@ -88,7 +97,7 @@ public class KvPairsExtractionRule implements ExtractionRule {
 
       if (c == this.quoteChar && prevChar != this.escapeChar) {
         inQuotes = !inQuotes;
-      } else if (c == separator && !inQuotes) {
+      } else if (!inQuotes && str.startsWith(separator, i)) {
         return i;
       }
     }
@@ -96,7 +105,7 @@ public class KvPairsExtractionRule implements ExtractionRule {
   }
 
   /** Splits a string by a separator, but ignores separators inside quoted sections. */
-  private List<String> splitRespectingQuotes(String str, char separator) {
+  private List<String> splitRespectingQuotes(String str, String separator) {
     List<String> parts = new ArrayList<>();
     StringBuilder currentPart = new StringBuilder();
     boolean inQuotes = false;
@@ -109,9 +118,10 @@ public class KvPairsExtractionRule implements ExtractionRule {
         inQuotes = !inQuotes;
       }
 
-      if (c == separator && !inQuotes) {
+      if (!inQuotes && str.startsWith(separator, i)) {
         parts.add(currentPart.toString().trim());
         currentPart.setLength(0);
+        i += separator.length() - 1; // -1 because the loop will increment
       } else {
         currentPart.append(c);
       }

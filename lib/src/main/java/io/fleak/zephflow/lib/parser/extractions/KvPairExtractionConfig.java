@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.parser.extractions;
 
+import static org.apache.commons.text.StringEscapeUtils.unescapeJava;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,6 +26,14 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class KvPairExtractionConfig implements ExtractionConfig {
-  private char pairSeparator;
-  private char kvSeparator;
+  private String pairSeparator;
+  private String kvSeparator;
+
+  public String getUnescapedPairSeparator() {
+    return unescapeJava(pairSeparator);
+  }
+
+  public String getUnescapedKvSeparator() {
+    return unescapeJava(kvSeparator);
+  }
 }

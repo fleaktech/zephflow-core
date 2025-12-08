@@ -21,6 +21,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
@@ -51,7 +52,8 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
+      Map<String, String> metricTags) {
     log.debug(
         "Kinesis flushing started for {}, list {}",
         streamName,

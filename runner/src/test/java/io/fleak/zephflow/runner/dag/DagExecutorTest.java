@@ -34,6 +34,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -107,7 +108,7 @@ public class DagExecutorTest {
         JobContext jobContext,
         ConfigParser configParser,
         ConfigValidator configValidator) {
-      super(nodeId, jobContext, configParser, configValidator, true);
+      super(nodeId, jobContext, configParser, configValidator);
     }
 
     @Override
@@ -129,14 +130,24 @@ public class DagExecutorTest {
       // Create fetcher that generates 10 test events
       Fetcher<RecordFleakData> fetcher =
           new Fetcher<>() {
+            private final AtomicBoolean fetched = new AtomicBoolean(false);
+
             @Override
             public List<RecordFleakData> fetch() {
+              if (fetched.getAndSet(true)) {
+                return List.of();
+              }
               int eventCount = 10;
               List<RecordFleakData> sourceEvents = new ArrayList<>();
               for (int i = 0; i < eventCount; ++i) {
                 sourceEvents.add((RecordFleakData) FleakData.wrap(Map.of("num", i)));
               }
               return sourceEvents;
+            }
+
+            @Override
+            public boolean isExhausted() {
+              return fetched.get();
             }
 
             @Override
@@ -209,7 +220,8 @@ public class DagExecutorTest {
           new SimpleSinkCommand.Flusher<>() {
             @Override
             public SimpleSinkCommand.FlushResult flush(
-                SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents) {
+                SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
+                Map<String, String> metricTags) {
               Set<Map<String, Object>> sink =
                   IN_MEM_SINK.computeIfAbsent(nodeId, k -> new HashSet<>());
               sink.addAll(

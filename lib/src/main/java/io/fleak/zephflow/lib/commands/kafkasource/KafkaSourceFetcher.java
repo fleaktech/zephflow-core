@@ -59,7 +59,7 @@ public record KafkaSourceFetcher(
   }
 
   @Override
-  public Committer commiter() {
+  public Committer committer() {
     return () -> consumer.commitAsync(COMMIT_CALLBACK);
   }
 
