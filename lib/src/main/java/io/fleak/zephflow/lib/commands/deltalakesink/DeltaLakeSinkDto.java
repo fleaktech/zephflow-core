@@ -17,7 +17,10 @@ import io.fleak.zephflow.api.CommandConfig;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 public class DeltaLakeSinkDto {
 
@@ -34,5 +37,11 @@ public class DeltaLakeSinkDto {
 
     @Builder.Default private Map<String, String> hadoopConfiguration = new HashMap<>();
     private String credentialId;
+
+    @Builder.Default private boolean enableAutoCheckpoint = true;
+
+    @Builder.Default private Integer checkpointInterval = 5;
+
+    @Builder.Default private int flushIntervalSeconds = 30;
   }
 }

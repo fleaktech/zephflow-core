@@ -59,7 +59,10 @@ class DeltaLakeSinkCommandIntegrationTest {
   void testDeltaLakeWriterIntegration(@TempDir Path tempDir) throws Exception {
     // Test the writer component directly (which is what does the actual work)
     Config config =
-        Config.builder().tablePath(tempDir.resolve("integration-test-table").toString()).build();
+        Config.builder()
+            .tablePath(tempDir.resolve("integration-test-table").toString())
+            .batchSize(1)
+            .build();
 
     // Create writer with mock JobContext
     JobContext mockJobContext = mock(JobContext.class);
