@@ -42,10 +42,9 @@ class SimpleSourceCommandTest {
         JobContext jobContext,
         ConfigParser configParser,
         ConfigValidator configValidator,
-        boolean singleEventSource,
         String commandName,
         SourceExecutionContext<SerializedEvent> testExecutionContext) {
-      super(nodeId, jobContext, configParser, configValidator, singleEventSource);
+      super(nodeId, jobContext, configParser, configValidator);
       this.commandName = commandName;
       this.testExecutionContext = testExecutionContext;
     }
@@ -112,7 +111,7 @@ class SimpleSourceCommandTest {
     deserializeFailureCounter = mock();
     mockCommitStrategy = mock(CommitStrategy.class);
 
-    when(mockFetcher.commiter()).thenReturn(mockCommitter);
+    when(mockFetcher.committer()).thenReturn(mockCommitter);
     when(mockFetcher.commitStrategy()).thenReturn(mockCommitStrategy);
 
     testExecutionContext =
@@ -132,7 +131,6 @@ class SimpleSourceCommandTest {
             mockJobContext,
             mockConfigParser,
             mockConfigValidator,
-            false,
             TEST_COMMAND_NAME,
             testExecutionContext);
     command.parseAndValidateArg(TEST_CONFIG);
@@ -250,20 +248,10 @@ class SimpleSourceCommandTest {
   }
 
   @Test
-  void testSingleEventSourceBehavior() throws Exception {
-    // Create command with singleEventSource=true
-    command =
-        new TestSimpleSourceCommand(
-            TEST_NODE_ID,
-            mockJobContext,
-            mockConfigParser,
-            mockConfigValidator,
-            true,
-            TEST_COMMAND_NAME,
-            testExecutionContext);
-    command.parseAndValidateArg(TEST_CONFIG);
-    // Setup single successful fetch
+  void testFetcherExhaustedStopsLoop() throws Exception {
+    // Setup fetcher to signal exhausted after first fetch
     when(mockFetcher.fetch()).thenReturn(List.of());
+    when(mockFetcher.isExhausted()).thenReturn(true);
 
     // Setup commit strategy
     when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
@@ -273,7 +261,7 @@ class SimpleSourceCommandTest {
     command.initialize(mockMetricClientProvider);
     command.execute("testUser", mockSourceEventAcceptor);
 
-    // Verify only one fetch
+    // Verify only one fetch due to isExhausted()
     verify(mockFetcher, times(1)).fetch();
     verify(mockSourceEventAcceptor).terminate();
     verify(dataSizeCounter, never()).increase(anyLong(), anyMap());
@@ -282,5 +270,31 @@ class SimpleSourceCommandTest {
     verify(inputEventCounter, never()).increase(anyMap());
     verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
     verify(deserializeFailureCounter, never()).increase(anyMap());
+  }
+
+  @Test
+  void testFetcherExhaustedWithDataProcessesBeforeExit() throws Exception {
+    // Setup test data
+    RecordFleakData mockRecord = mock(RecordFleakData.class);
+    SerializedEvent mockRaw = new SerializedEvent(null, "abcdef".getBytes(), null);
+    List<SerializedEvent> fetched = List.of(mockRaw);
+
+    when(mockFetcher.fetch()).thenReturn(fetched);
+    when(mockFetcher.isExhausted()).thenReturn(true);
+    when(mockDeserializer.deserialize(same(mockRaw))).thenReturn(List.of(mockRecord));
+
+    // Setup commit strategy
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
+
+    // Execute
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
+
+    // Verify data was processed before exit
+    verify(mockFetcher, times(1)).fetch();
+    verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
+    verify(mockCommitter).commit();
+    verify(mockSourceEventAcceptor).terminate();
   }
 }

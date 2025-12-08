@@ -21,7 +21,20 @@ public interface Fetcher<T> extends Closeable {
 
   List<T> fetch();
 
-  default Fetcher.Committer commiter() {
+  /**
+   * Returns true if this fetcher has exhausted its data source and will never produce more data.
+   * Once this returns true, it should continue returning true.
+   *
+   * <p>Infinite sources (Kafka, Kinesis) should always return false. Finite sources (File, Splunk,
+   * paginated APIs) should return true when exhausted.
+   *
+   * @return true if no more data will ever be available
+   */
+  default boolean isExhausted() {
+    return false;
+  }
+
+  default Fetcher.Committer committer() {
     return null;
   }
 

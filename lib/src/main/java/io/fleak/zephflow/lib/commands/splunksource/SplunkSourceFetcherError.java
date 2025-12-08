@@ -13,25 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.splunksource;
 
-import io.fleak.zephflow.api.CommandConfig;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+public class SplunkSourceFetcherError extends RuntimeException {
+  public SplunkSourceFetcherError(String message) {
+    super(message);
+  }
 
-public interface SplunkSourceDto {
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    private String splunkUrl;
-    private String searchQuery;
-    private String credentialId;
-    @Builder.Default private boolean validateCertificates = false;
-    @Builder.Default private int batchSize = 10000;
-    @Builder.Default private long jobInitTimeoutMs = 300000L;
-    private String earliestTime;
-    private String latestTime;
+  public SplunkSourceFetcherError(String message, Throwable cause) {
+    super(message, cause);
   }
 }

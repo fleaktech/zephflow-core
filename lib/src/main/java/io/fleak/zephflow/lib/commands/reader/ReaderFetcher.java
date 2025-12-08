@@ -156,7 +156,12 @@ public class ReaderFetcher implements Fetcher<SerializedEvent> {
   }
 
   @Override
-  public Committer commiter() {
+  public boolean isExhausted() {
+    return eventsIterator != null && !eventsIterator.hasNext();
+  }
+
+  @Override
+  public Committer committer() {
     return () -> {};
   }
 }

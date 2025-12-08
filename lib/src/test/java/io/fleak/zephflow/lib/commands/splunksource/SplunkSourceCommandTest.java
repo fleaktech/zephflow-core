@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.commands.splunksource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -121,12 +120,7 @@ class SplunkSourceCommandTest {
 
           @Override
           public void accept(List<RecordFleakData> events) {
-            for (RecordFleakData event : events) {
-              eventCount++;
-              System.out.println("\nEvent " + eventCount + ":");
-              System.out.println("-".repeat(80));
-              System.out.println(toJsonString(event));
-            }
+            eventCount += events.size();
           }
 
           @Override

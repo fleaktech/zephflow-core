@@ -20,10 +20,15 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.io.FileUtils;
 
 /** Created by bolei on 3/24/25 */
-public record FileSourceFetcher(File file) implements Fetcher<SerializedEvent> {
+@RequiredArgsConstructor
+public class FileSourceFetcher implements Fetcher<SerializedEvent> {
+
+  private final File file;
+  private volatile boolean exhausted = false;
 
   @Override
   public List<SerializedEvent> fetch() {
@@ -34,8 +39,14 @@ public record FileSourceFetcher(File file) implements Fetcher<SerializedEvent> {
       throw new IllegalStateException(
           "failed to read data from given file " + file.getAbsolutePath());
     }
+    exhausted = true;
     SerializedEvent serializedEvent = new SerializedEvent(null, bytes, null);
     return List.of(serializedEvent);
+  }
+
+  @Override
+  public boolean isExhausted() {
+    return exhausted;
   }
 
   @Override

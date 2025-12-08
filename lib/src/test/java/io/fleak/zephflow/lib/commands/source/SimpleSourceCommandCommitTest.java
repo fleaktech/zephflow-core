@@ -100,7 +100,7 @@ class SimpleSourceCommandCommitTest {
   private class TestSourceCommand extends SimpleSourceCommand<SerializedEvent> {
 
     public TestSourceCommand() {
-      super("test", null, null, null, false);
+      super("test", null, null, null);
     }
 
     @Override

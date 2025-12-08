@@ -32,7 +32,7 @@ public class ReaderCommand extends SimpleSourceCommand<SerializedEvent> {
       JobContext jobContext,
       ConfigParser configParser,
       ConfigValidator configValidator) {
-    super(nodeId, jobContext, configParser, configValidator, true);
+    super(nodeId, jobContext, configParser, configValidator);
   }
 
   @Override
