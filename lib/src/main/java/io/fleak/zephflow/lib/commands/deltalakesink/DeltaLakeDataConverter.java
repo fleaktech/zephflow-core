@@ -34,8 +34,6 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -341,46 +339,6 @@ public class DeltaLakeDataConverter {
    * values for use with Delta Kernel API
    */
   record SimpleColumnVector(List<Object> values, DataType dataType) implements ColumnVector {
-    SimpleColumnVector(List<Object> values, DataType dataType) {
-      this.values = new ArrayList<>(values); // Create defensive copy
-      this.dataType = dataType;
-
-      // Validate that all non-null values are compatible with the declared type
-      validateValues();
-    }
-
-    private void validateValues() {
-      for (int i = 0; i < values.size(); i++) {
-        Object value = values.get(i);
-        if (value != null && !isValueCompatibleWithType(value, dataType)) {
-          throw new IllegalArgumentException(
-              String.format(
-                  "Value at index %d (%s) is not compatible with type %s", i, value, dataType));
-        }
-      }
-    }
-
-    private boolean isValueCompatibleWithType(Object value, DataType dataType) {
-      if (dataType.equals(StringType.STRING)) {
-        return true; // Any value can be converted to string
-      } else if (dataType.equals(IntegerType.INTEGER)) {
-        return value instanceof Integer;
-      } else if (dataType.equals(LongType.LONG)) {
-        return value instanceof Long;
-      } else if (dataType.equals(DoubleType.DOUBLE)) {
-        return value instanceof Double || value instanceof Float;
-      } else if (dataType.equals(BooleanType.BOOLEAN)) {
-        return value instanceof Boolean;
-      } else if (dataType.equals(TimestampType.TIMESTAMP)) {
-        return value instanceof Timestamp || value instanceof Instant;
-      } else if (dataType instanceof ArrayType) {
-        return value instanceof List;
-      } else if (dataType instanceof StructType) {
-        return value instanceof Map;
-      }
-      return true; // For other types, assume compatibility
-    }
-
     @Override
     public DataType getDataType() {
       return dataType;
