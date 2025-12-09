@@ -13,17 +13,22 @@
  */
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
+import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.resolveStorageType;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupApiKeyCredentialOpt;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupGcpCredentialOpt;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
+import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.StorageType;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public class DeltaLakeSinkConfigValidator implements ConfigValidator {
 
@@ -33,13 +38,23 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
     List<String> errors = new ArrayList<>();
 
     // Validate credentials if credentialId is specified
-    if (config.getCredentialId() != null) {
-      var credentialOpt = lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+    if (config.getCredentialId() != null && config.getTablePath() != null) {
+      StorageType storageType = resolveStorageType(config.getTablePath());
+      Optional<?> credentialOpt =
+          switch (storageType) {
+            case S3 -> lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+            case GCS -> lookupGcpCredentialOpt(jobContext, config.getCredentialId());
+            case ABS -> lookupApiKeyCredentialOpt(jobContext, config.getCredentialId());
+            case HDFS, UNKNOWN -> Optional.of(new Object());
+          };
+
       if (credentialOpt.isEmpty()) {
         errors.add(
             "credentialId '"
                 + config.getCredentialId()
-                + "' was specified but no credential found in jobContext");
+                + "' was specified but no matching "
+                + storageType
+                + " credential found in jobContext");
       }
     }
 

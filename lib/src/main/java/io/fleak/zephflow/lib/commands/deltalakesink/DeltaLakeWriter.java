@@ -38,6 +38,7 @@ import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -427,22 +428,39 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
   private Literal convertToLiteral(Object value, DataType targetType) {
     if (value == null) {
-      // Use the actual target type for null, not arbitrary STRING assumption
       return Literal.ofNull(targetType);
-    } else if (value instanceof String) {
-      return Literal.ofString((String) value);
-    } else if (value instanceof Integer) {
-      return Literal.ofInt((Integer) value);
-    } else if (value instanceof Long) {
-      return Literal.ofLong((Long) value);
-    } else if (value instanceof Boolean) {
-      return Literal.ofBoolean((Boolean) value);
+    } else if (value instanceof String s) {
+      return Literal.ofString(s);
+    } else if (value instanceof Integer i) {
+      return Literal.ofInt(i);
+    } else if (value instanceof Long l) {
+      return Literal.ofLong(l);
+    } else if (value instanceof Boolean b) {
+      return Literal.ofBoolean(b);
+    } else if (value instanceof Float f) {
+      return Literal.ofFloat(f);
+    } else if (value instanceof Double d) {
+      return Literal.ofDouble(d);
+    } else if (value instanceof Short s) {
+      return Literal.ofShort(s);
+    } else if (value instanceof Byte b) {
+      return Literal.ofByte(b);
+    } else if (value instanceof BigDecimal bd) {
+      return Literal.ofDecimal(bd, bd.precision(), bd.scale());
+    } else if (value instanceof java.time.LocalDate ld) {
+      return Literal.ofDate((int) ld.toEpochDay());
+    } else if (value instanceof java.sql.Date d) {
+      return Literal.ofDate((int) d.toLocalDate().toEpochDay());
+    } else if (value instanceof java.time.Instant inst) {
+      return Literal.ofTimestamp(inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
+    } else if (value instanceof java.sql.Timestamp ts) {
+      return Literal.ofTimestamp(ts.getTime() * 1000 + ts.getNanos() / 1000);
     } else {
-      // Fail fast for unknown types - don't hide bugs with toString()
       throw new IllegalArgumentException(
           String.format(
               "Unsupported data type for Literal conversion: %s. Value: %s. "
-                  + "Add explicit handling for this type instead of using toString() fallback.",
+                  + "Supported types: String, Integer, Long, Boolean, Float, Double, "
+                  + "Short, Byte, BigDecimal, LocalDate, Date, Instant, Timestamp.",
               value.getClass().getName(), value));
     }
   }
