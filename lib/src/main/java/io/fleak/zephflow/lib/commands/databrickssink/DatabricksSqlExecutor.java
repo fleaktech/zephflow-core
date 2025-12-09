@@ -180,7 +180,12 @@ public record DatabricksSqlExecutor(
     if (!formatOptions.isEmpty()) {
       sql.append("FORMAT_OPTIONS (\n");
       formatOptions.forEach(
-          (k, v) -> sql.append("  '").append(k).append("' = '").append(v).append("',\n"));
+          (k, v) ->
+              sql.append("  '")
+                  .append(escapeSqlString(k))
+                  .append("' = '")
+                  .append(escapeSqlString(v))
+                  .append("',\n"));
       sql.setLength(sql.length() - 2);
       sql.append("\n)\n");
     }
@@ -188,7 +193,12 @@ public record DatabricksSqlExecutor(
     if (!copyOptions.isEmpty()) {
       sql.append("COPY_OPTIONS (\n");
       copyOptions.forEach(
-          (k, v) -> sql.append("  '").append(k).append("' = '").append(v).append("',\n"));
+          (k, v) ->
+              sql.append("  '")
+                  .append(escapeSqlString(k))
+                  .append("' = '")
+                  .append(escapeSqlString(v))
+                  .append("',\n"));
       sql.setLength(sql.length() - 2);
       sql.append("\n)");
     } else {
@@ -196,6 +206,10 @@ public record DatabricksSqlExecutor(
     }
 
     return sql.toString();
+  }
+
+  private static String escapeSqlString(String value) {
+    return value == null ? "" : value.replace("'", "''");
   }
 
   public record CopyIntoStats(
