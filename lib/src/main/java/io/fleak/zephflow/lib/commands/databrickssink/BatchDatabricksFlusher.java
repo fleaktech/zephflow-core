@@ -512,19 +512,26 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       flushBatchToDatabricks(snapshot);
     }
 
-    if (Files.exists(tempDirectory)) {
-      try (var paths = Files.walk(tempDirectory)) {
-        paths
-            .sorted(Comparator.reverseOrder())
-            .forEach(
-                path -> {
-                  try {
-                    Files.delete(path);
-                  } catch (IOException e) {
-                    log.warn("Failed to delete {}", path, e);
-                  }
-                });
+    // Acquire flushLock to ensure any in-progress scheduled flush completes
+    // before we clean up temp files it may be using
+    flushLock.lock();
+    try {
+      if (Files.exists(tempDirectory)) {
+        try (var paths = Files.walk(tempDirectory)) {
+          paths
+              .sorted(Comparator.reverseOrder())
+              .forEach(
+                  path -> {
+                    try {
+                      Files.delete(path);
+                    } catch (IOException e) {
+                      log.warn("Failed to delete {}", path, e);
+                    }
+                  });
+        }
       }
+    } finally {
+      flushLock.unlock();
     }
 
     if (dlqWriter != null) {
