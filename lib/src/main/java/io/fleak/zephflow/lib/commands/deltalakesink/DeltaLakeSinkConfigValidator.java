@@ -103,6 +103,7 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
         || "s3a".equals(scheme)
         || "hdfs".equals(scheme)
         || "abfs".equals(scheme)
+        || "abfss".equals(scheme)
         || "gs".equals(scheme);
   }
 
