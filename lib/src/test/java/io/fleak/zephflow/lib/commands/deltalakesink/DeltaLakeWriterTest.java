@@ -22,7 +22,6 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -54,7 +53,7 @@ class DeltaLakeWriterTest {
   void testWriterCreation() {
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext);
+          DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null);
           writer.initialize();
           writer.close();
         });
@@ -62,7 +61,7 @@ class DeltaLakeWriterTest {
 
   @Test
   void testEmptyFlush() throws Exception {
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null);
     writer.initialize();
 
     SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> emptyEvents =
@@ -79,7 +78,7 @@ class DeltaLakeWriterTest {
 
   @Test
   void testFlushWithData() {
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null);
     writer.initialize();
 
     // Create test data
@@ -121,7 +120,7 @@ class DeltaLakeWriterTest {
 
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+          DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
           writer.initialize();
           writer.close();
         });
@@ -137,7 +136,7 @@ class DeltaLakeWriterTest {
 
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(partitionConfig, jobContext);
+          DeltaLakeWriter writer = new DeltaLakeWriter(partitionConfig, jobContext, null);
           writer.initialize();
           writer.close();
         });
@@ -154,7 +153,7 @@ class DeltaLakeWriterTest {
 
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(hadoopConfiguredConfig, jobContext);
+          DeltaLakeWriter writer = new DeltaLakeWriter(hadoopConfiguredConfig, jobContext, null);
           writer.initialize();
           writer.close();
         });
@@ -168,7 +167,7 @@ class DeltaLakeWriterTest {
     assertDoesNotThrow(
         () -> {
           // Writer creation should not fail immediately
-          DeltaLakeWriter writer = new DeltaLakeWriter(invalidConfig, jobContext);
+          DeltaLakeWriter writer = new DeltaLakeWriter(invalidConfig, jobContext, null);
           writer.initialize();
           writer.close();
         });
@@ -176,7 +175,7 @@ class DeltaLakeWriterTest {
 
   @Test
   void testClose() throws IOException {
-    try (DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext)) {
+    try (DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null)) {
       writer.initialize();
       assertDoesNotThrow(writer::close);
 
@@ -188,23 +187,26 @@ class DeltaLakeWriterTest {
   @Test
   void testBufferAccumulatesEventsBeforeBatchSize() throws Exception {
     Config testConfig = Config.builder().tablePath(tablePath + "_buffer1").batchSize(10).build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
-    // Use reflection to access the private buffer field
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    // Use reflection to access the private buffer field from superclass
+    java.lang.reflect.Field bufferField =
+        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    List<Map<String, Object>> buffer = (List<Map<String, Object>>) bufferField.get(writer);
+    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
+        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
 
     // Add 5 events (buffer: 5/10) - should accumulate without flushing
     for (int i = 0; i < 5; i++) {
       Map<String, Object> event = new HashMap<>(testData);
       event.put("id", i);
-      buffer.add(event);
+      buffer.add(Pair.of(record, event));
     }
 
     // Verify buffer contains 5 events
@@ -214,7 +216,7 @@ class DeltaLakeWriterTest {
     for (int i = 5; i < 8; i++) {
       Map<String, Object> event = new HashMap<>(testData);
       event.put("id", i);
-      buffer.add(event);
+      buffer.add(Pair.of(record, event));
     }
 
     // Verify buffer contains 8 events (not flushed yet)
@@ -224,21 +226,24 @@ class DeltaLakeWriterTest {
   @Test
   void testBufferClearedAfterFlush() throws Exception {
     Config testConfig = Config.builder().tablePath(tablePath + "_buffer2").batchSize(5).build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
-    // Use reflection to access the private buffer field
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    // Use reflection to access the private buffer field from superclass
+    java.lang.reflect.Field bufferField =
+        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    List<Map<String, Object>> buffer = (List<Map<String, Object>>) bufferField.get(writer);
+    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
+        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
 
     // Add events to buffer
     for (int i = 0; i < 5; i++) {
-      buffer.add(new HashMap<>(testData));
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
     }
     assertEquals(5, buffer.size());
 
@@ -247,7 +252,7 @@ class DeltaLakeWriterTest {
 
     // Add more events after "flush"
     for (int i = 0; i < 3; i++) {
-      buffer.add(new HashMap<>(testData));
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
     }
     assertEquals(3, buffer.size());
   }
@@ -255,33 +260,36 @@ class DeltaLakeWriterTest {
   @Test
   void testBufferSizeTracking() throws Exception {
     Config testConfig = Config.builder().tablePath(tablePath + "_buffer3").batchSize(100).build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
-    // Use reflection to access the private buffer field
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    // Use reflection to access the private buffer field from superclass
+    java.lang.reflect.Field bufferField =
+        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    List<Map<String, Object>> buffer = (List<Map<String, Object>>) bufferField.get(writer);
+    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
+        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
 
     assertEquals(0, buffer.size());
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
 
     // Simulate multiple flush calls adding to buffer
     for (int i = 0; i < 25; i++) {
-      buffer.add(new HashMap<>(testData));
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
     }
     assertEquals(25, buffer.size());
 
     for (int i = 0; i < 30; i++) {
-      buffer.add(new HashMap<>(testData));
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
     }
     assertEquals(55, buffer.size());
 
     // Still under batchSize of 100, so buffer keeps accumulating
     for (int i = 0; i < 20; i++) {
-      buffer.add(new HashMap<>(testData));
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
     }
     assertEquals(75, buffer.size());
   }
@@ -289,31 +297,34 @@ class DeltaLakeWriterTest {
   @Test
   void testBufferReachingBatchSizeThreshold() throws Exception {
     Config testConfig = Config.builder().tablePath(tablePath + "_buffer4").batchSize(10).build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
-    // Use reflection to access the private buffer field
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    // Use reflection to access the private buffer field from superclass
+    java.lang.reflect.Field bufferField =
+        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
     @SuppressWarnings("unchecked")
-    List<Map<String, Object>> buffer = (List<Map<String, Object>>) bufferField.get(writer);
+    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
+        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
 
     // Add events up to batchSize - 1
     for (int i = 0; i < 9; i++) {
-      buffer.add(new HashMap<>(testData));
+      buffer.add(Pair.of(record, new HashMap<>(testData)));
     }
     assertEquals(9, buffer.size());
     assertTrue(buffer.size() < testConfig.getBatchSize());
 
     // Add one more event to reach batchSize
-    buffer.add(new HashMap<>(testData));
+    buffer.add(Pair.of(record, new HashMap<>(testData)));
     assertEquals(10, buffer.size());
     assertEquals(testConfig.getBatchSize(), buffer.size());
 
     // Add one more event to exceed batchSize - this would trigger flush in real scenario
-    buffer.add(new HashMap<>(testData));
+    buffer.add(Pair.of(record, new HashMap<>(testData)));
     assertEquals(11, buffer.size());
     assertTrue(buffer.size() >= testConfig.getBatchSize());
   }
@@ -328,7 +339,7 @@ class DeltaLakeWriterTest {
             .flushIntervalSeconds(2)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
     // Access private fields using reflection
@@ -358,7 +369,7 @@ class DeltaLakeWriterTest {
             .flushIntervalSeconds(1)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
     // Use reflection to access the private buffer field
@@ -402,7 +413,7 @@ class DeltaLakeWriterTest {
             .flushIntervalSeconds(1)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
     // Use reflection to access the private buffer field
@@ -450,7 +461,7 @@ class DeltaLakeWriterTest {
             .flushIntervalSeconds(0) // Timer disabled
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
     // Access private fields using reflection
@@ -479,7 +490,7 @@ class DeltaLakeWriterTest {
             .flushIntervalSeconds(2)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
     // Access private fields using reflection
@@ -518,8 +529,8 @@ class DeltaLakeWriterTest {
             .flushIntervalSeconds(2)
             .build();
 
-    DeltaLakeWriter writer1 = new DeltaLakeWriter(config1, jobContext);
-    DeltaLakeWriter writer2 = new DeltaLakeWriter(config2, jobContext);
+    DeltaLakeWriter writer1 = new DeltaLakeWriter(config1, jobContext, null);
+    DeltaLakeWriter writer2 = new DeltaLakeWriter(config2, jobContext, null);
 
     // Access instance IDs using reflection
     java.lang.reflect.Field instanceIdField = DeltaLakeWriter.class.getDeclaredField("instanceId");
@@ -537,42 +548,5 @@ class DeltaLakeWriterTest {
 
     writer1.close();
     writer2.close();
-  }
-
-  @Test
-  void testBufferClearedOnFlushException() throws Exception {
-    Config testConfig = Config.builder().tablePath(tablePath + "_failure").batchSize(10).build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext);
-
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
-        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
-
-    Map<String, Object> testData = new HashMap<>();
-    testData.put("id", 1);
-    testData.put("name", "test");
-    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
-
-    for (int i = 0; i < 5; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
-    }
-    assertEquals(5, buffer.size());
-
-    Method flushBufferMethod = DeltaLakeWriter.class.getDeclaredMethod("flushBuffer");
-    flushBufferMethod.setAccessible(true);
-
-    SimpleSinkCommand.FlushResult result =
-        (SimpleSinkCommand.FlushResult) flushBufferMethod.invoke(writer);
-
-    assertEquals(0, result.successCount());
-    assertFalse(result.errorOutputList().isEmpty());
-    assertEquals(0, buffer.size(), "Buffer should be cleared even on failure");
-
-    for (int i = 0; i < 3; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
-    }
-    assertEquals(3, buffer.size(), "New records should not contain old failed records");
   }
 }

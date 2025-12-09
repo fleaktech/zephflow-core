@@ -66,7 +66,7 @@ class DeltaLakeSinkCommandIntegrationTest {
 
     // Create writer with mock JobContext
     JobContext mockJobContext = mock(JobContext.class);
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, mockJobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(config, mockJobContext, null);
     writer.initialize();
 
     // Create test data

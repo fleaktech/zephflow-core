@@ -34,31 +34,27 @@ import io.delta.kernel.utils.DataFileStatus;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.jetbrains.annotations.NotNull;
 
 @Slf4j
-public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Object>> {
+public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>> {
 
   private final DeltaLakeSinkDto.Config config;
   private final JobContext jobContext;
   private Engine engine;
   private Table table;
+  private StructType tableSchema;
   private boolean initialized = false;
-
-  private final List<Pair<RecordFleakData, Map<String, Object>>> buffer = new ArrayList<>();
-  private final ReentrantLock bufferLock = new ReentrantLock();
 
   private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final int instanceId = INSTANCE_COUNTER.incrementAndGet();
@@ -66,7 +62,9 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   private ScheduledFuture<?> flushTask;
   private int minTimerBatchSize;
 
-  public DeltaLakeWriter(DeltaLakeSinkDto.Config config, JobContext jobContext) {
+  public DeltaLakeWriter(
+      DeltaLakeSinkDto.Config config, JobContext jobContext, DlqWriter dlqWriter) {
+    super(dlqWriter);
     this.config = config;
     this.jobContext = jobContext;
   }
@@ -111,6 +109,10 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
       log.error(errorMessage, e);
       throw new IllegalStateException(errorMessage, e);
     }
+
+    // Cache schema for validation
+    this.tableSchema = table.getLatestSnapshot(engine).getSchema();
+    log.info("Cached table schema with {} fields", tableSchema.fields().size());
 
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
@@ -169,12 +171,9 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
   }
 
   private void timerFlush() {
-    if (!bufferLock.tryLock()) {
-      log.trace("Timer-based flush skipped: another flush in progress");
-      return;
-    }
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
 
-    try {
+    synchronized (bufferLock) {
       if (buffer.isEmpty()) {
         log.trace("Timer-based flush skipped: buffer is empty");
         return;
@@ -192,17 +191,14 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
           "Timer-based flush triggered with {} buffered events for path: {}",
           buffer.size(),
           config.getTablePath());
+      snapshot = swapBuffer();
+    }
 
-      try {
-        flushBuffer();
-      } catch (Exception e) {
-        log.error(
-            "Failed to flush buffer during timer-based flush for path: {}",
-            config.getTablePath(),
-            e);
+    if (snapshot != null) {
+      SimpleSinkCommand.FlushResult result = flushSnapshot(snapshot);
+      if (!result.errorOutputList().isEmpty()) {
+        handleScheduledFlushErrors(result.errorOutputList());
       }
-    } finally {
-      bufferLock.unlock();
     }
   }
 
@@ -216,21 +212,21 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
       throw new IllegalStateException(
           "Delta Lake writer not initialized. Call initialize() first.");
     }
-
+    if (closed) {
+      throw new IllegalStateException("DeltaLakeWriter is closed");
+    }
     if (preparedInputEvents.preparedList().isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    List<Pair<RecordFleakData, Map<String, Object>>> incomingEventPairs =
-        preparedInputEvents.rawAndPreparedList();
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
     int batchSize = config.getBatchSize();
 
-    bufferLock.lock();
-    try {
-      buffer.addAll(incomingEventPairs);
+    synchronized (bufferLock) {
+      buffer.addAll(preparedInputEvents.rawAndPreparedList());
       log.debug(
           "Accumulated {} events in buffer. Total buffer size: {} / {}",
-          incomingEventPairs.size(),
+          preparedInputEvents.rawAndPreparedList().size(),
           buffer.size(),
           batchSize);
 
@@ -239,51 +235,62 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
             "Buffer reached batch size ({}). Flushing {} events to Delta table.",
             batchSize,
             buffer.size());
-        return flushBuffer();
+        snapshot = swapBuffer();
       }
-
-      log.debug(
-          "Buffer not full yet ({} / {}). Waiting for more events before flushing to Delta.",
-          buffer.size(),
-          batchSize);
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    } finally {
-      bufferLock.unlock();
     }
+
+    if (snapshot != null) {
+      return flushSnapshot(snapshot);
+    }
+
+    log.debug("Buffer not full yet. Waiting for more events before flushing to Delta.");
+    return new SimpleSinkCommand.FlushResult(0, 0, List.of());
   }
 
-  private SimpleSinkCommand.FlushResult flushBuffer() throws Exception {
-    if (buffer.isEmpty()) {
+  private SimpleSinkCommand.FlushResult flushSnapshot(
+      List<Pair<RecordFleakData, Map<String, Object>>> snapshot) {
+    if (snapshot.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    List<Pair<RecordFleakData, Map<String, Object>>> bufferedEventPairs = new ArrayList<>(buffer);
-
-    // Extract just the prepared maps for writing
-    List<Map<String, Object>> dataToWrite =
-        bufferedEventPairs.stream().map(Pair::getRight).collect(toList());
-
     log.info(
-        "Flushing buffer with {} events to Delta table at path: {}",
-        dataToWrite.size(),
-        config.getTablePath());
+        "Flushing {} events to Delta table at path: {}", snapshot.size(), config.getTablePath());
 
-    try {
-      SimpleSinkCommand.FlushResult result = writeDataToDeltaTable(dataToWrite);
-      return result;
-    } catch (Exception e) {
-      log.error("Error writing to Delta table at path: {}", config.getTablePath(), e);
-      List<ErrorOutput> errorOutputs =
-          bufferedEventPairs.stream()
-              .map(
-                  pair ->
-                      new ErrorOutput(
-                          pair.getLeft(), "Failed to write to Delta table: " + e.getMessage()))
-              .toList();
-      return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
-    } finally {
-      buffer.clear();
+    WriteResult result = writeWithRecovery(snapshot);
+
+    List<ErrorOutput> allErrors = new ArrayList<>(result.flushResult().errorOutputList());
+    allErrors.addAll(result.additionalErrors());
+
+    return new SimpleSinkCommand.FlushResult(
+        result.flushResult().successCount(), result.flushResult().flushedDataSize(), allErrors);
+  }
+
+  @Override
+  protected StructType getSchema() {
+    return tableSchema;
+  }
+
+  @Override
+  protected SimpleSinkCommand.FlushResult doWriteBatch(List<Map<String, Object>> data)
+      throws Exception {
+    return writeDataToDeltaTable(data);
+  }
+
+  @Override
+  protected boolean isRetryableException(Exception e) {
+    Throwable cause = e;
+    while (cause != null) {
+      String className = cause.getClass().getName();
+      if (className.contains("ConcurrentWriteException")
+          || className.contains("ConcurrentTransactionException")
+          || className.contains("ProtocolChangedException")
+          || className.contains("MetadataChangedException")
+          || cause instanceof java.io.IOException) {
+        return true;
+      }
+      cause = cause.getCause();
     }
+    return false;
   }
 
   /** Write data to Delta table using Delta Kernel API */
@@ -504,26 +511,32 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
 
   @Override
   public void close() throws IOException {
+    if (closed) {
+      return;
+    }
+
     log.info("Closing Delta Lake writer for path: {}", config.getTablePath());
+    closed = true;
 
     stopFlushTimer();
 
-    bufferLock.lock();
-    try {
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
+    synchronized (bufferLock) {
       if (!buffer.isEmpty()) {
         log.info(
             "Flushing {} remaining buffered events before closing writer for path: {}",
             buffer.size(),
             config.getTablePath());
-        try {
-          flushBuffer();
-        } catch (Exception e) {
-          log.error("Error flushing buffer during close for path: {}", config.getTablePath(), e);
-          throw new IOException("Failed to flush remaining events during close", e);
-        }
+        snapshot = swapBuffer();
       }
-    } finally {
-      bufferLock.unlock();
+    }
+
+    if (snapshot != null) {
+      flushSnapshot(snapshot);
+    }
+
+    if (dlqWriter != null) {
+      dlqWriter.close();
     }
 
     log.info("Delta Lake writer closed successfully for path: {}", config.getTablePath());

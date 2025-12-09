@@ -189,7 +189,7 @@ class DeltaLakeS3IntegrationTest {
             .credentialId(credentialId) // Use credential from JobContext
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, realJobContext);
+    DeltaLakeWriter writer = new DeltaLakeWriter(config, realJobContext, null);
 
     // Test initialization with S3 credentials from JobContext
     assertDoesNotThrow(

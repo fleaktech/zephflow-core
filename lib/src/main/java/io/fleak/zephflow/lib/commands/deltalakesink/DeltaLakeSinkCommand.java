@@ -19,8 +19,12 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.S3DlqWriter;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
 
   protected DeltaLakeSinkCommand(
@@ -58,9 +62,24 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
 
   private SimpleSinkCommand.Flusher<Map<String, Object>> createDeltaLakeFlusher(
       DeltaLakeSinkDto.Config config, JobContext jobContext) {
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext);
+    DlqWriter dlqWriter = createDlqWriter();
+    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, dlqWriter);
     writer.initialize();
     return writer;
+  }
+
+  private DlqWriter createDlqWriter() {
+    JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
+    if (dlqConfig == null) {
+      return null;
+    }
+    if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
+      DlqWriter writer = S3DlqWriter.createS3DlqWriter(s3DlqConfig);
+      writer.open();
+      return writer;
+    }
+    log.warn("Unsupported DLQ config type: {}", dlqConfig.getClass());
+    return null;
   }
 
   @Override
