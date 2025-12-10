@@ -34,6 +34,7 @@ import io.delta.kernel.utils.DataFileStatus;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -96,9 +97,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
     this.engine = DefaultEngine.create(hadoopConf);
 
-    // Load existing table - fail if table doesn't exist (as per requirement)
+    // Load existing table and validate it exists
+    Snapshot snapshot;
     try {
       this.table = Table.forPath(engine, config.getTablePath());
+      snapshot = table.getLatestSnapshot(engine);
       log.info("Loaded existing Delta table at path: {}", config.getTablePath());
     } catch (Exception e) {
       String errorMessage =
@@ -111,9 +114,29 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       throw new IllegalStateException(errorMessage, e);
     }
 
-    // Cache schema for validation
-    this.tableSchema = table.getLatestSnapshot(engine).getSchema();
-    log.info("Cached table schema with {} fields", tableSchema.fields().size());
+    // Use schema from config (control plane) instead of fetching from data plane
+    this.tableSchema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
+    log.info("Using schema from config with {} fields", tableSchema.fields().size());
+
+    // Safety check: Validate partition columns match between config and physical table
+    List<String> tablePartitionColumns = snapshot.getPartitionColumnNames();
+    List<String> configPartitionColumns =
+        config.getPartitionColumns() != null ? config.getPartitionColumns() : List.of();
+
+    if (!tablePartitionColumns.equals(configPartitionColumns)) {
+      String errorMessage =
+          String.format(
+              "Partition column mismatch detected (Split Brain). "
+                  + "Config partition columns: %s, Table partition columns: %s. "
+                  + "This could cause data corruption. "
+                  + "Please reconcile the configuration with the actual table schema.",
+              configPartitionColumns, tablePartitionColumns);
+      log.error(errorMessage);
+      throw new IllegalStateException(errorMessage);
+    }
+    log.info(
+        "Partition columns validated: {}",
+        tablePartitionColumns.isEmpty() ? "(none - unpartitioned)" : tablePartitionColumns);
 
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
@@ -172,7 +195,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   }
 
   private void timerFlush() {
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot;
 
     synchronized (bufferLock) {
       if (buffer.isEmpty()) {
@@ -299,16 +322,15 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       throws Exception {
     log.debug("Starting Delta Lake write operation for {} records", dataToWrite.size());
 
-    // Table existence already validated during initialization - use the existing table
-    StructType tableSchema = table.getLatestSnapshot(engine).getSchema();
-    log.debug("Using table schema: {}", tableSchema);
+    // Use cached schema from config
+    log.debug("Using table schema: {}", this.tableSchema);
 
     // Step 2: Create transaction
     Transaction transaction = createTransaction(table);
 
     // Step 3: Group data by partition values if table is partitioned
     Map<Map<String, Literal>, List<Map<String, Object>>> partitionedData =
-        partitionDataByColumns(dataToWrite, tableSchema);
+        partitionDataByColumns(dataToWrite, this.tableSchema);
 
     long totalDataSize = 0;
 

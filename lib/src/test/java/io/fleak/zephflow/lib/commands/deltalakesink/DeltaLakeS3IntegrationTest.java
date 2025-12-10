@@ -55,6 +55,8 @@ import org.junit.jupiter.api.Test;
 /**
  * S3 Integration test for Delta Lake sink that writes to a real S3 bucket.
  *
+ * <p>NOTE: This test uses a complex nested Avro schema that matches the test data structure.
+ *
  * <p>This test is disabled by default. To enable, remove the @Disabled annotation and set the
  * following environment variables:
  *
@@ -74,6 +76,45 @@ import org.junit.jupiter.api.Test;
  * </pre>
  */
 class DeltaLakeS3IntegrationTest {
+
+  private static final Map<String, Object> COMPLEX_AVRO_SCHEMA =
+      Map.of(
+          "type", "record",
+          "name", "ComplexRecord",
+          "fields",
+              List.of(
+                  Map.of("name", "id", "type", "long"),
+                  Map.of(
+                      "name",
+                      "userProfile",
+                      "type",
+                      Map.of(
+                          "type", "record",
+                          "name", "UserProfile",
+                          "fields",
+                              List.of(
+                                  Map.of("name", "firstName", "type", "string"),
+                                  Map.of("name", "lastName", "type", "string"),
+                                  Map.of("name", "email", "type", "string"),
+                                  Map.of("name", "employeeId", "type", "long")))),
+                  Map.of("name", "department", "type", "string"),
+                  Map.of("name", "skills", "type", Map.of("type", "array", "items", "string")),
+                  Map.of(
+                      "name",
+                      "metadata",
+                      "type",
+                      Map.of(
+                          "type", "record",
+                          "name", "Metadata",
+                          "fields",
+                              List.of(
+                                  Map.of("name", "created", "type", "long"),
+                                  Map.of("name", "version", "type", "string"),
+                                  Map.of("name", "source", "type", "string"),
+                                  Map.of("name", "priority", "type", "long")))),
+                  Map.of("name", "active", "type", "boolean"),
+                  Map.of("name", "salary", "type", "double"),
+                  Map.of("name", "_fleak_timestamp", "type", "long")));
 
   @Test
   @Disabled("S3 integration test - enable manually and set AWS credentials in environment")
@@ -125,6 +166,7 @@ class DeltaLakeS3IntegrationTest {
             .tablePath(tablePath)
             .credentialId(credentialId) // Use credential from JobContext
             .batchSize(50) // Smaller batch for integration test
+            .avroSchema(COMPLEX_AVRO_SCHEMA)
             .build();
 
     sinkCommand.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
@@ -187,6 +229,7 @@ class DeltaLakeS3IntegrationTest {
                     + "/delta-lake-integration-test/credential-test-"
                     + System.currentTimeMillis())
             .credentialId(credentialId) // Use credential from JobContext
+            .avroSchema(COMPLEX_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = new DeltaLakeWriter(config, realJobContext, null);

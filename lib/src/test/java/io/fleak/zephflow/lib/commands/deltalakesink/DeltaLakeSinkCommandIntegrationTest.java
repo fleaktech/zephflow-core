@@ -16,7 +16,15 @@ package io.fleak.zephflow.lib.commands.deltalakesink;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import io.delta.kernel.Operation;
+import io.delta.kernel.Table;
+import io.delta.kernel.Transaction;
+import io.delta.kernel.TransactionBuilder;
+import io.delta.kernel.defaults.engine.DefaultEngine;
+import io.delta.kernel.engine.Engine;
 import io.delta.kernel.types.*;
+import io.delta.kernel.utils.CloseableIterable;
+import io.delta.kernel.utils.CloseableIterator;
 import io.fleak.zephflow.api.CommandType;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
@@ -32,12 +40,25 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
 class DeltaLakeSinkCommandIntegrationTest {
+
+  private static final Map<String, Object> TEST_AVRO_SCHEMA =
+      Map.of(
+          "type", "record",
+          "name", "TestRecord",
+          "fields",
+              List.of(
+                  Map.of("name", "id", "type", "int"),
+                  Map.of("name", "name", "type", "string"),
+                  Map.of("name", "department", "type", "string"),
+                  Map.of("name", "salary", "type", "int")));
 
   @Test
   void testDeltaLakeSinkFactory() {
@@ -57,12 +78,12 @@ class DeltaLakeSinkCommandIntegrationTest {
 
   @Test
   void testDeltaLakeWriterIntegration(@TempDir Path tempDir) throws Exception {
+    String tablePath = tempDir.resolve("integration-test-table").toString();
+    createDeltaTable(tablePath);
+
     // Test the writer component directly (which is what does the actual work)
     Config config =
-        Config.builder()
-            .tablePath(tempDir.resolve("integration-test-table").toString())
-            .batchSize(1)
-            .build();
+        Config.builder().tablePath(tablePath).batchSize(1).avroSchema(TEST_AVRO_SCHEMA).build();
 
     // Create writer with mock JobContext
     JobContext mockJobContext = mock(JobContext.class);
@@ -310,5 +331,51 @@ class DeltaLakeSinkCommandIntegrationTest {
     } catch (Exception e) {
       // Ignore close errors in test
     }
+  }
+
+  /** Creates a Delta table at the given path with the integration test schema */
+  private void createDeltaTable(String path) {
+    Engine engine = DefaultEngine.create(new Configuration());
+    StructType schema =
+        new StructType(
+            List.of(
+                new StructField("id", IntegerType.INTEGER, false),
+                new StructField("name", StringType.STRING, true),
+                new StructField("department", StringType.STRING, true),
+                new StructField("salary", IntegerType.INTEGER, true)));
+
+    Table table = Table.forPath(engine, path);
+    TransactionBuilder txnBuilder =
+        table.createTransactionBuilder(engine, "Test Table Creation", Operation.CREATE_TABLE);
+    txnBuilder = txnBuilder.withSchema(engine, schema);
+
+    Transaction txn = txnBuilder.build(engine);
+    txn.commit(engine, emptyCloseableIterable());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> CloseableIterable<T> emptyCloseableIterable() {
+    return new CloseableIterable<T>() {
+      @Override
+      public CloseableIterator<T> iterator() {
+        return new CloseableIterator<T>() {
+          @Override
+          public boolean hasNext() {
+            return false;
+          }
+
+          @Override
+          public T next() {
+            throw new NoSuchElementException();
+          }
+
+          @Override
+          public void close() {}
+        };
+      }
+
+      @Override
+      public void close() {}
+    };
   }
 }

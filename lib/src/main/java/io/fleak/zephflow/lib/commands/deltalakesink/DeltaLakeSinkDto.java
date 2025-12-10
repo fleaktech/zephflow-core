@@ -30,6 +30,7 @@ public class DeltaLakeSinkDto {
   @AllArgsConstructor
   public static class Config implements CommandConfig {
     private String tablePath;
+    private Map<String, Object> avroSchema;
 
     private List<String> partitionColumns;
 

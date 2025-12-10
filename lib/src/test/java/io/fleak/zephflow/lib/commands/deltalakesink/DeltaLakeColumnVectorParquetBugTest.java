@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.deltalakesink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.delta.kernel.data.ColumnVector;
 import io.delta.kernel.types.StringType;
 import java.util.List;
 import java.util.Map;
@@ -33,17 +32,15 @@ class DeltaLakeColumnVectorParquetBugTest {
 
   @Test
   void testColumnVectorShouldNotReturnNullForParquetWriter() {
-    // Reproduce the exact bug: our SimpleColumnVector returns null for some method calls
-    // that Delta Kernel's Parquet writer expects to return Optional
+    // Test that our StringColumnVector handles null values correctly
+    // Delta Kernel's Parquet writer expects consistent null handling
 
-    // Create a simple column vector with test data (including null values)
-    List<Object> testValues = new java.util.ArrayList<>();
-    testValues.add("test1");
-    testValues.add("test2");
-    testValues.add(null); // List.of() doesn't support null, so use ArrayList
-    testValues.add("test4");
-    ColumnVector columnVector =
-        new DeltaLakeDataConverter.SimpleColumnVector(testValues, StringType.STRING);
+    // Create a string column vector with test data (including null values)
+    var columnVector = new DeltaLakeDataConverter.StringColumnVector(StringType.STRING, 4);
+    columnVector.set(0, "test1");
+    columnVector.set(1, "test2");
+    columnVector.setNull(2); // null value
+    columnVector.set(3, "test4");
 
     // Test all methods that might be called by Parquet writer and should not return null
     assertDoesNotThrow(
@@ -69,15 +66,13 @@ class DeltaLakeColumnVectorParquetBugTest {
 
   @Test
   void testColumnVectorMustImplementAllRequiredMethods() {
-    // Test that our SimpleColumnVector implements all methods that Delta Kernel's Parquet writer
+    // Test that our StringColumnVector implements all methods that Delta Kernel's Parquet writer
     // expects
 
-    List<Object> testValues = new java.util.ArrayList<>();
-    testValues.add("value1");
-    testValues.add(null);
-    testValues.add("value3");
-    ColumnVector columnVector =
-        new DeltaLakeDataConverter.SimpleColumnVector(testValues, StringType.STRING);
+    var columnVector = new DeltaLakeDataConverter.StringColumnVector(StringType.STRING, 3);
+    columnVector.set(0, "value1");
+    columnVector.setNull(1);
+    columnVector.set(2, "value3");
 
     // The bug might be that we're missing some required methods or they return null
     // Let's test the core methods that Parquet writer definitely calls:
@@ -115,10 +110,11 @@ class DeltaLakeColumnVectorParquetBugTest {
     // if (!selectionVector.isPresent()) <- NPE because selectionVector is null, not
     // Optional.empty()
 
-    // Create test data
-    List<Object> testValues = new java.util.ArrayList<>();
-    testValues.add("test1");
-    testValues.add("test2");
+    // Create test data using optimized StringColumnVector
+    var stringVector =
+        new DeltaLakeDataConverter.StringColumnVector(io.delta.kernel.types.StringType.STRING, 2);
+    stringVector.set(0, "test1");
+    stringVector.set(1, "test2");
 
     // Create a FilteredColumnarBatch the same way our production code does
     var schema =
@@ -128,23 +124,12 @@ class DeltaLakeColumnVectorParquetBugTest {
                     "testField", io.delta.kernel.types.StringType.STRING, true)));
 
     Map<String, io.delta.kernel.data.ColumnVector> columnVectors =
-        Map.of(
-            "testField",
-            new DeltaLakeDataConverter.SimpleColumnVector(
-                testValues, io.delta.kernel.types.StringType.STRING));
+        Map.of("testField", stringVector);
 
-    var columnarBatch =
-        new DeltaLakeDataConverter.SimpleColumnarBatch(schema, columnVectors, testValues.size());
+    var columnarBatch = new DeltaLakeDataConverter.SimpleColumnarBatch(schema, columnVectors, 2);
 
-    // This is how we create FilteredColumnarBatch in production - test our fix for null selection
-    // vector
-    // Create a selection vector that selects all rows (same as our production fix)
-    List<Object> allTrueValues = new java.util.ArrayList<>();
-    allTrueValues.add(Boolean.TRUE);
-    allTrueValues.add(Boolean.TRUE);
-    var selectionColumnVector =
-        new DeltaLakeDataConverter.SimpleColumnVector(
-            allTrueValues, io.delta.kernel.types.BooleanType.BOOLEAN);
+    // Use AllTrueColumnVector - the optimized selection vector implementation
+    var selectionColumnVector = new DeltaLakeDataConverter.AllTrueColumnVector(2);
 
     var filteredBatch =
         new io.delta.kernel.data.FilteredColumnarBatch(
@@ -167,14 +152,11 @@ class DeltaLakeColumnVectorParquetBugTest {
     // Unit test for bug: UnsupportedOperationException: Invalid value request for data type
     // at ColumnVector.getArray() line 169, called by ArrayWriter.writeNonNullRowValue() line 379
 
-    // Create array column vector (this is what causes the getArray() call)
-    List<Object> arrayValues = new java.util.ArrayList<>();
-    arrayValues.add(List.of("item1", "item2")); // Array field with list values
-
+    // Create array column vector using ObjectColumnVector (which handles complex types)
     var arrayType =
         new io.delta.kernel.types.ArrayType(io.delta.kernel.types.StringType.STRING, true);
-    ColumnVector arrayColumnVector =
-        new DeltaLakeDataConverter.SimpleColumnVector(arrayValues, arrayType);
+    var arrayColumnVector = new DeltaLakeDataConverter.ObjectColumnVector(arrayType, 1);
+    arrayColumnVector.set(0, List.of("item1", "item2")); // Array field with list values
 
     // The bug: getArray() should be implemented for array types, but throws
     // UnsupportedOperationException

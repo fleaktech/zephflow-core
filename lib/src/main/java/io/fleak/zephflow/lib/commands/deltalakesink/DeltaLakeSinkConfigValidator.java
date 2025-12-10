@@ -21,6 +21,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCreden
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.StorageType;
 import java.net.URI;
@@ -28,6 +29,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class DeltaLakeSinkConfigValidator implements ConfigValidator {
@@ -59,6 +61,7 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
     }
 
     validateTablePath(config.getTablePath(), errors);
+    validateAvroSchema(config.getAvroSchema(), errors);
     validateBatchSize(config.getBatchSize(), errors);
     validatePartitionColumns(config.getPartitionColumns(), errors);
     validateHadoopConfiguration(config.getHadoopConfiguration(), errors);
@@ -176,6 +179,18 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
   private void validateFlushInterval(int flushIntervalSeconds, List<String> errors) {
     if (flushIntervalSeconds < 0) {
       errors.add("flushIntervalSeconds must be >= 0, got: " + flushIntervalSeconds);
+    }
+  }
+
+  private void validateAvroSchema(Map<String, Object> avroSchema, List<String> errors) {
+    if (avroSchema == null || avroSchema.isEmpty()) {
+      errors.add("avroSchema is required");
+      return;
+    }
+    try {
+      AvroToDeltaSchemaConverter.parse(avroSchema);
+    } catch (Exception e) {
+      errors.add("avroSchema is invalid: " + e.getMessage());
     }
   }
 }

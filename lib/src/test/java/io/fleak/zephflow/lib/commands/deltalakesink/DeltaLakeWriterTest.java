@@ -16,6 +16,19 @@ package io.fleak.zephflow.lib.commands.deltalakesink;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import io.delta.kernel.Operation;
+import io.delta.kernel.Table;
+import io.delta.kernel.Transaction;
+import io.delta.kernel.TransactionBuilder;
+import io.delta.kernel.defaults.engine.DefaultEngine;
+import io.delta.kernel.engine.Engine;
+import io.delta.kernel.types.DoubleType;
+import io.delta.kernel.types.IntegerType;
+import io.delta.kernel.types.StringType;
+import io.delta.kernel.types.StructField;
+import io.delta.kernel.types.StructType;
+import io.delta.kernel.utils.CloseableIterable;
+import io.delta.kernel.utils.CloseableIterator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -26,8 +39,10 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +51,16 @@ class DeltaLakeWriterTest {
 
   @TempDir Path tempDir;
 
+  private static final Map<String, Object> TEST_AVRO_SCHEMA =
+      Map.of(
+          "type", "record",
+          "name", "TestRecord",
+          "fields",
+              List.of(
+                  Map.of("name", "id", "type", "int"),
+                  Map.of("name", "name", "type", "string"),
+                  Map.of("name", "value", "type", "double")));
+
   private Config config;
   private String tablePath;
   private JobContext jobContext;
@@ -43,10 +68,66 @@ class DeltaLakeWriterTest {
   @BeforeEach
   void setUp() {
     tablePath = tempDir.resolve("test-delta-table").toString();
-    config = Config.builder().tablePath(tablePath).batchSize(100).build();
+    createDeltaTable(tablePath);
+    config =
+        Config.builder().tablePath(tablePath).batchSize(100).avroSchema(TEST_AVRO_SCHEMA).build();
 
     // Mock JobContext for all tests
     jobContext = mock(JobContext.class);
+  }
+
+  /** Creates a Delta table at the given path with the test schema (id, name, value) */
+  private void createDeltaTable(String path) {
+    createDeltaTable(path, List.of());
+  }
+
+  /** Creates a Delta table at the given path with the test schema and optional partition columns */
+  private void createDeltaTable(String path, List<String> partitionColumns) {
+    Engine engine = DefaultEngine.create(new Configuration());
+    StructType schema =
+        new StructType(
+            List.of(
+                new StructField("id", IntegerType.INTEGER, false),
+                new StructField("name", StringType.STRING, true),
+                new StructField("value", DoubleType.DOUBLE, true)));
+
+    Table table = Table.forPath(engine, path);
+    TransactionBuilder txnBuilder =
+        table.createTransactionBuilder(engine, "Test Table Creation", Operation.CREATE_TABLE);
+    txnBuilder = txnBuilder.withSchema(engine, schema);
+
+    if (partitionColumns != null && !partitionColumns.isEmpty()) {
+      txnBuilder = txnBuilder.withPartitionColumns(engine, partitionColumns);
+    }
+
+    Transaction txn = txnBuilder.build(engine);
+    txn.commit(engine, emptyCloseableIterable());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> CloseableIterable<T> emptyCloseableIterable() {
+    return new CloseableIterable<T>() {
+      @Override
+      public CloseableIterator<T> iterator() {
+        return new CloseableIterator<T>() {
+          @Override
+          public boolean hasNext() {
+            return false;
+          }
+
+          @Override
+          public T next() {
+            throw new NoSuchElementException();
+          }
+
+          @Override
+          public void close() {}
+        };
+      }
+
+      @Override
+      public void close() {}
+    };
   }
 
   @Test
@@ -116,7 +197,10 @@ class DeltaLakeWriterTest {
 
   @Test
   void testBatchSizeConfiguration() {
-    Config testConfig = Config.builder().tablePath(tablePath + "_batch").batchSize(500).build();
+    String path = tablePath + "_batch";
+    createDeltaTable(path);
+    Config testConfig =
+        Config.builder().tablePath(path).batchSize(500).avroSchema(TEST_AVRO_SCHEMA).build();
 
     assertDoesNotThrow(
         () -> {
@@ -128,10 +212,14 @@ class DeltaLakeWriterTest {
 
   @Test
   void testPartitionConfiguration() {
+    String path = tablePath + "_partitioned";
+    // Create table with partition columns that match the config
+    createDeltaTable(path, List.of("name"));
     Config partitionConfig =
         Config.builder()
-            .tablePath(tablePath + "_partitioned")
-            .partitionColumns(List.of("year", "month"))
+            .tablePath(path)
+            .partitionColumns(List.of("name"))
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     assertDoesNotThrow(
@@ -148,8 +236,14 @@ class DeltaLakeWriterTest {
     hadoopConfig.put("fs.defaultFS", "file:///");
     hadoopConfig.put("hadoop.tmp.dir", tempDir.toString());
 
+    String path = tablePath + "_hadoop";
+    createDeltaTable(path);
     Config hadoopConfiguredConfig =
-        Config.builder().tablePath(tablePath + "_hadoop").hadoopConfiguration(hadoopConfig).build();
+        Config.builder()
+            .tablePath(path)
+            .hadoopConfiguration(hadoopConfig)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     assertDoesNotThrow(
         () -> {
@@ -162,15 +256,36 @@ class DeltaLakeWriterTest {
   @Test
   void testInvalidTablePath() {
     Config invalidConfig =
-        Config.builder().tablePath("/invalid/path/that/should/not/exist/delta-table").build();
+        Config.builder()
+            .tablePath("/invalid/path/that/should/not/exist/delta-table")
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
-    assertDoesNotThrow(
-        () -> {
-          // Writer creation should not fail immediately
-          DeltaLakeWriter writer = new DeltaLakeWriter(invalidConfig, jobContext, null);
-          writer.initialize();
-          writer.close();
-        });
+    // Writer creation succeeds, but initialize() fails because table doesn't exist
+    DeltaLakeWriter writer = new DeltaLakeWriter(invalidConfig, jobContext, null);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Delta table does not exist"));
+  }
+
+  @Test
+  void testPartitionColumnMismatchDetection() {
+    // Create table with NO partition columns
+    String path = tablePath + "_partition_mismatch";
+    createDeltaTable(path, List.of()); // unpartitioned
+
+    // Config specifies partition columns that don't match the table
+    Config mismatchConfig =
+        Config.builder()
+            .tablePath(path)
+            .partitionColumns(List.of("name")) // config says partitioned by name
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
+
+    // Should fail with partition mismatch error
+    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Partition column mismatch detected"));
+    assertTrue(exception.getMessage().contains("Split Brain"));
   }
 
   @Test
@@ -186,7 +301,12 @@ class DeltaLakeWriterTest {
 
   @Test
   void testBufferAccumulatesEventsBeforeBatchSize() throws Exception {
-    Config testConfig = Config.builder().tablePath(tablePath + "_buffer1").batchSize(10).build();
+    Config testConfig =
+        Config.builder()
+            .tablePath(tablePath + "_buffer1")
+            .batchSize(10)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
     // Use reflection to access the private buffer field from superclass
@@ -225,7 +345,12 @@ class DeltaLakeWriterTest {
 
   @Test
   void testBufferClearedAfterFlush() throws Exception {
-    Config testConfig = Config.builder().tablePath(tablePath + "_buffer2").batchSize(5).build();
+    Config testConfig =
+        Config.builder()
+            .tablePath(tablePath + "_buffer2")
+            .batchSize(5)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
     // Use reflection to access the private buffer field from superclass
@@ -259,7 +384,12 @@ class DeltaLakeWriterTest {
 
   @Test
   void testBufferSizeTracking() throws Exception {
-    Config testConfig = Config.builder().tablePath(tablePath + "_buffer3").batchSize(100).build();
+    Config testConfig =
+        Config.builder()
+            .tablePath(tablePath + "_buffer3")
+            .batchSize(100)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
     // Use reflection to access the private buffer field from superclass
@@ -296,7 +426,12 @@ class DeltaLakeWriterTest {
 
   @Test
   void testBufferReachingBatchSizeThreshold() throws Exception {
-    Config testConfig = Config.builder().tablePath(tablePath + "_buffer4").batchSize(10).build();
+    Config testConfig =
+        Config.builder()
+            .tablePath(tablePath + "_buffer4")
+            .batchSize(10)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
 
     // Use reflection to access the private buffer field from superclass
@@ -332,11 +467,14 @@ class DeltaLakeWriterTest {
   @Test
   void testTimerBasedFlushIsScheduled() throws Exception {
     // Configure with short flush interval for testing
+    String path = tablePath + "_timer1";
+    createDeltaTable(path);
     Config testConfig =
         Config.builder()
-            .tablePath(tablePath + "_timer1")
+            .tablePath(path)
             .batchSize(1000)
             .flushIntervalSeconds(2)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
@@ -362,18 +500,22 @@ class DeltaLakeWriterTest {
   @Test
   void testTimerFlushWithMinimumBatchSize() throws Exception {
     // Configure with short flush interval and small batch size for testing
+    String path = tablePath + "_timer2";
+    createDeltaTable(path);
     Config testConfig =
         Config.builder()
-            .tablePath(tablePath + "_timer2")
+            .tablePath(path)
             .batchSize(100) // Minimum timer batch size will be 10 (10% of 100)
             .flushIntervalSeconds(1)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
-    // Use reflection to access the private buffer field
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    // Use reflection to access the private buffer field from superclass
+    java.lang.reflect.Field bufferField =
+        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
     List<?> buffer = (List<?>) bufferField.get(writer);
 
@@ -406,18 +548,22 @@ class DeltaLakeWriterTest {
   @Test
   void testTimerFlushWithSufficientEvents() throws Exception {
     // Configure with short flush interval for testing
+    String path = tablePath + "_timer3";
+    createDeltaTable(path);
     Config testConfig =
         Config.builder()
-            .tablePath(tablePath + "_timer3")
+            .tablePath(path)
             .batchSize(100) // Minimum timer batch size will be 10
             .flushIntervalSeconds(1)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
-    // Use reflection to access the private buffer field
-    java.lang.reflect.Field bufferField = DeltaLakeWriter.class.getDeclaredField("buffer");
+    // Use reflection to access the private buffer field from superclass
+    java.lang.reflect.Field bufferField =
+        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
     List<?> buffer = (List<?>) bufferField.get(writer);
 
@@ -454,11 +600,14 @@ class DeltaLakeWriterTest {
 
   @Test
   void testTimerFlushDisabledWhenIntervalIsZero() throws Exception {
+    String path = tablePath + "_timer_disabled";
+    createDeltaTable(path);
     Config testConfig =
         Config.builder()
-            .tablePath(tablePath + "_timer_disabled")
+            .tablePath(path)
             .batchSize(100)
             .flushIntervalSeconds(0) // Timer disabled
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
@@ -483,11 +632,14 @@ class DeltaLakeWriterTest {
 
   @Test
   void testTimerStopsOnClose() throws Exception {
+    String path = tablePath + "_timer_stop";
+    createDeltaTable(path);
     Config testConfig =
         Config.builder()
-            .tablePath(tablePath + "_timer_stop")
+            .tablePath(path)
             .batchSize(100)
             .flushIntervalSeconds(2)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
@@ -515,18 +667,25 @@ class DeltaLakeWriterTest {
 
   @Test
   void testMultipleWritersHaveUniqueThreadNames() throws Exception {
+    String path1 = tablePath + "_writer1";
+    String path2 = tablePath + "_writer2";
+    createDeltaTable(path1);
+    createDeltaTable(path2);
+
     Config config1 =
         Config.builder()
-            .tablePath(tablePath + "_writer1")
+            .tablePath(path1)
             .batchSize(100)
             .flushIntervalSeconds(2)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     Config config2 =
         Config.builder()
-            .tablePath(tablePath + "_writer2")
+            .tablePath(path2)
             .batchSize(100)
             .flushIntervalSeconds(2)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer1 = new DeltaLakeWriter(config1, jobContext, null);
