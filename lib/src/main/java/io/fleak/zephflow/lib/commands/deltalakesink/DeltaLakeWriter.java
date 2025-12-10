@@ -62,7 +62,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   private final int instanceId = INSTANCE_COUNTER.incrementAndGet();
   private ScheduledExecutorService flushScheduler;
   private ScheduledFuture<?> flushTask;
-  private int minTimerBatchSize;
   private ExecutorService checkpointExecutor;
 
   public DeltaLakeWriter(
@@ -171,7 +170,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     }
 
     int intervalSeconds = config.getFlushIntervalSeconds();
-    minTimerBatchSize = Math.min(10, Math.max(1, config.getBatchSize() / 10));
     log.info(
         "Starting timer-based flush with interval of {} seconds for path: {}",
         intervalSeconds,
@@ -214,14 +212,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     synchronized (bufferLock) {
       if (buffer.isEmpty()) {
         log.trace("Timer-based flush skipped: buffer is empty");
-        return;
-      }
-
-      if (buffer.size() < minTimerBatchSize) {
-        log.trace(
-            "Timer-based flush skipped: buffer too small ({} < {} minimum)",
-            buffer.size(),
-            minTimerBatchSize);
         return;
       }
 

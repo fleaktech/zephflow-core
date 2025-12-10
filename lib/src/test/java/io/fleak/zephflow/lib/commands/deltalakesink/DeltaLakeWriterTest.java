@@ -498,14 +498,15 @@ class DeltaLakeWriterTest {
   }
 
   @Test
-  void testTimerFlushWithMinimumBatchSize() throws Exception {
-    // Configure with short flush interval and small batch size for testing
+  void testTimerFlushWithSmallBuffer() throws Exception {
+    // Timer-based flush should attempt to flush any non-empty buffer to bound data latency
+    // (Previously, timer would skip flush if buffer size < minTimerBatchSize)
     String path = tablePath + "_timer2";
     createDeltaTable(path);
     Config testConfig =
         Config.builder()
             .tablePath(path)
-            .batchSize(100) // Minimum timer batch size will be 10 (10% of 100)
+            .batchSize(100)
             .flushIntervalSeconds(1)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
@@ -513,17 +514,15 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
-    // Use reflection to access the private buffer field from superclass
     java.lang.reflect.Field bufferField =
         DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
-    List<?> buffer = (List<?>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
 
-    // Add only 5 events (less than minimum timer batch size of 10)
+    // Add only 5 events (small buffer - previously would not trigger timer flush)
     for (int i = 0; i < 5; i++) {
       RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
@@ -532,28 +531,35 @@ class DeltaLakeWriterTest {
       writer.flush(events, Map.of());
     }
 
-    // Verify buffer has 5 events
-    assertEquals(5, buffer.size(), "Buffer should contain 5 events");
+    // Re-read buffer to get current reference
+    List<?> bufferBefore = (List<?>) bufferField.get(writer);
+    assertEquals(5, bufferBefore.size(), "Buffer should contain 5 events before timer fires");
 
-    // Wait for initial timer delay (1 second) + some buffer time
+    // Wait for timer to fire
     TimeUnit.MILLISECONDS.sleep(1500);
 
-    // Buffer should still have 5 events (timer should skip flush due to minimum batch size)
-    assertEquals(
-        5, buffer.size(), "Buffer should still contain 5 events (below minimum timer batch size)");
+    // Re-read buffer after timer fires (swapBuffer creates a new ArrayList)
+    List<?> bufferAfter = (List<?>) bufferField.get(writer);
+
+    // The key behavior change is that timer now ATTEMPTS flush for any non-empty buffer.
+    // Previously it would skip flush if buffer.size() < minTimerBatchSize (10).
+    // After timer flush, the buffer should be swapped (new empty ArrayList).
+    // Note: bufferBefore and bufferAfter should be different object references.
+    assertNotSame(bufferBefore, bufferAfter, "Buffer should have been swapped by timer flush");
+    assertEquals(0, bufferAfter.size(), "New buffer should be empty after swap");
 
     writer.close();
   }
 
   @Test
   void testTimerFlushWithSufficientEvents() throws Exception {
-    // Configure with short flush interval for testing
+    // Timer-based flush with multiple events (less than batchSize)
     String path = tablePath + "_timer3";
     createDeltaTable(path);
     Config testConfig =
         Config.builder()
             .tablePath(path)
-            .batchSize(100) // Minimum timer batch size will be 10
+            .batchSize(100)
             .flushIntervalSeconds(1)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
@@ -561,17 +567,15 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
     writer.initialize();
 
-    // Use reflection to access the private buffer field from superclass
     java.lang.reflect.Field bufferField =
         DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
     bufferField.setAccessible(true);
-    List<?> buffer = (List<?>) bufferField.get(writer);
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
 
-    // Add 15 events (more than minimum timer batch size of 10, but less than batchSize)
+    // Add 15 events (less than batchSize, will be flushed by timer)
     for (int i = 0; i < 15; i++) {
       RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
@@ -582,18 +586,18 @@ class DeltaLakeWriterTest {
       writer.flush(events, Map.of());
     }
 
-    // Verify buffer has 15 events
-    assertEquals(15, buffer.size(), "Buffer should contain 15 events");
+    List<?> bufferBefore = (List<?>) bufferField.get(writer);
+    assertEquals(15, bufferBefore.size(), "Buffer should contain 15 events");
 
-    // Wait for initial timer delay (1 second) + some buffer time
-    // Note: The flush will fail because we don't have a real Delta table,
-    // but we're testing that the timer mechanism is working
+    // Wait for timer to fire
     TimeUnit.MILLISECONDS.sleep(1500);
 
-    // After this point, the timer should have fired and attempted to flush
-    // In a real scenario with a proper Delta table, the buffer would be cleared
-    // For this test, we just verify the timer mechanism is working by checking
-    // that the scheduler and task are properly initialized
+    // Re-read buffer after timer fires (swapBuffer creates a new ArrayList)
+    List<?> bufferAfter = (List<?>) bufferField.get(writer);
+
+    // Timer should have swapped the buffer
+    assertNotSame(bufferBefore, bufferAfter, "Buffer should have been swapped by timer flush");
+    assertEquals(0, bufferAfter.size(), "New buffer should be empty after swap");
 
     writer.close();
   }
