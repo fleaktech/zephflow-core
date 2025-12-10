@@ -19,9 +19,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.util.Map;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.BeforeEach;
@@ -124,10 +121,20 @@ class DeltaLakeStorageCredentialUtilsTest {
   }
 
   @Test
-  void testGcsCredentialApplierWithServiceAccountJson() throws IOException {
+  void testGcsCredentialApplierWithServiceAccountJson() {
     DeltaLakeStorageCredentialUtils.GcsCredentialApplier applier =
         new DeltaLakeStorageCredentialUtils.GcsCredentialApplier();
-    String jsonContent = "{\"type\":\"service_account\",\"project_id\":\"test-project\"}";
+    // Use proper GCP service account JSON format with required fields
+    String jsonContent =
+        """
+        {
+          "type": "service_account",
+          "project_id": "test-project",
+          "private_key_id": "key123",
+          "private_key": "-----BEGIN PRIVATE KEY-----\\nMIItest\\n-----END PRIVATE KEY-----\\n",
+          "client_email": "test@test-project.iam.gserviceaccount.com"
+        }
+        """;
     GcpCredential credential =
         GcpCredential.builder()
             .authType(GcpCredential.AuthType.SERVICE_ACCOUNT_JSON_KEYFILE)
@@ -137,14 +144,18 @@ class DeltaLakeStorageCredentialUtilsTest {
 
     applier.applyCredentials(hadoopConf, "gs://bucket/path", credential, "gcs-cred");
 
+    // Verify inline properties are set (no temp file)
     assertEquals("test-project", hadoopConf.get("fs.gs.project.id"));
-    assertEquals("SERVICE_ACCOUNT_JSON_KEYFILE", hadoopConf.get("google.cloud.auth.type"));
-    assertNotNull(hadoopConf.get("google.cloud.auth.service.account.json.keyfile"));
+    assertEquals("true", hadoopConf.get("fs.gs.auth.service.account.enable"));
+    assertEquals(
+        "test@test-project.iam.gserviceaccount.com",
+        hadoopConf.get("fs.gs.auth.service.account.email"));
+    assertEquals("key123", hadoopConf.get("fs.gs.auth.service.account.private.key.id"));
+    assertNotNull(hadoopConf.get("fs.gs.auth.service.account.private.key"));
 
-    String keyfilePath = hadoopConf.get("google.cloud.auth.service.account.json.keyfile");
-    File keyfile = new File(keyfilePath);
-    assertTrue(keyfile.exists());
-    assertEquals(jsonContent, Files.readString(keyfile.toPath()));
+    // Verify no file-based auth type is set (would conflict with inline)
+    assertNull(hadoopConf.get("google.cloud.auth.type"));
+    assertNull(hadoopConf.get("google.cloud.auth.service.account.json.keyfile"));
   }
 
   @Test
@@ -257,42 +268,14 @@ class DeltaLakeStorageCredentialUtilsTest {
   }
 
   @Test
-  void testGcsCredentialApplierIOException() {
+  void testGcsCredentialApplierWithInvalidJson() {
     DeltaLakeStorageCredentialUtils.GcsCredentialApplier applier =
-        new DeltaLakeStorageCredentialUtils.GcsCredentialApplier() {
-          @Override
-          public void applyCredentials(
-              Configuration hadoopConf,
-              String tablePath,
-              Object credentialObj,
-              String credentialId) {
-            GcpCredential credential = (GcpCredential) credentialObj;
-            hadoopConf.set("fs.gs.project.id", credential.getProjectId());
-
-            if (credential.getAuthType() == GcpCredential.AuthType.SERVICE_ACCOUNT_JSON_KEYFILE) {
-              hadoopConf.set("google.cloud.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE");
-              if (credential.getJsonKeyContent() == null) {
-                return;
-              }
-
-              try {
-                File tempFile =
-                    File.createTempFile("gcp-service-account-", ".json", new File("/invalid/path"));
-                Files.writeString(tempFile.toPath(), credential.getJsonKeyContent());
-                hadoopConf.set(
-                    "google.cloud.auth.service.account.json.keyfile", tempFile.getAbsolutePath());
-              } catch (IOException e) {
-                throw new RuntimeException(
-                    "Failed to write GCP service account JSON to temporary file", e);
-              }
-            }
-          }
-        };
+        new DeltaLakeStorageCredentialUtils.GcsCredentialApplier();
 
     GcpCredential credential =
         GcpCredential.builder()
             .authType(GcpCredential.AuthType.SERVICE_ACCOUNT_JSON_KEYFILE)
-            .jsonKeyContent("{\"type\":\"service_account\"}")
+            .jsonKeyContent("not valid json {{{")
             .projectId("test-project")
             .build();
 
@@ -301,8 +284,6 @@ class DeltaLakeStorageCredentialUtilsTest {
             RuntimeException.class,
             () -> applier.applyCredentials(hadoopConf, "gs://bucket/path", credential, "gcs-cred"));
 
-    assertEquals(
-        "Failed to write GCP service account JSON to temporary file", exception.getMessage());
-    assertInstanceOf(IOException.class, exception.getCause());
+    assertEquals("Failed to parse GCP service account JSON", exception.getMessage());
   }
 }

@@ -13,12 +13,11 @@
  */
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
@@ -104,27 +103,35 @@ public interface DeltaLakeStorageCredentialUtils {
 
       switch (credential.getAuthType()) {
         case SERVICE_ACCOUNT_JSON_KEYFILE -> {
-          hadoopConf.set("google.cloud.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE");
           if (credential.getJsonKeyContent() == null) {
             log.warn(
                 "SERVICE_ACCOUNT_JSON_KEYFILE auth type specified but no jsonKeyContent provided");
             return;
           }
+
+          // Parse JSON and use inline properties (no disk write for security)
           try {
-            File tempFile = File.createTempFile("gcp-service-account-", ".json");
-            tempFile.deleteOnExit(); // Clean up on JVM exit
+            Map<String, Object> keyData =
+                JsonUtils.fromJsonString(
+                    credential.getJsonKeyContent(), new TypeReference<Map<String, Object>>() {});
 
-            Files.writeString(tempFile.toPath(), credential.getJsonKeyContent());
+            // Enable service account auth explicitly (overrides environment defaults)
+            hadoopConf.set("fs.gs.auth.service.account.enable", "true");
 
+            // Set inline credentials - DO NOT set google.cloud.auth.type to avoid conflict
             hadoopConf.set(
-                "google.cloud.auth.service.account.json.keyfile", tempFile.getAbsolutePath());
-            log.warn(
-                "Applied GCS service account JSON authentication via temp file: {} "
-                    + "(SECURITY RISK: credentials written to disk)",
-                tempFile.getAbsolutePath());
-          } catch (IOException e) {
-            throw new RuntimeException(
-                "Failed to write GCP service account JSON to temporary file", e);
+                "fs.gs.auth.service.account.email", (String) keyData.get("client_email"));
+            hadoopConf.set(
+                "fs.gs.auth.service.account.private.key", (String) keyData.get("private_key"));
+            hadoopConf.set(
+                "fs.gs.auth.service.account.private.key.id",
+                (String) keyData.get("private_key_id"));
+
+            log.info(
+                "Applied GCS service account authentication via inline config from credentialId: {}",
+                credentialId);
+          } catch (Exception e) {
+            throw new RuntimeException("Failed to parse GCP service account JSON", e);
           }
         }
         case ACCESS_TOKEN -> {

@@ -63,6 +63,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   private ScheduledExecutorService flushScheduler;
   private ScheduledFuture<?> flushTask;
   private int minTimerBatchSize;
+  private ExecutorService checkpointExecutor;
 
   public DeltaLakeWriter(
       DeltaLakeSinkDto.Config config, JobContext jobContext, DlqWriter dlqWriter) {
@@ -137,6 +138,19 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     log.info(
         "Partition columns validated: {}",
         tablePartitionColumns.isEmpty() ? "(none - unpartitioned)" : tablePartitionColumns);
+
+    // Initialize checkpoint executor before marking as initialized
+    String checkpointThreadName =
+        String.format(
+            "DeltaLakeWriter-Checkpoint-%04X-%d",
+            config.getTablePath().hashCode() & 0xFFFF, instanceId);
+    this.checkpointExecutor =
+        Executors.newSingleThreadExecutor(
+            r -> {
+              Thread thread = new Thread(r, checkpointThreadName);
+              thread.setDaemon(true);
+              return thread;
+            });
 
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
@@ -476,7 +490,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     } else if (value instanceof java.time.Instant inst) {
       return Literal.ofTimestamp(inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
     } else if (value instanceof java.sql.Timestamp ts) {
-      return Literal.ofTimestamp(ts.getTime() * 1000 + ts.getNanos() / 1000);
+      java.time.Instant inst = ts.toInstant();
+      return Literal.ofTimestamp(inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
     } else {
       throw new IllegalArgumentException(
           String.format(
@@ -501,10 +516,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     List<PostCommitHook> postCommitHooks = commitResult.getPostCommitHooks();
 
     if (postCommitHooks == null || postCommitHooks.isEmpty()) {
-      log.debug(
-          "No post-commit hooks to execute at version {} for path: {}",
-          commitResult.getVersion(),
-          config.getTablePath());
       return;
     }
 
@@ -514,39 +525,36 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
             .toList();
 
     if (checkpointHooks.isEmpty()) {
-      log.debug(
-          "Table not ready for checkpoint at version {} for path: {}",
-          commitResult.getVersion(),
-          config.getTablePath());
       return;
     }
 
-    for (PostCommitHook hook : checkpointHooks) {
-      try {
-        long version = commitResult.getVersion();
-        log.info(
-            "Table is ready for checkpoint at version {}. Creating checkpoint for path: {}",
-            version,
-            config.getTablePath());
+    long version = commitResult.getVersion();
 
-        long startTime = System.currentTimeMillis();
-        hook.threadSafeInvoke(engine);
-        long duration = System.currentTimeMillis() - startTime;
-
-        log.info(
-            "Successfully created checkpoint at version {} for path: {} (took {}ms)",
-            version,
-            config.getTablePath(),
-            duration);
-      } catch (Exception e) {
-        log.warn(
-            "Failed to create checkpoint at version {} for path: {}. "
-                + "This is not critical - the table is still consistent, but subsequent reads may be slower.",
-            commitResult.getVersion(),
-            config.getTablePath(),
-            e);
-      }
-    }
+    // Submit checkpoint work to background thread to avoid blocking data processing
+    checkpointExecutor.submit(
+        () -> {
+          for (PostCommitHook hook : checkpointHooks) {
+            try {
+              log.info(
+                  "Creating checkpoint at version {} for path: {}", version, config.getTablePath());
+              long startTime = System.currentTimeMillis();
+              hook.threadSafeInvoke(engine);
+              long duration = System.currentTimeMillis() - startTime;
+              log.info(
+                  "Checkpoint completed at version {} for path: {} (took {}ms)",
+                  version,
+                  config.getTablePath(),
+                  duration);
+            } catch (Exception e) {
+              log.warn(
+                  "Failed to create checkpoint at version {} for path: {}. "
+                      + "Table is still consistent, subsequent reads may be slower.",
+                  version,
+                  config.getTablePath(),
+                  e);
+            }
+          }
+        });
   }
 
   @Override
@@ -559,6 +567,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     closed = true;
 
     stopFlushTimer();
+    stopCheckpointExecutor();
 
     List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
     synchronized (bufferLock) {
@@ -604,6 +613,23 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
         Thread.currentThread().interrupt();
       }
       flushScheduler = null;
+    }
+  }
+
+  private void stopCheckpointExecutor() {
+    if (checkpointExecutor == null) {
+      return;
+    }
+    checkpointExecutor.shutdown();
+    try {
+      if (!checkpointExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+        log.warn(
+            "Checkpoint executor did not terminate in time for path: {}", config.getTablePath());
+        checkpointExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      checkpointExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
     }
   }
 

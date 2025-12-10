@@ -151,7 +151,8 @@ public class DeltaLakeDataConverter {
       v.set(rowId, ((Number) value).intValue());
     } else if (vector instanceof LongColumnVector v) {
       if (value instanceof java.sql.Timestamp ts) {
-        v.set(rowId, ts.getTime() * 1000); // Convert millis to micros
+        java.time.Instant inst = ts.toInstant();
+        v.set(rowId, inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
       } else {
         v.set(rowId, ((Number) value).longValue());
       }
