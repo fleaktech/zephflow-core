@@ -44,8 +44,6 @@ public class SplunkSourceConfigValidator implements ConfigValidator {
           "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme),
           "splunkUrl must have http or https scheme: %s",
           config.getSplunkUrl());
-      Preconditions.checkArgument(
-          url.getPort() != -1, "splunkUrl must have a port: %s", config.getSplunkUrl());
     } catch (MalformedURLException e) {
       throw new IllegalArgumentException(
           "splunkUrl is not a valid URL: " + config.getSplunkUrl(), e);

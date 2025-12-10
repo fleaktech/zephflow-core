@@ -106,18 +106,15 @@ class SplunkSourceConfigValidatorTest {
   void testConfigValidationMissingPort() {
     var validator = new SplunkSourceConfigValidator();
 
-    var invalidConfig =
+    var validConfig =
         SplunkSourceDto.Config.builder()
             .splunkUrl("https://splunk.example.com")
             .searchQuery("search index=main")
             .credentialId("splunk-cred")
             .build();
 
-    var exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(invalidConfig, "test-node", TestUtils.JOB_CONTEXT));
-    assertTrue(exception.getMessage().contains("must have a port"));
+    assertDoesNotThrow(
+        () -> validator.validateConfig(validConfig, "test-node", TestUtils.JOB_CONTEXT));
   }
 
   @Test
