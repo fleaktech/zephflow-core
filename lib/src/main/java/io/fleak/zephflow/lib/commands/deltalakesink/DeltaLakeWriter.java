@@ -337,10 +337,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
         partitionDataByColumns(dataToWrite, this.tableSchema);
 
     long totalDataSize = 0;
-
+    List<CloseableIterator<Row>> dataActionIterators = new ArrayList<>();
     try {
-      List<CloseableIterator<Row>> dataActionIterators = new ArrayList<>();
-
       // Step 5: Process each partition separately
       for (Map.Entry<Map<String, Literal>, List<Map<String, Object>>> partition :
           partitionedData.entrySet()) {
@@ -352,39 +350,48 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
         totalDataSize += result.dataSize();
         dataActionIterators.add(result.dataActions());
       }
-
-      // Step 6: Combine all data action iterators into a single stream and commit
-      log.info("Committing transaction with data for {} records", dataToWrite.size());
-
-      try (CloseableIterator<Row> allActionsIterator =
-          new CombinedCloseableIterator<>(dataActionIterators)) {
-        TransactionCommitResult commitResult =
-            transaction.commit(
-                engine,
-                new CloseableIterable<>() {
-                  @Override
-                  public @NotNull CloseableIterator<Row> iterator() {
-                    return allActionsIterator;
-                  }
-
-                  @Override
-                  public void close() {
-                    // Iterator is closed by try-with-resources
-                  }
-                });
-
-        log.info(
-            "Delta Lake write operation completed successfully for {} records, committed as version {}",
-            dataToWrite.size(),
-            commitResult.getVersion());
-
-        if (config.isEnableAutoCheckpoint()) {
-          createCheckpointIfReady(commitResult);
+    } catch (Exception e) {
+      for (CloseableIterator<Row> iter : dataActionIterators) {
+        try {
+          iter.close();
+        } catch (IOException closeEx) {
+          e.addSuppressed(closeEx);
         }
+      }
+      log.error("Error during processing partitions", e);
+      throw e;
+    }
 
-        return new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
+    // Step 6: Combine all data action iterators into a single stream and commit
+    log.info("Committing transaction with data for {} records", dataToWrite.size());
+
+    try (CloseableIterator<Row> allActionsIterator =
+        new CombinedCloseableIterator<>(dataActionIterators)) {
+      TransactionCommitResult commitResult =
+          transaction.commit(
+              engine,
+              new CloseableIterable<>() {
+                @Override
+                public @NotNull CloseableIterator<Row> iterator() {
+                  return allActionsIterator;
+                }
+
+                @Override
+                public void close() {
+                  // Iterator is closed by try-with-resources
+                }
+              });
+
+      log.info(
+          "Delta Lake write operation completed successfully for {} records, committed as version {}",
+          dataToWrite.size(),
+          commitResult.getVersion());
+
+      if (config.isEnableAutoCheckpoint()) {
+        createCheckpointIfReady(commitResult);
       }
 
+      return new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
     } catch (Exception e) {
       log.error("Error during Delta Lake write operation", e);
       throw e;
