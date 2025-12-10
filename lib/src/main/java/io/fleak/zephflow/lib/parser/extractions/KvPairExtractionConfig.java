@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.parser.extractions;
 
 import static org.apache.commons.text.StringEscapeUtils.unescapeJava;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,10 +30,12 @@ public class KvPairExtractionConfig implements ExtractionConfig {
   private String pairSeparator;
   private String kvSeparator;
 
+  @JsonIgnore
   public String getUnescapedPairSeparator() {
     return unescapeJava(pairSeparator);
   }
 
+  @JsonIgnore
   public String getUnescapedKvSeparator() {
     return unescapeJava(kvSeparator);
   }
