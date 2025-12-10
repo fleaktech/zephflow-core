@@ -118,6 +118,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     this.tableSchema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
     log.info("Using schema from config with {} fields", tableSchema.fields().size());
 
+    // Validate config schema against actual table schema (Split Brain detection)
+    StructType physicalTableSchema = snapshot.getSchema();
+    validateSchemaCompatibility(tableSchema, physicalTableSchema);
+    log.info("Schema validated against physical table schema");
+
     // Safety check: Validate partition columns match between config and physical table
     List<String> tablePartitionColumns = snapshot.getPartitionColumnNames();
     List<String> configPartitionColumns =
@@ -657,6 +662,61 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
     applyCredentials(
         storageType, hadoopConf, tablePath, credentialObjOpt.orElseThrow(), credentialId);
+  }
+
+  private void validateSchemaCompatibility(StructType configSchema, StructType tableSchema) {
+    List<String> errors = new ArrayList<>();
+
+    log.debug(
+        "Validating schema compatibility. Config fields: {}, Table fields: {}",
+        configSchema.fields().size(),
+        tableSchema.fields().size());
+
+    for (StructField configField : configSchema.fields()) {
+      String fieldName = configField.getName();
+      int tableFieldIndex = tableSchema.indexOf(fieldName);
+
+      if (tableFieldIndex < 0) {
+        errors.add(String.format("Field '%s' exists in config but not in table", fieldName));
+        continue;
+      }
+
+      StructField tableField = tableSchema.at(tableFieldIndex);
+
+      if (!configField.getDataType().equivalent(tableField.getDataType())) {
+        errors.add(
+            String.format(
+                "Field '%s' type mismatch: config has %s, table has %s",
+                fieldName, configField.getDataType(), tableField.getDataType()));
+      }
+
+      if (!tableField.isNullable() && configField.isNullable()) {
+        errors.add(
+            String.format(
+                "Field '%s' nullability mismatch: table is non-nullable but config allows null",
+                fieldName));
+      }
+    }
+
+    for (StructField tableField : tableSchema.fields()) {
+      if (configSchema.indexOf(tableField.getName()) < 0) {
+        errors.add(
+            String.format("Field '%s' exists in table but not in config", tableField.getName()));
+      }
+    }
+
+    if (!errors.isEmpty()) {
+      String errorMessage =
+          String.format(
+              "Schema mismatch detected (Split Brain). "
+                  + "Config schema is incompatible with physical table schema at path: %s. "
+                  + "Mismatches: [%s]. "
+                  + "This could cause data corruption. "
+                  + "Please reconcile the configuration with the actual table schema.",
+              config.getTablePath(), String.join("; ", errors));
+      log.error(errorMessage);
+      throw new IllegalStateException(errorMessage);
+    }
   }
 
   /** Result of processing a single partition */

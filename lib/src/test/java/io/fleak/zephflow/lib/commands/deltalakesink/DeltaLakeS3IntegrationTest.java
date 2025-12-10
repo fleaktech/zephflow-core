@@ -113,8 +113,7 @@ class DeltaLakeS3IntegrationTest {
                                   Map.of("name", "source", "type", "string"),
                                   Map.of("name", "priority", "type", "long")))),
                   Map.of("name", "active", "type", "boolean"),
-                  Map.of("name", "salary", "type", "double"),
-                  Map.of("name", "_fleak_timestamp", "type", "long")));
+                  Map.of("name", "salary", "type", "double")));
 
   @Test
   @Disabled("S3 integration test - enable manually and set AWS credentials in environment")

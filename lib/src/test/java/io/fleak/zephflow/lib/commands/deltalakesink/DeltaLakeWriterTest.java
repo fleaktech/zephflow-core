@@ -289,6 +289,78 @@ class DeltaLakeWriterTest {
   }
 
   @Test
+  void testSchemaFieldNameMismatchDetection() {
+    String path = tablePath + "_field_mismatch";
+    createDeltaTable(path, List.of()); // table has id, name, value
+
+    // Config has 'user_id' instead of 'id'
+    Map<String, Object> mismatchAvroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of("name", "user_id", "type", "int"),
+                    Map.of("name", "name", "type", "string"),
+                    Map.of("name", "value", "type", "double")));
+
+    Config mismatchConfig = Config.builder().tablePath(path).avroSchema(mismatchAvroSchema).build();
+
+    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("Split Brain"));
+    assertTrue(exception.getMessage().contains("user_id"));
+  }
+
+  @Test
+  void testSchemaTypeMismatchDetection() {
+    String path = tablePath + "_type_mismatch";
+    createDeltaTable(path, List.of()); // table has id as IntegerType
+
+    // Config has 'id' as long instead of int
+    Map<String, Object> mismatchAvroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of("name", "id", "type", "long"),
+                    Map.of("name", "name", "type", "string"),
+                    Map.of("name", "value", "type", "double")));
+
+    Config mismatchConfig = Config.builder().tablePath(path).avroSchema(mismatchAvroSchema).build();
+
+    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("type mismatch"));
+  }
+
+  @Test
+  void testSchemaFieldMissingFromConfigDetection() {
+    String path = tablePath + "_missing_field";
+    createDeltaTable(path, List.of()); // table has id, name, value
+
+    // Config missing 'value' field
+    Map<String, Object> incompleteAvroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of("name", "id", "type", "int"), Map.of("name", "name", "type", "string")));
+
+    Config mismatchConfig =
+        Config.builder().tablePath(path).avroSchema(incompleteAvroSchema).build();
+
+    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("exists in table but not in config"));
+  }
+
+  @Test
   void testClose() throws IOException {
     try (DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null)) {
       writer.initialize();

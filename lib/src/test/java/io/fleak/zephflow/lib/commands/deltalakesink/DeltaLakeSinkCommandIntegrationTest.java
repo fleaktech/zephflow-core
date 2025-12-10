@@ -136,7 +136,6 @@ class DeltaLakeSinkCommandIntegrationTest {
 
     // Verify direct unwrap preserves structure (no more flattening)
     assertNotNull(processed);
-    assertTrue(processed.containsKey("_fleak_timestamp"));
     assertTrue(processed.containsKey("user"));
     assertTrue(processed.containsKey("metadata"));
 
@@ -200,7 +199,6 @@ class DeltaLakeSinkCommandIntegrationTest {
     assertTrue(processed.containsKey("user"));
     assertTrue(processed.containsKey("tags"));
     assertTrue(processed.containsKey("timestamp"));
-    assertTrue(processed.containsKey("_fleak_timestamp"));
 
     // Verify nested record unwrapping
     @SuppressWarnings("unchecked")
