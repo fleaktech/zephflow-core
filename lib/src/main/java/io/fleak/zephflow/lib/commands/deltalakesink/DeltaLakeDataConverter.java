@@ -1096,22 +1096,29 @@ public class DeltaLakeDataConverter {
           throw new IllegalArgumentException("Array types only have one child at ordinal 0");
         }
         DataType elementType = arrayType.getElementType();
-        List<Object> allElements = new ArrayList<>();
+
+        int totalElements = 0;
         for (Object value : data) {
-          if (value == null) continue;
-          if (value instanceof List) {
-            @SuppressWarnings("unchecked")
-            List<Object> list = (List<Object>) value;
-            allElements.addAll(list);
+          if (value instanceof List<?> list) {
+            totalElements += list.size();
           }
         }
-        childVector = allocateVector(elementType, allElements.size());
-        for (int i = 0; i < allElements.size(); i++) {
-          Object element = allElements.get(i);
-          if (element == null) {
-            setNull(childVector, i);
-          } else {
-            setValue(childVector, i, element, elementType);
+
+        childVector = allocateVector(elementType, totalElements);
+
+        int idx = 0;
+        for (Object value : data) {
+          if (value instanceof List<?>) {
+            @SuppressWarnings("unchecked")
+            List<Object> list = (List<Object>) value;
+            for (Object element : list) {
+              if (element == null) {
+                setNull(childVector, idx);
+              } else {
+                setValue(childVector, idx, element, elementType);
+              }
+              idx++;
+            }
           }
         }
       } else {
@@ -1167,9 +1174,16 @@ public class DeltaLakeDataConverter {
     public void close() {}
   }
 
-  /** Simple implementation of ArrayValue for Delta Kernel API */
-  private record SimpleArrayValue(List<Object> elements, DataType elementType)
-      implements ArrayValue {
+  /** Simple implementation of ArrayValue for Delta Kernel API with lazy caching */
+  private static final class SimpleArrayValue implements ArrayValue {
+    private final List<Object> elements;
+    private final DataType elementType;
+    private ColumnVector cachedElements;
+
+    SimpleArrayValue(List<Object> elements, DataType elementType) {
+      this.elements = elements;
+      this.elementType = elementType;
+    }
 
     @Override
     public int getSize() {
@@ -1178,6 +1192,9 @@ public class DeltaLakeDataConverter {
 
     @Override
     public ColumnVector getElements() {
+      if (cachedElements != null) {
+        return cachedElements;
+      }
       ColumnVector vector = allocateVector(elementType, elements.size());
       for (int i = 0; i < elements.size(); i++) {
         Object element = elements.get(i);
@@ -1187,6 +1204,7 @@ public class DeltaLakeDataConverter {
           setValue(vector, i, element, elementType);
         }
       }
+      cachedElements = vector;
       return vector;
     }
   }
