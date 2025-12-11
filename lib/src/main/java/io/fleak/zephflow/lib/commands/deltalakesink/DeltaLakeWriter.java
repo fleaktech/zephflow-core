@@ -258,6 +258,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     if (snapshot != null) {
       SimpleSinkCommand.FlushResult result = flushSnapshot(snapshot);
       if (!result.errorOutputList().isEmpty()) {
+        sinkErrorCounter.increase(result.errorOutputList().size(), Map.of());
         handleScheduledFlushErrors(result.errorOutputList());
       }
     }
@@ -298,10 +299,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     }
 
     if (snapshot != null) {
-      return flushSnapshot(snapshot);
+      SimpleSinkCommand.FlushResult result = flushSnapshot(snapshot);
+      // Return 0 counts (metrics reported in flushSnapshot), but preserve errors
+      return new SimpleSinkCommand.FlushResult(0, 0, result.errorOutputList());
     }
 
-    log.debug("Buffer not full yet. Waiting for more events before flushing to Delta.");
     return new SimpleSinkCommand.FlushResult(0, 0, List.of());
   }
 
@@ -321,7 +323,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
     sinkOutputCounter.increase(result.flushResult().successCount(), Map.of());
     outputSizeCounter.increase(result.flushResult().flushedDataSize(), Map.of());
-    sinkErrorCounter.increase(allErrors.size(), Map.of());
+    // Note: Error metrics are reported by the caller (SimpleSinkCommand or
+    // handleScheduledFlushErrors)
 
     return new SimpleSinkCommand.FlushResult(
         result.flushResult().successCount(), result.flushResult().flushedDataSize(), allErrors);
@@ -629,7 +632,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     }
 
     if (snapshot != null) {
-      flushSnapshot(snapshot);
+      SimpleSinkCommand.FlushResult result = flushSnapshot(snapshot);
+      if (!result.errorOutputList().isEmpty()) {
+        sinkErrorCounter.increase(result.errorOutputList().size(), Map.of());
+        handleScheduledFlushErrors(result.errorOutputList());
+      }
     }
 
     if (dlqWriter != null) {
