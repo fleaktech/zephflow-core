@@ -112,8 +112,6 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
   private void validateBatchSize(int batchSize, List<String> errors) {
     if (batchSize <= 0) {
       errors.add("batchSize must be positive");
-    } else if (batchSize > 10000) {
-      errors.add("batchSize should not exceed 10,000 for optimal performance");
     }
   }
 

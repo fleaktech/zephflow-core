@@ -163,22 +163,6 @@ class DeltaLakeSinkConfigValidatorTest {
   }
 
   @Test
-  void testExcessiveBatchSize() {
-    Config config =
-        Config.builder()
-            .tablePath("/tmp/delta-table")
-            .batchSize(15000)
-            .avroSchema(TEST_AVRO_SCHEMA)
-            .build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", jobContext));
-    assertTrue(exception.getMessage().contains("batchSize should not exceed 10,000"));
-  }
-
-  @Test
   void testEmptyPartitionColumn() {
     Config config =
         Config.builder()
