@@ -149,12 +149,22 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
             "DeltaLakeWriter-Checkpoint-%04X-%d",
             config.getTablePath().hashCode() & 0xFFFF, instanceId);
     this.checkpointExecutor =
-        Executors.newSingleThreadExecutor(
+        new ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(1),
             r -> {
               Thread thread = new Thread(r, checkpointThreadName);
               thread.setDaemon(true);
               return thread;
-            });
+            },
+            (r, executor) ->
+                log.warn(
+                    "Checkpoint task rejected for path: {} - previous checkpoint still running. "
+                        + "Table remains consistent, but checkpoints are falling behind.",
+                    config.getTablePath()));
 
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
