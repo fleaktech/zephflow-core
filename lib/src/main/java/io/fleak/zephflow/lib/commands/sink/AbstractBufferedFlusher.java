@@ -13,19 +13,25 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
+
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
 /**
  * Base class for buffered sink flushers that provides common functionality for buffer management,
  * record-level recovery, retry logic, and DLQ handling.
+ *
+ * <p>This class implements the Template Method pattern where {@link #flush} is the template method
+ * that orchestrates buffering and flushing, and subclasses provide the actual write logic via
+ * {@link #doFlush}.
  *
  * @param <T> The type of prepared data (e.g., Map&lt;String, Object&gt;)
  */
@@ -45,22 +51,25 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     this.dlqWriter = dlqWriter;
   }
 
+  // ===== ABSTRACT METHODS (Subclasses must implement) =====
+
   /**
-   * Performs the actual write operation. Called outside any locks.
+   * Returns the batch size threshold for triggering a flush.
    *
-   * @param data The data to write
+   * @return the batch size
+   */
+  protected abstract int getBatchSize();
+
+  /**
+   * Performs the actual write operation for a batch of records. Called outside buffer lock but
+   * inside write lock (if beforeWrite/afterWrite acquire one).
+   *
+   * @param batch The batch to write (includes original records for error reporting)
    * @return The flush result
    * @throws Exception if write fails
    */
-  protected abstract SimpleSinkCommand.FlushResult doWriteBatch(List<T> data) throws Exception;
-
-  /**
-   * Checks if exception is retryable (e.g., transient network error).
-   *
-   * @param e The exception to check
-   * @return true if the exception is retryable
-   */
-  protected abstract boolean isRetryableException(Exception e);
+  protected abstract SimpleSinkCommand.FlushResult doFlush(List<Pair<RecordFleakData, T>> batch)
+      throws Exception;
 
   /**
    * Validates if a record can be written.
@@ -70,44 +79,206 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
    */
   protected abstract boolean canWriteRecord(T record);
 
+  // ===== HOOK METHODS (Subclasses can override) =====
+
+  /** Called before flush processing. Override to add state checks (e.g., initialized, closed). */
+  protected void beforeFlush() {}
+
+  /** Called before actual write operation. Override to acquire additional locks. */
+  protected void beforeWrite() {}
+
+  /** Called after write operation completes (success or failure). Override to release locks. */
+  protected void afterWrite() {}
+
   /**
-   * Atomically swaps the buffer with a new empty buffer and returns the old one. MUST be called
-   * inside synchronized(bufferLock) block.
+   * Called to report success metrics after flush. Override for direct metrics reporting.
    *
-   * @return The old buffer contents
+   * @param result The flush result
+   * @param metricTags Tags for metrics
    */
-  protected List<Pair<RecordFleakData, T>> swapBuffer() {
-    List<Pair<RecordFleakData, T>> snapshot = buffer;
-    buffer = new ArrayList<>();
-    return snapshot;
+  protected void reportMetrics(
+      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {}
+
+  /**
+   * Called to report error metrics (for scheduled/close flushes where SimpleSinkCommand isn't
+   * involved).
+   *
+   * @param errorCount Number of errors
+   * @param metricTags Tags for metrics
+   */
+  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {}
+
+  // ===== TEMPLATE METHOD =====
+
+  /**
+   * Template method that handles buffering and triggers flush when batch size is reached. This is
+   * the main entry point called by SimpleSinkCommand.
+   *
+   * @param preparedInputEvents The events to buffer/flush
+   * @param metricTags Tags for metrics reporting
+   * @return FlushResult with success count, size, and errors
+   * @throws Exception if flush fails completely
+   */
+  @Override
+  public final SimpleSinkCommand.FlushResult flush(
+      SimpleSinkCommand.PreparedInputEvents<T> preparedInputEvents, Map<String, String> metricTags)
+      throws Exception {
+
+    beforeFlush();
+
+    if (preparedInputEvents.preparedList().isEmpty()) {
+      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+    }
+
+    List<Pair<RecordFleakData, T>> snapshot = null;
+
+    synchronized (bufferLock) {
+      buffer.addAll(preparedInputEvents.rawAndPreparedList());
+      log.debug(
+          "Added {} records to buffer. Buffer: {} / {}",
+          preparedInputEvents.rawAndPreparedList().size(),
+          buffer.size(),
+          getBatchSize());
+
+      if (buffer.size() >= getBatchSize()) {
+        log.info("Buffer threshold reached ({}), triggering flush", getBatchSize());
+        snapshot = swapBuffer();
+      }
+    }
+
+    if (snapshot != null) {
+      return executeFlush(snapshot, metricTags);
+    }
+
+    return new SimpleSinkCommand.FlushResult(0, 0, List.of());
   }
 
   /**
-   * Attempts to write a batch with recovery. First tries to write all records; if that fails,
-   * filters out bad records and writes the good ones.
+   * Executes a flush with proper lock handling and metrics reporting.
    *
-   * @param batch The batch to write
-   * @return The write result including any errors
+   * @param batch The batch to flush
+   * @param metricTags Tags for metrics
+   * @return The flush result
    */
-  protected WriteResult writeWithRecovery(List<Pair<RecordFleakData, T>> batch) {
-    List<T> dataToWrite = batch.stream().map(Pair::getRight).toList();
+  protected final SimpleSinkCommand.FlushResult executeFlush(
+      List<Pair<RecordFleakData, T>> batch, Map<String, String> metricTags) {
+    if (batch.isEmpty()) {
+      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+    }
 
+    log.info("Flushing {} records", batch.size());
+
+    beforeWrite();
     try {
-      SimpleSinkCommand.FlushResult result = writeWithRetry(dataToWrite);
-      return new WriteResult(result, List.of());
-    } catch (Exception e) {
-      log.warn("Batch write failed, entering recovery mode: {}", e.getMessage());
-      return filterAndWrite(batch);
+      SimpleSinkCommand.FlushResult result = doFlushWithRecovery(batch);
+      reportMetrics(result, metricTags);
+      return result;
+    } finally {
+      afterWrite();
     }
   }
 
   /**
-   * Filters out bad records and writes the good ones.
-   *
-   * @param batch The batch to filter and write
-   * @return The write result including errors for bad records
+   * Executes a scheduled (timer-triggered) or close-time flush. Subclasses should call this from
+   * their timer callback.
    */
-  protected WriteResult filterAndWrite(List<Pair<RecordFleakData, T>> batch) {
+  protected final void executeScheduledFlush() {
+    List<Pair<RecordFleakData, T>> snapshot;
+
+    synchronized (bufferLock) {
+      if (buffer.isEmpty()) {
+        log.trace("Scheduled flush skipped: buffer empty");
+        return;
+      }
+      log.info("Scheduled flush triggered: {} records buffered", buffer.size());
+      snapshot = swapBuffer();
+    }
+
+    try {
+      SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
+      if (!result.errorOutputList().isEmpty()) {
+        reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        handleScheduledFlushErrors(result.errorOutputList());
+      }
+    } catch (Exception e) {
+      log.error("Error during scheduled flush", e);
+      reportErrorMetrics(snapshot.size(), Map.of());
+      handleScheduledFlushErrors(snapshot, e.getMessage());
+    }
+  }
+
+  /**
+   * Swaps buffer and returns snapshot if not empty. Use for close-time flushing.
+   *
+   * @return The buffer snapshot, or null if empty
+   */
+  protected final List<Pair<RecordFleakData, T>> swapBufferIfNotEmpty() {
+    synchronized (bufferLock) {
+      if (buffer.isEmpty()) {
+        return null;
+      }
+      return swapBuffer();
+    }
+  }
+
+  // ===== RECOVERY LOGIC =====
+
+  /**
+   * Attempts to flush with recovery. First tries direct flush; if that fails, filters out bad
+   * records and flushes the good ones. Subclasses can override for custom recovery logic.
+   *
+   * @param batch The batch to flush
+   * @return The flush result
+   */
+  protected SimpleSinkCommand.FlushResult doFlushWithRecovery(
+      List<Pair<RecordFleakData, T>> batch) {
+    try {
+      return doFlushWithRetry(batch);
+    } catch (Exception e) {
+      log.warn("Batch write failed, entering recovery mode: {}", e.getMessage());
+      return filterAndFlush(batch);
+    }
+  }
+
+  /**
+   * Flushes data with retry logic using exponential backoff.
+   *
+   * @param batch The batch to flush
+   * @return The flush result
+   * @throws Exception if all retries are exhausted
+   */
+  protected SimpleSinkCommand.FlushResult doFlushWithRetry(List<Pair<RecordFleakData, T>> batch)
+      throws Exception {
+    long retryDelayMs = INITIAL_RETRY_DELAY_MS;
+    int attempt = 0;
+
+    while (true) {
+      attempt++;
+      try {
+        return doFlush(batch);
+      } catch (Exception e) {
+        if (attempt >= MAX_WRITE_RETRIES) {
+          throw e;
+        }
+        log.warn(
+            "Error (attempt {}/{}), retrying in {}ms: {}",
+            attempt,
+            MAX_WRITE_RETRIES,
+            retryDelayMs,
+            e.getMessage());
+        threadSleep(retryDelayMs);
+        retryDelayMs *= 2;
+      }
+    }
+  }
+
+  /**
+   * Filters out bad records and flushes the good ones.
+   *
+   * @param batch The batch to filter and flush
+   * @return The flush result including errors for bad records
+   */
+  protected SimpleSinkCommand.FlushResult filterAndFlush(List<Pair<RecordFleakData, T>> batch) {
     List<ErrorOutput> errors = new ArrayList<>();
     List<Pair<RecordFleakData, T>> goodRecords = new ArrayList<>();
 
@@ -122,57 +293,36 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     }
 
     if (goodRecords.isEmpty()) {
-      return new WriteResult(new SimpleSinkCommand.FlushResult(0, 0, List.of()), errors);
+      return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }
 
-    List<T> goodData = goodRecords.stream().map(Pair::getRight).toList();
     try {
-      SimpleSinkCommand.FlushResult result = writeWithRetry(goodData);
-      return new WriteResult(result, errors);
+      SimpleSinkCommand.FlushResult result = doFlushWithRetry(goodRecords);
+      List<ErrorOutput> allErrors = new ArrayList<>(result.errorOutputList());
+      allErrors.addAll(errors);
+      return new SimpleSinkCommand.FlushResult(
+          result.successCount(), result.flushedDataSize(), allErrors);
     } catch (Exception e) {
       log.error("Bulk write of validated records failed: {}", e.getMessage());
       for (Pair<RecordFleakData, T> pair : goodRecords) {
         errors.add(new ErrorOutput(pair.getLeft(), "Write failed: " + e.getMessage()));
       }
-      return new WriteResult(new SimpleSinkCommand.FlushResult(0, 0, List.of()), errors);
+      return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }
   }
 
-  /**
-   * Writes data with retry logic using exponential backoff.
-   *
-   * @param data The data to write
-   * @return The flush result
-   * @throws Exception if all retries are exhausted
-   */
-  protected SimpleSinkCommand.FlushResult writeWithRetry(List<T> data) throws Exception {
-    Exception lastException = null;
-    long retryDelayMs = INITIAL_RETRY_DELAY_MS;
+  // ===== HELPER METHODS =====
 
-    for (int attempt = 1; attempt <= MAX_WRITE_RETRIES; attempt++) {
-      try {
-        return doWriteBatch(data);
-      } catch (Exception e) {
-        lastException = e;
-        if (!isRetryableException(e) || attempt == MAX_WRITE_RETRIES) {
-          throw e;
-        }
-        log.warn(
-            "Retryable error (attempt {}/{}), retrying in {}ms: {}",
-            attempt,
-            MAX_WRITE_RETRIES,
-            retryDelayMs,
-            e.getMessage());
-        try {
-          Thread.sleep(retryDelayMs);
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt();
-          throw new IOException("Retry interrupted", ie);
-        }
-        retryDelayMs *= 2;
-      }
-    }
-    throw lastException;
+  /**
+   * Atomically swaps the buffer with a new empty buffer and returns the old one. MUST be called
+   * inside synchronized(bufferLock) block.
+   *
+   * @return The old buffer contents
+   */
+  protected List<Pair<RecordFleakData, T>> swapBuffer() {
+    List<Pair<RecordFleakData, T>> snapshot = buffer;
+    buffer = new ArrayList<>();
+    return snapshot;
   }
 
   /**
@@ -236,8 +386,4 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
         batch.stream().map(pair -> new ErrorOutput(pair.getLeft(), errorMessage)).toList();
     return new SimpleSinkCommand.FlushResult(0, 0, errors);
   }
-
-  /** Result of a write operation including flush result and any additional errors. */
-  protected record WriteResult(
-      SimpleSinkCommand.FlushResult flushResult, List<ErrorOutput> additionalErrors) {}
 }

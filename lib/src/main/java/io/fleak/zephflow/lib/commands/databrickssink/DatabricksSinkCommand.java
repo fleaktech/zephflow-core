@@ -65,7 +65,7 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
     SinkCounters counters =
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
-    Flusher<Map<String, Object>> flusher = createBatchFlusher(config);
+    Flusher<Map<String, Object>> flusher = createBatchFlusher(config, counters);
 
     SinkMessagePreProcessor<Map<String, Object>> preprocessor = new DeltaLakeMessageProcessor();
 
@@ -79,14 +79,23 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
         counters.sinkErrorCounter());
   }
 
-  private Flusher<Map<String, Object>> createBatchFlusher(DatabricksSinkDto.Config config) {
+  private Flusher<Map<String, Object>> createBatchFlusher(
+      DatabricksSinkDto.Config config, SinkCounters counters) {
     try {
       Path tempDir = Files.createTempDirectory("databricks-sink-");
       DlqWriter dlqWriter = createDlqWriter();
       DatabricksCredential credential =
           lookupDatabricksCredential(jobContext, config.getDatabricksCredentialId());
       WorkspaceClient workspaceClient = DatabricksClientFactory.createClient(credential);
-      return new BatchDatabricksFlusher(config, workspaceClient, tempDir, scheduler, dlqWriter);
+      return new BatchDatabricksFlusher(
+          config,
+          workspaceClient,
+          tempDir,
+          scheduler,
+          dlqWriter,
+          counters.sinkOutputCounter(),
+          counters.outputSizeCounter(),
+          counters.sinkErrorCounter());
     } catch (IOException e) {
       throw new RuntimeException("Failed to create temp directory", e);
     }

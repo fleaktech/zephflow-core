@@ -17,6 +17,7 @@ import com.databricks.sdk.WorkspaceClient;
 import com.google.common.annotations.VisibleForTesting;
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
@@ -30,6 +31,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -45,6 +47,10 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   private final Path tempDirectory;
   private final StructType schema;
 
+  private final FleakCounter sinkOutputCounter;
+  private final FleakCounter outputSizeCounter;
+  private final FleakCounter sinkErrorCounter;
+
   private final ReentrantLock flushLock = new ReentrantLock();
   private final ScheduledFuture<?> scheduledFuture;
   private volatile boolean closed = false;
@@ -54,9 +60,15 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       WorkspaceClient workspaceClient,
       Path tempDirectory,
       ScheduledExecutorService scheduler,
-      DlqWriter dlqWriter) {
+      DlqWriter dlqWriter,
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {
     super(dlqWriter);
     this.config = config;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
     schema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
     this.parquetWriter = new DatabricksParquetWriter(schema);
     this.volumeUploader = new DatabricksVolumeUploader(workspaceClient);
@@ -65,7 +77,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
 
     this.scheduledFuture =
         scheduler.scheduleAtFixedRate(
-            this::flushBufferScheduled,
+            this::executeScheduledFlush,
             config.getFlushIntervalMillis(),
             config.getFlushIntervalMillis(),
             TimeUnit.MILLISECONDS);
@@ -86,7 +98,10 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       Path tempDirectory,
       DlqWriter dlqWriter,
       StructType schema,
-      ScheduledFuture<?> scheduledFuture) {
+      ScheduledFuture<?> scheduledFuture,
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {
     super(dlqWriter);
     this.config = config;
     this.parquetWriter = parquetWriter;
@@ -95,80 +110,22 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     this.tempDirectory = tempDirectory;
     this.schema = schema;
     this.scheduledFuture = scheduledFuture;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
+  }
+
+  // ===== ABSTRACT METHOD IMPLEMENTATIONS =====
+
+  @Override
+  protected int getBatchSize() {
+    return config.getBatchSize();
   }
 
   @Override
-  public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events,
-      Map<String, String> metricTags)
-      throws Exception {
-
-    if (closed) {
-      throw new IllegalStateException("Flusher is closed");
-    }
-
-    if (events.preparedList().isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    }
-
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
-
-    synchronized (bufferLock) {
-      buffer.addAll(events.rawAndPreparedList());
-
-      log.debug(
-          "Added {} records to buffer. Buffer: {} records",
-          events.rawAndPreparedList().size(),
-          buffer.size());
-
-      if (buffer.size() >= config.getBatchSize()) {
-        log.info("Buffer threshold exceeded, triggering immediate flush");
-        snapshot = swapBuffer();
-      }
-    }
-
-    if (snapshot != null) {
-      return flushBatchToDatabricks(snapshot);
-    }
-
-    return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-  }
-
-  private void flushBufferScheduled() {
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
-
-    synchronized (bufferLock) {
-      if (!buffer.isEmpty()) {
-        log.info("Timer-triggered flush: {} records buffered", buffer.size());
-        snapshot = swapBuffer();
-      }
-    }
-
-    if (snapshot != null) {
-      try {
-        SimpleSinkCommand.FlushResult result = flushBatchToDatabricks(snapshot);
-        if (!result.errorOutputList().isEmpty()) {
-          handleScheduledFlushErrors(result.errorOutputList());
-        }
-      } catch (Exception e) {
-        log.error("Error during scheduled flush", e);
-        handleScheduledFlushErrors(snapshot, e.getMessage());
-      }
-    }
-  }
-
-  private SimpleSinkCommand.FlushResult flushBatchToDatabricks(
+  protected SimpleSinkCommand.FlushResult doFlush(
       List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-    if (batch.isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    }
-
-    flushLock.lock();
-    try {
-      return doFlushBatch(batch);
-    } finally {
-      flushLock.unlock();
-    }
+    return doFlushBatch(batch);
   }
 
   @Override
@@ -182,19 +139,43 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     }
   }
 
+  // ===== HOOK METHOD IMPLEMENTATIONS =====
+
   @Override
-  protected SimpleSinkCommand.FlushResult doWriteBatch(List<Map<String, Object>> data) {
-    throw new UnsupportedOperationException(
-        "BatchDatabricksFlusher uses flushBatchToDatabricks directly");
+  protected void beforeFlush() {
+    if (closed) {
+      throw new IllegalStateException("Flusher is closed");
+    }
   }
 
   @Override
-  protected boolean isRetryableException(Exception e) {
-    return false;
+  protected void beforeWrite() {
+    flushLock.lock();
   }
 
-  private SimpleSinkCommand.FlushResult doFlushBatch(
+  @Override
+  protected void afterWrite() {
+    flushLock.unlock();
+  }
+
+  @Override
+  protected void reportMetrics(
+      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
+    sinkOutputCounter.increase(result.successCount(), Map.of());
+    outputSizeCounter.increase(result.flushedDataSize(), Map.of());
+  }
+
+  @Override
+  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
+    sinkErrorCounter.increase(errorCount, Map.of());
+  }
+
+  // ===== CUSTOM RECOVERY LOGIC =====
+
+  @Override
+  protected SimpleSinkCommand.FlushResult doFlushWithRecovery(
       List<Pair<RecordFleakData, Map<String, Object>>> batch) {
+    // Use custom Parquet-aware recovery instead of base class filterAndFlush
     String batchId = UUID.randomUUID().toString();
     log.info("Starting flush of {} records with batchId: {}", batch.size(), batchId);
 
@@ -289,6 +270,16 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
         batchId);
 
     return new SimpleSinkCommand.FlushResult(successCount, totalFlushedBytes, allErrors);
+  }
+
+  // ===== DATABRICKS-SPECIFIC LOGIC =====
+
+  private SimpleSinkCommand.FlushResult doFlushBatch(
+      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
+    // This is called from doFlushWithRetry in base class, but we override doFlushWithRecovery
+    // to use our custom Parquet-aware recovery logic. This method is kept for completeness
+    // but the main path goes through doFlushWithRecovery.
+    return doFlushWithRecovery(batch);
   }
 
   private ParquetGenerationResult generateParquetWithErrorTracking(
@@ -506,16 +497,15 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       scheduledFuture.cancel(false);
     }
 
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
-    synchronized (bufferLock) {
-      if (!buffer.isEmpty()) {
-        log.info("Flushing {} remaining records during close", buffer.size());
-        snapshot = swapBuffer();
-      }
-    }
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = swapBufferIfNotEmpty();
 
     if (snapshot != null) {
-      flushBatchToDatabricks(snapshot);
+      log.info("Flushing {} remaining records during close", snapshot.size());
+      SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
+      if (!result.errorOutputList().isEmpty()) {
+        reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        handleScheduledFlushErrors(result.errorOutputList());
+      }
     }
 
     // Acquire flushLock to ensure any in-progress scheduled flush completes

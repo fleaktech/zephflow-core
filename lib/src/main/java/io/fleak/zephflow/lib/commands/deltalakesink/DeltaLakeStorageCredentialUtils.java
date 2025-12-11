@@ -18,6 +18,7 @@ import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import io.fleak.zephflow.lib.utils.MiscUtils;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
@@ -112,8 +113,12 @@ public interface DeltaLakeStorageCredentialUtils {
           // Parse JSON and use inline properties (no disk write for security)
           try {
             Map<String, Object> keyData =
-                JsonUtils.fromJsonString(
-                    credential.getJsonKeyContent(), new TypeReference<Map<String, Object>>() {});
+                JsonUtils.fromJsonString(credential.getJsonKeyContent(), new TypeReference<>() {});
+            MiscUtils.ensureConditionOtherwiseThrow(
+                keyData != null,
+                () ->
+                    new IllegalStateException(
+                        "JSON serialized SERVICE_ACCOUNT_JSON_KEYFILE keyData is null"));
 
             // Enable service account auth explicitly (overrides environment defaults)
             hadoopConf.set("fs.gs.auth.service.account.enable", "true");

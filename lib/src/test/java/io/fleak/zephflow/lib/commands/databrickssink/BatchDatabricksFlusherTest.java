@@ -21,6 +21,7 @@ import io.delta.kernel.types.IntegerType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
@@ -46,6 +47,9 @@ class BatchDatabricksFlusherTest {
   private DlqWriter dlqWriter;
   private StructType schema;
   private ScheduledFuture<?> scheduledFuture;
+  private FleakCounter sinkOutputCounter;
+  private FleakCounter outputSizeCounter;
+  private FleakCounter sinkErrorCounter;
 
   @BeforeEach
   void setUp() {
@@ -64,6 +68,9 @@ class BatchDatabricksFlusherTest {
     sqlExecutor = mock(DatabricksSqlExecutor.class);
     dlqWriter = mock(DlqWriter.class);
     scheduledFuture = mock(ScheduledFuture.class);
+    sinkOutputCounter = mock(FleakCounter.class);
+    outputSizeCounter = mock(FleakCounter.class);
+    sinkErrorCounter = mock(FleakCounter.class);
 
     schema =
         new StructType(
@@ -81,7 +88,10 @@ class BatchDatabricksFlusherTest {
         tempDir,
         dlqWriter,
         schema,
-        scheduledFuture);
+        scheduledFuture,
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter);
   }
 
   private File createMockFile(String name) throws Exception {
@@ -144,7 +154,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -194,7 +207,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
         .thenThrow(new RuntimeException("Parquet write failed"));
@@ -235,7 +251,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -281,7 +300,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -341,7 +363,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -409,7 +434,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -447,7 +475,7 @@ class BatchDatabricksFlusherTest {
         .thenThrow(new RuntimeException("Scheduled flush error"));
 
     java.lang.reflect.Method method =
-        BatchDatabricksFlusher.class.getDeclaredMethod("flushBufferScheduled");
+        BatchDatabricksFlusher.class.getSuperclass().getDeclaredMethod("executeScheduledFlush");
     method.setAccessible(true);
     method.invoke(flusher);
 
@@ -465,7 +493,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             null,
             schema,
-            scheduledFuture)) {
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter)) {
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
           new SimpleSinkCommand.PreparedInputEvents<>();
       events.add(
@@ -477,7 +508,7 @@ class BatchDatabricksFlusherTest {
           .thenThrow(new RuntimeException("Scheduled flush error"));
 
       java.lang.reflect.Method method =
-          BatchDatabricksFlusher.class.getDeclaredMethod("flushBufferScheduled");
+          BatchDatabricksFlusher.class.getSuperclass().getDeclaredMethod("executeScheduledFlush");
       method.setAccessible(true);
 
       assertDoesNotThrow(() -> method.invoke(flusher));
@@ -507,7 +538,10 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            scheduledFuture,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     // Valid: id is integer, name is string
     Map<String, Object> validData = Map.of("id", 1, "name", "valid");
