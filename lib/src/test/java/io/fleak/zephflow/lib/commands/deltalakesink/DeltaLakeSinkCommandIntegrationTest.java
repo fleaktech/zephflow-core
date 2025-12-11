@@ -28,6 +28,7 @@ import io.delta.kernel.utils.CloseableIterator;
 import io.fleak.zephflow.api.CommandType;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -87,7 +88,14 @@ class DeltaLakeSinkCommandIntegrationTest {
 
     // Create writer with mock JobContext
     JobContext mockJobContext = mock(JobContext.class);
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, mockJobContext, null);
+    DeltaLakeWriter writer =
+        new DeltaLakeWriter(
+            config,
+            mockJobContext,
+            null,
+            mock(FleakCounter.class),
+            mock(FleakCounter.class),
+            mock(FleakCounter.class));
     writer.initialize();
 
     // Create test data

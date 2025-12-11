@@ -30,6 +30,7 @@ import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterable;
 import io.delta.kernel.utils.CloseableIterator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
@@ -64,6 +65,9 @@ class DeltaLakeWriterTest {
   private Config config;
   private String tablePath;
   private JobContext jobContext;
+  private FleakCounter sinkOutputCounter;
+  private FleakCounter outputSizeCounter;
+  private FleakCounter sinkErrorCounter;
 
   @BeforeEach
   void setUp() {
@@ -74,6 +78,16 @@ class DeltaLakeWriterTest {
 
     // Mock JobContext for all tests
     jobContext = mock(JobContext.class);
+
+    // Mock counters for all tests
+    sinkOutputCounter = mock(FleakCounter.class);
+    outputSizeCounter = mock(FleakCounter.class);
+    sinkErrorCounter = mock(FleakCounter.class);
+  }
+
+  private DeltaLakeWriter createWriter(Config config) {
+    return new DeltaLakeWriter(
+        config, jobContext, null, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
   }
 
   /** Creates a Delta table at the given path with the test schema (id, name, value) */
@@ -134,7 +148,7 @@ class DeltaLakeWriterTest {
   void testWriterCreation() {
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null);
+          DeltaLakeWriter writer = createWriter(config);
           writer.initialize();
           writer.close();
         });
@@ -142,7 +156,7 @@ class DeltaLakeWriterTest {
 
   @Test
   void testEmptyFlush() throws Exception {
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null);
+    DeltaLakeWriter writer = createWriter(config);
     writer.initialize();
 
     SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> emptyEvents =
@@ -159,7 +173,7 @@ class DeltaLakeWriterTest {
 
   @Test
   void testFlushWithData() {
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null);
+    DeltaLakeWriter writer = createWriter(config);
     writer.initialize();
 
     // Create test data
@@ -204,7 +218,7 @@ class DeltaLakeWriterTest {
 
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+          DeltaLakeWriter writer = createWriter(testConfig);
           writer.initialize();
           writer.close();
         });
@@ -224,7 +238,7 @@ class DeltaLakeWriterTest {
 
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(partitionConfig, jobContext, null);
+          DeltaLakeWriter writer = createWriter(partitionConfig);
           writer.initialize();
           writer.close();
         });
@@ -247,7 +261,7 @@ class DeltaLakeWriterTest {
 
     assertDoesNotThrow(
         () -> {
-          DeltaLakeWriter writer = new DeltaLakeWriter(hadoopConfiguredConfig, jobContext, null);
+          DeltaLakeWriter writer = createWriter(hadoopConfiguredConfig);
           writer.initialize();
           writer.close();
         });
@@ -262,7 +276,7 @@ class DeltaLakeWriterTest {
             .build();
 
     // Writer creation succeeds, but initialize() fails because table doesn't exist
-    DeltaLakeWriter writer = new DeltaLakeWriter(invalidConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(invalidConfig);
     IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
     assertTrue(exception.getMessage().contains("Delta table does not exist"));
   }
@@ -282,7 +296,7 @@ class DeltaLakeWriterTest {
             .build();
 
     // Should fail with partition mismatch error
-    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
     IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
     assertTrue(exception.getMessage().contains("Partition column mismatch detected"));
     assertTrue(exception.getMessage().contains("Split Brain"));
@@ -306,7 +320,7 @@ class DeltaLakeWriterTest {
 
     Config mismatchConfig = Config.builder().tablePath(path).avroSchema(mismatchAvroSchema).build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
     IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
     assertTrue(exception.getMessage().contains("Schema mismatch detected"));
     assertTrue(exception.getMessage().contains("Split Brain"));
@@ -331,7 +345,7 @@ class DeltaLakeWriterTest {
 
     Config mismatchConfig = Config.builder().tablePath(path).avroSchema(mismatchAvroSchema).build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
     IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
     assertTrue(exception.getMessage().contains("Schema mismatch detected"));
     assertTrue(exception.getMessage().contains("type mismatch"));
@@ -354,7 +368,7 @@ class DeltaLakeWriterTest {
     Config mismatchConfig =
         Config.builder().tablePath(path).avroSchema(incompleteAvroSchema).build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(mismatchConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
     IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
     assertTrue(exception.getMessage().contains("Schema mismatch detected"));
     assertTrue(exception.getMessage().contains("exists in table but not in config"));
@@ -362,7 +376,7 @@ class DeltaLakeWriterTest {
 
   @Test
   void testClose() throws IOException {
-    try (DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, null)) {
+    try (DeltaLakeWriter writer = createWriter(config)) {
       writer.initialize();
       assertDoesNotThrow(writer::close);
 
@@ -379,7 +393,7 @@ class DeltaLakeWriterTest {
             .batchSize(10)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
 
     // Use reflection to access the private buffer field from superclass
     java.lang.reflect.Field bufferField =
@@ -423,7 +437,7 @@ class DeltaLakeWriterTest {
             .batchSize(5)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
 
     // Use reflection to access the private buffer field from superclass
     java.lang.reflect.Field bufferField =
@@ -462,7 +476,7 @@ class DeltaLakeWriterTest {
             .batchSize(100)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
 
     // Use reflection to access the private buffer field from superclass
     java.lang.reflect.Field bufferField =
@@ -504,7 +518,7 @@ class DeltaLakeWriterTest {
             .batchSize(10)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
 
     // Use reflection to access the private buffer field from superclass
     java.lang.reflect.Field bufferField =
@@ -549,7 +563,7 @@ class DeltaLakeWriterTest {
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
     // Access private fields using reflection
@@ -583,7 +597,7 @@ class DeltaLakeWriterTest {
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
     java.lang.reflect.Field bufferField =
@@ -636,7 +650,7 @@ class DeltaLakeWriterTest {
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
     java.lang.reflect.Field bufferField =
@@ -686,7 +700,7 @@ class DeltaLakeWriterTest {
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
     // Access private fields using reflection
@@ -718,7 +732,7 @@ class DeltaLakeWriterTest {
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(testConfig, jobContext, null);
+    DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
     // Access private fields using reflection
@@ -764,8 +778,8 @@ class DeltaLakeWriterTest {
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer1 = new DeltaLakeWriter(config1, jobContext, null);
-    DeltaLakeWriter writer2 = new DeltaLakeWriter(config2, jobContext, null);
+    DeltaLakeWriter writer1 = createWriter(config1);
+    DeltaLakeWriter writer2 = createWriter(config2);
 
     // Access instance IDs using reflection
     java.lang.reflect.Field instanceIdField = DeltaLakeWriter.class.getDeclaredField("instanceId");

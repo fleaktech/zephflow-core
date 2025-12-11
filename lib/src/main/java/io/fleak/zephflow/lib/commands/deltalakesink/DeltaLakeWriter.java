@@ -33,6 +33,7 @@ import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.DataFileStatus;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
@@ -43,6 +44,7 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
@@ -53,6 +55,10 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
   private final DeltaLakeSinkDto.Config config;
   private final JobContext jobContext;
+  private final FleakCounter sinkOutputCounter;
+  private final FleakCounter outputSizeCounter;
+  private final FleakCounter sinkErrorCounter;
+
   private Engine engine;
   private Table table;
   private StructType tableSchema;
@@ -66,10 +72,18 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   private Map<String, DataType> partitionColumnTypes;
 
   public DeltaLakeWriter(
-      DeltaLakeSinkDto.Config config, JobContext jobContext, DlqWriter dlqWriter) {
+      DeltaLakeSinkDto.Config config,
+      JobContext jobContext,
+      DlqWriter dlqWriter,
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {
     super(dlqWriter);
     this.config = config;
     this.jobContext = jobContext;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
   }
 
   /** Initialize the Delta Lake writer. Must be called before using flush(). */
@@ -305,13 +319,24 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     List<ErrorOutput> allErrors = new ArrayList<>(result.flushResult().errorOutputList());
     allErrors.addAll(result.additionalErrors());
 
+    sinkOutputCounter.increase(result.flushResult().successCount(), Map.of());
+    outputSizeCounter.increase(result.flushResult().flushedDataSize(), Map.of());
+    sinkErrorCounter.increase(allErrors.size(), Map.of());
+
     return new SimpleSinkCommand.FlushResult(
         result.flushResult().successCount(), result.flushResult().flushedDataSize(), allErrors);
   }
 
   @Override
-  protected StructType getSchema() {
-    return tableSchema;
+  protected boolean canWriteRecord(Map<String, Object> record) {
+    if (record == null) return false;
+    try (var ignored =
+        DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), tableSchema)) {
+      return true;
+    } catch (Exception e) {
+      log.debug("Record validation failed: {}", e.getMessage());
+      return false;
+    }
   }
 
   @Override

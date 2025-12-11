@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.delta.kernel.Operation;
@@ -37,6 +38,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand.SinkResult;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -231,7 +233,14 @@ class DeltaLakeS3IntegrationTest {
             .avroSchema(COMPLEX_AVRO_SCHEMA)
             .build();
 
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, realJobContext, null);
+    DeltaLakeWriter writer =
+        new DeltaLakeWriter(
+            config,
+            realJobContext,
+            null,
+            mock(FleakCounter.class),
+            mock(FleakCounter.class),
+            mock(FleakCounter.class));
 
     // Test initialization with S3 credentials from JobContext
     assertDoesNotThrow(

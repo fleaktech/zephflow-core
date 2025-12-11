@@ -13,16 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
-import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -48,9 +45,6 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     this.dlqWriter = dlqWriter;
   }
 
-  /** Returns the schema for record validation. */
-  protected abstract StructType getSchema();
-
   /**
    * Performs the actual write operation. Called outside any locks.
    *
@@ -69,6 +63,14 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected abstract boolean isRetryableException(Exception e);
 
   /**
+   * Validates if a record can be written.
+   *
+   * @param record The record to validate
+   * @return true if the record can be written
+   */
+  protected abstract boolean canWriteRecord(T record);
+
+  /**
    * Atomically swaps the buffer with a new empty buffer and returns the old one. MUST be called
    * inside synchronized(bufferLock) block.
    *
@@ -78,26 +80,6 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     List<Pair<RecordFleakData, T>> snapshot = buffer;
     buffer = new ArrayList<>();
     return snapshot;
-  }
-
-  /**
-   * Validates if a record can be written by attempting to convert it to columnar format.
-   *
-   * @param record The record to validate
-   * @return true if the record can be written
-   */
-  @SuppressWarnings("unchecked")
-  protected boolean canWriteRecord(T record) {
-    if (record == null) return false;
-    if (!(record instanceof Map)) return true;
-    try (var ignored =
-        DeltaLakeDataConverter.convertToColumnarBatch(
-            List.of((Map<String, Object>) record), getSchema())) {
-      return true;
-    } catch (Exception e) {
-      log.debug("Record validation failed: {}", e.getMessage());
-      return false;
-    }
   }
 
   /**

@@ -19,6 +19,7 @@ import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
+import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -46,6 +47,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
 
   private final ReentrantLock flushLock = new ReentrantLock();
   private final ScheduledFuture<?> scheduledFuture;
+  private volatile boolean closed = false;
 
   public BatchDatabricksFlusher(
       DatabricksSinkDto.Config config,
@@ -100,6 +102,10 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events,
       Map<String, String> metricTags)
       throws Exception {
+
+    if (closed) {
+      throw new IllegalStateException("Flusher is closed");
+    }
 
     if (events.preparedList().isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
@@ -166,13 +172,18 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   }
 
   @Override
-  protected StructType getSchema() {
-    return schema;
+  protected boolean canWriteRecord(Map<String, Object> record) {
+    if (record == null) return false;
+    try (var ignored = DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), schema)) {
+      return true;
+    } catch (Exception e) {
+      log.debug("Record validation failed: {}", e.getMessage());
+      return false;
+    }
   }
 
   @Override
-  protected SimpleSinkCommand.FlushResult doWriteBatch(List<Map<String, Object>> data)
-      throws Exception {
+  protected SimpleSinkCommand.FlushResult doWriteBatch(List<Map<String, Object>> data) {
     throw new UnsupportedOperationException(
         "BatchDatabricksFlusher uses flushBatchToDatabricks directly");
   }
@@ -485,6 +496,11 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
 
   @Override
   public void close() throws IOException {
+    if (closed) {
+      return;
+    }
+    closed = true;
+
     log.info("Closing BatchDatabricksFlusher...");
     if (scheduledFuture != null) {
       scheduledFuture.cancel(false);

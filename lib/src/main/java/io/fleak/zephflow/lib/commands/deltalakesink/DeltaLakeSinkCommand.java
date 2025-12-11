@@ -46,7 +46,7 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
 
     DeltaLakeSinkDto.Config config = (DeltaLakeSinkDto.Config) commandConfig;
     SimpleSinkCommand.Flusher<Map<String, Object>> flusher =
-        createDeltaLakeFlusher(config, jobContext);
+        createDeltaLakeFlusher(config, jobContext, counters);
     SimpleSinkCommand.SinkMessagePreProcessor<Map<String, Object>> messagePreProcessor =
         new DeltaLakeMessageProcessor();
 
@@ -61,9 +61,16 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
   }
 
   private SimpleSinkCommand.Flusher<Map<String, Object>> createDeltaLakeFlusher(
-      DeltaLakeSinkDto.Config config, JobContext jobContext) {
+      DeltaLakeSinkDto.Config config, JobContext jobContext, SinkCounters counters) {
     DlqWriter dlqWriter = createDlqWriter();
-    DeltaLakeWriter writer = new DeltaLakeWriter(config, jobContext, dlqWriter);
+    DeltaLakeWriter writer =
+        new DeltaLakeWriter(
+            config,
+            jobContext,
+            dlqWriter,
+            counters.sinkOutputCounter(),
+            counters.outputSizeCounter(),
+            counters.sinkErrorCounter());
     writer.initialize();
     return writer;
   }
