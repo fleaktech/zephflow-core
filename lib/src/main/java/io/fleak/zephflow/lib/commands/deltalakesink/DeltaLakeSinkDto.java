@@ -34,7 +34,7 @@ public class DeltaLakeSinkDto {
 
     private List<String> partitionColumns;
 
-    @Builder.Default private int batchSize = 1000;
+    @Builder.Default private int batchSize = 50000;
 
     @Builder.Default private Map<String, String> hadoopConfiguration = new HashMap<>();
     private String credentialId;
