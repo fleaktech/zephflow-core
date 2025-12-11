@@ -41,8 +41,6 @@ public class DeltaLakeSinkDto {
 
     @Builder.Default private boolean enableAutoCheckpoint = true;
 
-    @Builder.Default private Integer checkpointInterval = 5;
-
     @Builder.Default private int flushIntervalSeconds = 30;
   }
 }
