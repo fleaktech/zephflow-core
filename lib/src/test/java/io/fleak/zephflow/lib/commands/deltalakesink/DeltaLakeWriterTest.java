@@ -22,8 +22,10 @@ import io.delta.kernel.Transaction;
 import io.delta.kernel.TransactionBuilder;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
+import io.delta.kernel.types.ArrayType;
 import io.delta.kernel.types.DoubleType;
 import io.delta.kernel.types.IntegerType;
+import io.delta.kernel.types.MapType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
@@ -797,5 +799,203 @@ class DeltaLakeWriterTest {
 
     writer1.close();
     writer2.close();
+  }
+
+  /** Creates a Delta table at the given path with a custom schema */
+  private void createDeltaTableWithSchema(String path, StructType schema) {
+    createDeltaTableWithSchema(path, schema, List.of());
+  }
+
+  private void createDeltaTableWithSchema(
+      String path, StructType schema, List<String> partitionColumns) {
+    Engine engine = DefaultEngine.create(new Configuration());
+    Table table = Table.forPath(engine, path);
+    TransactionBuilder txnBuilder =
+        table.createTransactionBuilder(engine, "Test Table Creation", Operation.CREATE_TABLE);
+    txnBuilder = txnBuilder.withSchema(engine, schema);
+
+    if (partitionColumns != null && !partitionColumns.isEmpty()) {
+      txnBuilder = txnBuilder.withPartitionColumns(engine, partitionColumns);
+    }
+
+    Transaction txn = txnBuilder.build(engine);
+    txn.commit(engine, emptyCloseableIterable());
+  }
+
+  @Test
+  void testNestedStructNullabilityMismatchDetection() {
+    // Create table with nested struct where nested field is NON-nullable
+    String path = tablePath + "_nested_struct";
+    StructType addressSchema =
+        new StructType(
+            List.of(
+                new StructField("street", StringType.STRING, false), // non-nullable
+                new StructField("city", StringType.STRING, false) // non-nullable
+                ));
+    StructType tableSchema =
+        new StructType(
+            List.of(
+                new StructField("id", IntegerType.INTEGER, false),
+                new StructField("address", addressSchema, false)));
+    createDeltaTableWithSchema(path, tableSchema);
+
+    // Config has nested field as nullable (mismatch!)
+    Map<String, Object> configAvroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of("name", "id", "type", "int"),
+                    Map.of(
+                        "name",
+                        "address",
+                        "type",
+                        Map.of(
+                            "type", "record",
+                            "name", "Address",
+                            "fields",
+                                List.of(
+                                    Map.of(
+                                        "name",
+                                        "street",
+                                        "type",
+                                        List.of("null", "string")), // nullable!
+                                    Map.of("name", "city", "type", "string"))))));
+
+    Config mismatchConfig = Config.builder().tablePath(path).avroSchema(configAvroSchema).build();
+
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("address.street"));
+    assertTrue(exception.getMessage().contains("nullability mismatch"));
+  }
+
+  @Test
+  void testArrayElementNullabilityMismatchDetection() {
+    // Create table with array where elements are NON-nullable
+    String path = tablePath + "_array_elem";
+    StructType tableSchema =
+        new StructType(
+            List.of(
+                new StructField("id", IntegerType.INTEGER, false),
+                new StructField(
+                    "tags", new ArrayType(StringType.STRING, false), true) // elements non-nullable
+                ));
+    createDeltaTableWithSchema(path, tableSchema);
+
+    // Config has array with nullable elements (mismatch!)
+    Map<String, Object> configAvroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of("name", "id", "type", "int"),
+                    Map.of(
+                        "name",
+                        "tags",
+                        "type",
+                        List.of(
+                            "null",
+                            Map.of(
+                                "type",
+                                "array",
+                                "items",
+                                List.of("null", "string")))))); // nullable elements!
+
+    Config mismatchConfig = Config.builder().tablePath(path).avroSchema(configAvroSchema).build();
+
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("tags"));
+    assertTrue(exception.getMessage().contains("element nullability mismatch"));
+  }
+
+  @Test
+  void testMapValueNullabilityMismatchDetection() {
+    // Create table with map where values are NON-nullable
+    String path = tablePath + "_map_value";
+    StructType tableSchema =
+        new StructType(
+            List.of(
+                new StructField("id", IntegerType.INTEGER, false),
+                new StructField(
+                    "metadata",
+                    new MapType(StringType.STRING, StringType.STRING, false),
+                    true) // values non-nullable
+                ));
+    createDeltaTableWithSchema(path, tableSchema);
+
+    // Config has map with nullable values (mismatch!)
+    Map<String, Object> configAvroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of("name", "id", "type", "int"),
+                    Map.of(
+                        "name",
+                        "metadata",
+                        "type",
+                        List.of(
+                            "null",
+                            Map.of(
+                                "type",
+                                "map",
+                                "values",
+                                List.of("null", "string")))))); // nullable values!
+
+    Config mismatchConfig = Config.builder().tablePath(path).avroSchema(configAvroSchema).build();
+
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("metadata"));
+    assertTrue(exception.getMessage().contains("value nullability mismatch"));
+  }
+
+  @Test
+  void testDeeplyNestedNullabilityMismatchDetection() {
+    // Create table with deeply nested structure: struct containing array of structs
+    String path = tablePath + "_deeply_nested";
+    StructType itemSchema =
+        new StructType(
+            List.of(
+                new StructField("name", StringType.STRING, false), // non-nullable
+                new StructField("price", DoubleType.DOUBLE, false) // non-nullable
+                ));
+    StructType tableSchema =
+        new StructType(
+            List.of(
+                new StructField("id", IntegerType.INTEGER, false),
+                new StructField(
+                    "items", new ArrayType(itemSchema, false), true) // elements non-nullable
+                ));
+    createDeltaTableWithSchema(path, tableSchema);
+
+    // Config has nested struct field as nullable (deep mismatch!)
+    // Build nested schema step by step for clarity
+    Map<String, Object> priceField =
+        Map.of("name", "price", "type", List.of("null", "double")); // nullable price!
+    Map<String, Object> nameField = Map.of("name", "name", "type", "string");
+    Map<String, Object> itemRecordSchema =
+        Map.of("type", "record", "name", "Item", "fields", List.of(nameField, priceField));
+    Map<String, Object> arraySchema = Map.of("type", "array", "items", itemRecordSchema);
+    Map<String, Object> itemsField = Map.of("name", "items", "type", List.of("null", arraySchema));
+    Map<String, Object> idField = Map.of("name", "id", "type", "int");
+    Map<String, Object> configAvroSchema =
+        Map.of("type", "record", "name", "TestRecord", "fields", List.of(idField, itemsField));
+
+    Config mismatchConfig = Config.builder().tablePath(path).avroSchema(configAvroSchema).build();
+
+    DeltaLakeWriter writer = createWriter(mismatchConfig);
+    IllegalStateException exception = assertThrows(IllegalStateException.class, writer::initialize);
+    assertTrue(exception.getMessage().contains("Schema mismatch detected"));
+    assertTrue(exception.getMessage().contains("items[element].price"));
+    assertTrue(exception.getMessage().contains("nullability mismatch"));
   }
 }

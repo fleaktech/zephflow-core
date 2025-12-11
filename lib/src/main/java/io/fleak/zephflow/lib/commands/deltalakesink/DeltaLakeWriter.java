@@ -25,7 +25,9 @@ import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Literal;
 import io.delta.kernel.hook.PostCommitHook;
+import io.delta.kernel.types.ArrayType;
 import io.delta.kernel.types.DataType;
+import io.delta.kernel.types.MapType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterable;
@@ -679,6 +681,10 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
                 "Field '%s' nullability mismatch: table is non-nullable but config allows null",
                 fieldName));
       }
+
+      // Recursively validate nested types (Structs, Arrays, Maps)
+      validateNestedNullability(
+          configField.getDataType(), tableField.getDataType(), fieldName, errors);
     }
 
     for (StructField tableField : tableSchema.fields()) {
@@ -699,6 +705,53 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
               config.getTablePath(), String.join("; ", errors));
       log.error(errorMessage);
       throw new IllegalStateException(errorMessage);
+    }
+  }
+
+  private void validateNestedNullability(
+      DataType configType, DataType tableType, String fieldPath, List<String> errors) {
+
+    if (configType instanceof StructType configStruct
+        && tableType instanceof StructType tableStruct) {
+      for (StructField configField : configStruct.fields()) {
+        int idx = tableStruct.indexOf(configField.getName());
+        if (idx >= 0) {
+          StructField tableField = tableStruct.at(idx);
+          String nestedPath = fieldPath + "." + configField.getName();
+
+          if (!tableField.isNullable() && configField.isNullable()) {
+            errors.add(
+                String.format(
+                    "Field '%s' nullability mismatch: table is non-nullable but config allows null",
+                    nestedPath));
+          }
+
+          validateNestedNullability(
+              configField.getDataType(), tableField.getDataType(), nestedPath, errors);
+        }
+      }
+    } else if (configType instanceof ArrayType configArray
+        && tableType instanceof ArrayType tableArray) {
+      if (!tableArray.containsNull() && configArray.containsNull()) {
+        errors.add(
+            String.format(
+                "Array '%s' element nullability mismatch: table elements are non-nullable but config allows null elements",
+                fieldPath));
+      }
+      validateNestedNullability(
+          configArray.getElementType(),
+          tableArray.getElementType(),
+          fieldPath + "[element]",
+          errors);
+    } else if (configType instanceof MapType configMap && tableType instanceof MapType tableMap) {
+      if (!tableMap.isValueContainsNull() && configMap.isValueContainsNull()) {
+        errors.add(
+            String.format(
+                "Map '%s' value nullability mismatch: table values are non-nullable but config allows null values",
+                fieldPath));
+      }
+      validateNestedNullability(
+          configMap.getValueType(), tableMap.getValueType(), fieldPath + "[value]", errors);
     }
   }
 
