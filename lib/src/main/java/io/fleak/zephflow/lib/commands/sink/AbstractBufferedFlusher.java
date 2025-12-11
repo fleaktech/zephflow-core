@@ -43,7 +43,6 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   protected final DlqWriter dlqWriter;
   protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
-  protected volatile boolean closed = false;
 
   protected AbstractBufferedFlusher(DlqWriter dlqWriter) {
     this.dlqWriter = dlqWriter;

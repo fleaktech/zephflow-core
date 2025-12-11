@@ -259,9 +259,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       throw new IllegalStateException(
           "Delta Lake writer not initialized. Call initialize() first.");
     }
-    if (closed) {
-      throw new IllegalStateException("DeltaLakeWriter is closed");
-    }
     if (preparedInputEvents.preparedList().isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
@@ -590,12 +587,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
   @Override
   public void close() throws IOException {
-    if (closed) {
-      return;
-    }
-
     log.info("Closing Delta Lake writer for path: {}", config.getTablePath());
-    closed = true;
 
     stopFlushTimer();
     stopCheckpointExecutor();
@@ -682,15 +674,15 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
           default -> Optional.of(new Object()); // dummy object
         };
 
-    if (credentialObjOpt.isEmpty()) {
-      log.warn(
-          "{} path requires credential for credentialId: {}, but nothing is found",
-          tablePath,
-          credentialId);
-    }
+    Object credential =
+        credentialObjOpt.orElseThrow(
+            () ->
+                new IllegalStateException(
+                    String.format(
+                        "Credential not found for credentialId '%s' (required for %s path: %s)",
+                        credentialId, storageType, tablePath)));
 
-    applyCredentials(
-        storageType, hadoopConf, tablePath, credentialObjOpt.orElseThrow(), credentialId);
+    applyCredentials(storageType, hadoopConf, tablePath, credential, credentialId);
   }
 
   private void validateSchemaCompatibility(StructType configSchema, StructType tableSchema) {

@@ -101,10 +101,6 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       Map<String, String> metricTags)
       throws Exception {
 
-    if (closed) {
-      throw new IllegalStateException("BatchDatabricksFlusher is closed");
-    }
-
     if (events.preparedList().isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
@@ -489,13 +485,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
 
   @Override
   public void close() throws IOException {
-    if (closed) {
-      return;
-    }
-
     log.info("Closing BatchDatabricksFlusher...");
-    closed = true;
-
     if (scheduledFuture != null) {
       scheduledFuture.cancel(false);
     }
