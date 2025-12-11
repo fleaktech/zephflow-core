@@ -976,6 +976,7 @@ public class DeltaLakeDataConverter {
   static final class ObjectColumnVector implements ColumnVector {
     private final Object[] data;
     private final DataType type;
+    private final Map<Integer, ColumnVector> childCache = new HashMap<>();
 
     ObjectColumnVector(DataType type, int size) {
       this.type = type;
@@ -1056,12 +1057,18 @@ public class DeltaLakeDataConverter {
 
     @Override
     public ColumnVector getChild(int ordinal) {
+      ColumnVector cached = childCache.get(ordinal);
+      if (cached != null) {
+        return cached;
+      }
+
+      ColumnVector childVector;
       if (type instanceof StructType structType) {
         StructField field = structType.at(ordinal);
         String fieldName = field.getName();
         DataType fieldType = field.getDataType();
 
-        ColumnVector childVector = allocateVector(fieldType, data.length);
+        childVector = allocateVector(fieldType, data.length);
         for (int i = 0; i < data.length; i++) {
           Object value = data[i];
           if (value == null) {
@@ -1084,7 +1091,6 @@ public class DeltaLakeDataConverter {
             setNull(childVector, i);
           }
         }
-        return childVector;
       } else if (type instanceof ArrayType arrayType) {
         if (ordinal != 0) {
           throw new IllegalArgumentException("Array types only have one child at ordinal 0");
@@ -1099,7 +1105,7 @@ public class DeltaLakeDataConverter {
             allElements.addAll(list);
           }
         }
-        ColumnVector childVector = allocateVector(elementType, allElements.size());
+        childVector = allocateVector(elementType, allElements.size());
         for (int i = 0; i < allElements.size(); i++) {
           Object element = allElements.get(i);
           if (element == null) {
@@ -1108,10 +1114,13 @@ public class DeltaLakeDataConverter {
             setValue(childVector, i, element, elementType);
           }
         }
-        return childVector;
+      } else {
+        throw new UnsupportedOperationException(
+            "getChild is only supported for struct and array types");
       }
-      throw new UnsupportedOperationException(
-          "getChild is only supported for struct and array types");
+
+      childCache.put(ordinal, childVector);
+      return childVector;
     }
 
     @Override

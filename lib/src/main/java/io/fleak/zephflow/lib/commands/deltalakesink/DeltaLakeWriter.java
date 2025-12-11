@@ -567,6 +567,13 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
       if (!result.errorOutputList().isEmpty()) {
         reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        if (dlqWriter == null) {
+          throw new IOException(
+              String.format(
+                  "Failed to flush %d remaining events during close for path: %s. "
+                      + "No DLQ configured, records lost.",
+                  result.errorOutputList().size(), config.getTablePath()));
+        }
         handleScheduledFlushErrors(result.errorOutputList());
       }
     }
