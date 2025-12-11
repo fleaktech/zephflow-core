@@ -63,6 +63,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   private ScheduledExecutorService flushScheduler;
   private ScheduledFuture<?> flushTask;
   private ExecutorService checkpointExecutor;
+  private Map<String, DataType> partitionColumnTypes;
 
   public DeltaLakeWriter(
       DeltaLakeSinkDto.Config config, JobContext jobContext, DlqWriter dlqWriter) {
@@ -142,6 +143,9 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     log.info(
         "Partition columns validated: {}",
         tablePartitionColumns.isEmpty() ? "(none - unpartitioned)" : tablePartitionColumns);
+
+    // Cache partition column types for O(1) lookup during partitioning
+    this.partitionColumnTypes = buildPartitionColumnTypeCache();
 
     // Initialize checkpoint executor before marking as initialized
     String checkpointThreadName =
@@ -445,8 +449,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       for (String partitionColumn : partitionColumns) {
         Object value = record.get(partitionColumn);
 
-        // Get the target type from table schema for proper null handling
-        DataType targetType = getColumnType(tableSchema, partitionColumn);
+        // Get the target type from cached partition column types (O(1) lookup)
+        DataType targetType = partitionColumnTypes.get(partitionColumn);
         if (targetType == null) {
           List<String> availableColumns =
               tableSchema.fields().stream().map(StructField::getName).collect(toList());
@@ -522,6 +526,21 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       }
     }
     return null; // Column not found
+  }
+
+  private Map<String, DataType> buildPartitionColumnTypeCache() {
+    List<String> partitionColumns = config.getPartitionColumns();
+    if (partitionColumns == null || partitionColumns.isEmpty()) {
+      return Map.of();
+    }
+    Map<String, DataType> cache = new HashMap<>();
+    for (String col : partitionColumns) {
+      DataType type = getColumnType(tableSchema, col);
+      if (type != null) {
+        cache.put(col, type);
+      }
+    }
+    return cache;
   }
 
   private void createCheckpointIfReady(TransactionCommitResult commitResult) {
