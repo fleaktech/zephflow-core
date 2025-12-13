@@ -15,22 +15,13 @@ package io.fleak.zephflow.lib.commands.deltalakesink;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import java.util.HashMap;
 import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class DeltaLakeMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<Map<String, Object>> {
 
   @Override
   public Map<String, Object> preprocess(RecordFleakData event, long ts) {
-    Map<String, Object> unwrapped = event.unwrap();
-
-    // Create mutable copy since unwrap() may return immutable map
-    Map<String, Object> result = new HashMap<>(unwrapped);
-    result.put("_fleak_timestamp", ts);
-
-    return result;
+    return event.unwrap();
   }
 }

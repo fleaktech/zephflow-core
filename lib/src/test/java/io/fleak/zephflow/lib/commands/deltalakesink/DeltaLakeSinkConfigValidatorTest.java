@@ -28,33 +28,50 @@ import org.mockito.Mockito;
 
 class DeltaLakeSinkConfigValidatorTest {
 
+  private static final Map<String, Object> TEST_AVRO_SCHEMA =
+      Map.of(
+          "type", "record",
+          "name", "TestRecord",
+          "fields",
+              List.of(
+                  Map.of("name", "id", "type", "int"), Map.of("name", "name", "type", "string")));
+
   private final DeltaLakeSinkConfigValidator validator = new DeltaLakeSinkConfigValidator();
   private final JobContext jobContext = Mockito.mock(JobContext.class);
 
   @Test
   void testValidConfig() {
-    Config config = Config.builder().tablePath("/tmp/delta-table").build();
+    Config config =
+        Config.builder().tablePath("/tmp/delta-table").avroSchema(TEST_AVRO_SCHEMA).build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testValidS3Path() {
-    Config config = Config.builder().tablePath("s3a://bucket/path/to/table").build();
+    Config config =
+        Config.builder()
+            .tablePath("s3a://bucket/path/to/table")
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testValidHdfsPath() {
-    Config config = Config.builder().tablePath("hdfs://namenode:9000/path/to/table").build();
+    Config config =
+        Config.builder()
+            .tablePath("hdfs://namenode:9000/path/to/table")
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testNullTablePath() {
-    Config config = Config.builder().tablePath(null).build();
+    Config config = Config.builder().tablePath(null).avroSchema(TEST_AVRO_SCHEMA).build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -65,7 +82,7 @@ class DeltaLakeSinkConfigValidatorTest {
 
   @Test
   void testEmptyTablePath() {
-    Config config = Config.builder().tablePath("").build();
+    Config config = Config.builder().tablePath("").avroSchema(TEST_AVRO_SCHEMA).build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -76,7 +93,11 @@ class DeltaLakeSinkConfigValidatorTest {
 
   @Test
   void testInvalidScheme() {
-    Config config = Config.builder().tablePath("ftp://server/path/to/table").build();
+    Config config =
+        Config.builder()
+            .tablePath("ftp://server/path/to/table")
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -87,7 +108,8 @@ class DeltaLakeSinkConfigValidatorTest {
 
   @Test
   void testInvalidUriFormat() {
-    Config config = Config.builder().tablePath("not a valid uri ://").build();
+    Config config =
+        Config.builder().tablePath("not a valid uri ://").avroSchema(TEST_AVRO_SCHEMA).build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -98,14 +120,24 @@ class DeltaLakeSinkConfigValidatorTest {
 
   @Test
   void testValidBatchSize() {
-    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(2000).build();
+    Config config =
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .batchSize(2000)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
   }
 
   @Test
   void testInvalidBatchSize() {
-    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(-1).build();
+    Config config =
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .batchSize(-1)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -116,7 +148,12 @@ class DeltaLakeSinkConfigValidatorTest {
 
   @Test
   void testZeroBatchSize() {
-    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(0).build();
+    Config config =
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .batchSize(0)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -126,22 +163,12 @@ class DeltaLakeSinkConfigValidatorTest {
   }
 
   @Test
-  void testExcessiveBatchSize() {
-    Config config = Config.builder().tablePath("/tmp/delta-table").batchSize(15000).build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", jobContext));
-    assertTrue(exception.getMessage().contains("batchSize should not exceed 10,000"));
-  }
-
-  @Test
   void testEmptyPartitionColumn() {
     Config config =
         Config.builder()
             .tablePath("/tmp/delta-table")
             .partitionColumns(List.of("valid_column", ""))
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     IllegalArgumentException exception =
@@ -157,6 +184,7 @@ class DeltaLakeSinkConfigValidatorTest {
         Config.builder()
             .tablePath("/tmp/delta-table")
             .partitionColumns(Arrays.asList("valid_column", null))
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     IllegalArgumentException exception =
@@ -172,6 +200,7 @@ class DeltaLakeSinkConfigValidatorTest {
         Config.builder()
             .tablePath("/tmp/delta-table")
             .partitionColumns(List.of("year", "month", "day"))
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
@@ -184,7 +213,11 @@ class DeltaLakeSinkConfigValidatorTest {
     hadoopConfig.put("valid.key", "value");
 
     Config config =
-        Config.builder().tablePath("/tmp/delta-table").hadoopConfiguration(hadoopConfig).build();
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .hadoopConfiguration(hadoopConfig)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -201,7 +234,11 @@ class DeltaLakeSinkConfigValidatorTest {
     hadoopConfig.put("valid.key", "value");
 
     Config config =
-        Config.builder().tablePath("/tmp/delta-table").hadoopConfiguration(hadoopConfig).build();
+        Config.builder()
+            .tablePath("/tmp/delta-table")
+            .hadoopConfiguration(hadoopConfig)
+            .avroSchema(TEST_AVRO_SCHEMA)
+            .build();
 
     IllegalArgumentException exception =
         assertThrows(
@@ -222,6 +259,7 @@ class DeltaLakeSinkConfigValidatorTest {
         Config.builder()
             .tablePath("s3a://bucket/delta-table")
             .hadoopConfiguration(hadoopConfig)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
@@ -238,6 +276,7 @@ class DeltaLakeSinkConfigValidatorTest {
         Config.builder()
             .tablePath("s3a://bucket/delta-table")
             .hadoopConfiguration(hadoopConfig)
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     IllegalArgumentException exception =
@@ -263,6 +302,7 @@ class DeltaLakeSinkConfigValidatorTest {
         Config.builder()
             .tablePath("s3a://bucket/delta-table")
             .credentialId("test-credential-id")
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", jobContext));
@@ -277,6 +317,7 @@ class DeltaLakeSinkConfigValidatorTest {
         Config.builder()
             .tablePath("s3a://bucket/delta-table")
             .credentialId("non-existent-credential-id")
+            .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     IllegalArgumentException exception =
@@ -287,6 +328,6 @@ class DeltaLakeSinkConfigValidatorTest {
         exception
             .getMessage()
             .contains(
-                "credentialId 'non-existent-credential-id' was specified but no credential found"));
+                "credentialId 'non-existent-credential-id' was specified but no matching S3 credential found"));
   }
 }

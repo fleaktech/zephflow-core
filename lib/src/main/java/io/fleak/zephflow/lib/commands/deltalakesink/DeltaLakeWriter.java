@@ -25,50 +25,66 @@ import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Literal;
 import io.delta.kernel.hook.PostCommitHook;
+import io.delta.kernel.types.ArrayType;
 import io.delta.kernel.types.DataType;
+import io.delta.kernel.types.MapType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterable;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.DataFileStatus;
-import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
+import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.jetbrains.annotations.NotNull;
 
 @Slf4j
-public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Object>> {
+public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>> {
 
   private final DeltaLakeSinkDto.Config config;
   private final JobContext jobContext;
+  private final FleakCounter sinkOutputCounter;
+  private final FleakCounter outputSizeCounter;
+  private final FleakCounter sinkErrorCounter;
+
   private Engine engine;
   private Table table;
+  private StructType tableSchema;
   private boolean initialized = false;
-
-  private final List<Pair<RecordFleakData, Map<String, Object>>> buffer = new ArrayList<>();
-  private final ReentrantLock bufferLock = new ReentrantLock();
 
   private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final int instanceId = INSTANCE_COUNTER.incrementAndGet();
-  private ScheduledExecutorService flushScheduler;
-  private ScheduledFuture<?> flushTask;
-  private int minTimerBatchSize;
+  private final ReentrantLock flushLock = new ReentrantLock();
+  private ExecutorService checkpointExecutor;
+  private Map<String, DataType> partitionColumnTypes;
 
-  public DeltaLakeWriter(DeltaLakeSinkDto.Config config, JobContext jobContext) {
+  public DeltaLakeWriter(
+      DeltaLakeSinkDto.Config config,
+      JobContext jobContext,
+      DlqWriter dlqWriter,
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {
+    super(dlqWriter, jobContext);
     this.config = config;
     this.jobContext = jobContext;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
   }
 
   /** Initialize the Delta Lake writer. Must be called before using flush(). */
@@ -97,9 +113,11 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
 
     this.engine = DefaultEngine.create(hadoopConf);
 
-    // Load existing table - fail if table doesn't exist (as per requirement)
+    // Load existing table and validate it exists
+    Snapshot snapshot;
     try {
       this.table = Table.forPath(engine, config.getTablePath());
+      snapshot = table.getLatestSnapshot(engine);
       log.info("Loaded existing Delta table at path: {}", config.getTablePath());
     } catch (Exception e) {
       String errorMessage =
@@ -112,201 +130,158 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
       throw new IllegalStateException(errorMessage, e);
     }
 
+    // Use schema from config (control plane) instead of fetching from data plane
+    this.tableSchema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
+    log.info("Using schema from config with {} fields", tableSchema.fields().size());
+
+    // Validate config schema against actual table schema (Split Brain detection)
+    StructType physicalTableSchema = snapshot.getSchema();
+    validateSchemaCompatibility(tableSchema, physicalTableSchema);
+    log.info("Schema validated against physical table schema");
+
+    // Safety check: Validate partition columns match between config and physical table
+    List<String> tablePartitionColumns = snapshot.getPartitionColumnNames();
+    List<String> configPartitionColumns =
+        config.getPartitionColumns() != null ? config.getPartitionColumns() : List.of();
+
+    if (!tablePartitionColumns.equals(configPartitionColumns)) {
+      String errorMessage =
+          String.format(
+              "Partition column mismatch detected (Split Brain). "
+                  + "Config partition columns: %s, Table partition columns: %s. "
+                  + "This could cause data corruption. "
+                  + "Please reconcile the configuration with the actual table schema.",
+              configPartitionColumns, tablePartitionColumns);
+      log.error(errorMessage);
+      throw new IllegalStateException(errorMessage);
+    }
+    log.info(
+        "Partition columns validated: {}",
+        tablePartitionColumns.isEmpty() ? "(none - unpartitioned)" : tablePartitionColumns);
+
+    // Cache partition column types for O(1) lookup during partitioning
+    this.partitionColumnTypes = buildPartitionColumnTypeCache();
+
+    // Initialize checkpoint executor before marking as initialized
+    String checkpointThreadName =
+        String.format(
+            "DeltaLakeWriter-Checkpoint-%04X-%d",
+            config.getTablePath().hashCode() & 0xFFFF, instanceId);
+    this.checkpointExecutor =
+        new ThreadPoolExecutor(
+            1,
+            1,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(1),
+            r -> {
+              Thread thread = new Thread(r, checkpointThreadName);
+              thread.setDaemon(true);
+              return thread;
+            },
+            (r, executor) ->
+                log.warn(
+                    "Checkpoint task rejected for path: {} - previous checkpoint still running. "
+                        + "Table remains consistent, but checkpoints are falling behind.",
+                    config.getTablePath()));
+
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
 
-    if (config.getFlushIntervalSeconds() > 0) {
-      startFlushTimer();
-    } else {
-      log.info(
-          "Timer-based flushing disabled (flushIntervalSeconds={})",
-          config.getFlushIntervalSeconds());
-    }
+    super.initialize();
   }
 
-  private synchronized void startFlushTimer() {
-    if (flushScheduler != null || flushTask != null) {
-      log.warn("Flush timer already running for path: {}, skipping restart", config.getTablePath());
-      return;
-    }
+  // ===== TIMER CONFIGURATION =====
 
-    int intervalSeconds = config.getFlushIntervalSeconds();
-    minTimerBatchSize = Math.min(10, Math.max(1, config.getBatchSize() / 10));
-    log.info(
-        "Starting timer-based flush with interval of {} seconds for path: {}",
-        intervalSeconds,
-        config.getTablePath());
-
-    String threadName =
-        String.format(
-            "DeltaLakeWriter-Flush-%04X-%d", config.getTablePath().hashCode() & 0xFFFF, instanceId);
-
-    flushScheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread thread = new Thread(r, threadName);
-              thread.setDaemon(true); // Don't prevent JVM shutdown
-              return thread;
-            });
-
-    flushTask =
-        flushScheduler.scheduleWithFixedDelay(
-            () -> {
-              try {
-                timerFlush();
-              } catch (Exception e) {
-                log.error("Error during timer-based flush for path: {}", config.getTablePath(), e);
-              }
-            },
-            1, // Initial delay: 1 second
-            intervalSeconds, // Subsequent delay: configured interval
-            TimeUnit.SECONDS);
-
-    log.info(
-        "Timer-based flush started successfully for path: {} (initial delay: 1s, interval: {}s)",
-        config.getTablePath(),
-        intervalSeconds);
-  }
-
-  private void timerFlush() {
-    if (!bufferLock.tryLock()) {
-      log.trace("Timer-based flush skipped: another flush in progress");
-      return;
-    }
-
-    try {
-      if (buffer.isEmpty()) {
-        log.trace("Timer-based flush skipped: buffer is empty");
-        return;
-      }
-
-      if (buffer.size() < minTimerBatchSize) {
-        log.trace(
-            "Timer-based flush skipped: buffer too small ({} < {} minimum)",
-            buffer.size(),
-            minTimerBatchSize);
-        return;
-      }
-
-      log.info(
-          "Timer-based flush triggered with {} buffered events for path: {}",
-          buffer.size(),
-          config.getTablePath());
-
-      try {
-        flushBuffer();
-      } catch (Exception e) {
-        log.error(
-            "Failed to flush buffer during timer-based flush for path: {}",
-            config.getTablePath(),
-            e);
-      }
-    } finally {
-      bufferLock.unlock();
-    }
+  @Override
+  protected long getFlushIntervalMs() {
+    return config.getFlushIntervalSeconds() * 1000L;
   }
 
   @Override
-  public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents,
-      Map<String, String> metricTags)
-      throws Exception {
+  protected String getSchedulerThreadName() {
+    return String.format(
+        "DeltaLakeWriter-Flush-%04X-%d", config.getTablePath().hashCode() & 0xFFFF, instanceId);
+  }
 
+  // ===== ABSTRACT METHOD IMPLEMENTATIONS =====
+
+  @Override
+  protected int getBatchSize() {
+    return config.getBatchSize();
+  }
+
+  @Override
+  protected SimpleSinkCommand.FlushResult doFlush(
+      List<Pair<RecordFleakData, Map<String, Object>>> batch) throws Exception {
+    List<Map<String, Object>> data = batch.stream().map(Pair::getRight).toList();
+    return writeDataToDeltaTable(data);
+  }
+
+  @Override
+  protected boolean canWriteRecord(Map<String, Object> record) {
+    if (record == null) return false;
+    try (var ignored =
+        DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), tableSchema)) {
+      return true;
+    } catch (Exception e) {
+      log.debug("Record validation failed: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  // ===== HOOK METHOD IMPLEMENTATIONS =====
+
+  @Override
+  protected void beforeFlush() {
     if (!initialized) {
       throw new IllegalStateException(
           "Delta Lake writer not initialized. Call initialize() first.");
     }
-
-    if (preparedInputEvents.preparedList().isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    }
-
-    List<Pair<RecordFleakData, Map<String, Object>>> incomingEventPairs =
-        preparedInputEvents.rawAndPreparedList();
-    int batchSize = config.getBatchSize();
-
-    bufferLock.lock();
-    try {
-      buffer.addAll(incomingEventPairs);
-      log.debug(
-          "Accumulated {} events in buffer. Total buffer size: {} / {}",
-          incomingEventPairs.size(),
-          buffer.size(),
-          batchSize);
-
-      if (buffer.size() >= batchSize) {
-        log.info(
-            "Buffer reached batch size ({}). Flushing {} events to Delta table.",
-            batchSize,
-            buffer.size());
-        return flushBuffer();
-      }
-
-      log.debug(
-          "Buffer not full yet ({} / {}). Waiting for more events before flushing to Delta.",
-          buffer.size(),
-          batchSize);
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    } finally {
-      bufferLock.unlock();
-    }
   }
 
-  private SimpleSinkCommand.FlushResult flushBuffer() throws Exception {
-    if (buffer.isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    }
-
-    List<Pair<RecordFleakData, Map<String, Object>>> bufferedEventPairs = new ArrayList<>(buffer);
-
-    // Extract just the prepared maps for writing
-    List<Map<String, Object>> dataToWrite =
-        bufferedEventPairs.stream().map(Pair::getRight).collect(toList());
-
-    log.info(
-        "Flushing buffer with {} events to Delta table at path: {}",
-        dataToWrite.size(),
-        config.getTablePath());
-
-    try {
-      SimpleSinkCommand.FlushResult result = writeDataToDeltaTable(dataToWrite);
-      return result;
-    } catch (Exception e) {
-      log.error("Error writing to Delta table at path: {}", config.getTablePath(), e);
-      List<ErrorOutput> errorOutputs =
-          bufferedEventPairs.stream()
-              .map(
-                  pair ->
-                      new ErrorOutput(
-                          pair.getLeft(), "Failed to write to Delta table: " + e.getMessage()))
-              .toList();
-      return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
-    } finally {
-      buffer.clear();
-    }
+  @Override
+  protected void beforeWrite() {
+    flushLock.lock();
   }
+
+  @Override
+  protected void afterWrite() {
+    flushLock.unlock();
+  }
+
+  @Override
+  protected void reportMetrics(
+      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
+    sinkOutputCounter.increase(result.successCount(), Map.of());
+    outputSizeCounter.increase(result.flushedDataSize(), Map.of());
+  }
+
+  @Override
+  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
+    sinkErrorCounter.increase(errorCount, Map.of());
+  }
+
+  // ===== DELTA LAKE WRITE LOGIC =====
 
   /** Write data to Delta table using Delta Kernel API */
   private SimpleSinkCommand.FlushResult writeDataToDeltaTable(List<Map<String, Object>> dataToWrite)
       throws Exception {
     log.debug("Starting Delta Lake write operation for {} records", dataToWrite.size());
 
-    // Table existence already validated during initialization - use the existing table
-    StructType tableSchema = table.getLatestSnapshot(engine).getSchema();
-    log.debug("Using table schema: {}", tableSchema);
+    // Use cached schema from config
+    log.debug("Using table schema: {}", this.tableSchema);
 
     // Step 2: Create transaction
     Transaction transaction = createTransaction(table);
 
     // Step 3: Group data by partition values if table is partitioned
     Map<Map<String, Literal>, List<Map<String, Object>>> partitionedData =
-        partitionDataByColumns(dataToWrite, tableSchema);
+        partitionDataByColumns(dataToWrite, this.tableSchema);
 
     long totalDataSize = 0;
-
+    List<CloseableIterator<Row>> dataActionIterators = new ArrayList<>();
     try {
-      List<CloseableIterator<Row>> dataActionIterators = new ArrayList<>();
-
       // Step 5: Process each partition separately
       for (Map.Entry<Map<String, Literal>, List<Map<String, Object>>> partition :
           partitionedData.entrySet()) {
@@ -318,39 +293,48 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
         totalDataSize += result.dataSize();
         dataActionIterators.add(result.dataActions());
       }
-
-      // Step 6: Combine all data action iterators into a single stream and commit
-      log.info("Committing transaction with data for {} records", dataToWrite.size());
-
-      try (CloseableIterator<Row> allActionsIterator =
-          new CombinedCloseableIterator<>(dataActionIterators)) {
-        TransactionCommitResult commitResult =
-            transaction.commit(
-                engine,
-                new CloseableIterable<>() {
-                  @Override
-                  public @NotNull CloseableIterator<Row> iterator() {
-                    return allActionsIterator;
-                  }
-
-                  @Override
-                  public void close() {
-                    // Iterator is closed by try-with-resources
-                  }
-                });
-
-        log.info(
-            "Delta Lake write operation completed successfully for {} records, committed as version {}",
-            dataToWrite.size(),
-            commitResult.getVersion());
-
-        if (config.isEnableAutoCheckpoint()) {
-          createCheckpointIfReady(commitResult);
+    } catch (Exception e) {
+      for (CloseableIterator<Row> iter : dataActionIterators) {
+        try {
+          iter.close();
+        } catch (IOException closeEx) {
+          e.addSuppressed(closeEx);
         }
+      }
+      log.error("Error during processing partitions", e);
+      throw e;
+    }
 
-        return new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
+    // Step 6: Combine all data action iterators into a single stream and commit
+    log.info("Committing transaction with data for {} records", dataToWrite.size());
+
+    try (CloseableIterator<Row> allActionsIterator =
+        new CombinedCloseableIterator<>(dataActionIterators)) {
+      TransactionCommitResult commitResult =
+          transaction.commit(
+              engine,
+              new CloseableIterable<>() {
+                @Override
+                public @NotNull CloseableIterator<Row> iterator() {
+                  return allActionsIterator;
+                }
+
+                @Override
+                public void close() {
+                  // Iterator is closed by try-with-resources
+                }
+              });
+
+      log.info(
+          "Delta Lake write operation completed successfully for {} records, committed as version {}",
+          dataToWrite.size(),
+          commitResult.getVersion());
+
+      if (config.isEnableAutoCheckpoint()) {
+        createCheckpointIfReady(commitResult);
       }
 
+      return new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
     } catch (Exception e) {
       log.error("Error during Delta Lake write operation", e);
       throw e;
@@ -389,8 +373,8 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
       for (String partitionColumn : partitionColumns) {
         Object value = record.get(partitionColumn);
 
-        // Get the target type from table schema for proper null handling
-        DataType targetType = getColumnType(tableSchema, partitionColumn);
+        // Get the target type from cached partition column types (O(1) lookup)
+        DataType targetType = partitionColumnTypes.get(partitionColumn);
         if (targetType == null) {
           List<String> availableColumns =
               tableSchema.fields().stream().map(StructField::getName).collect(toList());
@@ -420,22 +404,40 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
 
   private Literal convertToLiteral(Object value, DataType targetType) {
     if (value == null) {
-      // Use the actual target type for null, not arbitrary STRING assumption
       return Literal.ofNull(targetType);
-    } else if (value instanceof String) {
-      return Literal.ofString((String) value);
-    } else if (value instanceof Integer) {
-      return Literal.ofInt((Integer) value);
-    } else if (value instanceof Long) {
-      return Literal.ofLong((Long) value);
-    } else if (value instanceof Boolean) {
-      return Literal.ofBoolean((Boolean) value);
+    } else if (value instanceof String s) {
+      return Literal.ofString(s);
+    } else if (value instanceof Integer i) {
+      return Literal.ofInt(i);
+    } else if (value instanceof Long l) {
+      return Literal.ofLong(l);
+    } else if (value instanceof Boolean b) {
+      return Literal.ofBoolean(b);
+    } else if (value instanceof Float f) {
+      return Literal.ofFloat(f);
+    } else if (value instanceof Double d) {
+      return Literal.ofDouble(d);
+    } else if (value instanceof Short s) {
+      return Literal.ofShort(s);
+    } else if (value instanceof Byte b) {
+      return Literal.ofByte(b);
+    } else if (value instanceof BigDecimal bd) {
+      return Literal.ofDecimal(bd, bd.precision(), bd.scale());
+    } else if (value instanceof java.time.LocalDate ld) {
+      return Literal.ofDate((int) ld.toEpochDay());
+    } else if (value instanceof java.sql.Date d) {
+      return Literal.ofDate((int) d.toLocalDate().toEpochDay());
+    } else if (value instanceof java.time.Instant inst) {
+      return Literal.ofTimestamp(inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
+    } else if (value instanceof java.sql.Timestamp ts) {
+      java.time.Instant inst = ts.toInstant();
+      return Literal.ofTimestamp(inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
     } else {
-      // Fail fast for unknown types - don't hide bugs with toString()
       throw new IllegalArgumentException(
           String.format(
               "Unsupported data type for Literal conversion: %s. Value: %s. "
-                  + "Add explicit handling for this type instead of using toString() fallback.",
+                  + "Supported types: String, Integer, Long, Boolean, Float, Double, "
+                  + "Short, Byte, BigDecimal, LocalDate, Date, Instant, Timestamp.",
               value.getClass().getName(), value));
     }
   }
@@ -450,14 +452,25 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     return null; // Column not found
   }
 
+  private Map<String, DataType> buildPartitionColumnTypeCache() {
+    List<String> partitionColumns = config.getPartitionColumns();
+    if (partitionColumns == null || partitionColumns.isEmpty()) {
+      return Map.of();
+    }
+    Map<String, DataType> cache = new HashMap<>();
+    for (String col : partitionColumns) {
+      DataType type = getColumnType(tableSchema, col);
+      if (type != null) {
+        cache.put(col, type);
+      }
+    }
+    return cache;
+  }
+
   private void createCheckpointIfReady(TransactionCommitResult commitResult) {
     List<PostCommitHook> postCommitHooks = commitResult.getPostCommitHooks();
 
     if (postCommitHooks == null || postCommitHooks.isEmpty()) {
-      log.debug(
-          "No post-commit hooks to execute at version {} for path: {}",
-          commitResult.getVersion(),
-          config.getTablePath());
       return;
     }
 
@@ -467,39 +480,36 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
             .toList();
 
     if (checkpointHooks.isEmpty()) {
-      log.debug(
-          "Table not ready for checkpoint at version {} for path: {}",
-          commitResult.getVersion(),
-          config.getTablePath());
       return;
     }
 
-    for (PostCommitHook hook : checkpointHooks) {
-      try {
-        long version = commitResult.getVersion();
-        log.info(
-            "Table is ready for checkpoint at version {}. Creating checkpoint for path: {}",
-            version,
-            config.getTablePath());
+    long version = commitResult.getVersion();
 
-        long startTime = System.currentTimeMillis();
-        hook.threadSafeInvoke(engine);
-        long duration = System.currentTimeMillis() - startTime;
-
-        log.info(
-            "Successfully created checkpoint at version {} for path: {} (took {}ms)",
-            version,
-            config.getTablePath(),
-            duration);
-      } catch (Exception e) {
-        log.warn(
-            "Failed to create checkpoint at version {} for path: {}. "
-                + "This is not critical - the table is still consistent, but subsequent reads may be slower.",
-            commitResult.getVersion(),
-            config.getTablePath(),
-            e);
-      }
-    }
+    // Submit checkpoint work to background thread to avoid blocking data processing
+    checkpointExecutor.submit(
+        () -> {
+          for (PostCommitHook hook : checkpointHooks) {
+            try {
+              log.info(
+                  "Creating checkpoint at version {} for path: {}", version, config.getTablePath());
+              long startTime = System.currentTimeMillis();
+              hook.threadSafeInvoke(engine);
+              long duration = System.currentTimeMillis() - startTime;
+              log.info(
+                  "Checkpoint completed at version {} for path: {} (took {}ms)",
+                  version,
+                  config.getTablePath(),
+                  duration);
+            } catch (Exception e) {
+              log.warn(
+                  "Failed to create checkpoint at version {} for path: {}. "
+                      + "Table is still consistent, subsequent reads may be slower.",
+                  version,
+                  config.getTablePath(),
+                  e);
+            }
+          }
+        });
   }
 
   @Override
@@ -507,50 +517,50 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
     log.info("Closing Delta Lake writer for path: {}", config.getTablePath());
 
     stopFlushTimer();
+    stopCheckpointExecutor();
 
-    bufferLock.lock();
-    try {
-      if (!buffer.isEmpty()) {
-        log.info(
-            "Flushing {} remaining buffered events before closing writer for path: {}",
-            buffer.size(),
-            config.getTablePath());
-        try {
-          flushBuffer();
-        } catch (Exception e) {
-          log.error("Error flushing buffer during close for path: {}", config.getTablePath(), e);
-          throw new IOException("Failed to flush remaining events during close", e);
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = swapBufferIfNotEmpty();
+
+    if (snapshot != null) {
+      log.info(
+          "Flushing {} remaining buffered events before closing writer for path: {}",
+          snapshot.size(),
+          config.getTablePath());
+      SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
+      if (!result.errorOutputList().isEmpty()) {
+        reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        if (dlqWriter == null) {
+          throw new IOException(
+              String.format(
+                  "Failed to flush %d remaining events during close for path: %s. "
+                      + "No DLQ configured, records lost.",
+                  result.errorOutputList().size(), config.getTablePath()));
         }
+        handleScheduledFlushErrors(result.errorOutputList());
       }
-    } finally {
-      bufferLock.unlock();
+    }
+
+    if (dlqWriter != null) {
+      dlqWriter.close();
     }
 
     log.info("Delta Lake writer closed successfully for path: {}", config.getTablePath());
   }
 
-  private synchronized void stopFlushTimer() {
-    if (flushTask != null) {
-      log.info("Stopping timer-based flush for path: {}", config.getTablePath());
-      flushTask.cancel(false);
-      flushTask = null;
+  private void stopCheckpointExecutor() {
+    if (checkpointExecutor == null) {
+      return;
     }
-
-    if (flushScheduler != null) {
-      flushScheduler.shutdown();
-      try {
-        if (!flushScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-          log.warn(
-              "Timer-based flush scheduler did not terminate in time, forcing shutdown for path: {}",
-              config.getTablePath());
-          flushScheduler.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        log.warn("Interrupted while waiting for flush scheduler to terminate", e);
-        flushScheduler.shutdownNow();
-        Thread.currentThread().interrupt();
+    checkpointExecutor.shutdown();
+    try {
+      if (!checkpointExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+        log.warn(
+            "Checkpoint executor did not terminate in time for path: {}", config.getTablePath());
+        checkpointExecutor.shutdownNow();
       }
-      flushScheduler = null;
+    } catch (InterruptedException e) {
+      checkpointExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
     }
   }
 
@@ -572,15 +582,121 @@ public class DeltaLakeWriter implements SimpleSinkCommand.Flusher<Map<String, Ob
           default -> Optional.of(new Object()); // dummy object
         };
 
-    if (credentialObjOpt.isEmpty()) {
-      log.warn(
-          "{} path requires credential for credentialId: {}, but nothing is found",
-          tablePath,
-          credentialId);
+    Object credential =
+        credentialObjOpt.orElseThrow(
+            () ->
+                new IllegalStateException(
+                    String.format(
+                        "Credential not found for credentialId '%s' (required for %s path: %s)",
+                        credentialId, storageType, tablePath)));
+
+    applyCredentials(storageType, hadoopConf, tablePath, credential, credentialId);
+  }
+
+  private void validateSchemaCompatibility(StructType configSchema, StructType tableSchema) {
+    List<String> errors = new ArrayList<>();
+
+    log.debug(
+        "Validating schema compatibility. Config fields: {}, Table fields: {}",
+        configSchema.fields().size(),
+        tableSchema.fields().size());
+
+    for (StructField configField : configSchema.fields()) {
+      String fieldName = configField.getName();
+      int tableFieldIndex = tableSchema.indexOf(fieldName);
+
+      if (tableFieldIndex < 0) {
+        errors.add(String.format("Field '%s' exists in config but not in table", fieldName));
+        continue;
+      }
+
+      StructField tableField = tableSchema.at(tableFieldIndex);
+
+      if (!configField.getDataType().equivalent(tableField.getDataType())) {
+        errors.add(
+            String.format(
+                "Field '%s' type mismatch: config has %s, table has %s",
+                fieldName, configField.getDataType(), tableField.getDataType()));
+      }
+
+      if (!tableField.isNullable() && configField.isNullable()) {
+        errors.add(
+            String.format(
+                "Field '%s' nullability mismatch: table is non-nullable but config allows null",
+                fieldName));
+      }
+
+      // Recursively validate nested types (Structs, Arrays, Maps)
+      validateNestedNullability(
+          configField.getDataType(), tableField.getDataType(), fieldName, errors);
     }
 
-    applyCredentials(
-        storageType, hadoopConf, tablePath, credentialObjOpt.orElseThrow(), credentialId);
+    for (StructField tableField : tableSchema.fields()) {
+      if (configSchema.indexOf(tableField.getName()) < 0) {
+        errors.add(
+            String.format("Field '%s' exists in table but not in config", tableField.getName()));
+      }
+    }
+
+    if (!errors.isEmpty()) {
+      String errorMessage =
+          String.format(
+              "Schema mismatch detected (Split Brain). "
+                  + "Config schema is incompatible with physical table schema at path: %s. "
+                  + "Mismatches: [%s]. "
+                  + "This could cause data corruption. "
+                  + "Please reconcile the configuration with the actual table schema.",
+              config.getTablePath(), String.join("; ", errors));
+      log.error(errorMessage);
+      throw new IllegalStateException(errorMessage);
+    }
+  }
+
+  private void validateNestedNullability(
+      DataType configType, DataType tableType, String fieldPath, List<String> errors) {
+
+    if (configType instanceof StructType configStruct
+        && tableType instanceof StructType tableStruct) {
+      for (StructField configField : configStruct.fields()) {
+        int idx = tableStruct.indexOf(configField.getName());
+        if (idx >= 0) {
+          StructField tableField = tableStruct.at(idx);
+          String nestedPath = fieldPath + "." + configField.getName();
+
+          if (!tableField.isNullable() && configField.isNullable()) {
+            errors.add(
+                String.format(
+                    "Field '%s' nullability mismatch: table is non-nullable but config allows null",
+                    nestedPath));
+          }
+
+          validateNestedNullability(
+              configField.getDataType(), tableField.getDataType(), nestedPath, errors);
+        }
+      }
+    } else if (configType instanceof ArrayType configArray
+        && tableType instanceof ArrayType tableArray) {
+      if (!tableArray.containsNull() && configArray.containsNull()) {
+        errors.add(
+            String.format(
+                "Array '%s' element nullability mismatch: table elements are non-nullable but config allows null elements",
+                fieldPath));
+      }
+      validateNestedNullability(
+          configArray.getElementType(),
+          tableArray.getElementType(),
+          fieldPath + "[element]",
+          errors);
+    } else if (configType instanceof MapType configMap && tableType instanceof MapType tableMap) {
+      if (!tableMap.isValueContainsNull() && configMap.isValueContainsNull()) {
+        errors.add(
+            String.format(
+                "Map '%s' value nullability mismatch: table values are non-nullable but config allows null values",
+                fieldPath));
+      }
+      validateNestedNullability(
+          configMap.getValueType(), tableMap.getValueType(), fieldPath + "[value]", errors);
+    }
   }
 
   /** Result of processing a single partition */

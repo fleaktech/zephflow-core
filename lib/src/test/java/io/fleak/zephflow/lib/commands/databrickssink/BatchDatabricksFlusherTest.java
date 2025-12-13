@@ -21,6 +21,7 @@ import io.delta.kernel.types.IntegerType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
@@ -30,7 +31,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,7 +45,9 @@ class BatchDatabricksFlusherTest {
   private DatabricksSqlExecutor sqlExecutor;
   private DlqWriter dlqWriter;
   private StructType schema;
-  private ScheduledFuture<?> scheduledFuture;
+  private FleakCounter sinkOutputCounter;
+  private FleakCounter outputSizeCounter;
+  private FleakCounter sinkErrorCounter;
 
   @BeforeEach
   void setUp() {
@@ -63,7 +65,9 @@ class BatchDatabricksFlusherTest {
     volumeUploader = mock(DatabricksVolumeUploader.class);
     sqlExecutor = mock(DatabricksSqlExecutor.class);
     dlqWriter = mock(DlqWriter.class);
-    scheduledFuture = mock(ScheduledFuture.class);
+    sinkOutputCounter = mock(FleakCounter.class);
+    outputSizeCounter = mock(FleakCounter.class);
+    sinkErrorCounter = mock(FleakCounter.class);
 
     schema =
         new StructType(
@@ -81,7 +85,9 @@ class BatchDatabricksFlusherTest {
         tempDir,
         dlqWriter,
         schema,
-        scheduledFuture);
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter);
   }
 
   private File createMockFile(String name) throws Exception {
@@ -135,7 +141,7 @@ class BatchDatabricksFlusherTest {
             .cleanupAfterCopy(true)
             .build();
 
-    BatchDatabricksFlusher flusher =
+    try (BatchDatabricksFlusher flusher =
         new BatchDatabricksFlusher(
             smallBatchConfig,
             parquetWriter,
@@ -144,33 +150,37 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter)) {
 
-    File mockFile = createMockFile("test.parquet");
+      File mockFile = createMockFile("test.parquet");
 
-    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(mockFile));
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+          .thenReturn(List.of(mockFile));
 
-    CopyIntoStats stats = new CopyIntoStats(2, 1, 1, List.of());
-    when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
-        .thenReturn(stats);
+      CopyIntoStats stats = new CopyIntoStats(2, 1, 1, List.of());
+      when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
+          .thenReturn(stats);
 
-    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
-        new SimpleSinkCommand.PreparedInputEvents<>();
-    events.add(
-        (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test1")),
-        Map.of("id", 1, "name", "test1"));
-    events.add(
-        (RecordFleakData) FleakData.wrap(Map.of("id", 2, "name", "test2")),
-        Map.of("id", 2, "name", "test2"));
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test1")),
+          Map.of("id", 1, "name", "test1"));
+      events.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", 2, "name", "test2")),
+          Map.of("id", 2, "name", "test2"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+      SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
-    assertEquals(2, result.successCount());
-    assertTrue(result.errorOutputList().isEmpty());
+      assertEquals(2, result.successCount());
+      assertTrue(result.errorOutputList().isEmpty());
 
-    verify(parquetWriter).writeParquetFiles(anyList(), eq(tempDir));
-    verify(volumeUploader).uploadFile(eq(mockFile), contains("test.parquet"));
-    verify(sqlExecutor).executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap());
+      verify(parquetWriter).writeParquetFiles(anyList(), eq(tempDir));
+      verify(volumeUploader).uploadFile(eq(mockFile), contains("test.parquet"));
+      verify(sqlExecutor).executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap());
+    }
   }
 
   @Test
@@ -185,7 +195,7 @@ class BatchDatabricksFlusherTest {
             .cleanupAfterCopy(true)
             .build();
 
-    BatchDatabricksFlusher flusher =
+    try (BatchDatabricksFlusher flusher =
         new BatchDatabricksFlusher(
             smallBatchConfig,
             parquetWriter,
@@ -194,24 +204,27 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter)) {
 
-    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
-        .thenThrow(new RuntimeException("Parquet write failed"));
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+          .thenThrow(new RuntimeException("Parquet write failed"));
 
-    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
-        new SimpleSinkCommand.PreparedInputEvents<>();
-    events.add(
-        (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
-        Map.of("id", 1, "name", "test"));
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
+          Map.of("id", 1, "name", "test"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+      SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
-    assertEquals(0, result.successCount());
-    assertEquals(1, result.errorOutputList().size());
-    assertTrue(result.errorOutputList().get(0).errorMessage().contains("Parquet"));
+      assertEquals(0, result.successCount());
+      assertEquals(1, result.errorOutputList().size());
+      assertTrue(result.errorOutputList().get(0).errorMessage().contains("Parquet"));
 
-    verifyNoInteractions(volumeUploader, sqlExecutor);
+      verifyNoInteractions(volumeUploader, sqlExecutor);
+    }
   }
 
   @Test
@@ -226,7 +239,7 @@ class BatchDatabricksFlusherTest {
             .cleanupAfterCopy(true)
             .build();
 
-    BatchDatabricksFlusher flusher =
+    try (BatchDatabricksFlusher flusher =
         new BatchDatabricksFlusher(
             smallBatchConfig,
             parquetWriter,
@@ -235,29 +248,33 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter)) {
 
-    File mockFile = createMockFile("test.parquet");
+      File mockFile = createMockFile("test.parquet");
 
-    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(mockFile));
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+          .thenReturn(List.of(mockFile));
 
-    doThrow(new RuntimeException("Upload failed"))
-        .when(volumeUploader)
-        .uploadFile(any(File.class), anyString());
+      doThrow(new RuntimeException("Upload failed"))
+          .when(volumeUploader)
+          .uploadFile(any(File.class), anyString());
 
-    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
-        new SimpleSinkCommand.PreparedInputEvents<>();
-    events.add(
-        (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
-        Map.of("id", 1, "name", "test"));
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
+          Map.of("id", 1, "name", "test"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+      SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
-    assertEquals(0, result.successCount());
-    assertEquals(1, result.errorOutputList().size());
-    assertTrue(result.errorOutputList().get(0).errorMessage().contains("Partial upload failure"));
+      assertEquals(0, result.successCount());
+      assertEquals(1, result.errorOutputList().size());
+      assertTrue(result.errorOutputList().get(0).errorMessage().contains("Partial upload failure"));
 
-    verifyNoInteractions(sqlExecutor);
+      verifyNoInteractions(sqlExecutor);
+    }
   }
 
   @Test
@@ -272,7 +289,7 @@ class BatchDatabricksFlusherTest {
             .cleanupAfterCopy(true)
             .build();
 
-    BatchDatabricksFlusher flusher =
+    try (BatchDatabricksFlusher flusher =
         new BatchDatabricksFlusher(
             smallBatchConfig,
             parquetWriter,
@@ -281,29 +298,33 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter)) {
 
-    File mockFile = createMockFile("test.parquet");
+      File mockFile = createMockFile("test.parquet");
 
-    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(mockFile));
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+          .thenReturn(List.of(mockFile));
 
-    when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
-        .thenThrow(new RuntimeException("COPY INTO failed"));
+      when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
+          .thenThrow(new RuntimeException("COPY INTO failed"));
 
-    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
-        new SimpleSinkCommand.PreparedInputEvents<>();
-    events.add(
-        (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
-        Map.of("id", 1, "name", "test"));
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
+          Map.of("id", 1, "name", "test"));
 
-    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+      SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
-    assertEquals(0, result.successCount());
-    assertEquals(1, result.errorOutputList().size());
-    assertTrue(result.errorOutputList().get(0).errorMessage().contains("COPY INTO failed"));
+      assertEquals(0, result.successCount());
+      assertEquals(1, result.errorOutputList().size());
+      assertTrue(result.errorOutputList().get(0).errorMessage().contains("COPY INTO failed"));
 
-    verify(volumeUploader).uploadFile(any(File.class), anyString());
-    verify(volumeUploader).deleteDirectory(anyString());
+      verify(volumeUploader).uploadFile(any(File.class), anyString());
+      verify(volumeUploader).deleteDirectory(anyString());
+    }
   }
 
   @Test
@@ -341,7 +362,9 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -366,16 +389,6 @@ class BatchDatabricksFlusherTest {
     verify(parquetWriter).writeParquetFiles(anyList(), eq(tempDir));
     verify(volumeUploader).uploadFile(any(File.class), anyString());
     verify(sqlExecutor).executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap());
-    verify(scheduledFuture).cancel(false);
-  }
-
-  @Test
-  void testCloseCancelsScheduledFuture() throws Exception {
-    BatchDatabricksFlusher flusher = createFlusher();
-
-    flusher.close();
-
-    verify(scheduledFuture).cancel(false);
   }
 
   @Test
@@ -385,7 +398,7 @@ class BatchDatabricksFlusherTest {
     flusher.close();
     flusher.close();
 
-    verify(scheduledFuture, times(1)).cancel(false);
+    // No exception thrown on second close
   }
 
   @Test
@@ -409,7 +422,9 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -447,7 +462,7 @@ class BatchDatabricksFlusherTest {
         .thenThrow(new RuntimeException("Scheduled flush error"));
 
     java.lang.reflect.Method method =
-        BatchDatabricksFlusher.class.getDeclaredMethod("flushBufferScheduled");
+        BatchDatabricksFlusher.class.getSuperclass().getDeclaredMethod("executeScheduledFlush");
     method.setAccessible(true);
     method.invoke(flusher);
 
@@ -465,7 +480,9 @@ class BatchDatabricksFlusherTest {
             tempDir,
             null,
             schema,
-            scheduledFuture)) {
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter)) {
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
           new SimpleSinkCommand.PreparedInputEvents<>();
       events.add(
@@ -477,7 +494,7 @@ class BatchDatabricksFlusherTest {
           .thenThrow(new RuntimeException("Scheduled flush error"));
 
       java.lang.reflect.Method method =
-          BatchDatabricksFlusher.class.getDeclaredMethod("flushBufferScheduled");
+          BatchDatabricksFlusher.class.getSuperclass().getDeclaredMethod("executeScheduledFlush");
       method.setAccessible(true);
 
       assertDoesNotThrow(() -> method.invoke(flusher));
@@ -507,7 +524,9 @@ class BatchDatabricksFlusherTest {
             tempDir,
             dlqWriter,
             schema,
-            scheduledFuture);
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
 
     // Valid: id is integer, name is string
     Map<String, Object> validData = Map.of("id", 1, "name", "valid");
