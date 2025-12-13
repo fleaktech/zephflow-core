@@ -16,12 +16,17 @@ package io.fleak.zephflow.lib.commands.sink;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -46,9 +51,20 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   protected final DlqWriter dlqWriter;
   protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
+  protected final boolean testMode;
 
-  protected AbstractBufferedFlusher(DlqWriter dlqWriter) {
+  private ScheduledExecutorService flushScheduler;
+  private ScheduledFuture<?> flushTask;
+
+  protected AbstractBufferedFlusher(DlqWriter dlqWriter, JobContext jobContext) {
     this.dlqWriter = dlqWriter;
+    this.testMode =
+        jobContext != null
+            && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
+  }
+
+  protected final boolean isSyncMode() {
+    return testMode;
   }
 
   // ===== ABSTRACT METHODS (Subclasses must implement) =====
@@ -108,6 +124,104 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
    */
   protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {}
 
+  /**
+   * Returns the flush interval in milliseconds. Override to enable timer-based flushing. Return 0
+   * or negative to disable.
+   */
+  protected long getFlushIntervalMs() {
+    return 0;
+  }
+
+  /** Returns the thread name for the flush scheduler. Override to customize. */
+  protected String getSchedulerThreadName() {
+    return "BufferedFlusher-Flush";
+  }
+
+  // ===== LIFECYCLE =====
+
+  /**
+   * Initializes the flusher, including starting the timer-based flush scheduler if configured.
+   * Subclasses should call super.initialize() at the end of their own initialization.
+   */
+  public void initialize() {
+    startFlushTimer();
+  }
+
+  // ===== TIMER MANAGEMENT =====
+
+  /**
+   * Starts the timer-based flush scheduler. Does nothing if interval is 0 or negative, or if
+   * already started.
+   */
+  private synchronized void startFlushTimer() {
+    if (testMode) {
+      log.debug("Test mode enabled, timer-based flushing disabled");
+      return;
+    }
+
+    if (flushScheduler != null) {
+      log.warn("Flush timer already running, skipping restart");
+      return;
+    }
+
+    long intervalMs = getFlushIntervalMs();
+    if (intervalMs <= 0) {
+      log.debug("Timer-based flushing disabled (interval={})", intervalMs);
+      return;
+    }
+
+    String threadName = getSchedulerThreadName();
+    log.info("Starting timer-based flush with interval {}ms, thread: {}", intervalMs, threadName);
+
+    flushScheduler =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread t = new Thread(r, threadName);
+              t.setDaemon(true);
+              return t;
+            });
+
+    flushTask =
+        flushScheduler.scheduleWithFixedDelay(
+            () -> {
+              try {
+                executeScheduledFlush();
+              } catch (Exception e) {
+                log.error("Error during timer-based flush", e);
+              }
+            },
+            Math.min(intervalMs, 1000),
+            intervalMs,
+            TimeUnit.MILLISECONDS);
+
+    log.info("Timer-based flush started successfully");
+  }
+
+  /** Stops the timer-based flush scheduler. Call from subclass close(). */
+  protected final synchronized void stopFlushTimer() {
+    if (flushTask != null) {
+      log.debug("Cancelling flush task");
+      flushTask.cancel(false);
+      flushTask = null;
+    }
+
+    if (flushScheduler != null) {
+      log.debug("Shutting down flush scheduler");
+      flushScheduler.shutdown();
+      try {
+        if (!flushScheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+          log.warn("Flush scheduler did not terminate in time, forcing shutdown");
+          flushScheduler.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        log.warn("Interrupted while waiting for flush scheduler to terminate");
+        flushScheduler.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
+      flushScheduler = null;
+    }
+  }
+
   // ===== TEMPLATE METHOD =====
 
   /**
@@ -140,8 +254,12 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
           buffer.size(),
           getBatchSize());
 
-      if (buffer.size() >= getBatchSize()) {
-        log.info("Buffer threshold reached ({}), triggering flush", getBatchSize());
+      if (isSyncMode() || buffer.size() >= getBatchSize()) {
+        log.info(
+            "Triggering flush: syncMode={}, bufferSize={}, batchSize={}",
+            isSyncMode(),
+            buffer.size(),
+            getBatchSize());
         snapshot = swapBuffer();
       }
     }

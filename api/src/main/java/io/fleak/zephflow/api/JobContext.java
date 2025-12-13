@@ -31,6 +31,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class JobContext implements Serializable {
+  public static final String FLAG_TEST_MODE = "TEST_MODE";
+
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();
 

@@ -568,13 +568,13 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    // Access private fields using reflection
-    java.lang.reflect.Field schedulerField =
-        DeltaLakeWriter.class.getDeclaredField("flushScheduler");
+    // Access private fields using reflection (fields are in base class AbstractBufferedFlusher)
+    Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
+    java.lang.reflect.Field schedulerField = baseClass.getDeclaredField("flushScheduler");
     schedulerField.setAccessible(true);
     Object scheduler = schedulerField.get(writer);
 
-    java.lang.reflect.Field taskField = DeltaLakeWriter.class.getDeclaredField("flushTask");
+    java.lang.reflect.Field taskField = baseClass.getDeclaredField("flushTask");
     taskField.setAccessible(true);
     Object task = taskField.get(writer);
 
@@ -705,13 +705,13 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    // Access private fields using reflection
-    java.lang.reflect.Field schedulerField =
-        DeltaLakeWriter.class.getDeclaredField("flushScheduler");
+    // Access private fields using reflection (fields are in base class AbstractBufferedFlusher)
+    Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
+    java.lang.reflect.Field schedulerField = baseClass.getDeclaredField("flushScheduler");
     schedulerField.setAccessible(true);
     Object scheduler = schedulerField.get(writer);
 
-    java.lang.reflect.Field taskField = DeltaLakeWriter.class.getDeclaredField("flushTask");
+    java.lang.reflect.Field taskField = baseClass.getDeclaredField("flushTask");
     taskField.setAccessible(true);
     Object task = taskField.get(writer);
 
@@ -737,12 +737,12 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    // Access private fields using reflection
-    java.lang.reflect.Field schedulerField =
-        DeltaLakeWriter.class.getDeclaredField("flushScheduler");
+    // Access private fields using reflection (fields are in base class AbstractBufferedFlusher)
+    Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
+    java.lang.reflect.Field schedulerField = baseClass.getDeclaredField("flushScheduler");
     schedulerField.setAccessible(true);
 
-    java.lang.reflect.Field taskField = DeltaLakeWriter.class.getDeclaredField("flushTask");
+    java.lang.reflect.Field taskField = baseClass.getDeclaredField("flushTask");
     taskField.setAccessible(true);
 
     // Verify timer is running

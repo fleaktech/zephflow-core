@@ -17,6 +17,7 @@ import com.databricks.sdk.WorkspaceClient;
 import com.google.common.annotations.VisibleForTesting;
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
@@ -29,7 +30,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -52,19 +52,18 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   private final FleakCounter sinkErrorCounter;
 
   private final ReentrantLock flushLock = new ReentrantLock();
-  private final ScheduledFuture<?> scheduledFuture;
   private volatile boolean closed = false;
 
   public BatchDatabricksFlusher(
       DatabricksSinkDto.Config config,
       WorkspaceClient workspaceClient,
       Path tempDirectory,
-      ScheduledExecutorService scheduler,
       DlqWriter dlqWriter,
+      JobContext jobContext,
       @NonNull FleakCounter sinkOutputCounter,
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter) {
-    super(dlqWriter);
+    super(dlqWriter, jobContext);
     this.config = config;
     this.sinkOutputCounter = sinkOutputCounter;
     this.outputSizeCounter = outputSizeCounter;
@@ -75,20 +74,13 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     this.sqlExecutor = new DatabricksSqlExecutor(workspaceClient, config.getWarehouseId());
     this.tempDirectory = tempDirectory;
 
-    this.scheduledFuture =
-        scheduler.scheduleAtFixedRate(
-            this::executeScheduledFlush,
-            config.getFlushIntervalMillis(),
-            config.getFlushIntervalMillis(),
-            TimeUnit.MILLISECONDS);
-
     log.info(
         "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms",
         config.getBatchSize(),
         config.getFlushIntervalMillis());
   }
 
-  // Package-private constructor for testing with injected dependencies
+  // Package-private constructor for testing with injected dependencies (no timer, no test mode)
   @VisibleForTesting
   BatchDatabricksFlusher(
       DatabricksSinkDto.Config config,
@@ -98,21 +90,20 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       Path tempDirectory,
       DlqWriter dlqWriter,
       StructType schema,
-      ScheduledFuture<?> scheduledFuture,
       @NonNull FleakCounter sinkOutputCounter,
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter) {
-    super(dlqWriter);
+    super(dlqWriter, null);
     this.config = config;
     this.parquetWriter = parquetWriter;
     this.volumeUploader = volumeUploader;
     this.sqlExecutor = sqlExecutor;
     this.tempDirectory = tempDirectory;
     this.schema = schema;
-    this.scheduledFuture = scheduledFuture;
     this.sinkOutputCounter = sinkOutputCounter;
     this.outputSizeCounter = outputSizeCounter;
     this.sinkErrorCounter = sinkErrorCounter;
+    // Note: Timer not started for test constructor - tests control flushing manually
   }
 
   // ===== ABSTRACT METHOD IMPLEMENTATIONS =====
@@ -168,6 +159,18 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   @Override
   protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
     sinkErrorCounter.increase(errorCount, Map.of());
+  }
+
+  // ===== TIMER CONFIGURATION =====
+
+  @Override
+  protected long getFlushIntervalMs() {
+    return config.getFlushIntervalMillis();
+  }
+
+  @Override
+  protected String getSchedulerThreadName() {
+    return "BatchDatabricksFlusher-Flush";
   }
 
   // ===== CUSTOM RECOVERY LOGIC =====
@@ -493,9 +496,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     closed = true;
 
     log.info("Closing BatchDatabricksFlusher...");
-    if (scheduledFuture != null) {
-      scheduledFuture.cancel(false);
-    }
+    stopFlushTimer();
 
     List<Pair<RecordFleakData, Map<String, Object>>> snapshot = swapBufferIfNotEmpty();
 

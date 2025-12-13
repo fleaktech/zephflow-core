@@ -69,8 +69,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   private static final AtomicInteger INSTANCE_COUNTER = new AtomicInteger(0);
   private final int instanceId = INSTANCE_COUNTER.incrementAndGet();
   private final ReentrantLock flushLock = new ReentrantLock();
-  private ScheduledExecutorService flushScheduler;
-  private ScheduledFuture<?> flushTask;
   private ExecutorService checkpointExecutor;
   private Map<String, DataType> partitionColumnTypes;
 
@@ -81,7 +79,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       @NonNull FleakCounter sinkOutputCounter,
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter) {
-    super(dlqWriter);
+    super(dlqWriter, jobContext);
     this.config = config;
     this.jobContext = jobContext;
     this.sinkOutputCounter = sinkOutputCounter;
@@ -190,56 +188,20 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     this.initialized = true;
     log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
 
-    if (config.getFlushIntervalSeconds() > 0) {
-      startFlushTimer();
-    } else {
-      log.info(
-          "Timer-based flushing disabled (flushIntervalSeconds={})",
-          config.getFlushIntervalSeconds());
-    }
+    super.initialize();
   }
 
-  private synchronized void startFlushTimer() {
-    if (flushScheduler != null || flushTask != null) {
-      log.warn("Flush timer already running for path: {}, skipping restart", config.getTablePath());
-      return;
-    }
+  // ===== TIMER CONFIGURATION =====
 
-    int intervalSeconds = config.getFlushIntervalSeconds();
-    log.info(
-        "Starting timer-based flush with interval of {} seconds for path: {}",
-        intervalSeconds,
-        config.getTablePath());
+  @Override
+  protected long getFlushIntervalMs() {
+    return config.getFlushIntervalSeconds() * 1000L;
+  }
 
-    String threadName =
-        String.format(
-            "DeltaLakeWriter-Flush-%04X-%d", config.getTablePath().hashCode() & 0xFFFF, instanceId);
-
-    flushScheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread thread = new Thread(r, threadName);
-              thread.setDaemon(true); // Don't prevent JVM shutdown
-              return thread;
-            });
-
-    flushTask =
-        flushScheduler.scheduleWithFixedDelay(
-            () -> {
-              try {
-                executeScheduledFlush();
-              } catch (Exception e) {
-                log.error("Error during timer-based flush for path: {}", config.getTablePath(), e);
-              }
-            },
-            1, // Initial delay: 1 second
-            intervalSeconds, // Subsequent delay: configured interval
-            TimeUnit.SECONDS);
-
-    log.info(
-        "Timer-based flush started successfully for path: {} (initial delay: 1s, interval: {}s)",
-        config.getTablePath(),
-        intervalSeconds);
+  @Override
+  protected String getSchedulerThreadName() {
+    return String.format(
+        "DeltaLakeWriter-Flush-%04X-%d", config.getTablePath().hashCode() & 0xFFFF, instanceId);
   }
 
   // ===== ABSTRACT METHOD IMPLEMENTATIONS =====
@@ -583,31 +545,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     }
 
     log.info("Delta Lake writer closed successfully for path: {}", config.getTablePath());
-  }
-
-  private synchronized void stopFlushTimer() {
-    if (flushTask != null) {
-      log.info("Stopping timer-based flush for path: {}", config.getTablePath());
-      flushTask.cancel(false);
-      flushTask = null;
-    }
-
-    if (flushScheduler != null) {
-      flushScheduler.shutdown();
-      try {
-        if (!flushScheduler.awaitTermination(30, TimeUnit.SECONDS)) {
-          log.warn(
-              "Timer-based flush scheduler did not terminate in time, forcing shutdown for path: {}",
-              config.getTablePath());
-          flushScheduler.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        log.warn("Interrupted while waiting for flush scheduler to terminate", e);
-        flushScheduler.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
-      flushScheduler = null;
-    }
   }
 
   private void stopCheckpointExecutor() {
