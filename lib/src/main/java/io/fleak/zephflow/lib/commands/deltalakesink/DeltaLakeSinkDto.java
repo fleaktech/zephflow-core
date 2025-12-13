@@ -30,17 +30,16 @@ public class DeltaLakeSinkDto {
   @AllArgsConstructor
   public static class Config implements CommandConfig {
     private String tablePath;
+    private Map<String, Object> avroSchema;
 
     private List<String> partitionColumns;
 
-    @Builder.Default private int batchSize = 1000;
+    @Builder.Default private int batchSize = 50000;
 
     @Builder.Default private Map<String, String> hadoopConfiguration = new HashMap<>();
     private String credentialId;
 
     @Builder.Default private boolean enableAutoCheckpoint = true;
-
-    @Builder.Default private Integer checkpointInterval = 5;
 
     @Builder.Default private int flushIntervalSeconds = 30;
   }

@@ -17,66 +17,62 @@ import com.databricks.sdk.WorkspaceClient;
 import com.google.common.annotations.VisibleForTesting;
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
-import io.fleak.zephflow.lib.commands.sink.RecordFleakDataEncoder;
+import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
+import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
 @Slf4j
-public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<String, Object>> {
+public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, Object>> {
 
   private static final int MAX_UPLOAD_RETRIES = 3;
-  private static final long INITIAL_RETRY_DELAY_MS = 1000;
 
   private final DatabricksSinkDto.Config config;
   private final DatabricksParquetWriter parquetWriter;
   private final DatabricksVolumeUploader volumeUploader;
   private final DatabricksSqlExecutor sqlExecutor;
   private final Path tempDirectory;
-  private final DlqWriter dlqWriter;
-  private final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
   private final StructType schema;
 
-  private final Object bufferLock = new Object();
-  private List<Pair<RecordFleakData, Map<String, Object>>> buffer = new ArrayList<>();
+  private final FleakCounter sinkOutputCounter;
+  private final FleakCounter outputSizeCounter;
+  private final FleakCounter sinkErrorCounter;
 
   private final ReentrantLock flushLock = new ReentrantLock();
-  private final ScheduledFuture<?> scheduledFuture;
   private volatile boolean closed = false;
 
   public BatchDatabricksFlusher(
       DatabricksSinkDto.Config config,
       WorkspaceClient workspaceClient,
       Path tempDirectory,
-      ScheduledExecutorService scheduler,
-      DlqWriter dlqWriter) {
-
+      DlqWriter dlqWriter,
+      JobContext jobContext,
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {
+    super(dlqWriter, jobContext);
     this.config = config;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
     schema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
     this.parquetWriter = new DatabricksParquetWriter(schema);
     this.volumeUploader = new DatabricksVolumeUploader(workspaceClient);
     this.sqlExecutor = new DatabricksSqlExecutor(workspaceClient, config.getWarehouseId());
     this.tempDirectory = tempDirectory;
-    this.dlqWriter = dlqWriter;
-
-    this.scheduledFuture =
-        scheduler.scheduleAtFixedRate(
-            this::flushBufferScheduled,
-            config.getFlushIntervalMillis(),
-            config.getFlushIntervalMillis(),
-            TimeUnit.MILLISECONDS);
 
     log.info(
         "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms",
@@ -84,7 +80,7 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
         config.getFlushIntervalMillis());
   }
 
-  // Package-private constructor for testing with injected dependencies
+  // Package-private constructor for testing with injected dependencies (no timer, no test mode)
   @VisibleForTesting
   BatchDatabricksFlusher(
       DatabricksSinkDto.Config config,
@@ -94,136 +90,95 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
       Path tempDirectory,
       DlqWriter dlqWriter,
       StructType schema,
-      ScheduledFuture<?> scheduledFuture) {
+      @NonNull FleakCounter sinkOutputCounter,
+      @NonNull FleakCounter outputSizeCounter,
+      @NonNull FleakCounter sinkErrorCounter) {
+    super(dlqWriter, null);
     this.config = config;
     this.parquetWriter = parquetWriter;
     this.volumeUploader = volumeUploader;
     this.sqlExecutor = sqlExecutor;
     this.tempDirectory = tempDirectory;
-    this.dlqWriter = dlqWriter;
     this.schema = schema;
-    this.scheduledFuture = scheduledFuture;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
+    // Note: Timer not started for test constructor - tests control flushing manually
+  }
+
+  // ===== ABSTRACT METHOD IMPLEMENTATIONS =====
+
+  @Override
+  protected int getBatchSize() {
+    return config.getBatchSize();
   }
 
   @Override
-  public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events,
-      Map<String, String> metricTags)
-      throws Exception {
+  protected SimpleSinkCommand.FlushResult doFlush(
+      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
+    return doFlushBatch(batch);
+  }
 
+  @Override
+  protected boolean canWriteRecord(Map<String, Object> record) {
+    if (record == null) return false;
+    try (var ignored = DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), schema)) {
+      return true;
+    } catch (Exception e) {
+      log.debug("Record validation failed: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  // ===== HOOK METHOD IMPLEMENTATIONS =====
+
+  @Override
+  protected void beforeFlush() {
     if (closed) {
-      throw new IllegalStateException("BatchDatabricksFlusher is closed");
-    }
-
-    if (events.preparedList().isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    }
-
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
-
-    synchronized (bufferLock) {
-      buffer.addAll(events.rawAndPreparedList());
-
-      log.debug(
-          "Added {} records to buffer. Buffer: {} records",
-          events.rawAndPreparedList().size(),
-          buffer.size());
-
-      if (buffer.size() >= config.getBatchSize()) {
-        log.info("Buffer threshold exceeded, triggering immediate flush");
-        snapshot = swapBuffer();
-      }
-    }
-
-    if (snapshot != null) {
-      return flushBatchToDatabricks(snapshot);
-    }
-
-    return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-  }
-
-  private void flushBufferScheduled() {
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
-
-    synchronized (bufferLock) {
-      if (!buffer.isEmpty()) {
-        log.info("Timer-triggered flush: {} records buffered", buffer.size());
-        snapshot = swapBuffer();
-      }
-    }
-
-    if (snapshot != null) {
-      try {
-        SimpleSinkCommand.FlushResult result = flushBatchToDatabricks(snapshot);
-        if (!result.errorOutputList().isEmpty()) {
-          handleScheduledFlushErrors(result.errorOutputList());
-        }
-      } catch (Exception e) {
-        log.error("Error during scheduled flush", e);
-        handleScheduledFlushErrors(snapshot, e.getMessage());
-      }
+      throw new IllegalStateException("Flusher is closed");
     }
   }
 
-  private void handleScheduledFlushErrors(List<ErrorOutput> errors) {
-    if (dlqWriter == null) {
-      log.error(
-          "Scheduled flush failed with {} errors but no DLQ configured. Records lost.",
-          errors.size());
-      return;
-    }
-
-    long ts = System.currentTimeMillis();
-    int dlqWriteFailures = 0;
-    for (ErrorOutput error : errors) {
-      try {
-        SerializedEvent serialized = recordEncoder.serialize(error.inputEvent());
-        dlqWriter.writeToDlq(ts, serialized, error.errorMessage());
-      } catch (Exception e) {
-        dlqWriteFailures++;
-        log.debug("Failed to write to DLQ: {}", e.getMessage());
-      }
-    }
-
-    if (dlqWriteFailures > 0) {
-      log.warn(
-          "Wrote {} failed records to DLQ, {} DLQ write failures",
-          errors.size() - dlqWriteFailures,
-          dlqWriteFailures);
-    } else {
-      log.info("Wrote {} failed records to DLQ", errors.size());
-    }
-  }
-
-  private void handleScheduledFlushErrors(
-      List<Pair<RecordFleakData, Map<String, Object>>> snapshot, String errorMessage) {
-    List<ErrorOutput> errors =
-        snapshot.stream().map(pair -> new ErrorOutput(pair.getLeft(), errorMessage)).toList();
-    handleScheduledFlushErrors(errors);
-  }
-
-  private List<Pair<RecordFleakData, Map<String, Object>>> swapBuffer() {
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = buffer;
-    buffer = new ArrayList<>();
-    return snapshot;
-  }
-
-  private SimpleSinkCommand.FlushResult flushBatchToDatabricks(
-      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-    if (batch.isEmpty()) {
-      return new SimpleSinkCommand.FlushResult(0, 0, List.of());
-    }
-
+  @Override
+  protected void beforeWrite() {
     flushLock.lock();
-    try {
-      return doFlushBatch(batch);
-    } finally {
-      flushLock.unlock();
-    }
   }
 
-  private SimpleSinkCommand.FlushResult doFlushBatch(
+  @Override
+  protected void afterWrite() {
+    flushLock.unlock();
+  }
+
+  @Override
+  protected void reportMetrics(
+      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
+    sinkOutputCounter.increase(result.successCount(), Map.of());
+    outputSizeCounter.increase(result.flushedDataSize(), Map.of());
+  }
+
+  @Override
+  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
+    sinkErrorCounter.increase(errorCount, Map.of());
+  }
+
+  // ===== TIMER CONFIGURATION =====
+
+  @Override
+  protected long getFlushIntervalMs() {
+    return config.getFlushIntervalMillis();
+  }
+
+  @Override
+  protected String getSchedulerThreadName() {
+    return "BatchDatabricksFlusher-Flush";
+  }
+
+  // ===== CUSTOM RECOVERY LOGIC =====
+
+  @Override
+  protected SimpleSinkCommand.FlushResult doFlushWithRecovery(
       List<Pair<RecordFleakData, Map<String, Object>>> batch) {
+    // Use custom Parquet-aware recovery instead of base class filterAndFlush
     String batchId = UUID.randomUUID().toString();
     log.info("Starting flush of {} records with batchId: {}", batch.size(), batchId);
 
@@ -320,6 +275,16 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
     return new SimpleSinkCommand.FlushResult(successCount, totalFlushedBytes, allErrors);
   }
 
+  // ===== DATABRICKS-SPECIFIC LOGIC =====
+
+  private SimpleSinkCommand.FlushResult doFlushBatch(
+      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
+    // This is called from doFlushWithRetry in base class, but we override doFlushWithRecovery
+    // to use our custom Parquet-aware recovery logic. This method is kept for completeness
+    // but the main path goes through doFlushWithRecovery.
+    return doFlushWithRecovery(batch);
+  }
+
   private ParquetGenerationResult generateParquetWithErrorTracking(
       List<Pair<RecordFleakData, Map<String, Object>>> batch) {
 
@@ -379,14 +344,6 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
         errors.add(new ErrorOutput(pair.getLeft(), "Parquet bulk write failed: " + e.getMessage()));
       }
       return new ParquetGenerationResult(List.of(), errors, 0);
-    }
-  }
-
-  private boolean canWriteRecord(Map<String, Object> record) {
-    try (var ignored = DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), schema)) {
-      return true;
-    } catch (Exception e) {
-      return false;
     }
   }
 
@@ -531,53 +488,47 @@ public class BatchDatabricksFlusher implements SimpleSinkCommand.Flusher<Map<Str
     log.debug("Cleanup: {} files deleted, {} failed", deletedCount, failedCount);
   }
 
-  private SimpleSinkCommand.FlushResult createCompleteFailureResult(
-      List<Pair<RecordFleakData, Map<String, Object>>> rawBatch, String errorMessage) {
-
-    List<ErrorOutput> errors =
-        rawBatch.stream().map(pair -> new ErrorOutput(pair.getLeft(), errorMessage)).toList();
-
-    return new SimpleSinkCommand.FlushResult(0, 0, errors);
-  }
-
   @Override
   public void close() throws IOException {
     if (closed) {
       return;
     }
-
-    log.info("Closing BatchDatabricksFlusher...");
     closed = true;
 
-    if (scheduledFuture != null) {
-      scheduledFuture.cancel(false);
-    }
+    log.info("Closing BatchDatabricksFlusher...");
+    stopFlushTimer();
 
-    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = null;
-    synchronized (bufferLock) {
-      if (!buffer.isEmpty()) {
-        log.info("Flushing {} remaining records during close", buffer.size());
-        snapshot = swapBuffer();
-      }
-    }
+    List<Pair<RecordFleakData, Map<String, Object>>> snapshot = swapBufferIfNotEmpty();
 
     if (snapshot != null) {
-      flushBatchToDatabricks(snapshot);
+      log.info("Flushing {} remaining records during close", snapshot.size());
+      SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
+      if (!result.errorOutputList().isEmpty()) {
+        reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        handleScheduledFlushErrors(result.errorOutputList());
+      }
     }
 
-    if (Files.exists(tempDirectory)) {
-      try (var paths = Files.walk(tempDirectory)) {
-        paths
-            .sorted(Comparator.reverseOrder())
-            .forEach(
-                path -> {
-                  try {
-                    Files.delete(path);
-                  } catch (IOException e) {
-                    log.warn("Failed to delete {}", path, e);
-                  }
-                });
+    // Acquire flushLock to ensure any in-progress scheduled flush completes
+    // before we clean up temp files it may be using
+    flushLock.lock();
+    try {
+      if (Files.exists(tempDirectory)) {
+        try (var paths = Files.walk(tempDirectory)) {
+          paths
+              .sorted(Comparator.reverseOrder())
+              .forEach(
+                  path -> {
+                    try {
+                      Files.delete(path);
+                    } catch (IOException e) {
+                      log.warn("Failed to delete {}", path, e);
+                    }
+                  });
+        }
       }
+    } finally {
+      flushLock.unlock();
     }
 
     if (dlqWriter != null) {

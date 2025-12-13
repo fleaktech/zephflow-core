@@ -13,17 +13,24 @@
  */
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
+import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.resolveStorageType;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupApiKeyCredentialOpt;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupGcpCredentialOpt;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
+import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCredentialUtils.StorageType;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 public class DeltaLakeSinkConfigValidator implements ConfigValidator {
 
@@ -33,21 +40,31 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
     List<String> errors = new ArrayList<>();
 
     // Validate credentials if credentialId is specified
-    if (config.getCredentialId() != null) {
-      var credentialOpt = lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+    if (config.getCredentialId() != null && config.getTablePath() != null) {
+      StorageType storageType = resolveStorageType(config.getTablePath());
+      Optional<?> credentialOpt =
+          switch (storageType) {
+            case S3 -> lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+            case GCS -> lookupGcpCredentialOpt(jobContext, config.getCredentialId());
+            case ABS -> lookupApiKeyCredentialOpt(jobContext, config.getCredentialId());
+            case HDFS, UNKNOWN -> Optional.of(new Object());
+          };
+
       if (credentialOpt.isEmpty()) {
         errors.add(
             "credentialId '"
                 + config.getCredentialId()
-                + "' was specified but no credential found in jobContext");
+                + "' was specified but no matching "
+                + storageType
+                + " credential found in jobContext");
       }
     }
 
     validateTablePath(config.getTablePath(), errors);
+    validateAvroSchema(config.getAvroSchema(), errors);
     validateBatchSize(config.getBatchSize(), errors);
     validatePartitionColumns(config.getPartitionColumns(), errors);
     validateHadoopConfiguration(config.getHadoopConfiguration(), errors);
-    validateCheckpointSettings(config, errors);
     validateFlushInterval(config.getFlushIntervalSeconds(), errors);
 
     if (!errors.isEmpty()) {
@@ -88,14 +105,13 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
         || "s3a".equals(scheme)
         || "hdfs".equals(scheme)
         || "abfs".equals(scheme)
+        || "abfss".equals(scheme)
         || "gs".equals(scheme);
   }
 
   private void validateBatchSize(int batchSize, List<String> errors) {
     if (batchSize <= 0) {
       errors.add("batchSize must be positive");
-    } else if (batchSize > 10000) {
-      errors.add("batchSize should not exceed 10,000 for optimal performance");
     }
   }
 
@@ -138,28 +154,21 @@ public class DeltaLakeSinkConfigValidator implements ConfigValidator {
     }
   }
 
-  private void validateCheckpointSettings(Config config, List<String> errors) {
-    if (config.getCheckpointInterval() != null) {
-      int interval = config.getCheckpointInterval();
-      if (interval <= 0) {
-        errors.add("checkpointInterval must be positive, got: " + interval);
-      } else if (interval < 5) {
-        errors.add(
-            "checkpointInterval should be at least 5 to avoid excessive checkpoint overhead. "
-                + "Consider using a higher value (recommended: 10 or more)");
-      }
-
-      if (!config.isEnableAutoCheckpoint()) {
-        errors.add(
-            "checkpointInterval is specified but enableAutoCheckpoint is false. "
-                + "The checkpointInterval setting will be ignored.");
-      }
-    }
-  }
-
   private void validateFlushInterval(int flushIntervalSeconds, List<String> errors) {
     if (flushIntervalSeconds < 0) {
       errors.add("flushIntervalSeconds must be >= 0, got: " + flushIntervalSeconds);
+    }
+  }
+
+  private void validateAvroSchema(Map<String, Object> avroSchema, List<String> errors) {
+    if (avroSchema == null || avroSchema.isEmpty()) {
+      errors.add("avroSchema is required");
+      return;
+    }
+    try {
+      AvroToDeltaSchemaConverter.parse(avroSchema);
+    } catch (Exception e) {
+      errors.add("avroSchema is invalid: " + e.getMessage());
     }
   }
 }

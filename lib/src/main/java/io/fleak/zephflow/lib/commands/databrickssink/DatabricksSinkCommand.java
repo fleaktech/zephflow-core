@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.commands.databrickssink;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.databricks.sdk.WorkspaceClient;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeMessageProcessor;
@@ -29,13 +28,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
-
-  private ScheduledExecutorService scheduler;
 
   protected DatabricksSinkCommand(
       String nodeId,
@@ -54,18 +48,10 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
 
     DatabricksSinkDto.Config config = (DatabricksSinkDto.Config) commandConfig;
 
-    this.scheduler =
-        Executors.newScheduledThreadPool(
-            1,
-            new ThreadFactoryBuilder()
-                .setNameFormat("databricks-sink-scheduler-%d")
-                .setDaemon(true)
-                .build());
-
     SinkCounters counters =
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
-    Flusher<Map<String, Object>> flusher = createBatchFlusher(config);
+    Flusher<Map<String, Object>> flusher = createBatchFlusher(config, counters);
 
     SinkMessagePreProcessor<Map<String, Object>> preprocessor = new DeltaLakeMessageProcessor();
 
@@ -79,14 +65,26 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
         counters.sinkErrorCounter());
   }
 
-  private Flusher<Map<String, Object>> createBatchFlusher(DatabricksSinkDto.Config config) {
+  private Flusher<Map<String, Object>> createBatchFlusher(
+      DatabricksSinkDto.Config config, SinkCounters counters) {
     try {
       Path tempDir = Files.createTempDirectory("databricks-sink-");
       DlqWriter dlqWriter = createDlqWriter();
       DatabricksCredential credential =
           lookupDatabricksCredential(jobContext, config.getDatabricksCredentialId());
       WorkspaceClient workspaceClient = DatabricksClientFactory.createClient(credential);
-      return new BatchDatabricksFlusher(config, workspaceClient, tempDir, scheduler, dlqWriter);
+      BatchDatabricksFlusher flusher =
+          new BatchDatabricksFlusher(
+              config,
+              workspaceClient,
+              tempDir,
+              dlqWriter,
+              jobContext,
+              counters.sinkOutputCounter(),
+              counters.outputSizeCounter(),
+              counters.sinkErrorCounter());
+      flusher.initialize();
+      return flusher;
     } catch (IOException e) {
       throw new RuntimeException("Failed to create temp directory", e);
     }
@@ -113,21 +111,5 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
   @Override
   protected int batchSize() {
     return Integer.MAX_VALUE;
-  }
-
-  @Override
-  public void terminate() throws IOException {
-    if (scheduler != null) {
-      scheduler.shutdown();
-      try {
-        if (!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
-          scheduler.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        scheduler.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
-    }
-    super.terminate();
   }
 }
