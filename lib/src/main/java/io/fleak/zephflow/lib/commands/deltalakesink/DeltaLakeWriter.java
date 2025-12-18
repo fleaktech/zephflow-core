@@ -130,14 +130,17 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       throw new IllegalStateException(errorMessage, e);
     }
 
-    // Use schema from config (control plane) instead of fetching from data plane
-    this.tableSchema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
-    log.info("Using schema from config with {} fields", tableSchema.fields().size());
+    // Parse config schema for split-brain detection
+    StructType configSchema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
+    log.info("Parsed config schema with {} fields", configSchema.fields().size());
 
     // Validate config schema against actual table schema (Split Brain detection)
     StructType physicalTableSchema = snapshot.getSchema();
-    validateSchemaCompatibility(tableSchema, physicalTableSchema);
+    validateSchemaCompatibility(configSchema, physicalTableSchema);
     log.info("Schema validated against physical table schema");
+
+    // Use physical schema for writes to satisfy Delta Kernel's exact equality requirement
+    this.tableSchema = physicalTableSchema;
 
     // Safety check: Validate partition columns match between config and physical table
     List<String> tablePartitionColumns = snapshot.getPartitionColumnNames();
