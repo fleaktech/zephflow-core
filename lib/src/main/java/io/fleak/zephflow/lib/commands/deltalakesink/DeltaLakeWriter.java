@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCrede
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static java.util.stream.Collectors.toList;
 
+import com.google.common.base.Preconditions;
 import io.delta.kernel.*;
 import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.data.Row;
@@ -222,14 +223,12 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   }
 
   @Override
-  protected boolean canWriteRecord(Map<String, Object> record) {
-    if (record == null) return false;
+  protected void ensureCanWriteRecord(Map<String, Object> record) throws Exception {
+    Preconditions.checkNotNull(record, "Record is null");
+    //noinspection EmptyTryBlock
     try (var ignored =
         DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), tableSchema)) {
-      return true;
-    } catch (Exception e) {
-      log.debug("Record validation failed: {}", e.getMessage());
-      return false;
+      // noop
     }
   }
 
