@@ -29,7 +29,8 @@ import java.util.Map;
 
 public class SQLEvalCommand extends ScalarCommand {
 
-  public static final String EVENT_TABLE_NAME = "events";
+  public static final String RECORD_TABLE_NAME = "records";
+  public static final String EVENT_TABLE_NAME_ALIAS = "events";
 
   protected SQLEvalCommand(
       String nodeId,
@@ -80,17 +81,15 @@ public class SQLEvalCommand extends ScalarCommand {
     var typeSystem = sqlContext.getSqlInterpreter().getTypeSystem();
 
     try {
+      var eventData = events.stream().map(RecordFleakData::unwrap).toList();
+      var recordsTable = Table.ofListOfMaps(typeSystem, RECORD_TABLE_NAME, eventData);
+      var eventsTable = Table.ofListOfMaps(typeSystem, EVENT_TABLE_NAME_ALIAS, eventData);
       List<RecordFleakData> output =
           sqlContext
               .getSqlInterpreter()
               .eval(
                   Catalog.fromMap(
-                      Map.of(
-                          EVENT_TABLE_NAME,
-                          Table.ofListOfMaps(
-                              typeSystem,
-                              EVENT_TABLE_NAME,
-                              events.stream().map(RecordFleakData::unwrap).toList()))),
+                      Map.of(RECORD_TABLE_NAME, recordsTable, EVENT_TABLE_NAME_ALIAS, eventsTable)),
                   sqlContext.getQuery())
               .map(Row::asMap)
               .map(m -> (RecordFleakData) FleakData.wrap(m))

@@ -54,7 +54,7 @@ public class CaseWhenSelectsTest {
                                 WHEN id = 1 THEN 'One'
                                 ELSE 'Other'
                             END AS id_description
-                        FROM events;
+                        FROM records;
                         """),
         Arguments.of(
             """
@@ -67,7 +67,7 @@ public class CaseWhenSelectsTest {
                                 WHEN LENGTH(name) > 3 THEN 'Long Name'
                                 ELSE 'Short or Unmatched'
                             END AS name_analysis
-                        FROM events;
+                        FROM records;
                         """),
         Arguments.of(
             """
@@ -78,7 +78,7 @@ public class CaseWhenSelectsTest {
                             CASE
                                 WHEN id > 1 OR name LIKE '%f' THEN 'ID greater than 1 or ends with f'
                             END AS comparison_test
-                        FROM events;
+                        FROM records;
                         """),
         Arguments.of(
             """
@@ -90,7 +90,7 @@ public class CaseWhenSelectsTest {
                                 WHEN id = 1 AND LENGTH(name) = 3 AND name LIKE '%i' THEN 'Specific Match'
                                 ELSE 'No Match'
                             END AS multi_condition_test
-                        FROM events;
+                        FROM records;
                         """),
         Arguments.of(
             """
@@ -105,7 +105,7 @@ public class CaseWhenSelectsTest {
                                 WHEN id > 1 THEN 'Condition 4 Met'
                                 ELSE 'No Conditions Met'
                             END AS multiple_when_test
-                        FROM events;
+                        FROM records;
                         """),
         Arguments.of(
             """
@@ -118,7 +118,7 @@ public class CaseWhenSelectsTest {
                         WHEN id * 2 = 4 THEN 'ID times 2 equals 4'
                         ELSE 'No Match'
                     END AS arithmetic_test
-                FROM events;
+                FROM records;
                 """),
         Arguments.of(
             """
@@ -131,7 +131,7 @@ public class CaseWhenSelectsTest {
                         WHEN bla * 2 = 4 THEN 'ID times 2 equals 4'
                         ELSE 'No Match'
                     END AS arithmetic_test
-                FROM events;
+                FROM records;
                 """));
   }
 
@@ -139,7 +139,7 @@ public class CaseWhenSelectsTest {
   public void caseWhenSimpleSelect() {
     var rows =
         runSQL(
-                "select case when name like 'ab%' then 1 when name like 'ed%' then 2 else 3 end col1 from events")
+                "select case when name like 'ab%' then 1 when name like 'ed%' then 2 else 3 end col1 from records")
             .toList();
     assertEquals(3, rows.size());
 
@@ -151,7 +151,7 @@ public class CaseWhenSelectsTest {
 
   @Test
   public void caseWhenSimpleSelect2() {
-    var rows = runSQL("select case when 1 then 0 end col1 from events").toList();
+    var rows = runSQL("select case when 1 then 0 end col1 from records").toList();
     assertEquals(3, rows.size());
 
     for (var row : rows) {
@@ -162,7 +162,8 @@ public class CaseWhenSelectsTest {
   @Test
   public void caseWhenSimpleWhere() {
     var rows =
-        runSQL("select 1 col1 from events where case when name like 'abc' then true else false end")
+        runSQL(
+                "select 1 col1 from records where case when name like 'abc' then true else false end")
             .toList();
     assertEquals(1, rows.size());
 
@@ -178,10 +179,10 @@ public class CaseWhenSelectsTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         of("name", "abc", "id", 1),
                         of("name", "edf", "id", 1),
@@ -223,11 +224,12 @@ public class CaseWhenSelectsTest {
                   order_amount,
                   device_age,
                   case when seller_ip != ip then seller_ip else 'test' end as real_ip
-                FROM events;
+                FROM records;
                 """;
     var res =
         TestSQLUtils.runSQL(
-            Catalog.fromMap(of("events", Table.ofListOfMaps(typeSystem, "events", List.of(data)))),
+            Catalog.fromMap(
+                of("records", Table.ofListOfMaps(typeSystem, "records", List.of(data)))),
             sql);
 
     var realIp = res.map(r -> r.asMap().get("real_ip")).findFirst();
@@ -246,11 +248,12 @@ public class CaseWhenSelectsTest {
                     WHEN seller_ip IS NOT NULL AND seller_ip != ip THEN seller_ip
                     ELSE ip
                   END as real_ip
-                FROM events
+                FROM records
                 """;
     var res2 =
         TestSQLUtils.runSQL(
-            Catalog.fromMap(of("events", Table.ofListOfMaps(typeSystem, "events", List.of(data)))),
+            Catalog.fromMap(
+                of("records", Table.ofListOfMaps(typeSystem, "records", List.of(data)))),
             sql2);
     res2.map(row -> JsonUtils.toJsonString(row.asMap())).forEach(System.out::println);
   }

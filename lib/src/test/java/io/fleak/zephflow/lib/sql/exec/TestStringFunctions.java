@@ -102,7 +102,7 @@ public class TestStringFunctions {
 
   @Test
   public void testStringAgg() {
-    var rows = runSQL("select string_agg(name, ', ') as col1 from events").toList();
+    var rows = runSQL("select string_agg(name, ', ') as col1 from records").toList();
     Assertions.assertEquals(1, rows.size());
     Assertions.assertEquals("abc, edf, ghi", rows.get(0).asMap().get("col1"));
   }
@@ -184,10 +184,10 @@ public class TestStringFunctions {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 2),

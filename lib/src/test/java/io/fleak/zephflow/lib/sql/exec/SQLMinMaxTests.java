@@ -32,15 +32,15 @@ public class SQLMinMaxTests {
         TestSQLUtils.runSQL(
             Catalog.fromMap(
                 Map.of(
-                    "events",
+                    "records",
                     Table.ofListOfMaps(
                         typeSystem,
-                        "events",
+                        "records",
                         List.of(
                             Map.of("name", "abc", "age", 10),
                             Map.of("name", "abc", "age", 20),
                             Map.of("name", "abc", "age", 30))))),
-            "select max(age) as age from events group by name");
+            "select max(age) as age from records group by name");
 
     var maxAgeEntry =
         Arrays.stream(res.findFirst().get().getEntries())
@@ -61,15 +61,15 @@ public class SQLMinMaxTests {
         TestSQLUtils.runSQL(
             Catalog.fromMap(
                 Map.of(
-                    "events",
+                    "records",
                     Table.ofListOfMaps(
                         typeSystem,
-                        "events",
+                        "records",
                         List.of(
                             Map.of("name", "abc", "age", 10),
                             Map.of("name", "abc", "age", 20),
                             Map.of("name", "abc", "age", 30))))),
-            "select min(age) as age from events group by name");
+            "select min(age) as age from records group by name");
 
     var maxAgeEntry =
         Arrays.stream(res.findFirst().get().getEntries())

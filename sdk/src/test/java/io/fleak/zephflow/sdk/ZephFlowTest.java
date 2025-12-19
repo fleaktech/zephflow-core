@@ -119,7 +119,7 @@ public class ZephFlowTest {
     ZephFlow oddFlow =
         inputFlow
             .filter("$.num%2 == 1") // Apply condition for odd numbers
-            .sql("SELECT num, 'odd' AS type FROM events;");
+            .sql("SELECT num, 'odd' AS type FROM records;");
 
     // Direct connection from input to output for all events
     // No condition needed for this path
@@ -182,10 +182,10 @@ public class ZephFlowTest {
   @Test
   public void testProcess() {
     ZephFlow zephFlow = ZephFlow.startFlow();
-    ZephFlow br1 = zephFlow.sql("select * from events");
-    ZephFlow br2 = zephFlow.sql("select test1 from events");
+    ZephFlow br1 = zephFlow.sql("select * from records");
+    ZephFlow br2 = zephFlow.sql("select test1 from records");
     ZephFlow output =
-        ZephFlow.merge(br1, br2).sql("select * from events").sql("select * from events");
+        ZephFlow.merge(br1, br2).sql("select * from records").sql("select * from records");
     DagResult dagResult =
         output.process(
             List.of(
@@ -685,7 +685,7 @@ public class ZephFlowTest {
     ZephFlow oddFlow =
         inputFlow
             .filter("$.num%2 == 1") // Apply condition for odd numbers
-            .sql("SELECT num, 'odd' AS type FROM events;");
+            .sql("SELECT num, 'odd' AS type FROM records;");
     ZephFlow merge1 = ZephFlow.merge(evenFlow, oddFlow);
     ZephFlow merge2 = ZephFlow.merge(merge1, inputFlow);
     ZephFlow outputFlow = merge2.stdoutSink(EncodingType.JSON_OBJECT);
@@ -707,7 +707,7 @@ public class ZephFlowTest {
     ZephFlow oddFlow =
         merge0
             .filter("$.num%2 == 1") // Apply condition for odd numbers
-            .sql("SELECT num, 'odd' AS type FROM events;");
+            .sql("SELECT num, 'odd' AS type FROM records;");
     ZephFlow merge1 = ZephFlow.merge(evenFlow, oddFlow);
     ZephFlow merge2 = ZephFlow.merge(merge1, inputFlow);
     ZephFlow outputFlow = merge2.stdoutSink(EncodingType.JSON_OBJECT);

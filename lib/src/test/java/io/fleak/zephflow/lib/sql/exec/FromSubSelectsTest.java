@@ -25,14 +25,14 @@ public class FromSubSelectsTest {
 
   @Test
   public void simpleSubSelectInFrom() {
-    var rows = runSQL("select * from events, (select * from ids) ids").toList();
+    var rows = runSQL("select * from records, (select * from ids) ids").toList();
     Assertions.assertEquals(6, rows.size());
   }
 
   @Test
   public void correlatedSubSelectInFrom() {
     var rows =
-        runSQL("select * from events, lateral (select * from ids where events.id = ids.id) ids")
+        runSQL("select * from records, lateral (select * from ids where records.id = ids.id) ids")
             .toList();
     Assertions.assertEquals(3, rows.size());
   }
@@ -44,10 +44,10 @@ public class FromSubSelectsTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 1),

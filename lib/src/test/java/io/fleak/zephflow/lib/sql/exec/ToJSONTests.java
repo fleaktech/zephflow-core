@@ -24,7 +24,7 @@ public class ToJSONTests {
 
   @Test
   public void testJsonCast() {
-    var row = runSQL("select stringified_json::json as dat from events").toList().get(0);
+    var row = runSQL("select stringified_json::json as dat from records").toList().get(0);
 
     System.out.println(row);
   }
@@ -39,9 +39,9 @@ public class ToJSONTests {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
-                    typeSystem, "events", List.of(Map.of("stringified_json", "{\"k\":100}"))))),
+                    typeSystem, "records", List.of(Map.of("stringified_json", "{\"k\":100}"))))),
         sql);
   }
 }

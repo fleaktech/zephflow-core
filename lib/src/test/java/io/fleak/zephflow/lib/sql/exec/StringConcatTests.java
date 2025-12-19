@@ -37,7 +37,7 @@ public class StringConcatTests {
             + "    primary_category,\n"
             + "    published,\n"
             + "    updated\n"
-            + "FROM events";
+            + "FROM records";
     System.out.println("SQL: \n" + sql);
     var rows = runSQL(sql).toList();
     Assertions.assertEquals(1, rows.size());
@@ -51,7 +51,7 @@ public class StringConcatTests {
 
   @Test
   public void testLookupAndStringConcat() {
-    var rows = runSQL("select id::text || 'test' from EventS").toList();
+    var rows = runSQL("select id::text || 'test' from RecordS").toList();
     Assertions.assertEquals(1, rows.size());
 
     for (var row : rows) {
@@ -65,7 +65,7 @@ public class StringConcatTests {
 
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
-            Map.of("events", Table.ofListOfMaps(typeSystem, "events", List.of(getJSONEvent())))),
+            Map.of("records", Table.ofListOfMaps(typeSystem, "records", List.of(getJSONEvent())))),
         sql);
   }
 

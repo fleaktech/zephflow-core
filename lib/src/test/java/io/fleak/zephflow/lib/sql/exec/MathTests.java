@@ -194,10 +194,10 @@ public class MathTests {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 2),
