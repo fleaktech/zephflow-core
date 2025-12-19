@@ -91,9 +91,8 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
    * Validates if a record can be written.
    *
    * @param record The record to validate
-   * @return true if the record can be written
    */
-  protected abstract boolean canWriteRecord(T record);
+  protected abstract void ensureCanWriteRecord(T record) throws Exception;
 
   // ===== HOOK METHODS (Subclasses can override) =====
 
@@ -402,11 +401,12 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
     for (int i = 0; i < batch.size(); i++) {
       Pair<RecordFleakData, T> pair = batch.get(i);
-      if (canWriteRecord(pair.getRight())) {
+      try {
+        ensureCanWriteRecord(pair.getRight());
         goodRecords.add(pair);
-      } else {
-        log.warn("Record {} failed validation in recovery mode", i);
-        errors.add(new ErrorOutput(pair.getLeft(), "Record validation failed"));
+      } catch (Exception e) {
+        log.warn("Record {} failed validation in recovery mode", i, e);
+        errors.add(new ErrorOutput(pair.getLeft(), "Record validation failed: " + e.getMessage()));
       }
     }
 
