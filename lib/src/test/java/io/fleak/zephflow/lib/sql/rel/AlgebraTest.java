@@ -27,7 +27,7 @@ public class AlgebraTest {
   @Test
   public void testSubSelectInFromAlgebra() {
 
-    var sql = "select * from (select * from events) e;";
+    var sql = "select * from (select * from records) e;";
 
     var translation =
         QueryTranslator.translate(QueryASTParser.astParser().parseSelectStatement(sql));

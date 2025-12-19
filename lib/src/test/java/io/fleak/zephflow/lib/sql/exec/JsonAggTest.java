@@ -28,7 +28,7 @@ public class JsonAggTest {
   public void aggWithJsonBuildObj() {
     var rows =
         runSQL(
-                "select json_agg(json_build_object('name', name, 'ord', id)) objects from events group by 1")
+                "select json_agg(json_build_object('name', name, 'ord', id)) objects from records group by 1")
             .toList();
     Assertions.assertEquals(1, rows.size());
 
@@ -53,10 +53,10 @@ public class JsonAggTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 1),
