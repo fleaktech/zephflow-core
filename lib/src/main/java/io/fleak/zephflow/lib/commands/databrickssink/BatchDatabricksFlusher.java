@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.databrickssink;
 
 import com.databricks.sdk.WorkspaceClient;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
@@ -120,13 +121,11 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   }
 
   @Override
-  protected boolean canWriteRecord(Map<String, Object> record) {
-    if (record == null) return false;
+  protected void ensureCanWriteRecord(Map<String, Object> record) throws Exception {
+    Preconditions.checkNotNull(record, "Record is null");
+    //noinspection EmptyTryBlock
     try (var ignored = DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), schema)) {
-      return true;
-    } catch (Exception e) {
-      log.debug("Record validation failed: {}", e.getMessage());
-      return false;
+      // noop
     }
   }
 
@@ -313,12 +312,15 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     // Phase 1: Filter - identify good vs bad records by testing each individually
     for (int i = 0; i < batch.size(); i++) {
       Pair<RecordFleakData, Map<String, Object>> pair = batch.get(i);
-      if (canWriteRecord(pair.getRight())) {
+      try {
+        ensureCanWriteRecord(pair.getRight());
         goodRecords.add(pair);
-      } else {
-        log.warn("Record {} failed validation in recovery mode", i);
+      } catch (Exception e) {
+        log.warn("Record {} failed validation in recovery mode", i, e);
         errors.add(
-            new ErrorOutput(pair.getLeft(), "Parquet conversion failed: record validation error"));
+            new ErrorOutput(
+                pair.getLeft(),
+                "Parquet conversion failed: record validation error" + e.getMessage()));
       }
     }
 
