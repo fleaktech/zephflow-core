@@ -51,9 +51,9 @@ public class NoFromClauseTests {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
-                    typeSystem, "events", List.of(Map.of("name", "abc", "age", 30))))),
+                    typeSystem, "records", List.of(Map.of("name", "abc", "age", 30))))),
         sql);
   }
 }

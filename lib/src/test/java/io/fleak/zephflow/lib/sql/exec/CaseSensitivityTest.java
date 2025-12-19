@@ -26,7 +26,7 @@ public class CaseSensitivityTest {
 
   @Test
   public void caseTables() {
-    var rows = runSQL("select id col1 from EventS").toList();
+    var rows = runSQL("select id col1 from RecordS").toList();
     Assertions.assertEquals(3, rows.size());
 
     var resultSet = Set.of(1, 2, 3);
@@ -37,7 +37,7 @@ public class CaseSensitivityTest {
 
   @Test
   public void caseColumns() {
-    var rows = runSQL("select Id col1 from events").toList();
+    var rows = runSQL("select Id col1 from records").toList();
     Assertions.assertEquals(3, rows.size());
 
     var resultSet = Set.of(1, 2, 3);
@@ -53,10 +53,10 @@ public class CaseSensitivityTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 1),

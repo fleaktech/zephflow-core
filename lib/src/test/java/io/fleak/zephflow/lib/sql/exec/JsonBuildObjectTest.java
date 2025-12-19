@@ -27,7 +27,7 @@ public class JsonBuildObjectTest {
   public void buildObject1() {
     var rows =
         runSQL(
-                "select json_build_object('schedule_id', '1ffacd6c-c813-4f57-9dcb-ffcc2d208030', 'owner_team', '', 'rotations', 'test') from events")
+                "select json_build_object('schedule_id', '1ffacd6c-c813-4f57-9dcb-ffcc2d208030', 'owner_team', '', 'rotations', 'test') from records")
             .toList();
 
     for (var row : rows) {
@@ -37,7 +37,7 @@ public class JsonBuildObjectTest {
 
   @Test
   public void buildObject2() {
-    var rows = runSQL("select json_build_object('user', user) user from events").toList();
+    var rows = runSQL("select json_build_object('user', user) user from records").toList();
 
     for (var row : rows) {
       Assertions.assertTrue(row.asMap().get("user") instanceof Map);
@@ -51,10 +51,10 @@ public class JsonBuildObjectTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1, "user", Map.of("name", "abc")),
                         Map.of("name", "edf", "id", 1, "user", Map.of("name", "edf")),

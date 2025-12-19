@@ -36,7 +36,7 @@ public class StringAggTest {
      */
     var sql =
         "SELECT string_agg(matches -> 'metadata'->'text'::text, ',') AS context\n"
-            + "        FROM events, json_array_elements(query_output -> 'matchList') AS matches";
+            + "        FROM records, json_array_elements(query_output -> 'matchList') AS matches";
 
     var sqlInterpreter = SQLInterpreter.defaultInterpreter();
     var typeSystem = sqlInterpreter.getTypeSystem();
@@ -45,7 +45,7 @@ public class StringAggTest {
     var rows =
         TestSQLUtils.runSQL(
             Catalog.fromMap(
-                Map.of("events", Table.ofListOfMaps(typeSystem, "events", List.of(events)))),
+                Map.of("records", Table.ofListOfMaps(typeSystem, "records", List.of(events)))),
             sql);
 
     Assertions.assertEquals(1, rows.toList().size());
@@ -58,10 +58,10 @@ public class StringAggTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("log_entry", "127.0.0.1 - GET /index.html HTTP/1.1"),
                         Map.of("log_entry", "192.168.1.1 - - [26/Mar/2023:10:00:00 +0000]"),

@@ -27,7 +27,7 @@ public class ToStringTests {
 
   @Test
   public void testMapToString() {
-    var row = runSQL("select family::text as family from events").toList().get(0);
+    var row = runSQL("select family::text as family from records").toList().get(0);
 
     var family =
         JsonUtils.fromJsonString(row.asMap().get("family").toString(), new TypeReference<>() {});
@@ -44,10 +44,10 @@ public class ToStringTests {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of(
                             "family",
