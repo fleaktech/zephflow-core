@@ -13,29 +13,33 @@
  */
 package io.fleak.zephflow.api.metric;
 
+import com.influxdb.client.InfluxDBClient;
+import com.influxdb.client.WriteApiBlocking;
+import com.influxdb.client.domain.WritePrecision;
+import com.influxdb.client.write.Point;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.influxdb.InfluxDB;
-import org.influxdb.dto.BatchPoints;
-import org.influxdb.dto.Point;
 
 @Slf4j
 public class InfluxDBMetricSender implements AutoCloseable {
 
-  private final InfluxDB influxDB;
-  private final String database;
+  private final InfluxDBClient influxDBClient;
+  private final WriteApiBlocking writeApi;
+  private final String organization;
+  private final String bucket;
   private final String measurementName;
-  private final String retentionPolicy;
 
-  public InfluxDBMetricSender(InfluxDBConfig config, InfluxDB influxDB) {
-    this.database = config.getDatabase();
+  public InfluxDBMetricSender(InfluxDBConfig config, InfluxDBClient influxDBClient) {
+    this.organization = config.getOrg();
+    this.bucket = config.getBucket();
     this.measurementName = config.getMeasurement();
-    this.influxDB = influxDB;
-    this.retentionPolicy = config.getRetentionPolicy();
-    log.info("InfluxDB Metric Sender initialized with config: {}", config);
+    this.influxDBClient = influxDBClient;
+    this.writeApi = influxDBClient.getWriteApiBlocking();
+    log.info("InfluxDB 2.x Metric Sender initialized with config: {}", config);
   }
 
   public void sendMetric(
@@ -58,16 +62,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
 
   private void writePointToInfluxDB(String fieldName, Object value, Map<String, String> tags) {
     Point point = createPoint(fieldName, value, tags, System.currentTimeMillis());
-    BatchPoints.Builder batchBuilder = BatchPoints.database(database);
-
-    if (retentionPolicy != null && !retentionPolicy.isEmpty()) {
-      batchBuilder.retentionPolicy(retentionPolicy);
-      log.debug("Using retention policy: {}", retentionPolicy);
-    }
-
-    BatchPoints batchPoints = batchBuilder.build();
-    batchPoints.point(point);
-    influxDB.write(batchPoints);
+    writeApi.writePoint(bucket, organization, point);
   }
 
   private Map<String, String> mergeTags(
@@ -105,73 +100,65 @@ public class InfluxDBMetricSender implements AutoCloseable {
       Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
       addEnvironmentTags(allTags);
 
-      BatchPoints.Builder batchBuilder = BatchPoints.database(database);
-      if (retentionPolicy != null && !retentionPolicy.isEmpty()) {
-        batchBuilder.retentionPolicy(retentionPolicy);
-        log.debug("Using retention policy: {}", retentionPolicy);
-      }
-
-      BatchPoints batchPoints = batchBuilder.build();
-
+      List<Point> points = new ArrayList<>();
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
         Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestamp);
-        batchPoints.point(point);
+        points.add(point);
       }
 
-      influxDB.write(batchPoints);
+      writeApi.writePoints(bucket, organization, points);
       log.debug(
-          "Sent batch of {} metrics to InfluxDB with timestamp {}", metrics.size(), timestamp);
+          "Sent batch of {} metrics to InfluxDB 2.x with timestamp {}", metrics.size(), timestamp);
     } catch (Exception e) {
-      log.warn("Error sending batch metrics to InfluxDB with timestamp", e);
+      log.warn("Error sending batch metrics to InfluxDB 2.x with timestamp", e);
     }
   }
 
   private Point createPoint(
       String fieldName, Object value, Map<String, String> allTags, long timestamp) {
-    Point.Builder pointBuilder =
-        Point.measurement(measurementName).time(timestamp, TimeUnit.MILLISECONDS);
+    Point point = Point.measurement(measurementName).time(timestamp, WritePrecision.MS);
 
     // Add tags
     for (Map.Entry<String, String> tag : allTags.entrySet()) {
       String tagKey = tag.getKey() != null ? tag.getKey() : "";
       String tagValue = tag.getValue() != null ? tag.getValue() : "";
-      pointBuilder.tag(tagKey, tagValue);
+      point.addTag(tagKey, tagValue);
     }
 
     // Add field
     if (value instanceof Number) {
-      pointBuilder.addField(fieldName, (Number) value);
+      if (value instanceof Double || value instanceof Float) {
+        point.addField(fieldName, ((Number) value).doubleValue());
+      } else {
+        point.addField(fieldName, ((Number) value).longValue());
+      }
     } else if (value instanceof Boolean) {
-      pointBuilder.addField(fieldName, (Boolean) value);
+      point.addField(fieldName, (Boolean) value);
     } else {
-      pointBuilder.addField(fieldName, value.toString());
+      point.addField(fieldName, value.toString());
     }
 
-    return pointBuilder.build();
+    return point;
   }
 
   @Override
   public void close() {
     try {
-      if (influxDB != null) {
-        influxDB.disableBatch();
-        log.debug("InfluxDB batch mode disabled");
-
-        influxDB.close();
-        log.debug("InfluxDB client closed");
+      if (influxDBClient != null) {
+        influxDBClient.close();
+        log.debug("InfluxDB 2.x client closed");
       }
     } catch (Exception e) {
-      log.warn("Error closing InfluxDB client", e);
+      log.warn("Error closing InfluxDB 2.x client", e);
     }
   }
 
   @Data
   public static class InfluxDBConfig {
     private String url;
-    private String database;
+    private String org;
+    private String bucket;
     private String measurement;
-    private String username;
-    private String password;
-    private String retentionPolicy;
+    private String token;
   }
 }

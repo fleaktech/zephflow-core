@@ -25,7 +25,7 @@ springdoc = "3.0.0"
 hamcrest = "3.0"
 log4j2 = "2.24.3"
 graalvm = "25.0.1"
-influxdb = "2.23"
+influxdb = "7.2.0"
 clickhouse = "0.9.4"
 hadoop = "3.4.0"
 databricksSdk = "0.72.0"
@@ -72,7 +72,7 @@ log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", ver
 
 opensearch-grok = { module = "org.opensearch:opensearch-grok", version.ref = "opensearchGrok" }
 
-influxdb-java = { module = "org.influxdb:influxdb-java", version.ref = "influxdb" }
+influxdb-client-java = { module = "com.influxdb:influxdb-client-java", version.ref = "influxdb" }
 
 aws-s3 = { module = "software.amazon.awssdk:s3", version.ref = "aws" }
 aws-kinesis = { module = "software.amazon.awssdk:kinesis", version.ref = "aws" }
