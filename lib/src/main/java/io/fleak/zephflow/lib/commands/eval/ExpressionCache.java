@@ -17,7 +17,9 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.normalizeStrLiteral;
 
 import io.fleak.zephflow.lib.antlr.EvalExpressionLexer;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -42,6 +44,22 @@ public class ExpressionCache {
 
   // Cache for dict keys
   private final Map<EvalExpressionParser.DictKeyContext, String> dictKeys = new IdentityHashMap<>();
+
+  // Cache for context lists to avoid repeated getRuleContexts() calls
+  private final Map<EvalExpressionParser.PrimaryContext, List<EvalExpressionParser.StepContext>>
+      primarySteps = new IdentityHashMap<>();
+  private final Map<
+          EvalExpressionParser.PathSelectExprContext, List<EvalExpressionParser.StepContext>>
+      pathSelectSteps = new IdentityHashMap<>();
+  private final Map<
+          EvalExpressionParser.DictExpressionContext, List<EvalExpressionParser.KvPairContext>>
+      dictKvPairs = new IdentityHashMap<>();
+  private final Map<
+          EvalExpressionParser.CaseExpressionContext, List<EvalExpressionParser.WhenClauseContext>>
+      caseWhenClauses = new IdentityHashMap<>();
+  private final Map<
+          EvalExpressionParser.ArgumentsContext, List<EvalExpressionParser.ExpressionContext>>
+      argumentExpressions = new IdentityHashMap<>();
 
   private ExpressionCache() {}
 
@@ -84,6 +102,38 @@ public class ExpressionCache {
     // Cache dict key context
     if (tree instanceof EvalExpressionParser.DictKeyContext dictKeyCtx) {
       dictKeys.put(dictKeyCtx, dictKeyCtx.getText());
+    }
+
+    // Cache context lists to avoid repeated getRuleContexts() calls
+    if (tree instanceof EvalExpressionParser.PrimaryContext ctx) {
+      List<EvalExpressionParser.StepContext> steps = ctx.step();
+      if (steps != null) {
+        primarySteps.put(ctx, steps);
+      }
+    }
+    if (tree instanceof EvalExpressionParser.PathSelectExprContext ctx) {
+      List<EvalExpressionParser.StepContext> steps = ctx.step();
+      if (steps != null) {
+        pathSelectSteps.put(ctx, steps);
+      }
+    }
+    if (tree instanceof EvalExpressionParser.DictExpressionContext ctx) {
+      List<EvalExpressionParser.KvPairContext> kvPairs = ctx.kvPair();
+      if (kvPairs != null) {
+        dictKvPairs.put(ctx, kvPairs);
+      }
+    }
+    if (tree instanceof EvalExpressionParser.CaseExpressionContext ctx) {
+      List<EvalExpressionParser.WhenClauseContext> whenClauses = ctx.whenClause();
+      if (whenClauses != null) {
+        caseWhenClauses.put(ctx, whenClauses);
+      }
+    }
+    if (tree instanceof EvalExpressionParser.ArgumentsContext ctx) {
+      List<EvalExpressionParser.ExpressionContext> expressions = ctx.expression();
+      if (expressions != null) {
+        argumentExpressions.put(ctx, expressions);
+      }
     }
 
     // Recursively process children
@@ -156,5 +206,59 @@ public class ExpressionCache {
    */
   public String getDictKey(EvalExpressionParser.DictKeyContext ctx) {
     return dictKeys.get(ctx);
+  }
+
+  /**
+   * Get cached steps for a PrimaryContext.
+   *
+   * @param ctx the primary context
+   * @return the list of steps, or empty list if not cached
+   */
+  public List<EvalExpressionParser.StepContext> getSteps(EvalExpressionParser.PrimaryContext ctx) {
+    return primarySteps.getOrDefault(ctx, Collections.emptyList());
+  }
+
+  /**
+   * Get cached steps for a PathSelectExprContext.
+   *
+   * @param ctx the path select expression context
+   * @return the list of steps, or empty list if not cached
+   */
+  public List<EvalExpressionParser.StepContext> getSteps(
+      EvalExpressionParser.PathSelectExprContext ctx) {
+    return pathSelectSteps.getOrDefault(ctx, Collections.emptyList());
+  }
+
+  /**
+   * Get cached kvPairs for a DictExpressionContext.
+   *
+   * @param ctx the dict expression context
+   * @return the list of kvPairs, or empty list if not cached
+   */
+  public List<EvalExpressionParser.KvPairContext> getKvPairs(
+      EvalExpressionParser.DictExpressionContext ctx) {
+    return dictKvPairs.getOrDefault(ctx, Collections.emptyList());
+  }
+
+  /**
+   * Get cached whenClauses for a CaseExpressionContext.
+   *
+   * @param ctx the case expression context
+   * @return the list of whenClauses, or empty list if not cached
+   */
+  public List<EvalExpressionParser.WhenClauseContext> getWhenClauses(
+      EvalExpressionParser.CaseExpressionContext ctx) {
+    return caseWhenClauses.getOrDefault(ctx, Collections.emptyList());
+  }
+
+  /**
+   * Get cached expressions for an ArgumentsContext.
+   *
+   * @param ctx the arguments context
+   * @return the list of expressions, or empty list if not cached
+   */
+  public List<EvalExpressionParser.ExpressionContext> getExpressions(
+      EvalExpressionParser.ArgumentsContext ctx) {
+    return argumentExpressions.getOrDefault(ctx, Collections.emptyList());
   }
 }

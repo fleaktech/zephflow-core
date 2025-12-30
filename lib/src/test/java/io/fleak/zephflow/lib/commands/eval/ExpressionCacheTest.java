@@ -170,4 +170,73 @@ dict(
 
     assertEquals(true, result.unwrap());
   }
+
+  @Test
+  void testCacheStepsForDeepPathExpression() {
+    String expression = "$.level1.level2.level3.level4";
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(expression, AntlrUtils.GrammarType.EVAL);
+    EvalExpressionParser.LanguageContext ctx = parser.language();
+
+    ExpressionCache cache = ExpressionCache.build(ctx);
+
+    FleakData input =
+        FleakData.wrap(Map.of("level1", Map.of("level2", Map.of("level3", Map.of("level4", 42)))));
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(input, null, cache);
+    FleakData result = visitor.visit(ctx);
+
+    assertEquals(42L, result.unwrap());
+  }
+
+  @Test
+  void testCacheDictKvPairs() {
+    String expression = "dict(a=1, b=2, c=3, d=4, e=5)";
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(expression, AntlrUtils.GrammarType.EVAL);
+    EvalExpressionParser.LanguageContext ctx = parser.language();
+
+    ExpressionCache cache = ExpressionCache.build(ctx);
+
+    ExpressionValueVisitor visitor =
+        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), null, cache);
+    FleakData result = visitor.visit(ctx);
+
+    Map<String, Object> expected = Map.of("a", 1L, "b", 2L, "c", 3L, "d", 4L, "e", 5L);
+    assertEquals(expected, result.unwrap());
+  }
+
+  @Test
+  void testCacheCaseWhenClauses() {
+    String expression =
+        "case($.val == 1 => 'one', $.val == 2 => 'two', $.val == 3 => 'three', _ => 'other')";
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(expression, AntlrUtils.GrammarType.EVAL);
+    EvalExpressionParser.LanguageContext ctx = parser.language();
+
+    ExpressionCache cache = ExpressionCache.build(ctx);
+
+    FleakData input1 = FleakData.wrap(Map.of("val", 2));
+    ExpressionValueVisitor visitor1 = ExpressionValueVisitor.createInstance(input1, null, cache);
+    assertEquals("two", visitor1.visit(ctx).unwrap());
+
+    FleakData input2 = FleakData.wrap(Map.of("val", 99));
+    ExpressionValueVisitor visitor2 = ExpressionValueVisitor.createInstance(input2, null, cache);
+    assertEquals("other", visitor2.visit(ctx).unwrap());
+  }
+
+  @Test
+  void testCacheArgumentExpressions() {
+    String expression = "array('a', 'b', 'c', 'd', 'e')";
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(expression, AntlrUtils.GrammarType.EVAL);
+    EvalExpressionParser.LanguageContext ctx = parser.language();
+
+    ExpressionCache cache = ExpressionCache.build(ctx);
+
+    ExpressionValueVisitor visitor =
+        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), null, cache);
+    FleakData result = visitor.visit(ctx);
+
+    assertEquals(List.of("a", "b", "c", "d", "e"), result.unwrap());
+  }
 }

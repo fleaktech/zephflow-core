@@ -156,8 +156,9 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
     }
 
     // Apply any steps if present (like field access: elem.operation_system)
-    if (ctx.step() != null && !ctx.step().isEmpty()) {
-      for (EvalExpressionParser.StepContext stepCtx : ctx.step()) {
+    List<EvalExpressionParser.StepContext> steps = cache != null ? cache.getSteps(ctx) : ctx.step();
+    if (steps != null && !steps.isEmpty()) {
+      for (EvalExpressionParser.StepContext stepCtx : steps) {
         value = applyStep(value, stepCtx);
         if (value == null) {
           return null;
@@ -212,7 +213,9 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
     }
 
     List<EvalExpressionParser.ExpressionContext> args =
-        ctx.arguments() != null ? ctx.arguments().expression() : Collections.emptyList();
+        cache != null && ctx.arguments() != null
+            ? cache.getExpressions(ctx.arguments())
+            : (ctx.arguments() != null ? ctx.arguments().expression() : Collections.emptyList());
 
     // Special handling for Python function which needs context for pre-compilation lookup
     if ("python".equals(functionName) && feelFunction instanceof FeelFunction.PythonFunction) {
@@ -224,12 +227,14 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   @Override
   public FleakData visitDictExpression(EvalExpressionParser.DictExpressionContext ctx) {
-    if (ctx.kvPair() == null || ctx.kvPair().isEmpty()) {
+    List<EvalExpressionParser.KvPairContext> kvPairs =
+        cache != null ? cache.getKvPairs(ctx) : ctx.kvPair();
+    if (kvPairs == null || kvPairs.isEmpty()) {
       return new RecordFleakData();
     }
 
     Map<String, FleakData> payload = new HashMap<>();
-    for (EvalExpressionParser.KvPairContext kvPairCtx : ctx.kvPair()) {
+    for (EvalExpressionParser.KvPairContext kvPairCtx : kvPairs) {
       // Use cached dict key if available
       EvalExpressionParser.DictKeyContext dictKeyCtx = kvPairCtx.dictKey();
       String key = cache != null ? cache.getDictKey(dictKeyCtx) : null;
@@ -268,12 +273,13 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
   public FleakData visitPathSelectExpr(EvalExpressionParser.PathSelectExprContext ctx) {
     FleakData rooObject = getVariableValue(ROOT_OBJECT_VARIABLE_NAME);
 
-    if (CollectionUtils.isEmpty(ctx.step())) {
+    List<EvalExpressionParser.StepContext> steps = cache != null ? cache.getSteps(ctx) : ctx.step();
+    if (CollectionUtils.isEmpty(steps)) {
       return rooObject;
     }
 
     FleakData value = rooObject;
-    for (EvalExpressionParser.StepContext stepCtx : ctx.step()) {
+    for (EvalExpressionParser.StepContext stepCtx : steps) {
       value = applyStep(value, stepCtx);
     }
     return value;
@@ -281,7 +287,9 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   @Override
   public FleakData visitCaseExpression(EvalExpressionParser.CaseExpressionContext ctx) {
-    for (var whenClause : ctx.whenClause()) {
+    List<EvalExpressionParser.WhenClauseContext> whenClauses =
+        cache != null ? cache.getWhenClauses(ctx) : ctx.whenClause();
+    for (var whenClause : whenClauses) {
       FleakData conditionResult = visit(whenClause.expression(0));
       if (conditionResult != null && conditionResult.isTrueValue()) {
         return visit(whenClause.expression(1));
