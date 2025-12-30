@@ -113,14 +113,14 @@ class DeltaLakeSinkCommandIntegrationTest {
     when(preparedEvents.preparedList()).thenReturn(List.of(testData));
     when(preparedEvents.rawAndPreparedList()).thenReturn(List.of(Pair.of(mockEvent, testData)));
 
-    // Test flush operation - should fail because table doesn't exist
+    // Test flush operation - should succeed since table exists with matching schema
     SimpleSinkCommand.FlushResult result = writer.flush(preparedEvents, Map.of());
 
-    // Verify error behavior - table doesn't exist so write should fail
+    // Verify successful write
     assertNotNull(result);
-    assertEquals(0, result.successCount()); // No successful writes
-    assertEquals(0, result.flushedDataSize()); // No data written
-    assertFalse(result.errorOutputList().isEmpty()); // Should have errors
+    assertEquals(1, result.successCount()); // One record written
+    assertTrue(result.flushedDataSize() > 0); // Data was written
+    assertTrue(result.errorOutputList().isEmpty()); // No errors
 
     // Clean up
     writer.close();

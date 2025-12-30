@@ -27,7 +27,7 @@ public class DistinctAggregateTest {
   public void uniqueAggregates() {
     var rows =
         runSQL(
-                "select sum(distinct id) uq_sum, count(distinct id) uq_count, sum(id) sum, count(id) count from events group by 1")
+                "select sum(distinct id) uq_sum, count(distinct id) uq_count, sum(id) sum, count(id) count from records group by 1")
             .toList();
     Assertions.assertEquals(1, rows.size());
 
@@ -48,7 +48,7 @@ public class DistinctAggregateTest {
 
   @Test
   public void distinctGlobal() {
-    var rows = runSQL("select distinct id from events").toList();
+    var rows = runSQL("select distinct id from records").toList();
     Assertions.assertEquals(2, rows.size());
 
     for (var row : rows) {
@@ -61,7 +61,7 @@ public class DistinctAggregateTest {
 
   @Test
   public void distinctOn1() {
-    var rows = runSQL("select distinct on (id) id, name from events").toList();
+    var rows = runSQL("select distinct on (id) id, name from records").toList();
     Assertions.assertEquals(2, rows.size());
 
     for (var row : rows) {
@@ -74,7 +74,7 @@ public class DistinctAggregateTest {
 
   @Test
   public void distinctOn2() {
-    var rows = runSQL("select distinct on (id, name) id, name from events").toList();
+    var rows = runSQL("select distinct on (id, name) id, name from records").toList();
     Assertions.assertEquals(3, rows.size());
 
     for (var row : rows) {
@@ -92,10 +92,10 @@ public class DistinctAggregateTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 2),

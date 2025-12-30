@@ -67,7 +67,7 @@ public class SQLEvalCommandTest {
   public void testAlphaUseCaseOne() throws IOException {
     RecordFleakData inputEvent =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/eval_alpha_use_case_one.json");
-    String arg = "select content from events";
+    String arg = "select content from records";
     testSqlProcess(
         inputEvent,
         arg,
@@ -87,7 +87,7 @@ public class SQLEvalCommandTest {
                         SELECT
                             article ->> 'text' AS "text"
                         FROM
-                            events,
+                            records,
                             json_array_elements(articles) AS article;
                         """;
     testSqlProcess(
@@ -116,7 +116,7 @@ public class SQLEvalCommandTest {
                   question,
                   string_agg(match->'metadata'->>'text', '$$') AS context
               FROM
-                  events,
+                  records,
                   json_array_elements(news_query_result->'matchList') AS match
               GROUP BY
                   question;
@@ -143,7 +143,7 @@ public class SQLEvalCommandTest {
                   SELECT
                       regexp_split_to_array(data, ',') output
                   FROM
-                      events
+                      records
                   """;
     testSqlProcess(
         inputEvent,
@@ -160,7 +160,7 @@ public class SQLEvalCommandTest {
                   SELECT
                       count(*) c
                   FROM
-                      events,
+                      records,
                       regexp_split_to_table(data, ',')
                   """;
     testSqlProcess(inputEvent, arg, List.of((RecordFleakData) FleakData.wrap(Map.of("c", 4L))));
@@ -171,7 +171,7 @@ public class SQLEvalCommandTest {
     // this input message have `summary` field being null
     RecordFleakData inputEvent =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/str_replace_error2.json");
-    String arg = "select country, 'test' as media from events";
+    String arg = "select country, 'test' as media from records";
     testSqlProcess(
         inputEvent,
         arg,
@@ -182,7 +182,7 @@ public class SQLEvalCommandTest {
   void testSelectColumn2() {
     RecordFleakData inputEvent =
         (RecordFleakData) FleakData.wrap(Map.of("value", 100, "foo", "abc"));
-    String arg = "select value*2 as val2 from events";
+    String arg = "select value*2 as val2 from records";
     testSqlProcess(inputEvent, arg, (RecordFleakData) FleakData.wrap(Map.of("val2", 200L)));
   }
 
@@ -190,7 +190,7 @@ public class SQLEvalCommandTest {
   void testSelectColumWithoutRename() {
     RecordFleakData inputEvent =
         (RecordFleakData) FleakData.wrap(Map.of("value", 100, "foo", "abc"));
-    String argWithoutRename = "select value*2 from events";
+    String argWithoutRename = "select value*2 from records";
     testSqlProcess(
         inputEvent, argWithoutRename, (RecordFleakData) FleakData.wrap(Map.of("col_1", 200L)));
   }
@@ -205,7 +205,7 @@ SELECT
     json_data ->> 'ticker' AS ticker,
     json_data ->> 'label' AS label
 FROM
-    events,
+    records,
     json_array_elements((semtiment_labels->'modelOutputs'->0->>'result')::json) AS json_data;""";
     testSqlProcess(
         recordFleakData,
@@ -236,7 +236,7 @@ SELECT
     embedding_output -> 'embedding' AS embedding,
     json_build_object('text', txt) AS metadata
 FROM
-    events""";
+    records""";
     testSqlProcess(
         inputEvent,
         arg,
@@ -256,9 +256,9 @@ FROM
 
     var sqlQueries =
         new String[] {
-          "select modelOutputs->'result-bla' v from events",
-          "select modelOutputs->>'result-bla' v from events",
-          "select modelOutputs->>'result-bla' v from events",
+          "select modelOutputs->'result-bla' v from records",
+          "select modelOutputs->>'result-bla' v from records",
+          "select modelOutputs->>'result-bla' v from records",
         };
 
     for (var sql : sqlQueries) {
@@ -284,7 +284,7 @@ SELECT
     json_data ->> 'ticker' AS ticker,
     json_data ->> 'label' AS label
 FROM
-    events,
+    records,
     json_array_elements((modelOutputs->0->>'result')::json) AS json_data;
 """;
     SQLEvalCommand sqlEvalCommand = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
@@ -306,7 +306,7 @@ SELECT
     json_data ->> 'ticker' AS ticker,
     json_data ->> 'label' AS label
 FROM
-    events,
+    records,
     json_array_elements((semtiment_labels->'modelOutputs'->0->>'result')::json) AS json_data;""";
     SQLEvalCommand sqlEvalCommand = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
 
@@ -326,21 +326,21 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
   public void testStringLike() throws IOException {
     RecordFleakData inputEvent =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/simple_event.json");
-    String arg = "select * from events where name like 'Rick%';";
+    String arg = "select * from records where name like 'Rick%';";
     testSqlProcess(inputEvent, arg, inputEvent);
   }
 
   @Test
   public void testStringLikeNotMatch() throws IOException {
     var inputEvent = (RecordFleakData) loadFleakDataFromJsonResource("/sql/simple_event.json");
-    var arg = "select * from events where name like 'rick%';";
+    var arg = "select * from records where name like 'rick%';";
     testSqlProcess(inputEvent, arg, (RecordFleakData) null);
   }
 
   @Test
   public void testStringILikeMatch() throws IOException {
     var inputEvent = (RecordFleakData) loadFleakDataFromJsonResource("/sql/simple_event.json");
-    var arg = "select * from events where name ilike 'rick%';";
+    var arg = "select * from records where name ilike 'rick%';";
     testSqlProcess(inputEvent, arg, inputEvent);
   }
 
@@ -348,7 +348,7 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
   public void testJsonCast() throws IOException {
     var recordFleakData =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/stringyfied_json_event.json");
-    var arg = "select stringified_json::json data from events;";
+    var arg = "select stringified_json::json data from records;";
 
     testSqlProcess(
         recordFleakData,
@@ -420,7 +420,7 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/event_json_get.json");
     RecordFleakData event2 =
         (RecordFleakData) loadFleakDataFromJsonResource("/sql/event_json_get.json");
-    String arg = "select count(*) as cnt from events;";
+    String arg = "select count(*) as cnt from records;";
     SQLEvalCommand command = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
     command.parseAndValidateArg(Map.of("sql", arg));
     command.initialize(metricClientProvider);
@@ -431,5 +431,22 @@ cannot cast {"ticker": "AAPL", "label": "positive"}, {"ticker": "QCOM", "label":
     assertEquals(Map.of("cnt", 2L), output.getOutput().get(0).unwrap());
     verify(inputMessageCounter).increase(2, Map.of());
     verify(outputMessageCounter).increase(1, Map.of());
+  }
+
+  @Test
+  public void testEventsAliasBackwardCompatibility() {
+    RecordFleakData inputEvent =
+        (RecordFleakData) FleakData.wrap(Map.of("name", "test", "value", 42));
+    String arg = "select name, value from events";
+    SQLEvalCommand command = new SqlCommandFactory().createCommand("myNodeId", JOB_CONTEXT);
+    command.parseAndValidateArg(Map.of("sql", arg));
+    command.initialize(metricClientProvider);
+    var context = command.getExecutionContext();
+    ScalarCommand.ProcessResult result = command.process(List.of(inputEvent), null, context);
+    assertTrue(result.getFailureEvents().isEmpty(), "Should have no failures");
+    assertEquals(1, result.getOutput().size(), "Should have 1 output");
+    RecordFleakData output = result.getOutput().get(0);
+    assertEquals("test", output.getPayload().get("name").unwrap());
+    assertEquals(42L, output.getPayload().get("value").unwrap());
   }
 }

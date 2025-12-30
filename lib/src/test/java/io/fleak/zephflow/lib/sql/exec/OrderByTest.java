@@ -25,7 +25,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderByNoDirection() {
-    var rows = runSQL("select * from events order by name").toList();
+    var rows = runSQL("select * from records order by name").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
@@ -35,7 +35,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderByNoDirectionMultipleColumns() {
-    var rows = runSQL("select * from events order by name, id + 1").toList();
+    var rows = runSQL("select * from records order by name, id + 1").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
@@ -45,7 +45,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderByCol2DescMultipleColumns() {
-    var rows = runSQL("select * from events order by name, id + 1 desc").toList();
+    var rows = runSQL("select * from records order by name, id + 1 desc").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
@@ -55,7 +55,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderByCol2AscMultipleColumns() {
-    var rows = runSQL("select * from events order by name, id + 1 asc").toList();
+    var rows = runSQL("select * from records order by name, id + 1 asc").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
@@ -65,7 +65,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderByAsc() {
-    var rows = runSQL("select * from events order by name asc").toList();
+    var rows = runSQL("select * from records order by name asc").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("abc", rows.get(0).asMap().get("name"));
@@ -75,7 +75,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderByASC() {
-    var rows = runSQL("select * from events order by name desc").toList();
+    var rows = runSQL("select * from records order by name desc").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("ghi", rows.get(0).asMap().get("name"));
@@ -85,7 +85,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderBySelectColumn() {
-    var rows = runSQL("select name as n from events order by name desc").toList();
+    var rows = runSQL("select name as n from records order by name desc").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("ghi", rows.get(0).asMap().get("n"));
@@ -95,7 +95,7 @@ public class OrderByTest {
 
   @Test
   public void testOrderBySelectColumnAndNonSelect() {
-    var rows = runSQL("select name as n from events order by name desc").toList();
+    var rows = runSQL("select name as n from records order by name desc").toList();
     Assertions.assertEquals(3, rows.size());
 
     Assertions.assertEquals("ghi", rows.get(0).asMap().get("n"));
@@ -110,10 +110,10 @@ public class OrderByTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("name", "abc", "id", 1),
                         Map.of("name", "edf", "id", 3),

@@ -28,13 +28,13 @@ public class ErrorMessagesTest {
 
   @Test
   public void testRuntimeErrorMessage() {
-    var sql = "select 1/0 from events;";
+    var sql = "select 1/0 from records;";
     Assertions.assertThrows(SQLRuntimeError.class, () -> runSQL(sql).forEach(System.out::println));
   }
 
   @Test
   public void testSyntaxErrorMessage() {
-    var sql = "select substring(value from 'text') as family from events;";
+    var sql = "select substring(value from 'text') as family from records;";
     Assertions.assertThrows(SQLSyntaxError.class, () -> runSQL(sql));
   }
 
@@ -45,9 +45,9 @@ public class ErrorMessagesTest {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
-                    typeSystem, "events", List.of(Map.of("name", "abc", "age", 30))))),
+                    typeSystem, "records", List.of(Map.of("name", "abc", "age", 30))))),
         sql);
   }
 }

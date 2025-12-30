@@ -75,10 +75,10 @@ public class GrokTests {
     return TestSQLUtils.runSQL(
         Catalog.fromMap(
             Map.of(
-                "events",
+                "records",
                 Table.ofListOfMaps(
                     typeSystem,
-                    "events",
+                    "records",
                     List.of(
                         Map.of("log_entry", "127.0.0.1 - GET /index.html HTTP/1.1"),
                         Map.of("log_entry", "192.168.1.1 - - [26/Mar/2023:10:00:00 +0000]"),

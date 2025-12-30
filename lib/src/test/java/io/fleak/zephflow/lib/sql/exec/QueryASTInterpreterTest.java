@@ -50,12 +50,12 @@ public class QueryASTInterpreterTest {
 
       QueryAST.Query query =
           QueryASTParser.astParser()
-              .parseSelectStatement("select " + identifierName + " from events");
+              .parseSelectStatement("select " + identifierName + " from records");
 
       var inputMap =
           new HashMap<String, Object>(); // don't use Map.of, we need to support null values
       inputMap.put(recordFieldName.toString(), 1L);
-      var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "events", inputMap);
+      var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "records", inputMap);
       var expr = query.getColumns().get(0);
       var v = interpreter.eval(table.iterator().next(), expr, Object.class);
 
@@ -115,12 +115,12 @@ public class QueryASTInterpreterTest {
       var expected = testItem[1];
 
       QueryAST.Query query =
-          QueryASTParser.astParser().parseSelectStatement("select a::bool from events");
+          QueryASTParser.astParser().parseSelectStatement("select a::bool from records");
 
       var inputMap =
           new HashMap<String, Object>(); // don't use Map.of, we need to support null values
       inputMap.put("a", val);
-      var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "events", inputMap);
+      var table = Table.ofMap(TypeSystems.sqlTypeSystem(), "records", inputMap);
       var expr = query.getColumns().get(0);
       try {
         var v = interpreter.eval(table.iterator().next(), expr, Object.class);
