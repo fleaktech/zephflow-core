@@ -91,13 +91,17 @@ public class EvalCommand extends ScalarCommand {
           e);
     }
 
+    // Build expression cache to avoid repeated expensive operations during evaluation
+    ExpressionCache expressionCache = ExpressionCache.build(languageContext);
+
     return new EvalExecutionContext(
         inputMessageCounter,
         outputMessageCounter,
         errorCounter,
         languageContext,
         config.assertion(),
-        pythonExecutor);
+        pythonExecutor,
+        expressionCache);
   }
 
   @Override
@@ -109,7 +113,8 @@ public class EvalCommand extends ScalarCommand {
     evalContext.getInputMessageCounter().increase(callingUserTagAndEventTags);
     try {
       ExpressionValueVisitor expressionValueVisitor =
-          ExpressionValueVisitor.createInstance(event, evalContext.getPythonExecutor());
+          ExpressionValueVisitor.createInstance(
+              event, evalContext.getPythonExecutor(), evalContext.getExpressionCache());
       FleakData fleakData = expressionValueVisitor.visit(evalContext.getLanguageContext());
       if (fleakData == null) {
         return List.of();

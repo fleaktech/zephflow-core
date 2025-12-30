@@ -50,6 +50,41 @@ public interface FeelFunction {
     }
   }
 
+  /**
+   * Thread-local cache for SimpleDateFormat instances. SimpleDateFormat is not thread-safe, so we
+   * use ThreadLocal to ensure each thread has its own cache. The inner map caches by pattern string
+   * + timezone key.
+   */
+  ThreadLocal<Map<String, SimpleDateFormat>> DATE_FORMAT_CACHE =
+      ThreadLocal.withInitial(HashMap::new);
+
+  /**
+   * Get or create a cached SimpleDateFormat for the given pattern and timezone.
+   *
+   * @param pattern the date pattern
+   * @param timeZone the timezone (null for default)
+   * @param locale the locale (null for default)
+   * @return a cached SimpleDateFormat instance
+   */
+  private static SimpleDateFormat getCachedDateFormat(
+      String pattern, TimeZone timeZone, Locale locale) {
+    String cacheKey = pattern + "|" + (timeZone != null ? timeZone.getID() : "default");
+    return DATE_FORMAT_CACHE
+        .get()
+        .computeIfAbsent(
+            cacheKey,
+            k -> {
+              SimpleDateFormat sdf =
+                  locale != null
+                      ? new SimpleDateFormat(pattern, locale)
+                      : new SimpleDateFormat(pattern);
+              if (timeZone != null) {
+                sdf.setTimeZone(timeZone);
+              }
+              return sdf;
+            });
+  }
+
   FunctionSignature getSignature();
 
   FleakData evaluate(
@@ -129,8 +164,8 @@ public interface FeelFunction {
 
       SimpleDateFormat simpleDateFormat;
       try {
-        simpleDateFormat = new SimpleDateFormat(patternStr, Locale.US);
-        simpleDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+        // Use cached SimpleDateFormat for performance
+        simpleDateFormat = getCachedDateFormat(patternStr, TimeZone.getTimeZone("UTC"), Locale.US);
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "ts_str_to_epoch: failed to process date time pattern: " + patternStr);
@@ -759,7 +794,8 @@ public interface FeelFunction {
 
       SimpleDateFormat simpleDateFormat;
       try {
-        simpleDateFormat = new SimpleDateFormat(patternStr);
+        // Use cached SimpleDateFormat for performance
+        simpleDateFormat = getCachedDateFormat(patternStr, null, null);
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "epoch_to_ts_str: failed to process date time pattern: " + patternStr);

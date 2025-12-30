@@ -31,6 +31,7 @@ public class EvalExecutionContext extends DefaultExecutionContext {
   EvalExpressionParser.LanguageContext languageContext;
   boolean assertion;
   PythonExecutor pythonExecutor;
+  ExpressionCache expressionCache;
 
   public EvalExecutionContext(
       FleakCounter inputMessageCounter,
@@ -38,11 +39,13 @@ public class EvalExecutionContext extends DefaultExecutionContext {
       FleakCounter errorCounter,
       EvalExpressionParser.LanguageContext languageContext,
       boolean assertion,
-      PythonExecutor pythonExecutor) {
+      PythonExecutor pythonExecutor,
+      ExpressionCache expressionCache) {
     super(inputMessageCounter, outputMessageCounter, errorCounter);
     this.languageContext = languageContext;
     this.assertion = assertion;
     this.pythonExecutor = pythonExecutor;
+    this.expressionCache = expressionCache;
   }
 
   @Override

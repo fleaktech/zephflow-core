@@ -39,26 +39,30 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
   private final Map<String, FeelFunction> functionsTable;
 
+  private final ExpressionCache cache;
+
   private ExpressionValueVisitor(
       List<Map<String, FleakData>> variableEnvironment,
       boolean lenient,
-      PythonExecutor pythonExecutor) {
+      PythonExecutor pythonExecutor,
+      ExpressionCache cache) {
     Preconditions.checkArgument(CollectionUtils.isNotEmpty(variableEnvironment));
     this.variableEnvironment = new LinkedList<>(variableEnvironment);
     this.lenient = lenient;
     this.functionsTable = FeelFunction.createFunctionsTable(pythonExecutor);
+    this.cache = cache;
   }
 
   public static ExpressionValueVisitor createInstance(
-      FleakData fleakData, PythonExecutor pythonExecutor) {
-    return createInstance(fleakData, false, pythonExecutor);
+      FleakData fleakData, PythonExecutor pythonExecutor, ExpressionCache cache) {
+    return createInstance(fleakData, false, pythonExecutor, cache);
   }
 
   public static ExpressionValueVisitor createInstance(
-      FleakData fleakData, boolean lenient, PythonExecutor pythonExecutor) {
+      FleakData fleakData, boolean lenient, PythonExecutor pythonExecutor, ExpressionCache cache) {
     List<Map<String, FleakData>> variableEnvironment =
         List.of(Map.of(ROOT_OBJECT_VARIABLE_NAME, fleakData));
-    return new ExpressionValueVisitor(variableEnvironment, lenient, pythonExecutor);
+    return new ExpressionValueVisitor(variableEnvironment, lenient, pythonExecutor, cache);
   }
 
   @Override
@@ -114,7 +118,9 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
       return visit(ctx.getChild(0));
     }
     FleakData val = visit(ctx.getChild(1));
-    String op = ctx.getChild(0).getText();
+    ParseTree opNode = ctx.getChild(0);
+    // Use cached operator text if available
+    String op = cache != null ? cache.getOperator(opNode) : opNode.getText();
     EvaluatorFuncs.UnaryEvaluatorFunc<FleakData> unaryEvaluator =
         Objects.requireNonNull(UNARY_VALUE_EVALUATOR_FUNC_MAP.get(op));
     return unaryEvaluator.evaluate(val);
@@ -166,8 +172,12 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
   public FleakData visitValue(EvalExpressionParser.ValueContext ctx) {
     TerminalNode tn = ctx.QUOTED_IDENTIFIER();
     if (tn != null) {
-      String text = tn.getText();
-      return visitStrResult(text);
+      // Use cached normalized string if available
+      String normalized = cache != null ? cache.getNormalizedString(tn) : null;
+      if (normalized != null) {
+        return new StringPrimitiveFleakData(normalized);
+      }
+      return visitStrResult(tn.getText());
     }
     tn = ctx.BOOLEAN_LITERAL();
     if (tn != null) {
@@ -220,8 +230,12 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
 
     Map<String, FleakData> payload = new HashMap<>();
     for (EvalExpressionParser.KvPairContext kvPairCtx : ctx.kvPair()) {
-      // Directly extract key-value without creating intermediate objects
-      String key = kvPairCtx.dictKey().getText();
+      // Use cached dict key if available
+      EvalExpressionParser.DictKeyContext dictKeyCtx = kvPairCtx.dictKey();
+      String key = cache != null ? cache.getDictKey(dictKeyCtx) : null;
+      if (key == null) {
+        key = dictKeyCtx.getText();
+      }
       FleakData val;
       try {
         val = visit(kvPairCtx.expression());
@@ -329,7 +343,9 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
       return value;
     }
     for (int i = 1; i < ctx.getChildCount(); i += 2) {
-      String op = ctx.getChild(i).getText();
+      ParseTree opNode = ctx.getChild(i);
+      // Use cached operator text if available
+      String op = cache != null ? cache.getOperator(opNode) : opNode.getText();
       FleakData right = visit(ctx.getChild(i + 1));
       EvaluatorFuncs.BinaryEvaluatorFunc<FleakData> evaluator =
           Objects.requireNonNull(BINARY_VALUE_EVALUATOR_FUNC_MAP.get(op));
@@ -368,13 +384,16 @@ public class ExpressionValueVisitor extends EvalExpressionBaseVisitor<FleakData>
       return null;
     }
 
-    String fieldName;
-    if (ctx.QUOTED_IDENTIFIER() != null) {
-      fieldName = normalizeStrLiteral(ctx.QUOTED_IDENTIFIER().getText());
-    } else if (ctx.IDENTIFIER() != null) {
-      fieldName = ctx.IDENTIFIER().getText();
-    } else {
-      throw new RuntimeException("Invalid field access: " + ctx.getText());
+    // Use cached field name if available
+    String fieldName = cache != null ? cache.getFieldName(ctx) : null;
+    if (fieldName == null) {
+      if (ctx.QUOTED_IDENTIFIER() != null) {
+        fieldName = normalizeStrLiteral(ctx.QUOTED_IDENTIFIER().getText());
+      } else if (ctx.IDENTIFIER() != null) {
+        fieldName = ctx.IDENTIFIER().getText();
+      } else {
+        throw new RuntimeException("Invalid field access: " + ctx.getText());
+      }
     }
 
     // Retrieve the field from the current value

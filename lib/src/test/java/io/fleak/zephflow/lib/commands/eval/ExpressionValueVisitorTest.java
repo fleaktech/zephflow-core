@@ -36,7 +36,7 @@ class ExpressionValueVisitorTest {
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     ExpressionValueVisitor visitor =
-        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), true, null);
+        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), true, null, null);
 
     // input event doesn't have $.abc, parse_int will fail at runtime
     FleakData output = visitor.visit(parser.language());
@@ -75,6 +75,7 @@ dict(
                     List.of(
                         Map.of("id", "abc", "type", "foo"), Map.of("id", "def", "type", "bar")))),
             true,
+            null,
             null);
 
     // input data d.id is a string, parse_int will fail
@@ -146,7 +147,7 @@ dict(
     System.out.println(toJsonString(inputPayload));
 
     ExpressionValueVisitor visitor =
-        ExpressionValueVisitor.createInstance(FleakData.wrap(inputPayload), true, null);
+        ExpressionValueVisitor.createInstance(FleakData.wrap(inputPayload), true, null, null);
     FleakData output = visitor.visit(parser.primary());
     Map<String, Object> expected =
         Map.of(
@@ -181,7 +182,7 @@ dict(
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     ExpressionValueVisitor visitor =
         ExpressionValueVisitor.createInstance(
-            FleakData.wrap(Map.of("a", true, "b", true)), true, null);
+            FleakData.wrap(Map.of("a", true, "b", true)), true, null, null);
 
     // input event doesn't have $.abc, parse_int will fail at runtime
     FleakData output = visitor.visit(parser.language());
@@ -195,7 +196,8 @@ dict(
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     ExpressionValueVisitor visitor =
-        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of("a", "a", "b", "b")), null);
+        ExpressionValueVisitor.createInstance(
+            FleakData.wrap(Map.of("a", "a", "b", "b")), null, null);
 
     FleakData output = visitor.visit(parser.language());
     String expected = "a_b";
@@ -295,7 +297,7 @@ arr_foreach(
 }""";
 
     FleakData inputEvent = loadFleakDataFromJsonString(inputEventJsonStr);
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     FleakData actual = visitor.visit(parser.language());
 
     String outputEventJsonStr =
@@ -324,7 +326,7 @@ arr_foreach(
  "num": 1
 }""";
     FleakData inputEvent = loadFleakDataFromJsonString(inputEventJsonStr);
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     FleakData actual = visitor.visit(parser.language());
     assertInstanceOf(BooleanPrimitiveFleakData.class, actual);
     assertFalse(actual.isTrueValue());
@@ -343,7 +345,7 @@ grok($.proc_name, "(?<parent_folder>.*?)\\\\\\\\(?<name>[^\\\\\\\\]+)$").parent_
 }
 """;
     FleakData inputEvent = loadFleakDataFromJsonString(inputEventJsonStr);
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -374,7 +376,7 @@ arr_foreach(
   "operation_system": "windows"
 }""";
     FleakData inputEvent = loadFleakDataFromJsonString(inputEventJsonStr);
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -388,7 +390,7 @@ arr_foreach(
 str_split("a,b,c", ",")
 """;
     FleakData inputEvent = FleakData.wrap(Map.of());
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -399,7 +401,7 @@ str_split("a,b,c", ",")
   public void testArrayNull() {
     String evalExpr = "array(null, 5)";
     FleakData inputEvent = FleakData.wrap(Map.of());
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -413,7 +415,7 @@ str_split("a,b,c", ",")
   public void testEmptyDict() {
     String evalExpr = "dict()";
     FleakData inputEvent = FleakData.wrap(Map.of());
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -425,7 +427,7 @@ str_split("a,b,c", ",")
   public void testDictKeyWithDot() {
     String evalExpr = "dict(a.b=5)";
     FleakData inputEvent = FleakData.wrap(Map.of());
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -437,7 +439,7 @@ str_split("a,b,c", ",")
   public void testDictKeyWithDoubleColons() {
     String evalExpr = "dict(a::b=5)";
     FleakData inputEvent = FleakData.wrap(Map.of());
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -559,7 +561,7 @@ dict(
 )
 """;
     FleakData inputEvent = FleakData.wrap(Map.of());
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     FleakData actual = visitor.visit(parser.language());
@@ -748,7 +750,8 @@ dict(
   }
 
   private FleakData evaluate(String evalExpr, FleakData inputEvent) {
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(inputEvent, true, null);
+    ExpressionValueVisitor visitor =
+        ExpressionValueVisitor.createInstance(inputEvent, true, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     return visitor.visit(parser.language());
@@ -756,7 +759,7 @@ dict(
 
   private FleakData evaluate(String evalExpr) {
     ExpressionValueVisitor visitor =
-        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), true, null);
+        ExpressionValueVisitor.createInstance(FleakData.wrap(Map.of()), true, null, null);
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
     return visitor.visit(parser.language());

@@ -67,7 +67,7 @@ class FeelFunctionTest {
 
       // Create a visitor to execute the function
       FleakData testData = new StringPrimitiveFleakData("test");
-      ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+      ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
       FleakData result = visitor.visit(tree);
       assertNotNull(result);
@@ -92,7 +92,7 @@ class FeelFunctionTest {
 
       // But execution should fail with clear error message
       FleakData testData = new StringPrimitiveFleakData("test");
-      ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+      ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
       try {
         visitor.visit(tree);
@@ -155,7 +155,8 @@ dict(
 
         // Execute the function
         FleakData testData = new StringPrimitiveFleakData("test");
-        ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+        ExpressionValueVisitor visitor =
+            ExpressionValueVisitor.createInstance(testData, null, null);
         FleakData result = visitor.visit(tree);
 
         assertNotNull(result);
@@ -169,7 +170,7 @@ dict(
   @Test
   public void testStringFunctions() {
     FleakData testData = FleakData.wrap(Map.of("text", "Hello World", "search", "World"));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test str_contains
     testFunctionExecution(visitor, "str_contains(\"hello world\", \"world\")", true);
@@ -192,7 +193,7 @@ dict(
   @Test
   public void testStrContainsNullHandling() {
     FleakData testData = FleakData.wrap(Map.of("text", "Hello World"));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     testFunctionExecution(visitor, "str_contains(null, null)", false);
     testFunctionExecution(visitor, "str_contains(null, \"world\")", false);
@@ -208,7 +209,7 @@ dict(
             Map.of(
                 "numbers", List.of(1, 2, 3),
                 "nested", List.of(List.of(1, 2), List.of(3, 4))));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test array creation
     testFunctionExecution(visitor, "array(1, 2, 3)", List.of(1L, 2L, 3L));
@@ -227,7 +228,7 @@ dict(
   @Test
   public void testParsingFunctions() {
     FleakData testData = new StringPrimitiveFleakData("test");
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test parse_int
     testFunctionExecution(visitor, "parse_int(\"123\")", 123L);
@@ -245,7 +246,7 @@ dict(
   @Test
   public void testMathematicalFunctions() {
     FleakData testData = new StringPrimitiveFleakData("test");
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test floor function
     testFunctionExecution(visitor, "floor(123.45)", 123L);
@@ -265,7 +266,7 @@ dict(
   @Test
   public void testTimestampFunctions() {
     FleakData testData = new StringPrimitiveFleakData("test");
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test ts_str_to_epoch (requires both timestamp and pattern)
     try {
@@ -291,7 +292,7 @@ dict(
   @Test
   public void testTimestampFunctions2() {
     FleakData testData = FleakData.wrap(Map.of("eventTime", "2020-09-21T22:22:52Z"));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
     try {
       FleakData result =
           executeExpression(
@@ -310,7 +311,7 @@ dict(
                 "raw", "2023-01-01 12:00:00 INFO Application started",
                 "dict1", Map.of("a", 1, "b", 2),
                 "dict2", Map.of("c", 3, "d", 4)));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test dict creation (basic)
     testFunctionExecution(visitor, "dict()", Map.of());
@@ -381,7 +382,7 @@ dict(
   @Test
   public void testArgumentValidation() {
     FleakData testData = new StringPrimitiveFleakData("test");
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test argument count validation
     assertThrows(IllegalArgumentException.class, () -> executeExpression(visitor, "upper()"));
@@ -406,7 +407,7 @@ dict(
   @Test
   public void testEdgeCases() {
     FleakData testData = new StringPrimitiveFleakData("test");
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test empty strings
     testFunctionExecution(visitor, "str_split(\"\", \",\")", List.of());
@@ -425,7 +426,7 @@ dict(
   @Test
   public void testNullHandlingAcrossFunctions() {
     FleakData testData = FleakData.wrap(Map.of("text", "Hello World"));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     testFunctionExecution(visitor, "upper(null)", null);
     testFunctionExecution(visitor, "upper($.nonexistent)", null);
@@ -440,7 +441,7 @@ dict(
   @Test
   public void testStrSplitNullHandling() {
     FleakData testData = FleakData.wrap(Map.of("text", "a,b,c"));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     testFunctionExecution(visitor, "str_split(null, \",\")", null);
     testFunctionExecution(visitor, "str_split($.nonexistent, \",\")", null);
@@ -453,7 +454,7 @@ dict(
   public void testDictRemoveNullHandling() {
     FleakData testData =
         FleakData.wrap(Map.of("dict1", Map.of("a", 1, "b", 2, "c", 3), "key", "b"));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     testFunctionExecution(visitor, "dict_remove(null, \"a\")", null);
     testFunctionExecution(visitor, "dict_remove($.nonexistent, \"a\")", null);
@@ -465,7 +466,7 @@ dict(
   @Test
   public void testNowFunction() {
     FleakData testData = new RecordFleakData();
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result = executeExpression(visitor, "now()");
     assertNotNull(result);
@@ -481,7 +482,7 @@ dict(
   @Test
   public void testRandomLongFunction() {
     FleakData testData = new RecordFleakData();
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result1 = executeExpression(visitor, "random_long()");
     assertNotNull(result1);
@@ -500,7 +501,7 @@ dict(
   @Test
   public void testRandomLongFunctionNoArguments() {
     FleakData testData = new RecordFleakData();
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     assertThrows(
         IllegalArgumentException.class, () -> executeExpression(visitor, "random_long(123)"));
@@ -522,7 +523,7 @@ dict(
                         Map.of("price", 200, "category", "B"),
                         Map.of("price", 150, "category", "A"))));
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result1 = executeExpression(visitor, "arr_find($.users, user, user.id == \"100\")");
     assertEquals(FleakData.wrap(Map.of("name", "Alice", "id", "100")), result1);
@@ -544,7 +545,7 @@ dict(
                 List.of(
                     Map.of("price", 100, "category", "A"), Map.of("price", 200, "category", "B"))));
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result =
         executeExpression(visitor, "arr_find($.items, item, item.category == \"C\")");
@@ -554,7 +555,7 @@ dict(
   @Test
   public void testArrFindEmptyArray() {
     FleakData testData = FleakData.wrap(Map.of("items", List.of()));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result = executeExpression(visitor, "arr_find($.items, item, item.price > 0)");
     assertNull(result);
@@ -568,7 +569,7 @@ dict(
                 "users",
                 List.of(Map.of("name", "Alice", "id", "100"), Map.of("name", "Bob", "id", "200"))));
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     String expr = "arr_find($.users, user, user.id == '100').name";
 
@@ -599,7 +600,7 @@ dict(
                         Map.of("price", 300, "category", "C")),
                 "numbers", List.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)));
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result1 =
         executeExpression(visitor, "arr_filter($.items, item, item.category == \"A\")");
@@ -630,7 +631,7 @@ dict(
                 List.of(
                     Map.of("price", 100, "category", "A"), Map.of("price", 200, "category", "B"))));
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result =
         executeExpression(visitor, "arr_filter($.items, item, item.category == \"C\")");
@@ -644,7 +645,7 @@ dict(
   @Test
   public void testArrFilterEmptyArray() {
     FleakData testData = FleakData.wrap(Map.of("items", List.of()));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     FleakData result = executeExpression(visitor, "arr_filter($.items, item, item.price > 0)");
     assertEquals(FleakData.wrap(List.of()), result);
@@ -659,7 +660,7 @@ dict(
                 List.of(
                     Map.of("price", 100, "category", "A"), Map.of("price", 150, "category", "A"))));
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     String expr = "arr_filter($.items, item, item.category == \"A\")[0].price";
     FleakData result = executeExpression(visitor, expr);
@@ -670,7 +671,7 @@ dict(
   @Test
   public void testArrFindAndFilterArgumentValidation() {
     FleakData testData = FleakData.wrap(Map.of("items", List.of(1, 2, 3)));
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     assertThrows(
         IllegalArgumentException.class,
@@ -713,7 +714,7 @@ def add_one(x):
       try (PythonExecutor pythonExecutor = PythonExecutor.createPythonExecutor(languageContext)) {
         // Create visitor with real Python executor
         ExpressionValueVisitor visitor =
-            ExpressionValueVisitor.createInstance(testData, pythonExecutor);
+            ExpressionValueVisitor.createInstance(testData, pythonExecutor, null);
 
         FleakData result = visitor.visit(languageContext);
         assertNotNull(result);
@@ -727,7 +728,7 @@ def add_one(x):
   @Test
   public void testPythonErrorHandling() {
     FleakData testData = new StringPrimitiveFleakData("test");
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     // Test that Python function is not available when PythonExecutor is null
     String pythonScript = "python('def test(): return 1', 1)";
@@ -765,7 +766,7 @@ def add_one(x):
   public void testArrForeach_firstArgNull() {
     FleakData testData = FleakData.wrap(Map.of());
 
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null);
+    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(testData, null, null);
 
     IllegalArgumentException e =
         assertThrows(

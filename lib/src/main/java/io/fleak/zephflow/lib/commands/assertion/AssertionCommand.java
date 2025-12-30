@@ -57,7 +57,8 @@ public class AssertionCommand extends ScalarCommand {
     EvalExecutionContext evalContext = (EvalExecutionContext) context;
     evalContext.getInputMessageCounter().increase(callingUserTagAndEventTags);
     ExpressionValueVisitor expressionValueVisitor =
-        ExpressionValueVisitor.createInstance(event, evalContext.getPythonExecutor());
+        ExpressionValueVisitor.createInstance(
+            event, evalContext.getPythonExecutor(), evalContext.getExpressionCache());
     FleakData fleakData = new BooleanPrimitiveFleakData(false);
     try {
       fleakData = expressionValueVisitor.visit(evalContext.getLanguageContext());
