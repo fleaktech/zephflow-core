@@ -13,9 +13,6 @@
  */
 package io.fleak.zephflow.clistarter;
 
-import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.InfluxDBClientFactory;
-import com.influxdb.client.InfluxDBClientOptions;
 import io.fleak.zephflow.api.metric.InfluxDBMetricClientProvider;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -25,6 +22,9 @@ import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.ParseException;
+import org.influxdb.InfluxDB;
+import org.influxdb.InfluxDBFactory;
+import org.influxdb.dto.Query;
 
 /** Created by bolei on 9/26/24 */
 @Slf4j
@@ -63,38 +63,70 @@ public class Main {
       throws ParseException {
     try {
       InfluxDBMetricSender.InfluxDBConfig influxDBConfig = JobCliParser.parseInfluxDBConfig(args);
-      log.info("InfluxDB 2.x config: {}", influxDBConfig);
+      log.info("influxDB config:{}", influxDBConfig);
 
-      InfluxDBClient influxDBClient = createInfluxDBClient(influxDBConfig);
+      // Create InfluxDB client with optional authentication
+      InfluxDB influxDB = createInfluxDBClient(influxDBConfig);
+
+      // Set database and create if it doesn't exist
+      setupDatabase(influxDB, influxDBConfig);
 
       InfluxDBMetricSender influxDBMetricSender =
-          new InfluxDBMetricSender(influxDBConfig, influxDBClient);
+          new InfluxDBMetricSender(influxDBConfig, influxDB);
       return new InfluxDBMetricClientProvider(influxDBMetricSender);
     } catch (Exception e) {
-      log.error("Failed to initialize InfluxDB 2.x: {}", e.getMessage());
+      log.error("Failed to initialize InfluxDB: {}", e.getMessage());
       throw e;
     }
   }
 
-  private static InfluxDBClient createInfluxDBClient(InfluxDBMetricSender.InfluxDBConfig config) {
-    log.debug("Creating InfluxDB 2.x client for URL: {}", config.getUrl());
+  private static InfluxDB createInfluxDBClient(InfluxDBMetricSender.InfluxDBConfig config) {
+    log.debug("Creating InfluxDB client for URL: {}", config.getUrl());
 
-    if (config.getToken() == null || config.getToken().trim().isEmpty()) {
-      throw new IllegalArgumentException("InfluxDB 2.x requires a token for authentication");
+    InfluxDB client;
+    if (hasCredentials(config)) {
+      log.debug("Using username/password authentication");
+      client = InfluxDBFactory.connect(config.getUrl(), config.getUsername(), config.getPassword());
+    } else {
+      log.debug("Using connection without authentication");
+      client = InfluxDBFactory.connect(config.getUrl());
     }
 
-    InfluxDBClientOptions options =
-        InfluxDBClientOptions.builder()
-            .url(config.getUrl())
-            .authenticateToken(config.getToken().toCharArray())
-            .org(config.getOrg())
-            .bucket(config.getBucket())
-            .build();
+    // Configure client for better performance
+    client.setLogLevel(InfluxDB.LogLevel.NONE);
+    client.enableBatch(100, 200, java.util.concurrent.TimeUnit.MILLISECONDS);
 
-    InfluxDBClient client = InfluxDBClientFactory.create(options);
-
-    log.info("InfluxDB 2.x client created successfully");
     return client;
+  }
+
+  private static boolean hasCredentials(InfluxDBMetricSender.InfluxDBConfig config) {
+    return config.getUsername() != null
+        && !config.getUsername().trim().isEmpty()
+        && config.getPassword() != null
+        && !config.getPassword().trim().isEmpty();
+  }
+
+  private static void setupDatabase(InfluxDB influxDB, InfluxDBMetricSender.InfluxDBConfig config) {
+    if (config.getDatabase() != null && !config.getDatabase().trim().isEmpty()) {
+      String databaseName = config.getDatabase().trim();
+      log.info("Setting up InfluxDB database: {}", databaseName);
+
+      try {
+        log.debug("Creating database '{}' if it doesn't exist", databaseName);
+        influxDB.query(new Query("CREATE DATABASE \"" + databaseName + "\""));
+        log.info("Successfully created/verified database: {}", databaseName);
+
+        log.debug("Setting active database to: {}", databaseName);
+        influxDB.setDatabase(databaseName);
+        log.info("Successfully set active database to: {}", databaseName);
+
+      } catch (Exception e) {
+        log.error("Failed to setup InfluxDB database '{}': {}", databaseName, e.getMessage(), e);
+        throw e;
+      }
+    } else {
+      log.warn("InfluxDB database name is null or empty, skipping database setup");
+    }
   }
 
   private static MetricClientProvider createSplunkMetricClientProvider(String[] args)

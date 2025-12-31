@@ -72,7 +72,7 @@ log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", ver
 
 opensearch-grok = { module = "org.opensearch:opensearch-grok", version.ref = "opensearchGrok" }
 
-influxdb-client-java = { module = "com.influxdb:influxdb-client-java", version.ref = "influxdb" }
+influxdb-java = { module = "org.influxdb:influxdb-java", version.ref = "influxdb" }
 
 aws-s3 = { module = "software.amazon.awssdk:s3", version.ref = "aws" }
 aws-kinesis = { module = "software.amazon.awssdk:kinesis", version.ref = "aws" }

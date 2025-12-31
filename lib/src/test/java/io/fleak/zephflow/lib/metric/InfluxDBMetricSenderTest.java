@@ -15,15 +15,13 @@ package io.fleak.zephflow.lib.metric;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.WriteApiBlocking;
-import com.influxdb.client.write.Point;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import java.util.HashMap;
 import java.util.Map;
+import org.influxdb.InfluxDB;
+import org.influxdb.dto.BatchPoints;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -31,8 +29,7 @@ import org.mockito.MockitoAnnotations;
 
 class InfluxDBMetricSenderTest {
 
-  @Mock private InfluxDBClient mockInfluxDBClient;
-  @Mock private WriteApiBlocking mockWriteApi;
+  @Mock private InfluxDB mockInfluxDB;
 
   private InfluxDBMetricSender influxDBMetricSender;
 
@@ -40,16 +37,12 @@ class InfluxDBMetricSenderTest {
   void setUp() {
     MockitoAnnotations.openMocks(this);
 
-    when(mockInfluxDBClient.getWriteApiBlocking()).thenReturn(mockWriteApi);
-
     InfluxDBMetricSender.InfluxDBConfig config = new InfluxDBMetricSender.InfluxDBConfig();
     config.setUrl("http://localhost:8086");
-    config.setOrg("test-org");
-    config.setBucket("test-bucket");
+    config.setDatabase("test-database");
     config.setMeasurement("test-measurement");
-    config.setToken("test-token");
 
-    influxDBMetricSender = new InfluxDBMetricSender(config, mockInfluxDBClient);
+    influxDBMetricSender = new InfluxDBMetricSender(config, mockInfluxDB);
   }
 
   @Test
@@ -61,7 +54,7 @@ class InfluxDBMetricSenderTest {
 
     influxDBMetricSender.sendMetric("counter", "test_metric", 1, tags, additionalTags);
 
-    verify(mockWriteApi, times(1)).writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+    verify(mockInfluxDB, times(1)).write(any(BatchPoints.class));
   }
 
   @Test
@@ -73,7 +66,7 @@ class InfluxDBMetricSenderTest {
 
     influxDBMetricSender.sendMetric("gauge", "test_metric", 1.5, tags, additionalTags);
 
-    verify(mockWriteApi, times(1)).writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+    verify(mockInfluxDB, times(1)).write(any(BatchPoints.class));
   }
 
   @Test
@@ -83,7 +76,7 @@ class InfluxDBMetricSenderTest {
 
     influxDBMetricSender.sendMetric("status", "test_metric", true, tags, null);
 
-    verify(mockWriteApi, times(1)).writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+    verify(mockInfluxDB, times(1)).write(any(BatchPoints.class));
   }
 
   @Test
@@ -93,21 +86,21 @@ class InfluxDBMetricSenderTest {
 
     influxDBMetricSender.sendMetric("info", "test_metric", "test_value", tags, null);
 
-    verify(mockWriteApi, times(1)).writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+    verify(mockInfluxDB, times(1)).write(any(BatchPoints.class));
   }
 
   @Test
   void sendMetric_WithNullTags() {
     influxDBMetricSender.sendMetric("counter", "test_metric", 1, null, null);
 
-    verify(mockWriteApi, times(1)).writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+    verify(mockInfluxDB, times(1)).write(any(BatchPoints.class));
   }
 
   @Test
   void sendMetric_Exception() {
     doThrow(new RuntimeException("Test exception"))
-        .when(mockWriteApi)
-        .writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+        .when(mockInfluxDB)
+        .write(any(BatchPoints.class));
 
     Map<String, String> tags = new HashMap<>();
     Map<String, String> additionalTags = new HashMap<>();
@@ -117,25 +110,27 @@ class InfluxDBMetricSenderTest {
           influxDBMetricSender.sendMetric("timer", "test_metric", 100, tags, additionalTags);
         });
 
-    verify(mockWriteApi, times(1)).writePoint(eq("test-bucket"), eq("test-org"), any(Point.class));
+    verify(mockInfluxDB, times(1)).write(any(BatchPoints.class));
   }
 
   @Test
   void close_ClosesInfluxDBClient() {
     influxDBMetricSender.close();
 
-    verify(mockInfluxDBClient, times(1)).close();
+    verify(mockInfluxDB, times(1)).disableBatch();
+    verify(mockInfluxDB, times(1)).close();
   }
 
   @Test
   void close_WithException_DoesNotPropagate() {
-    doThrow(new RuntimeException("Close exception")).when(mockInfluxDBClient).close();
+    doThrow(new RuntimeException("Close exception")).when(mockInfluxDB).close();
 
     assertDoesNotThrow(
         () -> {
           influxDBMetricSender.close();
         });
 
-    verify(mockInfluxDBClient, times(1)).close();
+    verify(mockInfluxDB, times(1)).disableBatch();
+    verify(mockInfluxDB, times(1)).close();
   }
 }

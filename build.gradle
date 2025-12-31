@@ -179,7 +179,7 @@ subprojects {
     implementation libs.log4j.api
     implementation libs.log4j.core
     implementation libs.log4j.slf4j2.impl
-    implementation libs.influxdb.client.java
+    implementation libs.influxdb.java
 
     compileOnly libs.lombok
     annotationProcessor libs.lombok
