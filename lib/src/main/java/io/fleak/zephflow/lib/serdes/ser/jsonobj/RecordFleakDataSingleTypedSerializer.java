@@ -13,13 +13,18 @@
  */
 package io.fleak.zephflow.lib.serdes.ser.jsonobj;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.ser.SingleEventTypedSerializer;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 
-/** Created by bolei on 9/16/24 */
-public class JsonObjectTypedSerializer extends SingleEventTypedSerializer<ObjectNode> {
+/**
+ * Serializes RecordFleakData directly to JSON bytes without intermediate ObjectNode conversion.
+ * This eliminates the double serialization overhead of FleakData -> ObjectNode -> String -> bytes.
+ */
+public class RecordFleakDataSingleTypedSerializer
+    extends SingleEventTypedSerializer<RecordFleakData> {
   @Override
-  protected byte[] serializeOne(ObjectNode payload) {
-    return payload.toString().getBytes();
+  protected byte[] serializeOne(RecordFleakData payload) throws Exception {
+    return JsonUtils.OBJECT_MAPPER.writeValueAsBytes(payload);
   }
 }

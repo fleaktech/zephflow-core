@@ -13,20 +13,20 @@
  */
 package io.fleak.zephflow.lib.serdes.ser.jsonobjline;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.converters.JsonObjectTypedEventConverter;
+import io.fleak.zephflow.lib.serdes.converters.RecordFleakDataTypedEventConverter;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.MultipleEventsSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 
 /** Created by bolei on 9/16/24 */
-public class JsonObjectLineSerializerFactory implements SerializerFactory<ObjectNode> {
+public class JsonObjectLineSerializerFactory implements SerializerFactory<RecordFleakData> {
   @Override
-  public FleakSerializer<ObjectNode> createSerializer() {
-    var typedEventConverter = new JsonObjectTypedEventConverter();
-    var jsonObjectLineTypedSerializer = new JsonObjectLineTypedSerializer();
+  public FleakSerializer<RecordFleakData> createSerializer() {
+    var typedEventConverter = new RecordFleakDataTypedEventConverter();
+    var typedSerializer = new RecordFleakDataLineTypedSerializer();
     return new MultipleEventsSerializer<>(
-        EncodingType.JSON_OBJECT_LINE, typedEventConverter, jsonObjectLineTypedSerializer);
+        EncodingType.JSON_OBJECT_LINE, typedEventConverter, typedSerializer);
   }
 }

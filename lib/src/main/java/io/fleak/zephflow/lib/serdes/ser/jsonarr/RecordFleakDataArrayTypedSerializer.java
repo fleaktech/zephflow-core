@@ -13,18 +13,23 @@
  */
 package io.fleak.zephflow.lib.serdes.ser.jsonarr;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.api.structure.ArrayFleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.ser.MultipleEventsTypedSerializer;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.List;
 
-/** Created by bolei on 9/17/24 */
-public class JsonArrayTypedSerializer extends MultipleEventsTypedSerializer<ObjectNode> {
+/**
+ * Serializes a list of RecordFleakData directly to JSON array bytes without intermediate ObjectNode
+ * conversion. This eliminates the double serialization overhead of FleakData -> ObjectNode ->
+ * ArrayNode -> String -> bytes.
+ */
+public class RecordFleakDataArrayTypedSerializer
+    extends MultipleEventsTypedSerializer<RecordFleakData> {
   @Override
-  protected byte[] serializeToMultipleTypedEvent(List<ObjectNode> typedValues) {
-    ArrayNode arrayNode = JsonUtils.OBJECT_MAPPER.createArrayNode();
-    arrayNode.addAll(typedValues);
-    return arrayNode.toString().getBytes();
+  protected byte[] serializeToMultipleTypedEvent(List<RecordFleakData> events) throws Exception {
+    ArrayFleakData arr = new ArrayFleakData();
+    arr.getArrayPayload().addAll(events);
+    return JsonUtils.OBJECT_MAPPER.writeValueAsBytes(arr);
   }
 }
