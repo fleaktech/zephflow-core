@@ -84,6 +84,20 @@ public class JobCliParser {
           .hasArg()
           .build();
 
+  // InfluxDB 2.x related options
+  private static final Option INFLUXDB_ORG_OPT =
+      Option.builder()
+          .longOpt("influxdb-org")
+          .desc("InfluxDB organization (v2.x)")
+          .hasArg()
+          .build();
+
+  private static final Option INFLUXDB_BUCKET_OPT =
+      Option.builder().longOpt("influxdb-bucket").desc("InfluxDB bucket (v2.x)").hasArg().build();
+
+  private static final Option INFLUXDB_TOKEN_OPT =
+      Option.builder().longOpt("influxdb-token").desc("InfluxDB token (v2.x)").hasArg().build();
+
   // Splunk related options
   private static final Option SPLUNK_HEC_URL_OPT =
       Option.builder().longOpt("splunk-hec-url").desc("Splunk HEC URL").hasArg().build();
@@ -112,6 +126,9 @@ public class JobCliParser {
         .addOption(INFLUXDB_USERNAME_OPT)
         .addOption(INFLUXDB_PASSWORD_OPT)
         .addOption(INFLUXDB_RETENTION_POLICY_OPT)
+        .addOption(INFLUXDB_ORG_OPT)
+        .addOption(INFLUXDB_BUCKET_OPT)
+        .addOption(INFLUXDB_TOKEN_OPT)
         .addOption(SPLUNK_HEC_URL_OPT)
         .addOption(SPLUNK_TOKEN_OPT)
         .addOption(SPLUNK_SOURCE_OPT)
@@ -270,9 +287,38 @@ public class JobCliParser {
     return config.build();
   }
 
+  public static io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config
+      parseInfluxDBV2Config(String[] args) throws ParseException {
+
+    CommandLineParser commandLineParser = new DefaultParser();
+    CommandLine commandLine = commandLineParser.parse(CLI_OPTIONS, args);
+
+    io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config config =
+        new io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config();
+
+    if (commandLine.hasOption("influxdb-url")) {
+      config.setUrl(commandLine.getOptionValue("influxdb-url"));
+    }
+    if (commandLine.hasOption("influxdb-org")) {
+      config.setOrg(commandLine.getOptionValue("influxdb-org"));
+    }
+    if (commandLine.hasOption("influxdb-bucket")) {
+      config.setBucket(commandLine.getOptionValue("influxdb-bucket"));
+    }
+    if (commandLine.hasOption("influxdb-measurement")) {
+      config.setMeasurement(commandLine.getOptionValue("influxdb-measurement"));
+    }
+    if (commandLine.hasOption("influxdb-token")) {
+      config.setToken(commandLine.getOptionValue("influxdb-token"));
+    }
+
+    return config;
+  }
+
   @Getter
   public enum MetricClientType {
     INFLUXDB("influxdb"),
+    INFLUXDB_V2("influxdb_v2"),
     SPLUNK("splunk"),
     NOOP("noop");
 

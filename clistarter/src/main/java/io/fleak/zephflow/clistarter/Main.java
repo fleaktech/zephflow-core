@@ -13,8 +13,13 @@
  */
 package io.fleak.zephflow.clistarter;
 
+import com.influxdb.client.InfluxDBClient;
+import com.influxdb.client.InfluxDBClientFactory;
+import com.influxdb.client.InfluxDBClientOptions;
 import io.fleak.zephflow.api.metric.InfluxDBMetricClientProvider;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
+import io.fleak.zephflow.api.metric.InfluxDBV2MetricClientProvider;
+import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.metric.SplunkMetricClientProvider;
 import io.fleak.zephflow.api.metric.SplunkMetricSender;
@@ -50,6 +55,7 @@ public class Main {
 
       return switch (metricClientType) {
         case INFLUXDB -> createInfluxDBMetricClientProvider(args);
+        case INFLUXDB_V2 -> createInfluxDBV2MetricClientProvider(args);
         case SPLUNK -> createSplunkMetricClientProvider(args);
         case NOOP -> new MetricClientProvider.NoopMetricClientProvider();
       };
@@ -141,5 +147,46 @@ public class Main {
       log.error("Failed to initialize Splunk: {}", e.getMessage());
       throw e;
     }
+  }
+
+  private static MetricClientProvider createInfluxDBV2MetricClientProvider(String[] args)
+      throws ParseException {
+    try {
+      InfluxDBV2MetricSender.InfluxDBV2Config influxDBV2Config =
+          JobCliParser.parseInfluxDBV2Config(args);
+      log.info("InfluxDB 2.x config: {}", influxDBV2Config);
+
+      // Create InfluxDB 2.x client
+      InfluxDBClient influxDBV2Client = createInfluxDBV2Client(influxDBV2Config);
+
+      InfluxDBV2MetricSender influxDBV2MetricSender =
+          new InfluxDBV2MetricSender(influxDBV2Config, influxDBV2Client);
+      return new InfluxDBV2MetricClientProvider(influxDBV2MetricSender);
+    } catch (Exception e) {
+      log.error("Failed to initialize InfluxDB 2.x: {}", e.getMessage());
+      throw e;
+    }
+  }
+
+  private static InfluxDBClient createInfluxDBV2Client(
+      InfluxDBV2MetricSender.InfluxDBV2Config config) {
+    log.debug("Creating InfluxDB 2.x client for URL: {}", config.getUrl());
+
+    if (config.getToken() == null || config.getToken().trim().isEmpty()) {
+      throw new IllegalArgumentException("InfluxDB 2.x requires a token for authentication");
+    }
+
+    InfluxDBClientOptions options =
+        InfluxDBClientOptions.builder()
+            .url(config.getUrl())
+            .authenticateToken(config.getToken().toCharArray())
+            .org(config.getOrg())
+            .bucket(config.getBucket())
+            .build();
+
+    InfluxDBClient client = InfluxDBClientFactory.create(options);
+
+    log.info("InfluxDB 2.x client created successfully");
+    return client;
   }
 }
