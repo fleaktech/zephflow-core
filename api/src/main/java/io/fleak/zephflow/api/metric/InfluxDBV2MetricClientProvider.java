@@ -32,7 +32,6 @@ public class InfluxDBV2MetricClientProvider implements MetricClientProvider {
 
   @Override
   public <T> FleakGauge<T> gauge(String name, Map<String, String> tags, T monitoredValue) {
-    // TODO: Implement InfluxDB 2.x gauge functionality
     return new NoopMetricClientProvider.NoopFleakGauge<>();
   }
 

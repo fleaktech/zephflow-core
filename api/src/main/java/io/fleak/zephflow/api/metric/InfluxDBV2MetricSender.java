@@ -116,14 +116,12 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
       String fieldName, Object value, Map<String, String> allTags, Instant timestamp) {
     Point point = Point.measurement(measurementName).time(timestamp, WritePrecision.MS);
 
-    // Add tags
     for (Map.Entry<String, String> tag : allTags.entrySet()) {
       String tagKey = tag.getKey() != null ? tag.getKey() : "";
       String tagValue = tag.getValue() != null ? tag.getValue() : "";
       point.addTag(tagKey, tagValue);
     }
 
-    // Add field
     if (value instanceof Number) {
       Number numValue = (Number) value;
       if (value instanceof Double || value instanceof Float) {

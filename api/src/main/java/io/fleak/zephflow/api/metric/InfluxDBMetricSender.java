@@ -131,14 +131,12 @@ public class InfluxDBMetricSender implements AutoCloseable {
     Point.Builder pointBuilder =
         Point.measurement(measurementName).time(timestamp, TimeUnit.MILLISECONDS);
 
-    // Add tags
     for (Map.Entry<String, String> tag : allTags.entrySet()) {
       String tagKey = tag.getKey() != null ? tag.getKey() : "";
       String tagValue = tag.getValue() != null ? tag.getValue() : "";
       pointBuilder.tag(tagKey, tagValue);
     }
 
-    // Add field
     if (value instanceof Number) {
       pointBuilder.addField(fieldName, (Number) value);
     } else if (value instanceof Boolean) {
