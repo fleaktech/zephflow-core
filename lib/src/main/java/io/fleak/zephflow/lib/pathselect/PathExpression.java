@@ -17,8 +17,9 @@ import static io.fleak.zephflow.lib.utils.AntlrUtils.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
-import io.fleak.zephflow.lib.commands.eval.ExpressionCache;
-import io.fleak.zephflow.lib.commands.eval.ExpressionValueVisitor;
+import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -32,11 +33,11 @@ public class PathExpression {
 
   @Getter @Setter private EvalExpressionParser.PathSelectExprContext pathSelectExprContext;
 
-  private ExpressionCache expressionCache;
+  private ExpressionNode compiledNode;
 
   public PathExpression(EvalExpressionParser.PathSelectExprContext pathSelectExprContext) {
     this.pathSelectExprContext = pathSelectExprContext;
-    this.expressionCache = ExpressionCache.build(pathSelectExprContext);
+    this.compiledNode = ExpressionCompiler.compilePathSelectExpr(pathSelectExprContext);
   }
 
   public static PathExpression fromString(String jsonPathString) {
@@ -61,16 +62,16 @@ public class PathExpression {
   }
 
   public FleakData calculateValue(FleakData input) {
-    ExpressionCache cache = getOrBuildCache();
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(input, null, cache);
-    return visitor.visit(pathSelectExprContext);
+    ExpressionNode node = getOrCompile();
+    EvalContext ctx = EvalContext.create(input);
+    return node.evaluate(ctx);
   }
 
-  private ExpressionCache getOrBuildCache() {
-    if (expressionCache == null && pathSelectExprContext != null) {
-      expressionCache = ExpressionCache.build(pathSelectExprContext);
+  private ExpressionNode getOrCompile() {
+    if (compiledNode == null && pathSelectExprContext != null) {
+      compiledNode = ExpressionCompiler.compilePathSelectExpr(pathSelectExprContext);
     }
-    return expressionCache;
+    return compiledNode;
   }
 
   @Override

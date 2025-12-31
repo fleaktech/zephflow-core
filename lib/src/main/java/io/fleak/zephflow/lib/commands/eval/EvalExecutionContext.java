@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.eval;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
+import io.fleak.zephflow.lib.commands.eval.compiled.CompiledExpression;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import java.io.IOException;
 import lombok.EqualsAndHashCode;
@@ -31,7 +32,7 @@ public class EvalExecutionContext extends DefaultExecutionContext {
   EvalExpressionParser.LanguageContext languageContext;
   boolean assertion;
   PythonExecutor pythonExecutor;
-  ExpressionCache expressionCache;
+  CompiledExpression compiledExpression;
 
   public EvalExecutionContext(
       FleakCounter inputMessageCounter,
@@ -40,12 +41,12 @@ public class EvalExecutionContext extends DefaultExecutionContext {
       EvalExpressionParser.LanguageContext languageContext,
       boolean assertion,
       PythonExecutor pythonExecutor,
-      ExpressionCache expressionCache) {
+      CompiledExpression compiledExpression) {
     super(inputMessageCounter, outputMessageCounter, errorCounter);
     this.languageContext = languageContext;
     this.assertion = assertion;
     this.pythonExecutor = pythonExecutor;
-    this.expressionCache = expressionCache;
+    this.compiledExpression = compiledExpression;
   }
 
   @Override

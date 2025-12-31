@@ -19,6 +19,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.structure.*;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import io.fleak.zephflow.lib.commands.eval.python.CompiledPythonFunction;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import java.security.SecureRandom;
@@ -87,39 +89,25 @@ public interface FeelFunction {
 
   FunctionSignature getSignature();
 
-  FleakData evaluate(
-      ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args);
-
-  private static FleakData visitExpression(
-      ExpressionValueVisitor visitor, EvalExpressionParser.ExpressionContext ctx) {
-    return visitor.visit(ctx);
+  default boolean isLazyEvaluation() {
+    return false;
   }
 
-  private static String normalizeStrLiteral(String text) {
-    String cleaned = cleanWrappedString(text);
-    // Handle escaped characters properly
-    return cleaned
-        .replace("\\\\", "\\") // Convert \\\\ to \\
-        .replace("\\'", "'"); // Convert \' to '
+  default FleakData evaluateCompiled(
+      EvalContext ctx,
+      List<ExpressionNode> args,
+      EvalExpressionParser.GenericFunctionCallContext originalCtx,
+      List<String> lazyArgTexts) {
+    throw new UnsupportedOperationException(
+        "Lazy compiled evaluation not implemented for " + getSignature().functionName());
   }
 
-  // Note: Removed duplicate evalArgAsInt - functions now use visitor.evalArgAsInt() for canonical
-  // validation
-
-  private static String cleanWrappedString(String v) {
-    if (v == null || v.length() < 2) {
-      return v;
-    }
-
-    char firstChar = v.charAt(0);
-    char lastChar = v.charAt(v.length() - 1);
-
-    // Handle both single and double quotes as defined in QUOTED_IDENTIFIER grammar
-    if ((firstChar == '"' && lastChar == '"') || (firstChar == '\'' && lastChar == '\'')) {
-      return v.substring(1, v.length() - 1);
-    }
-
-    return v;
+  default FleakData evaluateCompiledEager(
+      EvalContext ctx,
+      List<FleakData> evaluatedArgs,
+      EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+    throw new UnsupportedOperationException(
+        "Eager compiled evaluation not implemented for " + getSignature().functionName());
   }
 
   /*
@@ -141,30 +129,30 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 2) {
-        throw new IllegalArgumentException(
-            String.format(
-                "ts_str_to_epoch expects 2 arguments but received %d. "
-                    + "Usage: ts_str_to_epoch(timestamp_string, date_pattern). "
-                    + "Example: ts_str_to_epoch(\"2023-12-25\", \"yyyy-MM-dd\")",
-                args.size()));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      if (evaluatedArgs.size() != 2) {
+        throw new IllegalArgumentException("ts_str_to_epoch expects 2 arguments");
       }
 
-      FleakData timestampStrFd = visitExpression(visitor, args.get(0));
+      FleakData timestampStrFd = evaluatedArgs.get(0);
       Preconditions.checkArgument(
           timestampStrFd instanceof StringPrimitiveFleakData,
           "ts_str_to_epoch: timestamp field to be parsed is not a string: %s",
           timestampStrFd);
 
       String tsStr = timestampStrFd.getStringValue();
-      // For now, assume the second argument is a quoted identifier (will need special handling)
-      String patternStr = normalizeStrLiteral(args.get(1).getText());
+      FleakData patternFd = evaluatedArgs.get(1);
+      Preconditions.checkArgument(
+          patternFd instanceof StringPrimitiveFleakData,
+          "ts_str_to_epoch: pattern must be a string: %s",
+          patternFd);
+      String patternStr = patternFd.getStringValue();
 
       SimpleDateFormat simpleDateFormat;
       try {
-        // Use cached SimpleDateFormat for performance
         simpleDateFormat = getCachedDateFormat(patternStr, TimeZone.getTimeZone("UTC"), Locale.US);
       } catch (Exception e) {
         throw new IllegalArgumentException(
@@ -201,19 +189,12 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 2) {
-        throw new IllegalArgumentException(
-            String.format(
-                "str_contains expects 2 arguments but received %d. "
-                    + "Usage: str_contains(string, substring). "
-                    + "Example: str_contains(\"hello world\", \"world\")",
-                args.size()));
-      }
-
-      FleakData val1 = visitExpression(visitor, args.get(0));
-      FleakData val2 = visitExpression(visitor, args.get(1));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData val1 = evaluatedArgs.get(0);
+      FleakData val2 = evaluatedArgs.get(1);
       if (val1 == null || val2 == null) {
         return FleakData.wrap(false);
       }
@@ -234,13 +215,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("to_str expects exactly 1 argument");
-      }
-
-      FleakData arg = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData arg = evaluatedArgs.get(0);
       if (arg == null) {
         return null;
       }
@@ -259,13 +238,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("upper expects 1 argument");
-      }
-
-      FleakData arg = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData arg = evaluatedArgs.get(0);
       if (arg == null) {
         return null;
       }
@@ -284,13 +261,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("lower expects 1 argument");
-      }
-
-      FleakData arg = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData arg = evaluatedArgs.get(0);
       if (arg == null) {
         return null;
       }
@@ -312,13 +287,14 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("size_of expects 1 argument");
-      }
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      return evaluateSizeOf(evaluatedArgs.get(0));
+    }
 
-      FleakData arg = visitExpression(visitor, args.get(0));
+    private FleakData evaluateSizeOf(FleakData arg) {
       if (arg == null) {
         return null;
       }
@@ -380,28 +356,30 @@ public interface FeelFunction {
       return FunctionSignature.required("grok", 2, "input string and grok pattern");
     }
 
-    @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 2) {
-        throw new IllegalArgumentException(
-            String.format(
-                "grok expects 2 arguments but received %d. "
-                    + "Usage: grok(input_string, grok_pattern). "
-                    + "Example: grok($.__raw__, \"%%{WORD:program} %%{GREEDYDATA:message}\")",
-                args.size()));
-      }
+    private Grok getOrCreateGrok(String pattern) {
+      return grokCache.computeIfAbsent(
+          pattern, k -> new Grok(Grok.BUILTIN_PATTERNS, k, log::debug));
+    }
 
-      FleakData targetValue = visitExpression(visitor, args.get(0));
+    @Override
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData targetValue = evaluatedArgs.get(0);
       if (targetValue == null) {
         return new RecordFleakData();
       }
       String targetValueStr = targetValue.getStringValue();
-      String grokPattern = normalizeStrLiteral(args.get(1).getText());
 
-      Grok grok =
-          grokCache.computeIfAbsent(
-              grokPattern, k -> new Grok(Grok.BUILTIN_PATTERNS, k, log::debug));
+      FleakData patternFd = evaluatedArgs.get(1);
+      Preconditions.checkArgument(
+          patternFd instanceof StringPrimitiveFleakData,
+          "grok: pattern must be a string: %s",
+          patternFd);
+      String grokPattern = patternFd.getStringValue();
+      Grok grok = getOrCreateGrok(grokPattern);
+
       Map<String, Object> map = grok.captures(targetValueStr);
       return FleakData.wrap(map);
     }
@@ -424,13 +402,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.isEmpty() || args.size() > 2) {
-        throw new IllegalArgumentException("parse_int expects 1 or 2 arguments");
-      }
-
-      FleakData valueFd = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData valueFd = evaluatedArgs.get(0);
       Preconditions.checkArgument(
           valueFd instanceof StringPrimitiveFleakData,
           "parse_int: argument to be parsed is not a string: %s",
@@ -439,10 +415,9 @@ public interface FeelFunction {
       String intStr = valueFd.getStringValue();
       int radix = 10;
 
-      if (args.size() == 2) {
-        // Second argument should be an INT_LITERAL token
-        String radixStr = args.get(1).getText();
-        radix = Integer.parseInt(radixStr);
+      if (evaluatedArgs.size() == 2) {
+        FleakData radixFd = evaluatedArgs.get(1);
+        radix = (int) radixFd.getNumberValue();
       }
 
       try {
@@ -472,13 +447,14 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("parse_float expects 1 argument");
-      }
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      return parseFloatValue(evaluatedArgs.get(0));
+    }
 
-      FleakData valueFd = visitExpression(visitor, args.get(0));
+    private FleakData parseFloatValue(FleakData valueFd) {
       Preconditions.checkArgument(
           valueFd instanceof StringPrimitiveFleakData,
           "parse_float: argument to be parsed is not a string: %s",
@@ -521,15 +497,14 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.isEmpty()) {
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      if (evaluatedArgs.isEmpty()) {
         return new ArrayFleakData();
       }
-
-      List<FleakData> values =
-          args.stream().map(arg -> visitExpression(visitor, arg)).collect(Collectors.toList());
-      return new ArrayFleakData(values);
+      return new ArrayFleakData(new ArrayList<>(evaluatedArgs));
     }
   }
 
@@ -548,14 +523,12 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 2) {
-        throw new IllegalArgumentException("str_split expects 2 arguments");
-      }
-
-      FleakData stringData = visitExpression(visitor, args.get(0));
-      FleakData delimiterData = visitExpression(visitor, args.get(1));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData stringData = evaluatedArgs.get(0);
+      FleakData delimiterData = evaluatedArgs.get(1);
 
       if (stringData == null) {
         return null;
@@ -629,31 +602,6 @@ public interface FeelFunction {
           "substr", 2, 3, "string, start position, and optional length");
     }
 
-    @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() < 2 || args.size() > 3) {
-        throw new IllegalArgumentException("substr expects 2 or 3 arguments");
-      }
-
-      FleakData strFd = visitExpression(visitor, args.get(0));
-      if (strFd == null) {
-        return null;
-      }
-      String str = strFd.getStringValue();
-
-      // Use canonical integer evaluation method from visitor
-      int start = visitor.evalArgAsInt(args.get(1), "start");
-      int length = Integer.MAX_VALUE;
-
-      if (args.size() == 3) {
-        length = visitor.evalArgAsInt(args.get(2), "length");
-      }
-
-      String result = subStr(str, start, length);
-      return FleakData.wrap(result);
-    }
-
     private String subStr(String str, int start, int length) {
       if (str == null) {
         throw new IllegalArgumentException("Input string cannot be null");
@@ -687,6 +635,32 @@ public interface FeelFunction {
 
       return str.substring(start, endPos);
     }
+
+    @Override
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      if (evaluatedArgs.size() < 2 || evaluatedArgs.size() > 3) {
+        throw new IllegalArgumentException("substr expects 2 or 3 arguments");
+      }
+
+      FleakData strFd = evaluatedArgs.get(0);
+      if (strFd == null) {
+        return null;
+      }
+      String str = strFd.getStringValue();
+
+      int start = EvalContext.fleakDataToInt(evaluatedArgs.get(1), "start");
+      int length = Integer.MAX_VALUE;
+
+      if (evaluatedArgs.size() == 3) {
+        length = EvalContext.fleakDataToInt(evaluatedArgs.get(2), "length");
+      }
+
+      String result = subStr(str, start, length);
+      return FleakData.wrap(result);
+    }
   }
 
   /*
@@ -707,13 +681,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("duration_str_to_mills expects 1 argument");
-      }
-
-      FleakData durStrFd = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData durStrFd = evaluatedArgs.get(0);
       Preconditions.checkArgument(
           durStrFd instanceof StringPrimitiveFleakData,
           "duration_str_to_mills: duration argument is not a string: %s",
@@ -777,24 +749,26 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 2) {
-        throw new IllegalArgumentException("epoch_to_ts_str expects 2 arguments");
-      }
-
-      FleakData epochFd = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData epochFd = evaluatedArgs.get(0);
       Preconditions.checkArgument(
           epochFd instanceof NumberPrimitiveFleakData,
           "epoch_to_ts_str: timestamp field to be parsed is not a number: %s",
           epochFd);
 
       long epoch = (long) epochFd.getNumberValue();
-      String patternStr = normalizeStrLiteral(args.get(1).getText());
+      FleakData patternFd = evaluatedArgs.get(1);
+      Preconditions.checkArgument(
+          patternFd instanceof StringPrimitiveFleakData,
+          "epoch_to_ts_str: pattern must be a string: %s",
+          patternFd);
+      String patternStr = patternFd.getStringValue();
 
       SimpleDateFormat simpleDateFormat;
       try {
-        // Use cached SimpleDateFormat for performance
         simpleDateFormat = getCachedDateFormat(patternStr, null, null);
       } catch (Exception e) {
         throw new IllegalArgumentException(
@@ -858,13 +832,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("arr_flatten expects 1 argument");
-      }
-
-      FleakData fleakData = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData fleakData = evaluatedArgs.get(0);
       Preconditions.checkArgument(
           fleakData instanceof ArrayFleakData,
           "arr_flatten argument must be an array but found: %s",
@@ -929,9 +901,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.isEmpty() || args.size() > 3) {
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      if (evaluatedArgs.isEmpty() || evaluatedArgs.size() > 3) {
         throw new IllegalArgumentException("range expects 1, 2, or 3 arguments");
       }
 
@@ -939,18 +913,15 @@ public interface FeelFunction {
       int end;
       int step = 1;
 
-      if (args.size() == 1) {
-        // range(count)
-        end = visitor.evalArgAsInt(args.get(0), "count");
-      } else if (args.size() == 2) {
-        // range(start, end)
-        start = visitor.evalArgAsInt(args.get(0), "start");
-        end = visitor.evalArgAsInt(args.get(1), "end");
+      if (evaluatedArgs.size() == 1) {
+        end = EvalContext.fleakDataToInt(evaluatedArgs.get(0), "count");
+      } else if (evaluatedArgs.size() == 2) {
+        start = EvalContext.fleakDataToInt(evaluatedArgs.get(0), "start");
+        end = EvalContext.fleakDataToInt(evaluatedArgs.get(1), "end");
       } else {
-        // range(start, end, step)
-        start = visitor.evalArgAsInt(args.get(0), "start");
-        end = visitor.evalArgAsInt(args.get(1), "end");
-        step = visitor.evalArgAsInt(args.get(2), "step");
+        start = EvalContext.fleakDataToInt(evaluatedArgs.get(0), "start");
+        end = EvalContext.fleakDataToInt(evaluatedArgs.get(1), "end");
+        step = EvalContext.fleakDataToInt(evaluatedArgs.get(2), "step");
       }
 
       if (step == 0) {
@@ -1052,14 +1023,22 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+    public boolean isLazyEvaluation() {
+      return true;
+    }
+
+    @Override
+    public FleakData evaluateCompiled(
+        EvalContext ctx,
+        List<ExpressionNode> args,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx,
+        List<String> lazyArgTexts) {
       if (args.size() != 3) {
         throw new IllegalArgumentException(
             "arr_foreach expects 3 arguments: array, variable name, and expression");
       }
 
-      FleakData arrayData = visitExpression(visitor, args.get(0));
+      FleakData arrayData = args.get(0).evaluate(ctx);
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         throw new IllegalArgumentException(
             "arr_foreach: first argument should be an array or object but found: " + arrayData);
@@ -1069,19 +1048,18 @@ public interface FeelFunction {
         arrayData = new ArrayFleakData(List.of(arrayData));
       }
 
-      // Second argument should be a variable name (IDENTIFIER)
-      String elemVarName = args.get(1).getText();
+      String elemVarName = lazyArgTexts.get(1);
+      ExpressionNode expressionNode = args.get(2);
 
       List<FleakData> resultArray = new ArrayList<>();
       for (FleakData elem : arrayData.getArrayPayload()) {
-        // Create new scope, set variable, evaluate expression, then exit scope
-        visitor.enterScope();
+        ctx.enterScope();
         try {
-          visitor.setVariable(elemVarName, elem);
-          FleakData resultElem = visitExpression(visitor, args.get(2));
+          ctx.setVariable(elemVarName, elem);
+          FleakData resultElem = expressionNode.evaluate(ctx);
           resultArray.add(resultElem);
         } finally {
-          visitor.exitScope();
+          ctx.exitScope();
         }
       }
 
@@ -1141,14 +1119,22 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+    public boolean isLazyEvaluation() {
+      return true;
+    }
+
+    @Override
+    public FleakData evaluateCompiled(
+        EvalContext ctx,
+        List<ExpressionNode> args,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx,
+        List<String> lazyArgTexts) {
       if (args.size() != 3) {
         throw new IllegalArgumentException(
             "arr_find expects 3 arguments: array, variable name, and condition");
       }
 
-      FleakData arrayData = visitExpression(visitor, args.get(0));
+      FleakData arrayData = args.get(0).evaluate(ctx);
 
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         return null;
@@ -1158,20 +1144,21 @@ public interface FeelFunction {
         arrayData = new ArrayFleakData(List.of(arrayData));
       }
 
-      String elemVarName = args.get(1).getText();
+      String elemVarName = lazyArgTexts.get(1);
+      ExpressionNode conditionNode = args.get(2);
 
       for (FleakData elem : arrayData.getArrayPayload()) {
-        visitor.enterScope();
+        ctx.enterScope();
         try {
-          visitor.setVariable(elemVarName, elem);
-          FleakData conditionResult = visitExpression(visitor, args.get(2));
+          ctx.setVariable(elemVarName, elem);
+          FleakData conditionResult = conditionNode.evaluate(ctx);
 
           if (conditionResult instanceof BooleanPrimitiveFleakData
               && conditionResult.isTrueValue()) {
             return elem;
           }
         } finally {
-          visitor.exitScope();
+          ctx.exitScope();
         }
       }
 
@@ -1232,14 +1219,22 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
+    public boolean isLazyEvaluation() {
+      return true;
+    }
+
+    @Override
+    public FleakData evaluateCompiled(
+        EvalContext ctx,
+        List<ExpressionNode> args,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx,
+        List<String> lazyArgTexts) {
       if (args.size() != 3) {
         throw new IllegalArgumentException(
             "arr_filter expects 3 arguments: array, variable name, and condition");
       }
 
-      FleakData arrayData = visitExpression(visitor, args.get(0));
+      FleakData arrayData = args.get(0).evaluate(ctx);
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         return FleakData.wrap(List.of());
       }
@@ -1248,21 +1243,22 @@ public interface FeelFunction {
         arrayData = new ArrayFleakData(List.of(arrayData));
       }
 
-      String elemVarName = args.get(1).getText();
+      String elemVarName = lazyArgTexts.get(1);
+      ExpressionNode conditionNode = args.get(2);
       List<FleakData> resultArray = new ArrayList<>();
 
       for (FleakData elem : arrayData.getArrayPayload()) {
-        visitor.enterScope();
+        ctx.enterScope();
         try {
-          visitor.setVariable(elemVarName, elem);
-          FleakData conditionResult = visitExpression(visitor, args.get(2));
+          ctx.setVariable(elemVarName, elem);
+          FleakData conditionResult = conditionNode.evaluate(ctx);
 
           if (conditionResult instanceof BooleanPrimitiveFleakData
               && conditionResult.isTrueValue()) {
             resultArray.add(elem);
           }
         } finally {
-          visitor.exitScope();
+          ctx.exitScope();
         }
       }
 
@@ -1294,17 +1290,18 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.isEmpty()) {
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      if (evaluatedArgs.isEmpty()) {
         throw new IllegalArgumentException("dict_merge expects at least 1 argument");
       }
 
       Map<String, FleakData> mergedPayload = new HashMap<>();
-      for (EvalExpressionParser.ExpressionContext arg : args) {
-        FleakData fd = visitExpression(visitor, arg);
+      for (FleakData fd : evaluatedArgs) {
         if (fd == null) {
-          continue; // Skip null values
+          continue;
         }
         Preconditions.checkArgument(
             fd instanceof RecordFleakData,
@@ -1348,14 +1345,16 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() < 2) {
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      if (evaluatedArgs.size() < 2) {
         throw new IllegalArgumentException(
             "dict_remove expects at least 2 arguments: dictionary and at least one key to remove");
       }
 
-      FleakData dictData = visitExpression(visitor, args.get(0));
+      FleakData dictData = evaluatedArgs.get(0);
       if (dictData == null) {
         return null;
       }
@@ -1365,12 +1364,10 @@ public interface FeelFunction {
           "dict_remove: first argument must be a dictionary but found: %s",
           dictData.unwrap());
 
-      // Create a copy of the original dictionary
       Map<String, FleakData> resultPayload = new HashMap<>(dictData.getPayload());
 
-      // Remove each specified key
-      for (int i = 1; i < args.size(); i++) {
-        FleakData keyData = visitExpression(visitor, args.get(i));
+      for (int i = 1; i < evaluatedArgs.size(); i++) {
+        FleakData keyData = evaluatedArgs.get(i);
         if (keyData == null) {
           continue;
         }
@@ -1401,13 +1398,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("floor expects 1 argument");
-      }
-
-      FleakData arg = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData arg = evaluatedArgs.get(0);
       if (!(arg instanceof NumberPrimitiveFleakData)) {
         throw new IllegalArgumentException(
             "floor: argument must be a number but found: "
@@ -1432,13 +1427,11 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (args.size() != 1) {
-        throw new IllegalArgumentException("ceil expects 1 argument");
-      }
-
-      FleakData arg = visitExpression(visitor, args.get(0));
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData arg = evaluatedArgs.get(0);
       if (!(arg instanceof NumberPrimitiveFleakData)) {
         throw new IllegalArgumentException(
             "ceil: argument must be a number but found: "
@@ -1463,12 +1456,10 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (!args.isEmpty()) {
-        throw new IllegalArgumentException("now expects 0 arguments");
-      }
-
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
       long currentTimeMillis = System.currentTimeMillis();
       return new NumberPrimitiveFleakData(
           currentTimeMillis, NumberPrimitiveFleakData.NumberType.LONG);
@@ -1489,12 +1480,10 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      if (!args.isEmpty()) {
-        throw new IllegalArgumentException("random_long expects 0 arguments");
-      }
-
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
       long randomValue = SECURE_RANDOM.nextLong();
       return new NumberPrimitiveFleakData(randomValue, NumberPrimitiveFleakData.NumberType.LONG);
     }
@@ -1524,46 +1513,34 @@ public interface FeelFunction {
     }
 
     @Override
-    public FleakData evaluate(
-        ExpressionValueVisitor visitor, List<EvalExpressionParser.ExpressionContext> args) {
-      throw new UnsupportedOperationException(
-          "Python function requires context for proper script matching. "
-              + "This should be called via evaluateWithContext() method.");
-    }
-
-    public FleakData evaluateWithContext(
-        ExpressionValueVisitor visitor,
-        List<EvalExpressionParser.ExpressionContext> args,
-        EvalExpressionParser.GenericFunctionCallContext ctx) {
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
       if (pythonExecutor == null) {
         throw new IllegalArgumentException(
             "cannot execute python() function. No python executor provided");
       }
 
-      if (args.isEmpty()) {
+      if (evaluatedArgs.isEmpty()) {
         throw new IllegalArgumentException("python function expects at least 1 argument (script)");
       }
-      // Use the context to lookup the pre-compiled function
-      CompiledPythonFunction compiledFunc = pythonExecutor.compiledPythonFunctions().get(ctx);
+
+      CompiledPythonFunction compiledFunc =
+          pythonExecutor.compiledPythonFunctions().get(originalCtx);
 
       if (compiledFunc == null) {
         throw new IllegalStateException(
             "No pre-compiled Python function found for context: "
-                + ctx.getSourceInterval()
+                + originalCtx.getSourceInterval()
                 + ". Ensure Python functions are pre-compiled before execution.");
       }
 
-      // Evaluate the arguments (skip first argument which is the script)
-      List<FleakData> feelArgs =
-          args.subList(1, args.size()).stream()
-              .map(arg -> visitExpression(visitor, arg))
-              .collect(Collectors.toList());
+      // Skip first argument (script) - already evaluated to string but not used
+      List<FleakData> feelArgs = evaluatedArgs.subList(1, evaluatedArgs.size());
 
       return executePythonFunction(compiledFunc, feelArgs);
     }
-
-    // Note: Removed findAnyCompiledFunction() as it was dangerous -
-    // would execute wrong Python script if multiple scripts exist
 
     private FleakData executePythonFunction(
         CompiledPythonFunction compiledFunc, List<FleakData> feelArgs) {
@@ -1644,7 +1621,4 @@ public interface FeelFunction {
 
     return builder.build();
   }
-
-  // Note: FUNCTIONS_TABLE is now created at runtime in ExpressionValueVisitor
-  // to properly support runtime dependencies like PythonExecutor
 }

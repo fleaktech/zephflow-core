@@ -24,7 +24,6 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.eval.EvalCommand;
 import io.fleak.zephflow.lib.commands.eval.EvalExecutionContext;
-import io.fleak.zephflow.lib.commands.eval.ExpressionValueVisitor;
 import java.util.List;
 import java.util.Map;
 
@@ -56,12 +55,9 @@ public class AssertionCommand extends ScalarCommand {
         getCallingUserTagAndEventTags(callingUser, event);
     EvalExecutionContext evalContext = (EvalExecutionContext) context;
     evalContext.getInputMessageCounter().increase(callingUserTagAndEventTags);
-    ExpressionValueVisitor expressionValueVisitor =
-        ExpressionValueVisitor.createInstance(
-            event, evalContext.getPythonExecutor(), evalContext.getExpressionCache());
     FleakData fleakData = new BooleanPrimitiveFleakData(false);
     try {
-      fleakData = expressionValueVisitor.visit(evalContext.getLanguageContext());
+      fleakData = evalContext.getCompiledExpression().evaluate(event);
     } catch (Exception e) {
       // no-op
       // any exception thrown during evaluation should be caught here and causing the expression
