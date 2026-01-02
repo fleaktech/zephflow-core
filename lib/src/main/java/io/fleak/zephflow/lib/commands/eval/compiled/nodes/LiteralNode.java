@@ -11,15 +11,16 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.serdes.ser.jsonobj;
+package io.fleak.zephflow.lib.commands.eval.compiled.nodes;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.fleak.zephflow.lib.serdes.ser.SingleEventTypedSerializer;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 
-/** Created by bolei on 9/16/24 */
-public class JsonObjectTypedSerializer extends SingleEventTypedSerializer<ObjectNode> {
+/** Represents a pre-computed constant value (string, number, boolean, or null). */
+public record LiteralNode(FleakData value) implements ExpressionNode {
   @Override
-  protected byte[] serializeOne(ObjectNode payload) {
-    return payload.toString().getBytes();
+  public FleakData evaluate(EvalContext ctx) {
+    return value;
   }
 }

@@ -11,20 +11,24 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.serdes.ser.jsonarr;
+package io.fleak.zephflow.lib.commands.eval.compiled.nodes;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.fleak.zephflow.lib.serdes.ser.MultipleEventsTypedSerializer;
-import io.fleak.zephflow.lib.utils.JsonUtils;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import java.util.List;
 
-/** Created by bolei on 9/17/24 */
-public class JsonArrayTypedSerializer extends MultipleEventsTypedSerializer<ObjectNode> {
+/** Represents a path select expression ($.field.subfield[0]). */
+public record PathSelectNode(List<StepNode> steps) implements ExpressionNode {
   @Override
-  protected byte[] serializeToMultipleTypedEvent(List<ObjectNode> typedValues) {
-    ArrayNode arrayNode = JsonUtils.OBJECT_MAPPER.createArrayNode();
-    arrayNode.addAll(typedValues);
-    return arrayNode.toString().getBytes();
+  public FleakData evaluate(EvalContext ctx) {
+    FleakData value = ctx.getRootData();
+    for (StepNode step : steps) {
+      if (value == null) {
+        return null;
+      }
+      value = step.apply(value, ctx);
+    }
+    return value;
   }
 }

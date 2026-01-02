@@ -95,8 +95,9 @@ class S3FlusherTest {
             .collect(Collectors.joining("\n"));
     ArrayFleakData arrayFleakData = new ArrayFleakData();
     arrayFleakData.getArrayPayload().addAll(events);
-    String expectedContent = JsonUtils.toArrayNode(arrayFleakData).toString();
-    assertEquals(expectedContent, capturedContent);
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree(JsonUtils.toArrayNode(arrayFleakData).toString()),
+        JsonUtils.OBJECT_MAPPER.readTree(capturedContent));
 
     assertEquals(events.size(), result.successCount());
   }
@@ -130,9 +131,14 @@ class S3FlusherTest {
                     StandardCharsets.UTF_8))
             .lines()
             .collect(Collectors.joining("\n"));
-    String expectedContent =
-        "{\"name\":\"Alice\",\"age\":30}\n" + "{\"name\":\"Bob\",\"city\":\"New, York\"}";
-    assertEquals(expectedContent, capturedContent);
+    String[] capturedLines = capturedContent.split("\n");
+    assertEquals(2, capturedLines.length);
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree("{\"name\":\"Alice\",\"age\":30}"),
+        JsonUtils.OBJECT_MAPPER.readTree(capturedLines[0]));
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree("{\"name\":\"Bob\",\"city\":\"New, York\"}"),
+        JsonUtils.OBJECT_MAPPER.readTree(capturedLines[1]));
 
     assertEquals(events.size(), result.successCount());
   }
