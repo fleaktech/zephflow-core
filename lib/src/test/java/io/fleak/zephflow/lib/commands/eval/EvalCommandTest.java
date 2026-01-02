@@ -1134,14 +1134,15 @@ dict(
   }
 
   @Test
-  public void testOutputMultipleEvents_castFailure() {
+  public void testOutputMultipleEvents_mixedArrayWithFailures() {
     String inputEventStr =
         """
         {
           "foo": 100,
           "arr":[
             {"k": 1},
-            1
+            1,
+            {"k": 2}
           ]
         }
         """;
@@ -1149,6 +1150,12 @@ dict(
     String evalExpr = "$.arr";
     RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
     ScalarCommand.ProcessResult processResult = runEval(inputEvent, evalExpr);
+
+    assertEquals(2, processResult.getOutput().size());
+    assertEquals(
+        toJsonString(List.of(FleakData.wrap(Map.of("k", 1)), FleakData.wrap(Map.of("k", 2)))),
+        toJsonString(processResult.getOutput()));
+
     assertEquals(1, processResult.getFailureEvents().size());
     assertEquals(
         "failed to cast NumberPrimitiveFleakData(numberValue=1.0, numberType=LONG) into RecordFleakData",
