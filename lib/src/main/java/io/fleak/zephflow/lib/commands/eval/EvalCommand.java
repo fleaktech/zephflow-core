@@ -28,6 +28,8 @@ import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import io.fleak.zephflow.lib.commands.eval.compiled.CompiledExpression;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
 import java.util.List;
@@ -91,13 +93,18 @@ public class EvalCommand extends ScalarCommand {
           e);
     }
 
+    // Compile expression to lightweight AST for efficient evaluation
+    CompiledExpression compiledExpression =
+        ExpressionCompiler.compile(languageContext, pythonExecutor);
+
     return new EvalExecutionContext(
         inputMessageCounter,
         outputMessageCounter,
         errorCounter,
         languageContext,
         config.assertion(),
-        pythonExecutor);
+        pythonExecutor,
+        compiledExpression);
   }
 
   @Override
@@ -108,9 +115,7 @@ public class EvalCommand extends ScalarCommand {
     EvalExecutionContext evalContext = (EvalExecutionContext) context;
     evalContext.getInputMessageCounter().increase(callingUserTagAndEventTags);
     try {
-      ExpressionValueVisitor expressionValueVisitor =
-          ExpressionValueVisitor.createInstance(event, evalContext.getPythonExecutor());
-      FleakData fleakData = expressionValueVisitor.visit(evalContext.getLanguageContext());
+      FleakData fleakData = evalContext.getCompiledExpression().evaluate(event);
       if (fleakData == null) {
         return List.of();
       }

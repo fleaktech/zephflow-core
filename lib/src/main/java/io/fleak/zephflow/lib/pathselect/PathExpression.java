@@ -17,22 +17,27 @@ import static io.fleak.zephflow.lib.utils.AntlrUtils.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
-import io.fleak.zephflow.lib.commands.eval.ExpressionValueVisitor;
+import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /** Created by bolei on 5/23/24 */
-@Data
 @NoArgsConstructor
 public class PathExpression {
 
-  private EvalExpressionParser.PathSelectExprContext pathSelectExprContext;
+  @Getter @Setter private EvalExpressionParser.PathSelectExprContext pathSelectExprContext;
+
+  private ExpressionNode compiledNode;
 
   public PathExpression(EvalExpressionParser.PathSelectExprContext pathSelectExprContext) {
     this.pathSelectExprContext = pathSelectExprContext;
+    this.compiledNode = ExpressionCompiler.compilePathSelectExpr(pathSelectExprContext);
   }
 
   public static PathExpression fromString(String jsonPathString) {
@@ -57,8 +62,16 @@ public class PathExpression {
   }
 
   public FleakData calculateValue(FleakData input) {
-    ExpressionValueVisitor visitor = ExpressionValueVisitor.createInstance(input, null);
-    return visitor.visit(pathSelectExprContext);
+    ExpressionNode node = getOrCompile();
+    EvalContext ctx = EvalContext.create(input);
+    return node.evaluate(ctx);
+  }
+
+  private ExpressionNode getOrCompile() {
+    if (compiledNode == null && pathSelectExprContext != null) {
+      compiledNode = ExpressionCompiler.compilePathSelectExpr(pathSelectExprContext);
+    }
+    return compiledNode;
   }
 
   @Override
