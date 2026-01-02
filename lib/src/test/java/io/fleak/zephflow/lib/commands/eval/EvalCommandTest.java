@@ -158,6 +158,16 @@ dict(
   }
 
   @Test
+  public void testRangeSizeLimit() {
+    String evalExpr = "dict(result = range(0, 2000000000))";
+    RecordFleakData inputEvent = (RecordFleakData) FleakData.wrap(Map.of("x", 1));
+    ScalarCommand.ProcessResult result = runEval(inputEvent, evalExpr);
+    assertEquals(1, result.getFailureEvents().size());
+    assertTrue(
+        result.getFailureEvents().get(0).errorMessage().contains("exceeding maximum of 1000000"));
+  }
+
+  @Test
   public void testGrok() throws IOException {
     String evalExpr =
         """

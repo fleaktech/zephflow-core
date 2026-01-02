@@ -924,6 +924,21 @@ public interface FeelFunction {
         throw new IllegalArgumentException("range() step argument cannot be zero.");
       }
 
+      long expectedSize;
+      if (step > 0) {
+        expectedSize = (end > start) ? ((long) (end - start - 1) / step + 1) : 0;
+      } else {
+        expectedSize = (start > end) ? ((long) (start - end - 1) / (-step) + 1) : 0;
+      }
+
+      int maxRangeSize = 1_000_000;
+      if (expectedSize > maxRangeSize) {
+        throw new IllegalArgumentException(
+            String.format(
+                "range() would generate %d elements, exceeding maximum of %d",
+                expectedSize, maxRangeSize));
+      }
+
       List<FleakData> resultNumbers = new ArrayList<>();
       if (step > 0) {
         for (long i = start; i < end; i += step) {
