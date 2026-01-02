@@ -31,6 +31,7 @@ import java.util.*;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.graalvm.polyglot.*;
 import org.opensearch.grok.Grok;
@@ -844,13 +845,8 @@ public interface FeelFunction {
 
       List<FleakData> arrPayload =
           fleakData.getArrayPayload().stream()
-              .peek(
-                  l ->
-                      Preconditions.checkArgument(
-                          l instanceof ArrayFleakData,
-                          "arr_flatten encountered non array data: %s",
-                          l.unwrap()))
-              .flatMap(l -> l.getArrayPayload().stream())
+              .flatMap(
+                  l -> l instanceof ArrayFleakData ? l.getArrayPayload().stream() : Stream.of(l))
               .collect(Collectors.toList());
 
       return new ArrayFleakData(arrPayload);

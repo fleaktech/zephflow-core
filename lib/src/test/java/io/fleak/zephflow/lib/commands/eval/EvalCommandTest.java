@@ -145,6 +145,19 @@ dict(
   }
 
   @Test
+  public void testArrFlattenMixedInput() {
+    String evalExpr = "dict(result = arr_flatten($.f))";
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            loadFleakDataFromJsonString(
+                """
+            {"f": [[1, 2], 3, [4, 5]]}
+            """);
+    FleakData expected = FleakData.wrap(Map.of("result", List.of(1, 2, 3, 4, 5)));
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
   public void testGrok() throws IOException {
     String evalExpr =
         """
