@@ -573,10 +573,29 @@ public interface FeelFunction {
   /*
   strSplitFunction:
   Split a string into an array of substrings based on a delimiter.
+
   Syntax:
-  ```
   str_split(string, delimiter)
-  ```
+
+  Parameters:
+  - First argument: string to split
+  - Second argument: delimiter (literal string, NOT regex)
+
+  Returns: array of substrings, preserving empty strings (including trailing)
+
+  Delimiter handling:
+  The delimiter is matched literally - special regex characters like . | * + [ have no special meaning.
+  Use standard string escape sequences for special characters:
+  - \"   matches a double quote
+  - \\   matches a backslash
+  - \n   matches a newline
+
+  Examples:
+  str_split("a,b,c", ",")           // ["a", "b", "c"]
+  str_split("a.b.c", ".")           // ["a", "b", "c"] - dot is literal
+  str_split("a|b|c", "|")           // ["a", "b", "c"] - pipe is literal
+  str_split("a,b,,", ",")           // ["a", "b", "", ""] - trailing empty strings preserved
+  str_split("a\"b\"c", "\"")        // ["a", "b", "c"] - split by double quote
   */
   class StrSplitFunction implements FeelFunction {
     @Override
@@ -617,9 +636,14 @@ public interface FeelFunction {
         return new ArrayFleakData(List.of());
       }
 
-      String[] parts = inputString.split(Pattern.quote(delimiter));
-      List<FleakData> resultList =
-          Arrays.stream(parts).map(StringPrimitiveFleakData::new).collect(Collectors.toList());
+      List<FleakData> resultList = new ArrayList<>();
+      int start = 0;
+      int idx;
+      while ((idx = inputString.indexOf(delimiter, start)) != -1) {
+        resultList.add(new StringPrimitiveFleakData(inputString.substring(start, idx)));
+        start = idx + delimiter.length();
+      }
+      resultList.add(new StringPrimitiveFleakData(inputString.substring(start)));
 
       return new ArrayFleakData(resultList);
     }
