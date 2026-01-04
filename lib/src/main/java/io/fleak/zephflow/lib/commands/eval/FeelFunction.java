@@ -29,8 +29,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.graalvm.polyglot.*;
 import org.opensearch.grok.Grok;
@@ -65,21 +67,16 @@ public interface FeelFunction {
    *
    * @param pattern the date pattern
    * @param timeZone the timezone (null for default)
-   * @param locale the locale (null for default)
    * @return a cached SimpleDateFormat instance
    */
-  private static SimpleDateFormat getCachedDateFormat(
-      String pattern, TimeZone timeZone, Locale locale) {
+  private static SimpleDateFormat getCachedDateFormat(String pattern, TimeZone timeZone) {
     String cacheKey = pattern + "|" + (timeZone != null ? timeZone.getID() : "default");
     return DATE_FORMAT_CACHE
         .get()
         .computeIfAbsent(
             cacheKey,
             k -> {
-              SimpleDateFormat sdf =
-                  locale != null
-                      ? new SimpleDateFormat(pattern, locale)
-                      : new SimpleDateFormat(pattern);
+              SimpleDateFormat sdf = new SimpleDateFormat(pattern, Locale.US);
               if (timeZone != null) {
                 sdf.setTimeZone(timeZone);
               }
@@ -112,7 +109,9 @@ public interface FeelFunction {
 
   /*
   tsStrToEpochFunction:
-  Convert a datetime string input epoch milliseconds.
+  Convert a datetime string to epoch milliseconds.
+  The timestamp string is interpreted as UTC timezone.
+
   Syntax:
   ```
   ts_str_to_epoch($.path.to.timestamp.field, "<date_time_pattern>")
@@ -153,7 +152,7 @@ public interface FeelFunction {
 
       SimpleDateFormat simpleDateFormat;
       try {
-        simpleDateFormat = getCachedDateFormat(patternStr, TimeZone.getTimeZone("UTC"), Locale.US);
+        simpleDateFormat = getCachedDateFormat(patternStr, TimeZone.getTimeZone("UTC"));
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "ts_str_to_epoch: failed to process date time pattern: " + patternStr);
@@ -200,6 +199,69 @@ public interface FeelFunction {
       }
       boolean contains = val1.getStringValue().contains(val2.getStringValue());
       return FleakData.wrap(contains);
+    }
+  }
+
+  /*
+  regexMatchFunction:
+  Tests if a string matches a regular expression pattern.
+
+  Syntax:
+  regex_match($.path.to.string.field, "<regex_pattern>")
+
+  Parameters:
+  - First argument: string to test
+  - Second argument: regex pattern (Java regex syntax)
+
+  Returns: true if string matches the entire pattern, false otherwise
+
+  Escape sequences:
+  Use double backslash (\\) to represent regex special characters:
+  - \\d  matches any digit
+  - \\s  matches any whitespace
+  - \\w  matches any word character
+  - \\.  matches a literal dot
+  - \\\\  matches a literal backslash
+
+  Examples:
+  regex_match($.num, "\\d+")                     // matches digits like "12345"
+  regex_match($.ver, "\\d+\\.\\d+\\.\\d+")       // matches version like "1.2.3"
+  regex_match($.text, "hello\\s+world")          // matches "hello world" with whitespace
+  regex_match($.email, "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
+  */
+  class RegexMatchFunction implements FeelFunction {
+    private final Map<String, Pattern> patternCache = new ConcurrentHashMap<>();
+
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("regex_match", 2, "input string and regex pattern");
+    }
+
+    @Override
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData inputFd = evaluatedArgs.get(0);
+      if (inputFd == null) {
+        return new BooleanPrimitiveFleakData(false);
+      }
+      Preconditions.checkArgument(
+          inputFd instanceof StringPrimitiveFleakData,
+          "regex_match: first argument must be a string: %s",
+          inputFd);
+      String input = inputFd.getStringValue();
+
+      FleakData patternFd = evaluatedArgs.get(1);
+      Preconditions.checkArgument(
+          patternFd instanceof StringPrimitiveFleakData,
+          "regex_match: pattern must be a string: %s",
+          patternFd);
+      String patternStr = patternFd.getStringValue();
+
+      Pattern pattern = patternCache.computeIfAbsent(patternStr, Pattern::compile);
+      boolean matches = pattern.matcher(input).matches();
+      return new BooleanPrimitiveFleakData(matches);
     }
   }
 
@@ -511,10 +573,29 @@ public interface FeelFunction {
   /*
   strSplitFunction:
   Split a string into an array of substrings based on a delimiter.
+
   Syntax:
-  ```
   str_split(string, delimiter)
-  ```
+
+  Parameters:
+  - First argument: string to split
+  - Second argument: delimiter (literal string, NOT regex)
+
+  Returns: array of substrings, preserving empty strings (including trailing)
+
+  Delimiter handling:
+  The delimiter is matched literally - special regex characters like . | * + [ have no special meaning.
+  Use standard string escape sequences for special characters:
+  - \"   matches a double quote
+  - \\   matches a backslash
+  - \n   matches a newline
+
+  Examples:
+  str_split("a,b,c", ",")           // ["a", "b", "c"]
+  str_split("a.b.c", ".")           // ["a", "b", "c"] - dot is literal
+  str_split("a|b|c", "|")           // ["a", "b", "c"] - pipe is literal
+  str_split("a,b,,", ",")           // ["a", "b", "", ""] - trailing empty strings preserved
+  str_split("a\"b\"c", "\"")        // ["a", "b", "c"] - split by double quote
   */
   class StrSplitFunction implements FeelFunction {
     @Override
@@ -555,9 +636,14 @@ public interface FeelFunction {
         return new ArrayFleakData(List.of());
       }
 
-      String[] parts = inputString.split(Pattern.quote(delimiter));
-      List<FleakData> resultList =
-          Arrays.stream(parts).map(StringPrimitiveFleakData::new).collect(Collectors.toList());
+      List<FleakData> resultList = new ArrayList<>();
+      int start = 0;
+      int idx;
+      while ((idx = inputString.indexOf(delimiter, start)) != -1) {
+        resultList.add(new StringPrimitiveFleakData(inputString.substring(start, idx)));
+        start = idx + delimiter.length();
+      }
+      resultList.add(new StringPrimitiveFleakData(inputString.substring(start)));
 
       return new ArrayFleakData(resultList);
     }
@@ -733,6 +819,8 @@ public interface FeelFunction {
   /*
   epochToTsStrFunction:
   Convert an epoch millisecond timestamp into a human readable string.
+  The output string is formatted in UTC timezone.
+
   Syntax:
   ```
   epoch_to_ts_str($.path.to.timestamp.field, "<date_time_pattern>")
@@ -769,7 +857,7 @@ public interface FeelFunction {
 
       SimpleDateFormat simpleDateFormat;
       try {
-        simpleDateFormat = getCachedDateFormat(patternStr, null, null);
+        simpleDateFormat = getCachedDateFormat(patternStr, TimeZone.getTimeZone("UTC"));
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "epoch_to_ts_str: failed to process date time pattern: " + patternStr);
@@ -844,13 +932,8 @@ public interface FeelFunction {
 
       List<FleakData> arrPayload =
           fleakData.getArrayPayload().stream()
-              .peek(
-                  l ->
-                      Preconditions.checkArgument(
-                          l instanceof ArrayFleakData,
-                          "arr_flatten encountered non array data: %s",
-                          l.unwrap()))
-              .flatMap(l -> l.getArrayPayload().stream())
+              .flatMap(
+                  l -> l instanceof ArrayFleakData ? l.getArrayPayload().stream() : Stream.of(l))
               .collect(Collectors.toList());
 
       return new ArrayFleakData(arrPayload);
@@ -926,6 +1009,21 @@ public interface FeelFunction {
 
       if (step == 0) {
         throw new IllegalArgumentException("range() step argument cannot be zero.");
+      }
+
+      long expectedSize;
+      if (step > 0) {
+        expectedSize = (end > start) ? ((long) (end - start - 1) / step + 1) : 0;
+      } else {
+        expectedSize = (start > end) ? ((long) (start - end - 1) / (-step) + 1) : 0;
+      }
+
+      int maxRangeSize = 1_000_000;
+      if (expectedSize > maxRangeSize) {
+        throw new IllegalArgumentException(
+            String.format(
+                "range() would generate %d elements, exceeding maximum of %d",
+                expectedSize, maxRangeSize));
       }
 
       List<FleakData> resultNumbers = new ArrayList<>();
@@ -1592,6 +1690,7 @@ public interface FeelFunction {
             .put("ts_str_to_epoch", new TsStrToEpochFunction())
             .put("epoch_to_ts_str", new EpochToTsStrFunction())
             .put("str_contains", new StrContainsFunction())
+            .put("regex_match", new RegexMatchFunction())
             .put("to_str", new ToStringFunction())
             .put("upper", new UpperFunction())
             .put("lower", new LowerFunction())
