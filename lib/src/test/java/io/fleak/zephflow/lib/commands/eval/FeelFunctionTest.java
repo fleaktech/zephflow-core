@@ -62,7 +62,7 @@ class FeelFunctionTest {
 
     try {
       FleakData testData = new StringPrimitiveFleakData("test");
-      FleakData result = evaluateExpression(expr, testData, null);
+      FleakData result = evaluateExpression(expr, testData);
       assertNotNull(result);
       assertEquals("HELLO", result.getStringValue());
     } catch (Exception e) {
@@ -83,7 +83,7 @@ class FeelFunctionTest {
 
       FleakData testData = new StringPrimitiveFleakData("test");
       try {
-        evaluateExpression(badExpr, testData, null);
+        evaluateExpression(badExpr, testData);
         fail("Expected function execution to fail due to insufficient arguments");
       } catch (Exception executionError) {
         System.out.println(executionError.getMessage());
@@ -133,7 +133,7 @@ dict(
 
     for (String testCase : testCases) {
       try {
-        FleakData result = evaluateExpression(testCase, testData, null);
+        FleakData result = evaluateExpression(testCase, testData);
         assertNotNull(result);
         assertInstanceOf(ArrayFleakData.class, result);
       } catch (Exception e) {
@@ -227,7 +227,7 @@ dict(
 
     try {
       FleakData result =
-          evaluateExpression("ts_str_to_epoch(\"2023-12-25\", \"yyyy-MM-dd\")", testData, null);
+          evaluateExpression("ts_str_to_epoch(\"2023-12-25\", \"yyyy-MM-dd\")", testData);
       assertNotNull(result);
       assertInstanceOf(NumberPrimitiveFleakData.class, result);
     } catch (Exception e) {
@@ -236,7 +236,7 @@ dict(
 
     try {
       FleakData result =
-          evaluateExpression("epoch_to_ts_str(1640995200000, \"yyyy-MM-dd\")", testData, null);
+          evaluateExpression("epoch_to_ts_str(1640995200000, \"yyyy-MM-dd\")", testData);
       assertNotNull(result);
       assertInstanceOf(StringPrimitiveFleakData.class, result);
     } catch (Exception e) {
@@ -250,7 +250,7 @@ dict(
     try {
       FleakData result =
           evaluateExpression(
-              "ts_str_to_epoch($.eventTime, 'yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\'')", testData, null);
+              "ts_str_to_epoch($.eventTime, 'yyyy-MM-dd\\'T\\'HH:mm:ss\\'Z\\'')", testData);
       assertEquals(1600726972000L, result.unwrap());
     } catch (Exception e) {
       fail("ts_str_to_epoch test failed: " + e.getMessage());
@@ -269,8 +269,7 @@ dict(
     testFunctionExecution(testData, "dict()", Map.of());
 
     try {
-      FleakData result =
-          evaluateExpression("dict_merge($[\"dict1\"], $[\"dict2\"])", testData, null);
+      FleakData result = evaluateExpression("dict_merge($[\"dict1\"], $[\"dict2\"])", testData);
       assertNotNull(result);
       assertInstanceOf(RecordFleakData.class, result);
       @SuppressWarnings("unchecked")
@@ -281,7 +280,7 @@ dict(
     }
 
     try {
-      FleakData result = evaluateExpression("dict_remove($[\"dict1\"], \"b\")", testData, null);
+      FleakData result = evaluateExpression("dict_remove($[\"dict1\"], \"b\")", testData);
       assertNotNull(result);
       assertInstanceOf(RecordFleakData.class, result);
       @SuppressWarnings("unchecked")
@@ -294,8 +293,7 @@ dict(
     }
 
     try {
-      FleakData result =
-          evaluateExpression("dict_remove($[\"dict2\"], \"c\", \"d\")", testData, null);
+      FleakData result = evaluateExpression("dict_remove($[\"dict2\"], \"c\", \"d\")", testData);
       assertNotNull(result);
       assertInstanceOf(RecordFleakData.class, result);
       @SuppressWarnings("unchecked")
@@ -306,8 +304,7 @@ dict(
     }
 
     try {
-      FleakData result =
-          evaluateExpression("dict_remove($[\"dict1\"], \"nonexistent\")", testData, null);
+      FleakData result = evaluateExpression("dict_remove($[\"dict1\"], \"nonexistent\")", testData);
       assertNotNull(result);
       assertInstanceOf(RecordFleakData.class, result);
       @SuppressWarnings("unchecked")
@@ -321,8 +318,7 @@ dict(
 
     try {
       FleakData result =
-          evaluateExpression(
-              "grok(\"hello world\", \"%{WORD:first} %{WORD:second}\")", testData, null);
+          evaluateExpression("grok(\"hello world\", \"%{WORD:first} %{WORD:second}\")", testData);
       assertNotNull(result);
       assertInstanceOf(RecordFleakData.class, result);
     } catch (Exception e) {
@@ -334,22 +330,18 @@ dict(
   public void testArgumentValidation() {
     FleakData testData = new StringPrimitiveFleakData("test");
 
-    assertThrows(
-        IllegalArgumentException.class, () -> evaluateExpression("upper()", testData, null));
+    assertThrows(IllegalArgumentException.class, () -> evaluateExpression("upper()", testData));
     assertThrows(
         IllegalArgumentException.class,
-        () -> evaluateExpression("str_contains(\"hello\")", testData, null));
-    assertThrows(
-        IllegalArgumentException.class, () -> evaluateExpression("parse_int()", testData, null));
-    assertThrows(
-        IllegalArgumentException.class, () -> evaluateExpression("floor()", testData, null));
-    assertThrows(
-        IllegalArgumentException.class, () -> evaluateExpression("ceil()", testData, null));
+        () -> evaluateExpression("str_contains(\"hello\")", testData));
+    assertThrows(IllegalArgumentException.class, () -> evaluateExpression("parse_int()", testData));
+    assertThrows(IllegalArgumentException.class, () -> evaluateExpression("floor()", testData));
+    assertThrows(IllegalArgumentException.class, () -> evaluateExpression("ceil()", testData));
 
-    assertThrows(Exception.class, () -> evaluateExpression("parse_int(123)", testData, null));
-    assertThrows(Exception.class, () -> evaluateExpression("upper(123)", testData, null));
-    assertThrows(Exception.class, () -> evaluateExpression("floor(\"123\")", testData, null));
-    assertThrows(Exception.class, () -> evaluateExpression("ceil(\"123\")", testData, null));
+    assertThrows(Exception.class, () -> evaluateExpression("parse_int(123)", testData));
+    assertThrows(Exception.class, () -> evaluateExpression("upper(123)", testData));
+    assertThrows(Exception.class, () -> evaluateExpression("floor(\"123\")", testData));
+    assertThrows(Exception.class, () -> evaluateExpression("ceil(\"123\")", testData));
   }
 
   @Test
@@ -390,6 +382,30 @@ dict(
     testFunctionExecution(testData, "str_split(\"a,b,c\", null)", List.of("a,b,c"));
     testFunctionExecution(testData, "str_split(null, null)", null);
     testFunctionExecution(testData, "str_split($.text, \",\")", List.of("a", "b", "c"));
+    testFunctionExecution(
+        testData,
+        """
+        str_split("a,b,,", ",")
+        """,
+        List.of("a", "b", "", ""));
+    testFunctionExecution(
+        testData,
+        """
+        str_split(",a,b", ",")
+        """,
+        List.of("", "a", "b"));
+    testFunctionExecution(
+        testData,
+        """
+        str_split(",,", ",")
+        """,
+        List.of("", "", ""));
+    testFunctionExecution(
+        testData,
+        """
+        str_split("a\\"b\\"c", "\\"")
+        """,
+        List.of("a", "b", "c"));
   }
 
   @Test
@@ -409,7 +425,7 @@ dict(
   public void testNowFunction() {
     FleakData testData = new RecordFleakData();
 
-    FleakData result = evaluateExpression("now()", testData, null);
+    FleakData result = evaluateExpression("now()", testData);
     assertNotNull(result);
     assertInstanceOf(NumberPrimitiveFleakData.class, result);
 
@@ -424,11 +440,11 @@ dict(
   public void testRandomLongFunction() {
     FleakData testData = new RecordFleakData();
 
-    FleakData result1 = evaluateExpression("random_long()", testData, null);
+    FleakData result1 = evaluateExpression("random_long()", testData);
     assertNotNull(result1);
     assertInstanceOf(NumberPrimitiveFleakData.class, result1);
 
-    FleakData result2 = evaluateExpression("random_long()", testData, null);
+    FleakData result2 = evaluateExpression("random_long()", testData);
     assertNotNull(result2);
     assertInstanceOf(NumberPrimitiveFleakData.class, result2);
 
@@ -443,8 +459,7 @@ dict(
     FleakData testData = new RecordFleakData();
 
     assertThrows(
-        IllegalArgumentException.class,
-        () -> evaluateExpression("random_long(123)", testData, null));
+        IllegalArgumentException.class, () -> evaluateExpression("random_long(123)", testData));
   }
 
   @Test
@@ -463,16 +478,15 @@ dict(
                         Map.of("price", 200, "category", "B"),
                         Map.of("price", 150, "category", "A"))));
 
-    FleakData result1 =
-        evaluateExpression("arr_find($.users, user, user.id == \"100\")", testData, null);
+    FleakData result1 = evaluateExpression("arr_find($.users, user, user.id == \"100\")", testData);
     assertEquals(FleakData.wrap(Map.of("name", "Alice", "id", "100")), result1);
 
     FleakData result2 =
-        evaluateExpression("arr_find($.products, item, item.price > 100)", testData, null);
+        evaluateExpression("arr_find($.products, item, item.price > 100)", testData);
     assertEquals(FleakData.wrap(Map.of("category", "B", "price", 200)), result2);
 
     FleakData result3 =
-        evaluateExpression("arr_find($.products, item, item.category == \"A\")", testData, null);
+        evaluateExpression("arr_find($.products, item, item.category == \"A\")", testData);
     assertEquals(FleakData.wrap(Map.of("price", 100, "category", "A")), result3);
   }
 
@@ -486,7 +500,7 @@ dict(
                     Map.of("price", 100, "category", "A"), Map.of("price", 200, "category", "B"))));
 
     FleakData result =
-        evaluateExpression("arr_find($.items, item, item.category == \"C\")", testData, null);
+        evaluateExpression("arr_find($.items, item, item.category == \"C\")", testData);
     assertNull(result);
   }
 
@@ -494,8 +508,7 @@ dict(
   public void testArrFindEmptyArray() {
     FleakData testData = FleakData.wrap(Map.of("items", List.of()));
 
-    FleakData result =
-        evaluateExpression("arr_find($.items, item, item.price > 0)", testData, null);
+    FleakData result = evaluateExpression("arr_find($.items, item, item.price > 0)", testData);
     assertNull(result);
   }
 
@@ -509,17 +522,17 @@ dict(
 
     String expr = "arr_find($.users, user, user.id == '100').name";
 
-    FleakData result = evaluateExpression(expr, testData, null);
+    FleakData result = evaluateExpression(expr, testData);
     assertNotNull(result);
     assertEquals("Alice", result.getStringValue());
 
     String expr2 = "arr_find($.users, user, user.id == \"999\").name";
 
-    FleakData result2 = evaluateExpression(expr2, testData, null);
+    FleakData result2 = evaluateExpression(expr2, testData);
     assertNull(result2);
 
     String expr3 = "arr_find($.bad_field, user, user.id == '100').name";
-    FleakData result3 = evaluateExpression(expr3, testData, null);
+    FleakData result3 = evaluateExpression(expr3, testData);
     assertNull(result3);
   }
 
@@ -537,14 +550,14 @@ dict(
                 "numbers", List.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)));
 
     FleakData result1 =
-        evaluateExpression("arr_filter($.items, item, item.category == \"A\")", testData, null);
+        evaluateExpression("arr_filter($.items, item, item.category == \"A\")", testData);
     assertEquals(
         FleakData.wrap(
             List.of(Map.of("price", 100, "category", "A"), Map.of("price", 150, "category", "A"))),
         result1);
 
     FleakData result2 =
-        evaluateExpression("arr_filter($.items, item, item.price >= 150)", testData, null);
+        evaluateExpression("arr_filter($.items, item, item.price >= 150)", testData);
     assertEquals(
         FleakData.wrap(
             List.of(
@@ -553,7 +566,7 @@ dict(
                 Map.of("price", 300, "category", "C"))),
         result2);
 
-    FleakData result3 = evaluateExpression("arr_filter($.numbers, n, n % 2 == 0)", testData, null);
+    FleakData result3 = evaluateExpression("arr_filter($.numbers, n, n % 2 == 0)", testData);
     assertEquals(FleakData.wrap(List.of(2, 4, 6, 8, 10)), result3);
   }
 
@@ -567,11 +580,11 @@ dict(
                     Map.of("price", 100, "category", "A"), Map.of("price", 200, "category", "B"))));
 
     FleakData result =
-        evaluateExpression("arr_filter($.items, item, item.category == \"C\")", testData, null);
+        evaluateExpression("arr_filter($.items, item, item.category == \"C\")", testData);
     assertEquals(FleakData.wrap(List.of()), result);
 
     FleakData result2 =
-        evaluateExpression("arr_filter($.bad_array, item, item.category == \"C\")", testData, null);
+        evaluateExpression("arr_filter($.bad_array, item, item.category == \"C\")", testData);
     assertEquals(FleakData.wrap(List.of()), result2);
   }
 
@@ -579,8 +592,7 @@ dict(
   public void testArrFilterEmptyArray() {
     FleakData testData = FleakData.wrap(Map.of("items", List.of()));
 
-    FleakData result =
-        evaluateExpression("arr_filter($.items, item, item.price > 0)", testData, null);
+    FleakData result = evaluateExpression("arr_filter($.items, item, item.price > 0)", testData);
     assertEquals(FleakData.wrap(List.of()), result);
   }
 
@@ -594,7 +606,7 @@ dict(
                     Map.of("price", 100, "category", "A"), Map.of("price", 150, "category", "A"))));
 
     String expr = "arr_filter($.items, item, item.category == \"A\")[0].price";
-    FleakData result = evaluateExpression(expr, testData, null);
+    FleakData result = evaluateExpression(expr, testData);
     assertNotNull(result);
     assertEquals(100L, result.unwrap());
   }
@@ -605,17 +617,15 @@ dict(
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> evaluateExpression("arr_find($.items, item)", testData, null));
+        () -> evaluateExpression("arr_find($.items, item)", testData));
 
     assertThrows(
-        IllegalArgumentException.class,
-        () -> evaluateExpression("arr_filter($.items)", testData, null));
+        IllegalArgumentException.class, () -> evaluateExpression("arr_filter($.items)", testData));
 
-    FleakData findResult = evaluateExpression("arr_find(\"not_array\", x, x > 0)", testData, null);
+    FleakData findResult = evaluateExpression("arr_find(\"not_array\", x, x > 0)", testData);
     assertNull(findResult);
 
-    FleakData filterResult =
-        evaluateExpression("arr_filter(\"not_array\", x, x > 0)", testData, null);
+    FleakData filterResult = evaluateExpression("arr_filter(\"not_array\", x, x > 0)", testData);
     assertEquals(List.of(), filterResult.unwrap());
   }
 
@@ -658,7 +668,7 @@ def add_one(x):
     String pythonScript = "python('def test(): return 1', 1)";
 
     try {
-      evaluateExpression(pythonScript, testData, null);
+      evaluateExpression(pythonScript, testData);
       fail("Expected Python function to be unavailable");
     } catch (Exception e) {
       assertTrue(e.getMessage().contains("Unknown function: python"));
@@ -690,15 +700,14 @@ def add_one(x):
         assertThrows(
             IllegalArgumentException.class,
             () ->
-                evaluateExpression(
-                    "arr_foreach($.items, item, item.category == \"C\")", testData, null));
+                evaluateExpression("arr_foreach($.items, item, item.category == \"C\")", testData));
     assertEquals(
         "arr_foreach: first argument should be an array or object but found: null", e.getMessage());
   }
 
   private void testFunctionExecution(FleakData testData, String expression, Object expectedValue) {
     try {
-      FleakData result = evaluateExpression(expression, testData, null);
+      FleakData result = evaluateExpression(expression, testData);
       Object actualValue = result != null ? result.unwrap() : null;
       assertEquals(expectedValue, actualValue, "Expression: " + expression);
     } catch (Exception e) {
@@ -706,12 +715,11 @@ def add_one(x):
     }
   }
 
-  private FleakData evaluateExpression(
-      String expression, FleakData testData, PythonExecutor pythonExecutor) {
+  private FleakData evaluateExpression(String expression, FleakData testData) {
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(expression, AntlrUtils.GrammarType.EVAL);
     var tree = parser.language();
-    CompiledExpression compiled = ExpressionCompiler.compile(tree, pythonExecutor);
+    CompiledExpression compiled = ExpressionCompiler.compile(tree, null);
     return compiled.evaluate(testData);
   }
 }
