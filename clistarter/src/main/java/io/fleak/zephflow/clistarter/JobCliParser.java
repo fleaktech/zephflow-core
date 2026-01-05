@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
+import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config;
 import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import io.fleak.zephflow.runner.JobConfig;
@@ -287,14 +288,14 @@ public class JobCliParser {
     return config.build();
   }
 
-  public static io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config
+  public static InfluxDBV2Config
       parseInfluxDBV2Config(String[] args) throws ParseException {
 
     CommandLineParser commandLineParser = new DefaultParser();
     CommandLine commandLine = commandLineParser.parse(CLI_OPTIONS, args);
 
-    io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config config =
-        new io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config();
+    InfluxDBV2Config config =
+        new InfluxDBV2Config();
 
     if (commandLine.hasOption("influxdb-url")) {
       config.setUrl(commandLine.getOptionValue("influxdb-url"));
