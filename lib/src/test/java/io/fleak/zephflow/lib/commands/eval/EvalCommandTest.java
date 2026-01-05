@@ -145,6 +145,90 @@ dict(
   }
 
   @Test
+  public void testArrFlattenMixedInput() {
+    String evalExpr = "dict(result = arr_flatten($.f))";
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            loadFleakDataFromJsonString(
+                """
+            {"f": [[1, 2], 3, [4, 5]]}
+            """);
+    FleakData expected = FleakData.wrap(Map.of("result", List.of(1, 2, 3, 4, 5)));
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
+  public void testRangeSizeLimit() {
+    String evalExpr = "dict(result = range(0, 2000000000))";
+    RecordFleakData inputEvent = (RecordFleakData) FleakData.wrap(Map.of("x", 1));
+    ScalarCommand.ProcessResult result = runEval(inputEvent, evalExpr);
+    assertEquals(1, result.getFailureEvents().size());
+    assertTrue(
+        result.getFailureEvents().get(0).errorMessage().contains("exceeding maximum of 1000000"));
+  }
+
+  @Test
+  public void testRegexMatch() {
+    RecordFleakData inputEvent =
+        (RecordFleakData) FleakData.wrap(Map.of("email", "test@example.com", "bad", "notanemail"));
+
+    String evalExpr = "dict(valid = regex_match($.email, \"^[a-zA-Z0-9._%+-]+@.*$\"))";
+    FleakData expected = FleakData.wrap(Map.of("valid", true));
+    testEval(inputEvent, evalExpr, expected);
+
+    evalExpr = "dict(valid = regex_match($.bad, \"^[a-zA-Z0-9._%+-]+@.*$\"))";
+    expected = FleakData.wrap(Map.of("valid", false));
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
+  public void testTimestampRoundTrip() {
+    // Test that ts_str_to_epoch and epoch_to_ts_str are consistent (both use UTC)
+    RecordFleakData inputEvent =
+        (RecordFleakData) FleakData.wrap(Map.of("ts", "2024-01-15 12:30:45"));
+    String evalExpr =
+        """
+        dict(
+          epoch = ts_str_to_epoch($.ts, "yyyy-MM-dd HH:mm:ss"),
+          back = epoch_to_ts_str(ts_str_to_epoch($.ts, "yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss")
+        )
+        """;
+    FleakData expected =
+        FleakData.wrap(Map.of("epoch", 1705321845000L, "back", "2024-01-15 12:30:45"));
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
+  public void testRegexMatchEscapeSequences() {
+    // Test \\d+ matches digits (user types: regex_match($.num, "\\d+"))
+    RecordFleakData inputEvent = (RecordFleakData) FleakData.wrap(Map.of("num", "12345"));
+    String evalExpr =
+        """
+        dict(valid = regex_match($.num, "\\\\d+"))
+        """;
+    FleakData expected = FleakData.wrap(Map.of("valid", true));
+    testEval(inputEvent, evalExpr, expected);
+
+    // Test \\. matches literal dot (user types: "\\d+\\.\\d+\\.\\d+")
+    inputEvent = (RecordFleakData) FleakData.wrap(Map.of("ver", "1.2.3"));
+    evalExpr =
+        """
+        dict(valid = regex_match($.ver, "\\\\d+\\\\.\\\\d+\\\\.\\\\d+"))
+        """;
+    expected = FleakData.wrap(Map.of("valid", true));
+    testEval(inputEvent, evalExpr, expected);
+
+    // Test \\s+ matches whitespace (user types: "hello\\s+world")
+    inputEvent = (RecordFleakData) FleakData.wrap(Map.of("text", "hello world"));
+    evalExpr =
+        """
+        dict(valid = regex_match($.text, "hello\\\\s+world"))
+        """;
+    expected = FleakData.wrap(Map.of("valid", true));
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
   public void testGrok() throws IOException {
     String evalExpr =
         """
@@ -1121,14 +1205,15 @@ dict(
   }
 
   @Test
-  public void testOutputMultipleEvents_castFailure() {
+  public void testOutputMultipleEvents_mixedArrayWithFailures() {
     String inputEventStr =
         """
         {
           "foo": 100,
           "arr":[
             {"k": 1},
-            1
+            1,
+            {"k": 2}
           ]
         }
         """;
@@ -1136,6 +1221,12 @@ dict(
     String evalExpr = "$.arr";
     RecordFleakData inputEvent = (RecordFleakData) loadFleakDataFromJsonString(inputEventStr);
     ScalarCommand.ProcessResult processResult = runEval(inputEvent, evalExpr);
+
+    assertEquals(2, processResult.getOutput().size());
+    assertEquals(
+        toJsonString(List.of(FleakData.wrap(Map.of("k", 1)), FleakData.wrap(Map.of("k", 2)))),
+        toJsonString(processResult.getOutput()));
+
     assertEquals(1, processResult.getFailureEvents().size());
     assertEquals(
         "failed to cast NumberPrimitiveFleakData(numberValue=1.0, numberType=LONG) into RecordFleakData",

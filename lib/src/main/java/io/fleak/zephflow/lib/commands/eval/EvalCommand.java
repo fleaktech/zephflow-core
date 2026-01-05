@@ -28,6 +28,8 @@ import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import io.fleak.zephflow.lib.commands.eval.compiled.CompiledExpression;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
 import java.util.List;
@@ -91,57 +93,71 @@ public class EvalCommand extends ScalarCommand {
           e);
     }
 
+    // Compile expression to lightweight AST for efficient evaluation
+    CompiledExpression compiledExpression =
+        ExpressionCompiler.compile(languageContext, pythonExecutor);
+
     return new EvalExecutionContext(
         inputMessageCounter,
         outputMessageCounter,
         errorCounter,
         languageContext,
         config.assertion(),
-        pythonExecutor);
+        pythonExecutor,
+        compiledExpression);
+  }
+
+  @Override
+  public ProcessResult process(
+      List<RecordFleakData> events, String callingUser, ExecutionContext context) {
+    ProcessResult result = new ProcessResult();
+    EvalExecutionContext evalContext = (EvalExecutionContext) context;
+
+    for (RecordFleakData event : events) {
+      Map<String, String> tags = getCallingUserTagAndEventTags(callingUser, event);
+      evalContext.getInputMessageCounter().increase(tags);
+      try {
+        FleakData fleakData = evalContext.getCompiledExpression().evaluate(event);
+        if (fleakData == null) {
+          continue;
+        }
+        if (fleakData instanceof RecordFleakData rd) {
+          evalContext.getOutputMessageCounter().increase(tags);
+          result.getOutput().add(rd);
+        } else if (fleakData instanceof ArrayFleakData) {
+          for (FleakData element : fleakData.getArrayPayload()) {
+            if (element instanceof RecordFleakData rd) {
+              evalContext.getOutputMessageCounter().increase(tags);
+              result.getOutput().add(rd);
+            } else {
+              evalContext.getErrorCounter().increase(tags);
+              result
+                  .getFailureEvents()
+                  .add(
+                      new ErrorOutput(
+                          event, String.format("failed to cast %s into RecordFleakData", element)));
+            }
+          }
+        } else {
+          evalContext.getErrorCounter().increase(tags);
+          result
+              .getFailureEvents()
+              .add(
+                  new ErrorOutput(
+                      event, "Illegal result type: " + toJsonString(fleakData.unwrap())));
+        }
+      } catch (Exception e) {
+        evalContext.getErrorCounter().increase(tags);
+        result.getFailureEvents().add(new ErrorOutput(event, e.getMessage()));
+      }
+    }
+    return result;
   }
 
   @Override
   protected List<RecordFleakData> processOneEvent(
       RecordFleakData event, String callingUser, ExecutionContext context) {
-    Map<String, String> callingUserTagAndEventTags =
-        getCallingUserTagAndEventTags(callingUser, event);
-    EvalExecutionContext evalContext = (EvalExecutionContext) context;
-    evalContext.getInputMessageCounter().increase(callingUserTagAndEventTags);
-    try {
-      ExpressionValueVisitor expressionValueVisitor =
-          ExpressionValueVisitor.createInstance(event, evalContext.getPythonExecutor());
-      FleakData fleakData = expressionValueVisitor.visit(evalContext.getLanguageContext());
-      if (fleakData == null) {
-        return List.of();
-      }
-      if (fleakData instanceof RecordFleakData) {
-        evalContext.getOutputMessageCounter().increase(callingUserTagAndEventTags);
-        return List.of((RecordFleakData) fleakData);
-      }
-      if (fleakData instanceof ArrayFleakData) {
-        List<RecordFleakData> outputEvents =
-            fleakData.getArrayPayload().stream()
-                .map(
-                    fd -> {
-                      try {
-                        return ((RecordFleakData) fd);
-                      } catch (ClassCastException e) {
-                        throw new IllegalArgumentException(
-                            String.format("failed to cast %s into RecordFleakData", fd));
-                      }
-                    })
-                .toList();
-        evalContext
-            .getOutputMessageCounter()
-            .increase(outputEvents.size(), callingUserTagAndEventTags);
-        return outputEvents;
-      }
-      throw new IllegalArgumentException(
-          "Illegal result type: " + toJsonString(fleakData.unwrap()));
-    } catch (Exception e) {
-      evalContext.getErrorCounter().increase(callingUserTagAndEventTags);
-      throw e;
-    }
+    throw new UnsupportedOperationException("Use process() instead");
   }
 
   @Override

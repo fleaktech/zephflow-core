@@ -18,7 +18,10 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
 import java.io.IOException;
 
-/** Created by bolei on 3/7/25 */
+/**
+ * Serializes FleakData directly to JSON without intermediate object creation. This avoids the
+ * overhead of unwrap() which creates Map/List objects that then need to be serialized.
+ */
 public class FleakDataSerializer extends StdSerializer<FleakData> {
 
   public FleakDataSerializer() {
@@ -37,8 +40,31 @@ public class FleakDataSerializer extends StdSerializer<FleakData> {
       return;
     }
 
-    // Simply use the unwrap method that returns the native Java representation
-    Object unwrapped = value.unwrap();
-    provider.defaultSerializeValue(unwrapped, gen);
+    if (value instanceof RecordFleakData record) {
+      gen.writeStartObject();
+      for (var entry : record.getPayload().entrySet()) {
+        gen.writeFieldName(entry.getKey());
+        serialize(entry.getValue(), gen, provider);
+      }
+      gen.writeEndObject();
+    } else if (value instanceof ArrayFleakData array) {
+      gen.writeStartArray();
+      for (FleakData item : array.getArrayPayload()) {
+        serialize(item, gen, provider);
+      }
+      gen.writeEndArray();
+    } else if (value instanceof StringPrimitiveFleakData s) {
+      gen.writeString(s.getStringValue());
+    } else if (value instanceof NumberPrimitiveFleakData n) {
+      if (n.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG) {
+        gen.writeNumber((long) n.getNumberValue());
+      } else {
+        gen.writeNumber(n.getNumberValue());
+      }
+    } else if (value instanceof BooleanPrimitiveFleakData b) {
+      gen.writeBoolean(b.isTrueValue());
+    } else {
+      gen.writeNull();
+    }
   }
 }
