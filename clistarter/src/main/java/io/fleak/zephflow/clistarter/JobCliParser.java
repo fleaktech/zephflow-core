@@ -288,14 +288,12 @@ public class JobCliParser {
     return config.build();
   }
 
-  public static InfluxDBV2Config
-      parseInfluxDBV2Config(String[] args) throws ParseException {
+  public static InfluxDBV2Config parseInfluxDBV2Config(String[] args) throws ParseException {
 
     CommandLineParser commandLineParser = new DefaultParser();
     CommandLine commandLine = commandLineParser.parse(CLI_OPTIONS, args);
 
-    InfluxDBV2Config config =
-        new InfluxDBV2Config();
+    InfluxDBV2Config config = new InfluxDBV2Config();
 
     if (commandLine.hasOption("influxdb-url")) {
       config.setUrl(commandLine.getOptionValue("influxdb-url"));
