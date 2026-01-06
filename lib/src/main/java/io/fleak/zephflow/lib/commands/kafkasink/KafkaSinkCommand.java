@@ -90,6 +90,13 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       FleakCounter asyncErrorCounter) {
     Properties props = getProperties(config);
 
+    boolean isTestMode =
+        jobContext != null
+            && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
+    if (isTestMode) {
+      props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000");
+    }
+
     if (config.getProperties() != null) {
       props.putAll(config.getProperties());
     }
