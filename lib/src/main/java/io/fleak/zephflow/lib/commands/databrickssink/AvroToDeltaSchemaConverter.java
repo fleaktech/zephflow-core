@@ -44,12 +44,14 @@ public class AvroToDeltaSchemaConverter {
   }
 
   public static StructType parse(Map<String, Object> avroSchemaMap) {
+    String json;
     try {
-      String json = JsonUtils.OBJECT_MAPPER.writeValueAsString(avroSchemaMap);
-      return parse(json);
+      json = JsonUtils.OBJECT_MAPPER.writeValueAsString(avroSchemaMap);
     } catch (Exception e) {
-      throw new IllegalArgumentException("Failed to convert avroSchema map to JSON", e);
+      throw new IllegalArgumentException(
+          "Failed to convert avroSchema map to JSON: " + e.getMessage(), e);
     }
+    return parse(json);
   }
 
   private static DataType convertType(Schema avroSchema) {
