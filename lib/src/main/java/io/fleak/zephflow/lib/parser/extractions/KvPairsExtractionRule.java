@@ -61,8 +61,9 @@ public class KvPairsExtractionRule implements ExtractionRule {
    * @throws IOException if the underlying parser fails.
    */
   @Override
+  @SuppressWarnings("unchecked")
   public RecordFleakData extract(String raw) throws IOException {
-    Map<String, String> resultMap = new HashMap<>();
+    Map<String, Object> resultMap = new HashMap<>();
     if (StringUtils.isBlank(raw)) {
       return new RecordFleakData();
     }
@@ -74,7 +75,6 @@ public class KvPairsExtractionRule implements ExtractionRule {
         continue;
       }
 
-      // For each pair, find the key-value separator, also respecting quotes.
       int separatorIndex = findSeparatorOutsideQuotes(pair, kvSeparator);
 
       if (separatorIndex == -1) {
@@ -84,7 +84,22 @@ public class KvPairsExtractionRule implements ExtractionRule {
       String key = pair.substring(0, separatorIndex).trim();
       String value = pair.substring(separatorIndex + kvSeparator.length()).trim();
 
-      resultMap.put(unquoteAndUnescape(key), unquoteAndUnescape(value));
+      String unquotedKey = unquoteAndUnescape(key);
+      String unquotedValue = unquoteAndUnescape(value);
+
+      if (resultMap.containsKey(unquotedKey)) {
+        Object existing = resultMap.get(unquotedKey);
+        if (existing instanceof List) {
+          ((List<String>) existing).add(unquotedValue);
+        } else {
+          List<String> list = new ArrayList<>();
+          list.add((String) existing);
+          list.add(unquotedValue);
+          resultMap.put(unquotedKey, list);
+        }
+      } else {
+        resultMap.put(unquotedKey, unquotedValue);
+      }
     }
     return (RecordFleakData) FleakData.wrap(resultMap);
   }

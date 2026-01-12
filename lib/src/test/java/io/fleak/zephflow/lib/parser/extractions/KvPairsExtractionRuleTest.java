@@ -24,6 +24,7 @@ import io.fleak.zephflow.lib.parser.CompiledRules;
 import io.fleak.zephflow.lib.parser.ParserConfigCompiler;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -227,6 +228,60 @@ class KvPairsExtractionRuleTest {
           () -> assertEquals("value1", result.unwrap().get("key1")),
           () -> assertEquals("value2", result.unwrap().get("key2")),
           () -> assertEquals("value3", result.unwrap().get("key3")));
+    }
+  }
+
+  @Nested
+  @DisplayName("Handling of Duplicate Keys")
+  class DuplicateKeyTests {
+
+    private final ExtractionRule rule =
+        new KvPairsExtractionRule(new KvPairExtractionConfig(",", "="));
+
+    @Test
+    @DisplayName("Should aggregate two values for same key into array")
+    void testExtract_DuplicateKeys_TwoValues() throws Exception {
+      String input = "key1=value1,key1=value2";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> unwrapped = result.unwrap();
+      assertEquals(1, unwrapped.size());
+      assertEquals(List.of("value1", "value2"), unwrapped.get("key1"));
+    }
+
+    @Test
+    @DisplayName("Should aggregate multiple values for same key into array")
+    void testExtract_DuplicateKeys_MultipleValues() throws Exception {
+      String input = "key1=value1,key1=value2,key1=value3";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> unwrapped = result.unwrap();
+      assertEquals(1, unwrapped.size());
+      assertEquals(List.of("value1", "value2", "value3"), unwrapped.get("key1"));
+    }
+
+    @Test
+    @DisplayName("Should handle mix of duplicate and unique keys")
+    void testExtract_DuplicateKeys_MixedWithUnique() throws Exception {
+      String input = "key1=value1,key1=value2,key3=value3";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> unwrapped = result.unwrap();
+      assertEquals(2, unwrapped.size());
+      assertEquals(List.of("value1", "value2"), unwrapped.get("key1"));
+      assertEquals("value3", unwrapped.get("key3"));
+    }
+
+    @Test
+    @DisplayName("Should preserve order of values in array")
+    void testExtract_DuplicateKeys_PreservesOrder() throws Exception {
+      String input = "k=first,other=x,k=second,k=third";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> unwrapped = result.unwrap();
+      assertEquals(2, unwrapped.size());
+      assertEquals(List.of("first", "second", "third"), unwrapped.get("k"));
+      assertEquals("x", unwrapped.get("other"));
     }
   }
 
