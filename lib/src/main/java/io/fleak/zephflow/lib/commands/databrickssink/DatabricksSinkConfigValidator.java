@@ -13,15 +13,20 @@
  */
 package io.fleak.zephflow.lib.commands.databrickssink;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupDatabricksCredential;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupDatabricksCredentialOpt;
 
+import com.databricks.sdk.WorkspaceClient;
+import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkDto.Config;
+import io.fleak.zephflow.lib.credentials.DatabricksCredential;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 public class DatabricksSinkConfigValidator implements ConfigValidator {
@@ -29,6 +34,16 @@ public class DatabricksSinkConfigValidator implements ConfigValidator {
   private static final Pattern VOLUME_PATH_PATTERN =
       Pattern.compile("^/Volumes/[^/]+/[^/]+/[^/]+.*$");
   private static final Pattern TABLE_NAME_PATTERN = Pattern.compile("^[^.]+\\.[^.]+(?:\\.[^.]+)?$");
+
+  private final Function<DatabricksCredential, WorkspaceClient> clientFactory;
+
+  public DatabricksSinkConfigValidator() {
+    this(DatabricksClientFactory::createClient);
+  }
+
+  DatabricksSinkConfigValidator(Function<DatabricksCredential, WorkspaceClient> clientFactory) {
+    this.clientFactory = clientFactory;
+  }
 
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
@@ -47,6 +62,16 @@ public class DatabricksSinkConfigValidator implements ConfigValidator {
       throw new IllegalArgumentException(
           "Databricks sink configuration errors: " + String.join(", ", errors));
     }
+
+    validateSchemaAgainstTable(config, jobContext);
+  }
+
+  private void validateSchemaAgainstTable(Config config, JobContext jobContext) {
+    DatabricksCredential credential =
+        lookupDatabricksCredential(jobContext, config.getDatabricksCredentialId());
+    WorkspaceClient client = clientFactory.apply(credential);
+    StructType schema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
+    new DeltaTableSchemaValidator(client).validateSchema(config.getTableName(), schema);
   }
 
   private void validateDatabricksCredential(

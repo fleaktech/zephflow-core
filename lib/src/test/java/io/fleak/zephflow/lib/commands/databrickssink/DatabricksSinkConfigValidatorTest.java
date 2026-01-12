@@ -16,6 +16,10 @@ package io.fleak.zephflow.lib.commands.databrickssink;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.databricks.sdk.WorkspaceClient;
+import com.databricks.sdk.service.catalog.ColumnInfo;
+import com.databricks.sdk.service.catalog.TableInfo;
+import com.databricks.sdk.service.catalog.TablesAPI;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkDto.Config;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
@@ -26,9 +30,11 @@ import org.junit.jupiter.api.Test;
 
 class DatabricksSinkConfigValidatorTest {
 
-  private final DatabricksSinkConfigValidator validator = new DatabricksSinkConfigValidator();
+  private DatabricksSinkConfigValidator validator;
   private JobContext jobContext;
   private DatabricksCredential validCredential;
+  private WorkspaceClient workspaceClient;
+  private TablesAPI tablesAPI;
 
   private static final Map<String, Object> VALID_AVRO_SCHEMA =
       Map.of(
@@ -47,6 +53,20 @@ class DatabricksSinkConfigValidatorTest {
             .clientId("client-id")
             .clientSecret("client-secret")
             .build();
+
+    workspaceClient = mock(WorkspaceClient.class);
+    tablesAPI = mock(TablesAPI.class);
+    when(workspaceClient.tables()).thenReturn(tablesAPI);
+
+    TableInfo validTableInfo =
+        new TableInfo()
+            .setColumns(
+                List.of(
+                    new ColumnInfo().setName("id").setTypeJson("integer").setNullable(false),
+                    new ColumnInfo().setName("name").setTypeJson("string").setNullable(true)));
+    when(tablesAPI.get(anyString())).thenReturn(validTableInfo);
+
+    validator = new DatabricksSinkConfigValidator(credential -> workspaceClient);
   }
 
   private Config.ConfigBuilder validConfigBuilder() {
@@ -387,5 +407,57 @@ class DatabricksSinkConfigValidatorTest {
     assertTrue(message.contains("avroSchema is required"));
     assertTrue(message.contains("batchSize must be positive"));
     assertTrue(message.contains("flushIntervalMillis must be positive"));
+  }
+
+  @Test
+  void testSchemaValidation_TableNotFound() {
+    when(tablesAPI.get("catalog.schema.table"))
+        .thenThrow(new RuntimeException("TABLE_NOT_FOUND: does not exist"));
+
+    Config config = validConfigBuilder().build();
+
+    DeltaTableSchemaValidator.SchemaValidationException exception =
+        assertThrows(
+            DeltaTableSchemaValidator.SchemaValidationException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(exception.getMessage().contains("does not exist"));
+  }
+
+  @Test
+  void testSchemaValidation_MissingColumn() {
+    TableInfo tableInfoMissingColumn =
+        new TableInfo()
+            .setColumns(
+                List.of(new ColumnInfo().setName("id").setTypeJson("integer").setNullable(false)));
+    when(tablesAPI.get("catalog.schema.table")).thenReturn(tableInfoMissingColumn);
+
+    Config config = validConfigBuilder().build();
+
+    DeltaTableSchemaValidator.SchemaValidationException exception =
+        assertThrows(
+            DeltaTableSchemaValidator.SchemaValidationException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(exception.getMessage().contains("Missing field"));
+    assertTrue(exception.getMessage().contains("name"));
+  }
+
+  @Test
+  void testSchemaValidation_TypeMismatch() {
+    TableInfo tableInfoTypeMismatch =
+        new TableInfo()
+            .setColumns(
+                List.of(
+                    new ColumnInfo().setName("id").setTypeJson("string").setNullable(false),
+                    new ColumnInfo().setName("name").setTypeJson("string").setNullable(true)));
+    when(tablesAPI.get("catalog.schema.table")).thenReturn(tableInfoTypeMismatch);
+
+    Config config = validConfigBuilder().build();
+
+    DeltaTableSchemaValidator.SchemaValidationException exception =
+        assertThrows(
+            DeltaTableSchemaValidator.SchemaValidationException.class,
+            () -> validator.validateConfig(config, "test-node", jobContext));
+    assertTrue(exception.getMessage().contains("expected INTEGER"));
+    assertTrue(exception.getMessage().contains("actual STRING"));
   }
 }
