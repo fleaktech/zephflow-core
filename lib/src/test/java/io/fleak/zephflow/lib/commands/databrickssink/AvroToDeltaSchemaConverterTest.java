@@ -453,6 +453,33 @@ class AvroToDeltaSchemaConverterTest {
   }
 
   @Test
+  void testComplexUnionFromMapThrowsDescriptiveException() {
+    Map<String, Object> schemaMap =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields",
+                List.of(
+                    Map.of(
+                        "name",
+                        "attributes",
+                        "type",
+                        Map.of(
+                            "type",
+                            "map",
+                            "values",
+                            List.of("null", "string", "int", "long", "double", "boolean")))));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> AvroToDeltaSchemaConverter.parse(schemaMap));
+
+    assertTrue(
+        exception.getMessage().contains("Complex union types"),
+        "Expected error about complex union types, got: " + exception.getMessage());
+  }
+
+  @Test
   void testComplexTypesIntegration() {
     Schema timestampSchema =
         LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG));
