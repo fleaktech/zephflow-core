@@ -76,9 +76,10 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     this.tempDirectory = tempDirectory;
 
     log.info(
-        "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms",
+        "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms, table={}",
         config.getBatchSize(),
-        config.getFlushIntervalMillis());
+        config.getFlushIntervalMillis(),
+        config.getTableName());
   }
 
   // Package-private constructor for testing with injected dependencies (no timer, no test mode)
