@@ -191,7 +191,7 @@ public class JobCliParser {
               }
               try {
                 String dagStr = Files.readString(Path.of(f));
-                log.info("read content from dag file:\n {}", dagStr);
+                log.debug("read content from dag file:\n {}", dagStr);
                 return fromYamlString(dagStr, new TypeReference<>() {});
               } catch (Exception e) {
                 throw new IllegalArgumentException("failed to load dag from file: " + f, e);
