@@ -837,4 +837,9 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       }
     }
   }
+
+  /** Exposes buffer size for testing. Package-private access. */
+  int testGetBufferSize() {
+    return getBufferSize();
+  }
 }

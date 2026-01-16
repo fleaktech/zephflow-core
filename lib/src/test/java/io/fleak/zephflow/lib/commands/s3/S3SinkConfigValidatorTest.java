@@ -14,33 +14,93 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
+import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/** Created by bolei on 9/6/24 */
 class S3SinkConfigValidatorTest {
+
+  private final S3SinkConfigValidator validator = new S3SinkConfigValidator();
+  private final JsonConfigParser<S3SinkDto.Config> configParser =
+      new JsonConfigParser<>(S3SinkDto.Config.class);
 
   @Test
   void validateConfig() {
     Map<String, Object> configMap =
         Map.of(
-            "regionStr",
-            "us-east-1",
-            "bucketName",
-            "example-bucket",
-            "keyName",
-            "example-key",
-            "encodingType",
-            "JSON_OBJECT",
-            "credentialId",
-            "credential_2");
-    S3SinkConfigValidator validator = new S3SinkConfigValidator();
-    JsonConfigParser<S3SinkDto.Config> configParser =
-        new JsonConfigParser<>(S3SinkDto.Config.class);
+            "regionStr", "us-east-1",
+            "bucketName", "example-bucket",
+            "keyName", "example-key",
+            "encodingType", "JSON_OBJECT",
+            "credentialId", "credential_2");
 
     S3SinkDto.Config config = configParser.parseConfig(configMap);
     validator.validateConfig(config, "abc", JOB_CONTEXT);
+  }
+
+  @Test
+  void validateParquetConfig_success() {
+    Map<String, Object> avroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields", List.of(Map.of("name", "id", "type", "int")));
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "PARQUET");
+    configMap.put("batching", true);
+    configMap.put("avroSchema", avroSchema);
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    assertDoesNotThrow(() -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+  }
+
+  @Test
+  void validateParquetConfig_requiresBatching() {
+    Map<String, Object> avroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields", List.of(Map.of("name", "id", "type", "int")));
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "PARQUET");
+    configMap.put("batching", false);
+    configMap.put("avroSchema", avroSchema);
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("batching mode"));
+  }
+
+  @Test
+  void validateParquetConfig_requiresAvroSchema() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "PARQUET");
+    configMap.put("batching", true);
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("avroSchema"));
   }
 }

@@ -44,11 +44,15 @@ public class DeltaLakeDataConverter {
   /** Convert a list of Map data to FilteredColumnarBatch iterator using single-pass allocation */
   public static CloseableIterator<FilteredColumnarBatch> convertToColumnarBatch(
       List<Map<String, Object>> data, StructType schema) {
-
     if (data.isEmpty()) {
       return new EmptyCloseableIterator<>();
     }
+    return new SingleElementIterator<>(convertSingleBatch(data, schema));
+  }
 
+  /** Convert a list of Map data to a single FilteredColumnarBatch */
+  public static FilteredColumnarBatch convertSingleBatch(
+      List<Map<String, Object>> data, StructType schema) {
     int batchSize = data.size();
     log.debug("Converting {} records to ColumnarBatch with schema: {}", batchSize, schema);
 
@@ -58,14 +62,11 @@ public class DeltaLakeDataConverter {
       String fieldName = field.getName();
       DataType dataType = field.getDataType();
 
-      // Allocate vector ONCE with known size
       ColumnVector vector = allocateVector(dataType, batchSize);
 
-      // Single pass: convert and write directly
       for (int i = 0; i < batchSize; i++) {
         Object value = data.get(i).get(fieldName);
 
-        // Validate nullability constraint
         if (value == null && !field.isNullable()) {
           throw new IllegalArgumentException(
               String.format(
@@ -80,20 +81,15 @@ public class DeltaLakeDataConverter {
           continue;
         }
 
-        // Convert and set directly - no intermediate list
         Object converted = convertValueToSchemaType(value, dataType, fieldName);
         setValue(vector, i, converted, dataType);
       }
       columnVectors.put(fieldName, vector);
     }
 
-    // Create ColumnarBatch with optimized selection vector
     ColumnarBatch columnarBatch = new SimpleColumnarBatch(schema, columnVectors, batchSize);
     ColumnVector selectionVector = new AllTrueColumnVector(batchSize);
-    FilteredColumnarBatch filteredBatch =
-        new FilteredColumnarBatch(columnarBatch, java.util.Optional.of(selectionVector));
-
-    return new SingleElementIterator<>(filteredBatch);
+    return new FilteredColumnarBatch(columnarBatch, java.util.Optional.of(selectionVector));
   }
 
   /** Allocate the appropriate ColumnVector type based on DataType */
