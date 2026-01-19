@@ -14,12 +14,12 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.aws.AwsUtils.parseRegion;
-import static io.fleak.zephflow.lib.utils.MiscUtils.enforceCredentials;
-import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 
 /** Created by bolei on 9/3/24 */
 public class S3SinkConfigValidator implements ConfigValidator {
@@ -29,6 +29,27 @@ public class S3SinkConfigValidator implements ConfigValidator {
     parseRegion(config.getRegionStr());
     if (enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
+    }
+
+    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+
+    if (config.isBatching()) {
+      if (config.getBatchSize() <= 0) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Batch size must be positive when batching is enabled, but found: %d. "
+                    + "If omitted, ensure default is applied correctly.",
+                config.getBatchSize()));
+      }
+    }
+
+    if (encodingType == EncodingType.PARQUET) {
+      if (!config.isBatching()) {
+        throw new IllegalArgumentException("PARQUET encoding requires batching mode to be enabled");
+      }
+      if (config.getAvroSchema() == null || config.getAvroSchema().isEmpty()) {
+        throw new IllegalArgumentException("avroSchema is required for PARQUET encoding type");
+      }
     }
   }
 }

@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.Map;
 import lombok.*;
 
 /** Created by bolei on 9/3/24 */
@@ -29,8 +30,9 @@ public interface S3SinkDto {
     @NonNull private String encodingType;
     private String credentialId;
     private String s3EndpointOverride;
-    private boolean batching;
-    private int batchSize;
+    @Builder.Default private boolean batching = true;
+    @Builder.Default private int batchSize = 10_000;
     private long flushIntervalMillis;
+    private Map<String, Object> avroSchema;
   }
 }

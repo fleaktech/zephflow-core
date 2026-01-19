@@ -35,6 +35,9 @@ public interface DeserializerFactory<T> {
       case STRING_LINE -> new StringLineDeserializerFactory();
       case TEXT -> new TextDeserializerFactory();
       case XML -> new XmlDeserializerFactory();
+      case PARQUET ->
+          throw new UnsupportedOperationException(
+              "PARQUET is a sink-only format (not supported for deserialization)");
     };
   }
 }
