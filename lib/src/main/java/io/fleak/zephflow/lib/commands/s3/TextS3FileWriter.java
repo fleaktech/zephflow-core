@@ -58,5 +58,6 @@ public class TextS3FileWriter implements S3FileWriter<RecordFleakData> {
     if (record == null) {
       throw new IllegalArgumentException("Record cannot be null");
     }
+    serializer.serialize(List.of(record));
   }
 }

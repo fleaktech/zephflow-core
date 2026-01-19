@@ -103,4 +103,19 @@ class S3SinkConfigValidatorTest {
             () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
     assertTrue(exception.getMessage().contains("avroSchema"));
   }
+
+  @Test
+  void testBatchingDefaultsToTrue() {
+    Map<String, Object> configMap =
+        Map.of(
+            "regionStr", "us-east-1",
+            "bucketName", "example-bucket",
+            "keyName", "example-key",
+            "encodingType", "JSON_OBJECT",
+            "credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    assertTrue(config.isBatching());
+    assertEquals(10_000, config.getBatchSize());
+  }
 }

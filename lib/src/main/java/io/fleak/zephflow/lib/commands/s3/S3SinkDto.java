@@ -30,8 +30,8 @@ public interface S3SinkDto {
     @NonNull private String encodingType;
     private String credentialId;
     private String s3EndpointOverride;
-    private boolean batching;
-    private int batchSize = 10_000;
+    @Builder.Default private boolean batching = true;
+    @Builder.Default private int batchSize = 10_000;
     private long flushIntervalMillis;
     private Map<String, Object> avroSchema;
   }

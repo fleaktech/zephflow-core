@@ -183,7 +183,8 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
    * Executes a scheduled flush manually. Used for testing. This method flushes the current buffer
    * using the scheduled flush logic.
    */
-  protected final void executeScheduledFlush() {
+  @VisibleForTesting
+  public void executeScheduledFlush() {
     ensureBufferedWriterInitialized();
     List<Pair<RecordFleakData, T>> batch = bufferedWriter.flushAndGet();
     if (!batch.isEmpty()) {

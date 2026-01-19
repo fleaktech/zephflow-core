@@ -62,7 +62,7 @@ class BatchS3FlusherTest {
       flusher = null;
     }
     if (testS3Client != null) {
-      deleteAllObjectsInBucket(BUCKET_NAME);
+      deleteAllObjectsInBucket();
       testS3Client.deleteBucket(b -> b.bucket(BUCKET_NAME));
       testS3Client.close();
     }
@@ -243,13 +243,15 @@ class BatchS3FlusherTest {
     return listResponse.contents().stream().map(S3Object::key).collect(Collectors.toList());
   }
 
-  private void deleteAllObjectsInBucket(String bucketName) {
-    ListObjectsV2Request listRequest = ListObjectsV2Request.builder().bucket(bucketName).build();
+  private void deleteAllObjectsInBucket() {
+    ListObjectsV2Request listRequest =
+        ListObjectsV2Request.builder().bucket(BatchS3FlusherTest.BUCKET_NAME).build();
     ListObjectsV2Response listResponse;
     do {
       listResponse = testS3Client.listObjectsV2(listRequest);
       for (S3Object s3Object : listResponse.contents()) {
-        testS3Client.deleteObject(b -> b.bucket(bucketName).key(s3Object.key()));
+        testS3Client.deleteObject(
+            b -> b.bucket(BatchS3FlusherTest.BUCKET_NAME).key(s3Object.key()));
       }
       listRequest =
           listRequest.toBuilder().continuationToken(listResponse.nextContinuationToken()).build();

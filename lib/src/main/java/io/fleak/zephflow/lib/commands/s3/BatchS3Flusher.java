@@ -124,7 +124,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
   }
 
   private SimpleSinkCommand.FlushResult uploadWithRetry(
-      List<File> tempFiles, String baseKey, int recordCount) throws Exception {
+      List<File> tempFiles, String baseKey, int recordCount) {
     long retryDelayMs = INITIAL_RETRY_DELAY_MS;
     int attempt = 0;
 
