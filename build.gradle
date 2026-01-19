@@ -44,6 +44,12 @@ allprojects {
     }
   }
 
+  configurations.all {
+    resolutionStrategy.capabilitiesResolution.withCapability('org.lz4:lz4-java') {
+      select('at.yawk.lz4:lz4-java:0')
+    }
+  }
+
   ext {
     licenseName = 'Apache License, Version 2.0'
     licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
