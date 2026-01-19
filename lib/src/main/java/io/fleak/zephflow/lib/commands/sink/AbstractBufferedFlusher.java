@@ -15,18 +15,16 @@ package io.fleak.zephflow.lib.commands.sink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.utils.BufferedWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -46,25 +44,34 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected static final int MAX_WRITE_RETRIES = 3;
   protected static final long INITIAL_RETRY_DELAY_MS = 1000;
 
-  protected final Object bufferLock = new Object();
-  protected List<Pair<RecordFleakData, T>> buffer = new ArrayList<>();
-
   protected final DlqWriter dlqWriter;
   protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
   protected final boolean testMode;
 
-  private ScheduledExecutorService flushScheduler;
-  private ScheduledFuture<?> flushTask;
+  private BufferedWriter<Pair<RecordFleakData, T>> bufferedWriter;
 
   protected AbstractBufferedFlusher(DlqWriter dlqWriter, JobContext jobContext) {
     this.dlqWriter = dlqWriter;
     this.testMode =
         jobContext != null
             && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
+    // BufferedWriter will be initialized lazily on first use to allow subclass to set batchSize
   }
 
   protected final boolean isSyncMode() {
     return testMode;
+  }
+
+  private synchronized void ensureBufferedWriterInitialized() {
+    if (bufferedWriter == null) {
+      bufferedWriter =
+          new BufferedWriter<>(
+              getBatchSize(),
+              0, // No timer for lazy initialization; timer is started in initialize()
+              this::handleScheduledFlushCallback,
+              getSchedulerThreadName(),
+              testMode);
+    }
   }
 
   // ===== ABSTRACT METHODS (Subclasses must implement) =====
@@ -143,81 +150,52 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
    * Subclasses should call super.initialize() at the end of their own initialization.
    */
   public void initialize() {
-    startFlushTimer();
+    // Create BufferedWriter with timer support
+    this.bufferedWriter =
+        new BufferedWriter<>(
+            getBatchSize(),
+            getFlushIntervalMs(),
+            this::handleScheduledFlushCallback,
+            getSchedulerThreadName(),
+            testMode);
+    bufferedWriter.start();
   }
 
-  // ===== TIMER MANAGEMENT =====
+  private void handleScheduledFlushCallback(List<Pair<RecordFleakData, T>> batch) {
+    executeScheduledFlushInternal(batch);
+  }
+
+  private void executeScheduledFlushInternal(List<Pair<RecordFleakData, T>> batch) {
+    try {
+      SimpleSinkCommand.FlushResult result = executeFlush(batch, Map.of());
+      if (!result.errorOutputList().isEmpty()) {
+        reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        handleScheduledFlushErrors(result.errorOutputList());
+      }
+    } catch (Exception e) {
+      log.error("Error during scheduled flush", e);
+      reportErrorMetrics(batch.size(), Map.of());
+      handleScheduledFlushErrors(batch, e.getMessage());
+    }
+  }
 
   /**
-   * Starts the timer-based flush scheduler. Does nothing if interval is 0 or negative, or if
-   * already started.
+   * Executes a scheduled flush manually. Used for testing. This method flushes the current buffer
+   * using the scheduled flush logic.
    */
-  private synchronized void startFlushTimer() {
-    if (testMode) {
-      log.debug("Test mode enabled, timer-based flushing disabled");
-      return;
+  @VisibleForTesting
+  public void executeScheduledFlush() {
+    ensureBufferedWriterInitialized();
+    List<Pair<RecordFleakData, T>> batch = bufferedWriter.flushAndGet();
+    if (!batch.isEmpty()) {
+      executeScheduledFlushInternal(batch);
     }
-
-    if (flushScheduler != null) {
-      log.warn("Flush timer already running, skipping restart");
-      return;
-    }
-
-    long intervalMs = getFlushIntervalMs();
-    if (intervalMs <= 0) {
-      log.debug("Timer-based flushing disabled (interval={})", intervalMs);
-      return;
-    }
-
-    String threadName = getSchedulerThreadName();
-    log.info("Starting timer-based flush with interval {}ms, thread: {}", intervalMs, threadName);
-
-    flushScheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, threadName);
-              t.setDaemon(true);
-              return t;
-            });
-
-    flushTask =
-        flushScheduler.scheduleWithFixedDelay(
-            () -> {
-              try {
-                executeScheduledFlush();
-              } catch (Exception e) {
-                log.error("Error during timer-based flush", e);
-              }
-            },
-            Math.min(intervalMs, 1000),
-            intervalMs,
-            TimeUnit.MILLISECONDS);
-
-    log.info("Timer-based flush started successfully");
   }
 
   /** Stops the timer-based flush scheduler. Call from subclass close(). */
   protected final synchronized void stopFlushTimer() {
-    if (flushTask != null) {
-      log.debug("Cancelling flush task");
-      flushTask.cancel(false);
-      flushTask = null;
-    }
-
-    if (flushScheduler != null) {
-      log.debug("Shutting down flush scheduler");
-      flushScheduler.shutdown();
-      try {
-        if (!flushScheduler.awaitTermination(30, TimeUnit.SECONDS)) {
-          log.warn("Flush scheduler did not terminate in time, forcing shutdown");
-          flushScheduler.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        log.warn("Interrupted while waiting for flush scheduler to terminate");
-        flushScheduler.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
-      flushScheduler = null;
+    if (bufferedWriter != null) {
+      bufferedWriter.close();
     }
   }
 
@@ -243,28 +221,29 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    List<Pair<RecordFleakData, T>> snapshot = null;
+    // Ensure BufferedWriter is initialized (lazy initialization for tests that don't call init)
+    ensureBufferedWriterInitialized();
 
-    synchronized (bufferLock) {
-      buffer.addAll(preparedInputEvents.rawAndPreparedList());
-      log.debug(
-          "Added {} records to buffer. Buffer: {} / {}",
-          preparedInputEvents.rawAndPreparedList().size(),
-          buffer.size(),
+    // Add to buffer without auto-flush (we control when to flush)
+    bufferedWriter.write(preparedInputEvents.rawAndPreparedList(), false);
+
+    log.debug(
+        "Added {} records to buffer. Buffer: {} / {}",
+        preparedInputEvents.rawAndPreparedList().size(),
+        bufferedWriter.getBufferSize(),
+        getBatchSize());
+
+    // Check if we should flush (sync mode or batch size reached)
+    if (bufferedWriter.shouldFlush()) {
+      log.info(
+          "Triggering flush: syncMode={}, bufferSize={}, batchSize={}",
+          isSyncMode(),
+          bufferedWriter.getBufferSize(),
           getBatchSize());
-
-      if (isSyncMode() || buffer.size() >= getBatchSize()) {
-        log.info(
-            "Triggering flush: syncMode={}, bufferSize={}, batchSize={}",
-            isSyncMode(),
-            buffer.size(),
-            getBatchSize());
-        snapshot = swapBuffer();
+      List<Pair<RecordFleakData, T>> snapshot = bufferedWriter.flushAndGet();
+      if (!snapshot.isEmpty()) {
+        return executeFlush(snapshot, metricTags);
       }
-    }
-
-    if (snapshot != null) {
-      return executeFlush(snapshot, metricTags);
     }
 
     return new SimpleSinkCommand.FlushResult(0, 0, List.of());
@@ -296,46 +275,32 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   }
 
   /**
-   * Executes a scheduled (timer-triggered) or close-time flush. Subclasses should call this from
-   * their timer callback.
+   * Swaps buffer and returns snapshot if not empty. Use for close-time flushing.
+   *
+   * @return The buffer snapshot, or empty list if buffer is empty
    */
-  protected final void executeScheduledFlush() {
-    List<Pair<RecordFleakData, T>> snapshot;
-
-    synchronized (bufferLock) {
-      if (buffer.isEmpty()) {
-        log.trace("Scheduled flush skipped: buffer empty");
-        return;
+  protected final List<Pair<RecordFleakData, T>> swapBufferIfNotEmpty() {
+    synchronized (this) {
+      if (bufferedWriter == null) {
+        return List.of();
       }
-      log.info("Scheduled flush triggered: {} records buffered", buffer.size());
-      snapshot = swapBuffer();
     }
-
-    try {
-      SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
-      if (!result.errorOutputList().isEmpty()) {
-        reportErrorMetrics(result.errorOutputList().size(), Map.of());
-        handleScheduledFlushErrors(result.errorOutputList());
-      }
-    } catch (Exception e) {
-      log.error("Error during scheduled flush", e);
-      reportErrorMetrics(snapshot.size(), Map.of());
-      handleScheduledFlushErrors(snapshot, e.getMessage());
-    }
+    return bufferedWriter.flushAndGet();
   }
 
   /**
-   * Swaps buffer and returns snapshot if not empty. Use for close-time flushing.
+   * Returns the current buffer size. Useful for testing.
    *
-   * @return The buffer snapshot, or null if empty
+   * @return The number of items in the buffer
    */
-  protected final List<Pair<RecordFleakData, T>> swapBufferIfNotEmpty() {
-    synchronized (bufferLock) {
-      if (buffer.isEmpty()) {
-        return null;
+  @VisibleForTesting
+  protected final int getBufferSize() {
+    synchronized (this) {
+      if (bufferedWriter == null) {
+        return 0;
       }
-      return swapBuffer();
     }
+    return bufferedWriter.getBufferSize();
   }
 
   // ===== RECOVERY LOGIC =====
@@ -430,18 +395,6 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   }
 
   // ===== HELPER METHODS =====
-
-  /**
-   * Atomically swaps the buffer with a new empty buffer and returns the old one. MUST be called
-   * inside synchronized(bufferLock) block.
-   *
-   * @return The old buffer contents
-   */
-  protected List<Pair<RecordFleakData, T>> swapBuffer() {
-    List<Pair<RecordFleakData, T>> snapshot = buffer;
-    buffer = new ArrayList<>();
-    return snapshot;
-  }
 
   /**
    * Handles errors from scheduled (timer-based) flushes by writing to DLQ.

@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeStorageCrede
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static java.util.stream.Collectors.toList;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.delta.kernel.*;
 import io.delta.kernel.data.FilteredColumnarBatch;
@@ -836,5 +837,10 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
         throw firstException; // Don't hide cleanup failures
       }
     }
+  }
+
+  @VisibleForTesting
+  int testGetBufferSize() {
+    return getBufferSize();
   }
 }

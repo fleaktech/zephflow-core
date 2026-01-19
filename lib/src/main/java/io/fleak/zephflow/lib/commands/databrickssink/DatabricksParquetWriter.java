@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.databrickssink;
 
+import com.google.common.collect.Lists;
+import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Column;
@@ -24,12 +26,18 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
 
 @Slf4j
 public class DatabricksParquetWriter {
+  private static final int CHUNK_SIZE = 1000;
+
   private final Engine engine;
   private final StructType schema;
 
@@ -41,25 +49,42 @@ public class DatabricksParquetWriter {
 
   public List<File> writeParquetFiles(List<Map<String, Object>> data, Path tempDirectory)
       throws IOException {
-
     if (data.isEmpty()) {
       return Collections.emptyList();
     }
 
-    try (var columnarBatch = DeltaLakeDataConverter.convertToColumnarBatch(data, schema)) {
+    List<List<Map<String, Object>>> partitions = Lists.partition(data, CHUNK_SIZE);
+    Iterator<FilteredColumnarBatch> batchIterator =
+        partitions.stream()
+            .map(chunk -> DeltaLakeDataConverter.convertSingleBatch(chunk, schema))
+            .iterator();
 
+    try (var chunkedBatch =
+        new CloseableIterator<FilteredColumnarBatch>() {
+          @Override
+          public boolean hasNext() {
+            return batchIterator.hasNext();
+          }
+
+          @Override
+          public FilteredColumnarBatch next() {
+            return batchIterator.next();
+          }
+
+          @Override
+          public void close() {}
+        }) {
       String targetDir = tempDirectory.toAbsolutePath().toString();
       List<Column> statsColumns = Collections.emptyList();
 
       List<File> generatedFiles = new ArrayList<>();
 
       try (CloseableIterator<DataFileStatus> fileStatusIter =
-          engine.getParquetHandler().writeParquetFiles(targetDir, columnarBatch, statsColumns)) {
+          engine.getParquetHandler().writeParquetFiles(targetDir, chunkedBatch, statsColumns)) {
 
         while (fileStatusIter.hasNext()) {
           DataFileStatus fileStatus = fileStatusIter.next();
           String path = fileStatus.getPath();
-          // Delta Kernel returns paths in file:// URI format, convert to filesystem path
           if (path.startsWith("file:")) {
             path = URI.create(path).getPath();
           }

@@ -461,10 +461,7 @@ class BatchDatabricksFlusherTest {
     when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
         .thenThrow(new RuntimeException("Scheduled flush error"));
 
-    java.lang.reflect.Method method =
-        BatchDatabricksFlusher.class.getSuperclass().getDeclaredMethod("executeScheduledFlush");
-    method.setAccessible(true);
-    method.invoke(flusher);
+    flusher.executeScheduledFlush();
 
     verify(dlqWriter).writeToDlq(anyLong(), any(), contains("Scheduled flush error"));
   }
@@ -493,11 +490,7 @@ class BatchDatabricksFlusherTest {
       when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
           .thenThrow(new RuntimeException("Scheduled flush error"));
 
-      java.lang.reflect.Method method =
-          BatchDatabricksFlusher.class.getSuperclass().getDeclaredMethod("executeScheduledFlush");
-      method.setAccessible(true);
-
-      assertDoesNotThrow(() -> method.invoke(flusher));
+      assertDoesNotThrow(() -> flusher.executeScheduledFlush());
 
       verifyNoInteractions(dlqWriter);
     }

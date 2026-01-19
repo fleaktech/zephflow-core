@@ -30,7 +30,9 @@ import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.transfer.s3.S3TransferManager;
 
 /** Created by bolei on 8/6/24 */
 @Slf4j
@@ -113,6 +115,51 @@ public class AwsClientFactory implements Serializable {
     }
 
     return builder.build();
+  }
+
+  public record S3TransferResources(S3AsyncClient asyncClient, S3TransferManager transferManager)
+      implements AutoCloseable {
+    @Override
+    public void close() {
+      transferManager.close();
+      asyncClient.close();
+    }
+  }
+
+  public S3TransferResources createS3TransferResources(
+      String regionStr,
+      UsernamePasswordCredential usernamePasswordCredential,
+      String s3EndpointOverride) {
+
+    Region region = AwsUtils.parseRegion(regionStr);
+    var asyncBuilder = S3AsyncClient.builder().region(region).multipartEnabled(true);
+
+    if (usernamePasswordCredential != null) {
+      var awsCredentials =
+          AwsBasicCredentials.create(
+              usernamePasswordCredential.getUsername(), usernamePasswordCredential.getPassword());
+      asyncBuilder.credentialsProvider(StaticCredentialsProvider.create(awsCredentials));
+    }
+
+    var useForceStyle = Optional.ofNullable(System.getenv("AWS_FORCE_PATH_STYLE")).orElse("");
+    if (StringUtils.isEmpty(s3EndpointOverride)) {
+      s3EndpointOverride = System.getenv("AWS_ENDPOINT_URL_S3");
+    }
+
+    if (!StringUtils.isEmpty(s3EndpointOverride)) {
+      log.info("Setting s3 async endpoint to {}", s3EndpointOverride);
+      asyncBuilder.endpointOverride(URI.create(s3EndpointOverride));
+    }
+
+    if (StringUtils.contains(s3EndpointOverride, "minio")
+        || !StringUtils.equalsAnyIgnoreCase(useForceStyle, "1", "true", "enabled", "ok", "yes")) {
+      log.info("Configuring s3 async to use Path-Style URLs");
+      asyncBuilder.forcePathStyle(true);
+    }
+
+    S3AsyncClient asyncClient = asyncBuilder.build();
+    S3TransferManager transferManager = S3TransferManager.builder().s3Client(asyncClient).build();
+    return new S3TransferResources(asyncClient, transferManager);
   }
 
   private static <BuilderT extends AwsClientBuilder<BuilderT, ClientT>, ClientT>

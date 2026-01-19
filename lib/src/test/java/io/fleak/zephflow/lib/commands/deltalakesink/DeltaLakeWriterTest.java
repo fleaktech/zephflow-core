@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -389,167 +388,165 @@ class DeltaLakeWriterTest {
 
   @Test
   void testBufferAccumulatesEventsBeforeBatchSize() throws Exception {
+    String path = tablePath + "_buffer1";
+    createDeltaTable(path);
     Config testConfig =
-        Config.builder()
-            .tablePath(tablePath + "_buffer1")
-            .batchSize(10)
-            .avroSchema(TEST_AVRO_SCHEMA)
-            .build();
+        Config.builder().tablePath(path).batchSize(10).avroSchema(TEST_AVRO_SCHEMA).build();
     DeltaLakeWriter writer = createWriter(testConfig);
-
-    // Use reflection to access the private buffer field from superclass
-    java.lang.reflect.Field bufferField =
-        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
-        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
+    writer.initialize();
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
-    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
 
     // Add 5 events (buffer: 5/10) - should accumulate without flushing
     for (int i = 0; i < 5; i++) {
       Map<String, Object> event = new HashMap<>(testData);
       event.put("id", i);
-      buffer.add(Pair.of(record, event));
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
 
     // Verify buffer contains 5 events
-    assertEquals(5, buffer.size());
+    assertEquals(5, writer.testGetBufferSize());
 
     // Add 3 more events (buffer: 8/10) - still under batch size
     for (int i = 5; i < 8; i++) {
       Map<String, Object> event = new HashMap<>(testData);
       event.put("id", i);
-      buffer.add(Pair.of(record, event));
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
 
     // Verify buffer contains 8 events (not flushed yet)
-    assertEquals(8, buffer.size());
+    assertEquals(8, writer.testGetBufferSize());
+    writer.close();
   }
 
   @Test
   void testBufferClearedAfterFlush() throws Exception {
+    String path = tablePath + "_buffer2";
+    createDeltaTable(path);
     Config testConfig =
-        Config.builder()
-            .tablePath(tablePath + "_buffer2")
-            .batchSize(5)
-            .avroSchema(TEST_AVRO_SCHEMA)
-            .build();
+        Config.builder().tablePath(path).batchSize(5).avroSchema(TEST_AVRO_SCHEMA).build();
     DeltaLakeWriter writer = createWriter(testConfig);
-
-    // Use reflection to access the private buffer field from superclass
-    java.lang.reflect.Field bufferField =
-        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
-        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
+    writer.initialize();
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
-    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
 
-    // Add events to buffer
+    // Add 5 events to reach batchSize - will trigger flush
     for (int i = 0; i < 5; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
+      Map<String, Object> event = new HashMap<>(testData);
+      event.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
-    assertEquals(5, buffer.size());
-
-    // Manually clear buffer (simulating flush)
-    buffer.clear();
-
-    // Add more events after "flush"
-    for (int i = 0; i < 3; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
-    }
-    assertEquals(3, buffer.size());
+    // Buffer should be cleared after batch size reached
+    assertEquals(0, writer.testGetBufferSize());
+    writer.close();
   }
 
   @Test
   void testBufferSizeTracking() throws Exception {
+    String path = tablePath + "_buffer3";
+    createDeltaTable(path);
     Config testConfig =
-        Config.builder()
-            .tablePath(tablePath + "_buffer3")
-            .batchSize(100)
-            .avroSchema(TEST_AVRO_SCHEMA)
-            .build();
+        Config.builder().tablePath(path).batchSize(100).avroSchema(TEST_AVRO_SCHEMA).build();
     DeltaLakeWriter writer = createWriter(testConfig);
+    writer.initialize();
 
-    // Use reflection to access the private buffer field from superclass
-    java.lang.reflect.Field bufferField =
-        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
-        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
-
-    assertEquals(0, buffer.size());
+    assertEquals(0, writer.testGetBufferSize());
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
-    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
+    testData.put("name", "test");
 
-    // Simulate multiple flush calls adding to buffer
+    // Add events to buffer
     for (int i = 0; i < 25; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
+      Map<String, Object> event = new HashMap<>(testData);
+      event.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
-    assertEquals(25, buffer.size());
+    assertEquals(25, writer.testGetBufferSize());
 
-    for (int i = 0; i < 30; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
+    for (int i = 25; i < 55; i++) {
+      Map<String, Object> event = new HashMap<>(testData);
+      event.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
-    assertEquals(55, buffer.size());
+    assertEquals(55, writer.testGetBufferSize());
 
     // Still under batchSize of 100, so buffer keeps accumulating
-    for (int i = 0; i < 20; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
+    for (int i = 55; i < 75; i++) {
+      Map<String, Object> event = new HashMap<>(testData);
+      event.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
-    assertEquals(75, buffer.size());
+    assertEquals(75, writer.testGetBufferSize());
+    writer.close();
   }
 
   @Test
   void testBufferReachingBatchSizeThreshold() throws Exception {
+    String path = tablePath + "_buffer4";
+    createDeltaTable(path);
     Config testConfig =
-        Config.builder()
-            .tablePath(tablePath + "_buffer4")
-            .batchSize(10)
-            .avroSchema(TEST_AVRO_SCHEMA)
-            .build();
+        Config.builder().tablePath(path).batchSize(10).avroSchema(TEST_AVRO_SCHEMA).build();
     DeltaLakeWriter writer = createWriter(testConfig);
-
-    // Use reflection to access the private buffer field from superclass
-    java.lang.reflect.Field bufferField =
-        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    List<Pair<RecordFleakData, Map<String, Object>>> buffer =
-        (List<Pair<RecordFleakData, Map<String, Object>>>) bufferField.get(writer);
+    writer.initialize();
 
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
-    RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
+    testData.put("name", "test");
 
     // Add events up to batchSize - 1
     for (int i = 0; i < 9; i++) {
-      buffer.add(Pair.of(record, new HashMap<>(testData)));
+      Map<String, Object> event = new HashMap<>(testData);
+      event.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, event);
+      writer.flush(events, Map.of());
     }
-    assertEquals(9, buffer.size());
-    assertTrue(buffer.size() < testConfig.getBatchSize());
+    assertEquals(9, writer.testGetBufferSize());
+    assertTrue(writer.testGetBufferSize() < testConfig.getBatchSize());
 
-    // Add one more event to reach batchSize
-    buffer.add(Pair.of(record, new HashMap<>(testData)));
-    assertEquals(10, buffer.size());
-    assertEquals(testConfig.getBatchSize(), buffer.size());
+    // Add one more event to reach batchSize - triggers flush
+    Map<String, Object> event = new HashMap<>(testData);
+    event.put("id", 9);
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record, event);
+    writer.flush(events, Map.of());
+    // Buffer should be cleared after flush
+    assertEquals(0, writer.testGetBufferSize());
 
-    // Add one more event to exceed batchSize - this would trigger flush in real scenario
-    buffer.add(Pair.of(record, new HashMap<>(testData)));
-    assertEquals(11, buffer.size());
-    assertTrue(buffer.size() >= testConfig.getBatchSize());
+    writer.close();
   }
 
   @Test
@@ -568,15 +565,20 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    // Access private fields using reflection (fields are in base class AbstractBufferedFlusher)
+    // Access bufferedWriter field, then its internal scheduler/task fields
     Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
-    java.lang.reflect.Field schedulerField = baseClass.getDeclaredField("flushScheduler");
-    schedulerField.setAccessible(true);
-    Object scheduler = schedulerField.get(writer);
+    java.lang.reflect.Field bufferedWriterField = baseClass.getDeclaredField("bufferedWriter");
+    bufferedWriterField.setAccessible(true);
+    Object bufferedWriter = bufferedWriterField.get(writer);
 
-    java.lang.reflect.Field taskField = baseClass.getDeclaredField("flushTask");
+    java.lang.reflect.Field schedulerField =
+        bufferedWriter.getClass().getDeclaredField("scheduler");
+    schedulerField.setAccessible(true);
+    Object scheduler = schedulerField.get(bufferedWriter);
+
+    java.lang.reflect.Field taskField = bufferedWriter.getClass().getDeclaredField("flushTask");
     taskField.setAccessible(true);
-    Object task = taskField.get(writer);
+    Object task = taskField.get(bufferedWriter);
 
     // Verify that timer is started
     assertNotNull(scheduler, "Flush scheduler should be initialized");
@@ -588,7 +590,6 @@ class DeltaLakeWriterTest {
   @Test
   void testTimerFlushWithSmallBuffer() throws Exception {
     // Timer-based flush should attempt to flush any non-empty buffer to bound data latency
-    // (Previously, timer would skip flush if buffer size < minTimerBatchSize)
     String path = tablePath + "_timer2";
     createDeltaTable(path);
     Config testConfig =
@@ -602,39 +603,29 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    java.lang.reflect.Field bufferField =
-        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
 
-    // Add only 5 events (small buffer - previously would not trigger timer flush)
+    // Add only 5 events (small buffer)
     for (int i = 0; i < 5; i++) {
-      RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
+      Map<String, Object> event = new HashMap<>(testData);
+      event.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event);
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
           new SimpleSinkCommand.PreparedInputEvents<>();
-      events.add(record, new HashMap<>(testData));
+      events.add(record, event);
       writer.flush(events, Map.of());
     }
 
-    // Re-read buffer to get current reference
-    List<?> bufferBefore = (List<?>) bufferField.get(writer);
-    assertEquals(5, bufferBefore.size(), "Buffer should contain 5 events before timer fires");
+    assertEquals(
+        5, writer.testGetBufferSize(), "Buffer should contain 5 events before timer fires");
 
     // Wait for timer to fire
     TimeUnit.MILLISECONDS.sleep(1500);
 
-    // Re-read buffer after timer fires (swapBuffer creates a new ArrayList)
-    List<?> bufferAfter = (List<?>) bufferField.get(writer);
-
-    // The key behavior change is that timer now ATTEMPTS flush for any non-empty buffer.
-    // Previously it would skip flush if buffer.size() < minTimerBatchSize (10).
-    // After timer flush, the buffer should be swapped (new empty ArrayList).
-    // Note: bufferBefore and bufferAfter should be different object references.
-    assertNotSame(bufferBefore, bufferAfter, "Buffer should have been swapped by timer flush");
-    assertEquals(0, bufferAfter.size(), "New buffer should be empty after swap");
+    // After timer flush, the buffer should be empty
+    assertEquals(0, writer.testGetBufferSize(), "Buffer should be empty after timer flush");
 
     writer.close();
   }
@@ -655,37 +646,28 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    java.lang.reflect.Field bufferField =
-        DeltaLakeWriter.class.getSuperclass().getDeclaredField("buffer");
-    bufferField.setAccessible(true);
-
     Map<String, Object> testData = new HashMap<>();
     testData.put("id", 1);
     testData.put("name", "test");
 
     // Add 15 events (less than batchSize, will be flushed by timer)
     for (int i = 0; i < 15; i++) {
-      RecordFleakData record = (RecordFleakData) FleakData.wrap(testData);
-      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
-          new SimpleSinkCommand.PreparedInputEvents<>();
       Map<String, Object> eventData = new HashMap<>(testData);
       eventData.put("id", i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(eventData);
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
       events.add(record, eventData);
       writer.flush(events, Map.of());
     }
 
-    List<?> bufferBefore = (List<?>) bufferField.get(writer);
-    assertEquals(15, bufferBefore.size(), "Buffer should contain 15 events");
+    assertEquals(15, writer.testGetBufferSize(), "Buffer should contain 15 events");
 
     // Wait for timer to fire
     TimeUnit.MILLISECONDS.sleep(1500);
 
-    // Re-read buffer after timer fires (swapBuffer creates a new ArrayList)
-    List<?> bufferAfter = (List<?>) bufferField.get(writer);
-
-    // Timer should have swapped the buffer
-    assertNotSame(bufferBefore, bufferAfter, "Buffer should have been swapped by timer flush");
-    assertEquals(0, bufferAfter.size(), "New buffer should be empty after swap");
+    // Buffer should be empty after timer flush
+    assertEquals(0, writer.testGetBufferSize(), "Buffer should be empty after timer flush");
 
     writer.close();
   }
@@ -705,17 +687,22 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    // Access private fields using reflection (fields are in base class AbstractBufferedFlusher)
+    // Access bufferedWriter field, then its internal scheduler/task fields
     Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
-    java.lang.reflect.Field schedulerField = baseClass.getDeclaredField("flushScheduler");
+    java.lang.reflect.Field bufferedWriterField = baseClass.getDeclaredField("bufferedWriter");
+    bufferedWriterField.setAccessible(true);
+    Object bufferedWriter = bufferedWriterField.get(writer);
+
+    java.lang.reflect.Field schedulerField =
+        bufferedWriter.getClass().getDeclaredField("scheduler");
     schedulerField.setAccessible(true);
-    Object scheduler = schedulerField.get(writer);
+    Object scheduler = schedulerField.get(bufferedWriter);
 
-    java.lang.reflect.Field taskField = baseClass.getDeclaredField("flushTask");
+    java.lang.reflect.Field taskField = bufferedWriter.getClass().getDeclaredField("flushTask");
     taskField.setAccessible(true);
-    Object task = taskField.get(writer);
+    Object task = taskField.get(bufferedWriter);
 
-    // Verify that timer is NOT started
+    // Verify that timer is NOT started (scheduler is null when timer is disabled)
     assertNull(scheduler, "Flush scheduler should be null when timer is disabled");
     assertNull(task, "Flush task should be null when timer is disabled");
 
@@ -737,24 +724,29 @@ class DeltaLakeWriterTest {
     DeltaLakeWriter writer = createWriter(testConfig);
     writer.initialize();
 
-    // Access private fields using reflection (fields are in base class AbstractBufferedFlusher)
+    // Access bufferedWriter field, then its internal scheduler/task fields
     Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
-    java.lang.reflect.Field schedulerField = baseClass.getDeclaredField("flushScheduler");
+    java.lang.reflect.Field bufferedWriterField = baseClass.getDeclaredField("bufferedWriter");
+    bufferedWriterField.setAccessible(true);
+    Object bufferedWriter = bufferedWriterField.get(writer);
+
+    java.lang.reflect.Field schedulerField =
+        bufferedWriter.getClass().getDeclaredField("scheduler");
     schedulerField.setAccessible(true);
 
-    java.lang.reflect.Field taskField = baseClass.getDeclaredField("flushTask");
+    java.lang.reflect.Field taskField = bufferedWriter.getClass().getDeclaredField("flushTask");
     taskField.setAccessible(true);
 
     // Verify timer is running
-    assertNotNull(schedulerField.get(writer), "Scheduler should be running before close");
-    assertNotNull(taskField.get(writer), "Task should be scheduled before close");
+    assertNotNull(schedulerField.get(bufferedWriter), "Scheduler should be running before close");
+    assertNotNull(taskField.get(bufferedWriter), "Task should be scheduled before close");
 
     // Close the writer
     writer.close();
 
     // Verify timer is stopped
-    assertNull(schedulerField.get(writer), "Scheduler should be null after close");
-    assertNull(taskField.get(writer), "Task should be null after close");
+    assertNull(schedulerField.get(bufferedWriter), "Scheduler should be null after close");
+    assertNull(taskField.get(bufferedWriter), "Task should be null after close");
   }
 
   @Test

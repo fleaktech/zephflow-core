@@ -13,24 +13,35 @@
  */
 package io.fleak.zephflow.lib.dlq;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
+import static io.fleak.zephflow.lib.utils.MiscUtils.toBase64String;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
-import io.fleak.zephflow.lib.commands.s3.BatchS3Commiter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
+import io.fleak.zephflow.lib.utils.BufferedWriter;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
-import java.util.concurrent.*;
 import javax.annotation.Nonnull;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-/** Created by bolei on 11/8/24 */
 @Slf4j
 public class S3DlqWriter extends DlqWriter {
-  @VisibleForTesting final BatchS3Commiter<DeadLetter> s3Commiter;
+  private static final int MAX_RETRIES = 3;
+
+  @VisibleForTesting final BufferedWriter<DeadLetter> bufferedWriter;
+  @VisibleForTesting final S3Client s3Client;
+  private final String bucketName;
+  private final DeadLetterS3CommiterSerializer serializer;
 
   public static S3DlqWriter createS3DlqWriter(JobContext.S3DlqConfig s3DlqConfig) {
     return createS3DlqWriter(
@@ -60,37 +71,88 @@ public class S3DlqWriter extends DlqWriter {
 
     S3Client s3Client =
         new AwsClientFactory().createS3Client(region, credential, s3EndpointOverride);
-    // Initialize the scheduler for periodic flushing
-    ScheduledExecutorService scheduler =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "s3-dlq-writer-flusher");
-              t.setDaemon(true);
-              return t;
-            });
-    DeadLetterS3CommiterSerializer serializer = new DeadLetterS3CommiterSerializer();
-    BatchS3Commiter<DeadLetter> batchS3Commiter =
-        new BatchS3Commiter<>(
-            s3Client, bucketName, batchSize, flushIntervalMillis, serializer, scheduler);
-    return new S3DlqWriter(batchS3Commiter);
+
+    return new S3DlqWriter(s3Client, bucketName, batchSize, flushIntervalMillis);
   }
 
-  public S3DlqWriter(BatchS3Commiter<DeadLetter> s3Commiter) {
-    this.s3Commiter = s3Commiter;
+  @VisibleForTesting
+  S3DlqWriter(S3Client s3Client, String bucketName, int batchSize, long flushIntervalMillis) {
+    this.s3Client = s3Client;
+    this.bucketName = bucketName;
+    this.serializer = new DeadLetterS3CommiterSerializer();
+    this.bufferedWriter =
+        new BufferedWriter<>(
+            batchSize, flushIntervalMillis, this::uploadToS3, "s3-dlq-writer-flusher");
   }
 
   @Override
   public void open() {
-    s3Commiter.open();
+    bufferedWriter.start();
   }
 
   @Override
   protected void doWrite(DeadLetter deadLetter) {
-    s3Commiter.commit(List.of(deadLetter));
+    bufferedWriter.write(deadLetter);
   }
 
   @Override
   public void close() {
-    s3Commiter.close();
+    bufferedWriter.close();
+    s3Client.close();
+  }
+
+  private void uploadToS3(List<DeadLetter> batch) {
+    long timestamp = System.currentTimeMillis();
+
+    byte[] data;
+    try {
+      data = serializer.serialize(batch);
+    } catch (Exception e) {
+      log.error("failed to serialize dead letters, dropping {} records", batch.size(), e);
+      return;
+    }
+
+    String objectKey = generateS3ObjectKey(timestamp);
+    try {
+      uploadToS3WithRetry(data, objectKey);
+      log.info("Uploaded {} dead letters to s3://{}/{}", batch.size(), bucketName, objectKey);
+    } catch (Exception e) {
+      log.error("failed to write to DLQ. data: {}", toBase64String(data), e);
+    }
+  }
+
+  private String generateS3ObjectKey(long timestamp) {
+    Instant instant = Instant.ofEpochMilli(timestamp);
+    ZonedDateTime utcDateTime = instant.atZone(ZoneOffset.UTC);
+
+    String year = String.format("%04d", utcDateTime.getYear());
+    String month = String.format("%02d", utcDateTime.getMonthValue());
+    String day = String.format("%02d", utcDateTime.getDayOfMonth());
+    String hour = String.format("%02d", utcDateTime.getHour());
+
+    return String.format("%s/%s/%s/%s/dead-letters-%d.avro", year, month, day, hour, timestamp);
+  }
+
+  private void uploadToS3WithRetry(byte[] data, String objectKey) {
+    int attempt = 0;
+    while (true) {
+      try {
+        PutObjectRequest putObjectRequest =
+            PutObjectRequest.builder().bucket(bucketName).key(objectKey).build();
+        s3Client.putObject(putObjectRequest, RequestBody.fromBytes(data));
+        return;
+      } catch (Exception e) {
+        if (attempt >= MAX_RETRIES) {
+          throw e;
+        }
+        log.warn(
+            "S3 upload failed (attempt {}/{}), retrying: {}",
+            attempt + 1,
+            MAX_RETRIES,
+            e.getMessage());
+        threadSleep(1000L * (attempt + 1));
+      }
+      attempt++;
+    }
   }
 }

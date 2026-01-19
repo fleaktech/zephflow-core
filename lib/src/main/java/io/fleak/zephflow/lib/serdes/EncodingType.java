@@ -24,7 +24,8 @@ public enum EncodingType {
   JSON_OBJECT_LINE("jsonl"),
   STRING_LINE("txt"),
   TEXT("txt"),
-  XML("xml");
+  XML("xml"),
+  PARQUET("parquet");
   private final String fileExtension;
 
   EncodingType(String fileExtension) {
