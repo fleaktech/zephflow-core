@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.commands.sink;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -33,7 +33,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-class TextS3FileWriterTest {
+class TextBlobFileWriterTest {
 
   @TempDir Path tempDir;
 
@@ -50,13 +50,15 @@ class TextS3FileWriterTest {
 
   @Test
   void testValidateRecord_nullRecord() {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
     assertThrows(IllegalArgumentException.class, () -> writer.validateRecord(null));
   }
 
   @Test
   void testValidateRecord_validRecord() throws Exception {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
     RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("key", "value"));
     assertDoesNotThrow(() -> writer.validateRecord(record));
     verify(mockSerializer).serialize(List.of(record));
@@ -68,8 +70,8 @@ class TextS3FileWriterTest {
     when(failingSerializer.serialize(anyList()))
         .thenThrow(new RuntimeException("Serialization failed"));
 
-    TextS3FileWriter writer =
-        new TextS3FileWriter(failingSerializer, EncodingType.JSON_OBJECT_LINE);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(failingSerializer, EncodingType.JSON_OBJECT_LINE);
     RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("key", "value"));
 
     assertThrows(RuntimeException.class, () -> writer.validateRecord(record));
@@ -80,7 +82,8 @@ class TextS3FileWriterTest {
     RecordFleakData record1 = (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test1"));
     RecordFleakData record2 = (RecordFleakData) FleakData.wrap(Map.of("id", 2, "name", "test2"));
 
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
     List<File> files = writer.writeToTempFiles(List.of(record1, record2), tempDir);
 
     assertEquals(1, files.size());
@@ -94,31 +97,32 @@ class TextS3FileWriterTest {
 
   @Test
   void testGetFileExtension_jsonl() {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
     assertEquals("jsonl", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_json() {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.JSON_OBJECT);
+    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT);
     assertEquals("json", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_csv() {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.CSV);
+    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.CSV);
     assertEquals("csv", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_txt() {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.TEXT);
+    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.TEXT);
     assertEquals("txt", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_xml() {
-    TextS3FileWriter writer = new TextS3FileWriter(mockSerializer, EncodingType.XML);
+    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.XML);
     assertEquals("xml", writer.getFileExtension());
   }
 }

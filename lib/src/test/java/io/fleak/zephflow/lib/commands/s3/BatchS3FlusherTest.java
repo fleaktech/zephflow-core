@@ -18,7 +18,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
@@ -86,8 +89,8 @@ class BatchS3FlusherTest {
 
   private BatchS3Flusher createFlusher(int batchSize, long flushIntervalMs) {
     AwsClientFactory.S3TransferResources s3TransferResources = createS3TransferResources();
-    S3FileWriter<RecordFleakData> fileWriter =
-        new TextS3FileWriter(
+    BlobFileWriter<RecordFleakData> fileWriter =
+        new TextBlobFileWriter(
             SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE)
                 .createSerializer(),
             EncodingType.JSON_OBJECT_LINE);
@@ -211,7 +214,7 @@ class BatchS3FlusherTest {
                 List.of(
                     Map.of("name", "id", "type", "int"), Map.of("name", "name", "type", "string")));
 
-    S3FileWriter<RecordFleakData> parquetWriter = new ParquetS3FileWriter(avroSchema);
+    BlobFileWriter<RecordFleakData> parquetWriter = new ParquetBlobFileWriter(avroSchema);
     AwsClientFactory.S3TransferResources s3TransferResources = createS3TransferResources();
 
     flusher =

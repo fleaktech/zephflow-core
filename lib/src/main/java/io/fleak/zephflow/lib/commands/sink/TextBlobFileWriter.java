@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.commands.sink;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -24,15 +24,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * S3FileWriter implementation for text-based formats (CSV, JSON, JSONL, TEXT, XML). Uses
+ * BlobFileWriter implementation for text-based formats (CSV, JSON, JSONL, TEXT, XML). Uses
  * FleakSerializer to serialize records to byte arrays.
  */
-public class TextS3FileWriter implements S3FileWriter<RecordFleakData> {
+public class TextBlobFileWriter implements BlobFileWriter<RecordFleakData> {
 
   private final FleakSerializer<?> serializer;
   private final EncodingType encodingType;
 
-  public TextS3FileWriter(FleakSerializer<?> serializer, EncodingType encodingType) {
+  public TextBlobFileWriter(FleakSerializer<?> serializer, EncodingType encodingType) {
     this.serializer = serializer;
     this.encodingType = encodingType;
   }

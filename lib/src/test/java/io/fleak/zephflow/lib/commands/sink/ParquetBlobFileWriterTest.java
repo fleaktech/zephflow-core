@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.commands.sink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,7 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class ParquetS3FileWriterTest {
+class ParquetBlobFileWriterTest {
 
   @TempDir Path tempDir;
 
@@ -40,11 +40,11 @@ class ParquetS3FileWriterTest {
                   Map.of("name", "name", "type", "string"),
                   Map.of("name", "value", "type", "double")));
 
-  private ParquetS3FileWriter writer;
+  private ParquetBlobFileWriter writer;
 
   @BeforeEach
   void setUp() {
-    writer = new ParquetS3FileWriter(TEST_AVRO_SCHEMA);
+    writer = new ParquetBlobFileWriter(TEST_AVRO_SCHEMA);
   }
 
   @Test

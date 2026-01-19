@@ -19,9 +19,12 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.S3DlqWriter;
@@ -84,7 +87,7 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
               usernamePasswordCredentialOpt.orElse(null),
               config.getS3EndpointOverride());
 
-      S3FileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
+      BlobFileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
       DlqWriter dlqWriter = null;
       if (jobContext.getDlqConfig() instanceof JobContext.S3DlqConfig s3DlqConfig) {
         dlqWriter = S3DlqWriter.createS3DlqWriter(s3DlqConfig);
@@ -116,18 +119,18 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
     }
   }
 
-  private S3FileWriter<RecordFleakData> createFileWriter(
+  private BlobFileWriter<RecordFleakData> createFileWriter(
       EncodingType encodingType, S3SinkDto.Config config) {
     if (encodingType == EncodingType.PARQUET) {
       if (config.getAvroSchema() == null || config.getAvroSchema().isEmpty()) {
         throw new IllegalArgumentException("avroSchema is required for PARQUET encoding type");
       }
-      return new ParquetS3FileWriter(config.getAvroSchema());
+      return new ParquetBlobFileWriter(config.getAvroSchema());
     } else {
       SerializerFactory<?> serializerFactory =
           SerializerFactory.createSerializerFactory(encodingType);
       FleakSerializer<?> serializer = serializerFactory.createSerializer();
-      return new TextS3FileWriter(serializer, encodingType);
+      return new TextBlobFileWriter(serializer, encodingType);
     }
   }
 

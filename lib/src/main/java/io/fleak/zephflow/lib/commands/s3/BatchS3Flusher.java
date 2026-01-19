@@ -19,6 +19,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
+import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.File;
@@ -48,7 +49,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
   private final AwsClientFactory.S3TransferResources s3TransferResources;
   private final String bucketName;
   private final String keyName;
-  private final S3FileWriter<RecordFleakData> fileWriter;
+  private final BlobFileWriter<RecordFleakData> fileWriter;
   private final int batchSize;
   private final long flushIntervalMs;
   private Path tempDirectory;
@@ -57,7 +58,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       AwsClientFactory.S3TransferResources s3TransferResources,
       String bucketName,
       String keyName,
-      S3FileWriter<RecordFleakData> fileWriter,
+      BlobFileWriter<RecordFleakData> fileWriter,
       int batchSize,
       long flushIntervalMs,
       DlqWriter dlqWriter,

@@ -11,22 +11,23 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.commands.sink;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Strategy interface for writing records to files for S3 upload. Different implementations handle
- * different file formats (text-based like JSON/CSV/JSONL, or binary like Parquet).
+ * Strategy interface for writing records to files for blob storage upload. Different
+ * implementations handle different file formats (text-based like JSON/CSV/JSONL, or binary like
+ * Parquet).
  *
  * @param <T> The type of records to write
  */
-public interface S3FileWriter<T> {
+public interface BlobFileWriter<T> {
 
   /**
-   * Writes records to temporary file(s) for S3 upload. May return multiple files for large datasets
+   * Writes records to temporary file(s) for upload. May return multiple files for large datasets
    * (e.g., Parquet with row group splits).
    *
    * @param records The records to write

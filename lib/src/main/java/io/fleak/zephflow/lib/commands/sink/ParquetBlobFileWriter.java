@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.s3;
+package io.fleak.zephflow.lib.commands.sink;
 
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -25,23 +25,24 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * S3FileWriter implementation for Parquet format. Uses Delta Kernel to write Parquet files with
+ * BlobFileWriter implementation for Parquet format. Uses Delta Kernel to write Parquet files with
  * specified Avro schema.
  */
 @Slf4j
-public class ParquetS3FileWriter implements S3FileWriter<RecordFleakData> {
+public class ParquetBlobFileWriter implements BlobFileWriter<RecordFleakData> {
 
   private final StructType schema;
   private final DatabricksParquetWriter parquetWriter;
 
-  public ParquetS3FileWriter(Map<String, Object> avroSchema) {
+  public ParquetBlobFileWriter(Map<String, Object> avroSchema) {
     this.schema = AvroToDeltaSchemaConverter.parse(avroSchema);
     this.parquetWriter = new DatabricksParquetWriter(schema);
   }
 
   @Override
   public List<File> writeToTempFiles(List<RecordFleakData> records, Path tempDir) throws Exception {
-    List<File> parquetFiles = parquetWriter.writeParquetFilesChunked(records, tempDir);
+    List<Map<String, Object>> data = records.stream().map(RecordFleakData::unwrap).toList();
+    List<File> parquetFiles = parquetWriter.writeParquetFiles(data, tempDir);
 
     if (parquetFiles.isEmpty()) {
       throw new IllegalStateException("No parquet files were generated");
