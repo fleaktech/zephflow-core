@@ -88,6 +88,10 @@ class BatchS3FlusherTest {
   }
 
   private BatchS3Flusher createFlusher(int batchSize, long flushIntervalMs) {
+    return createFlusher(KEY_NAME, batchSize, flushIntervalMs);
+  }
+
+  private BatchS3Flusher createFlusher(String keyName, int batchSize, long flushIntervalMs) {
     AwsClientFactory.S3TransferResources s3TransferResources = createS3TransferResources();
     BlobFileWriter<RecordFleakData> fileWriter =
         new TextBlobFileWriter(
@@ -98,7 +102,7 @@ class BatchS3FlusherTest {
     return new BatchS3Flusher(
         s3TransferResources,
         BUCKET_NAME,
-        KEY_NAME,
+        keyName,
         fileWriter,
         batchSize,
         flushIntervalMs,
