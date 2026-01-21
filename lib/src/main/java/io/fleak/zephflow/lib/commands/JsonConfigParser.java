@@ -17,13 +17,17 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /** Created by bolei on 9/24/24 */
 public record JsonConfigParser<T extends CommandConfig>(Class<T> clz) implements ConfigParser {
 
   @Override
   public T parseConfig(Map<String, Object> config) {
-    return OBJECT_MAPPER.convertValue(config, clz);
+    Map<String, Object> filtered = new HashMap<>(config);
+    filtered.values().removeIf(Objects::isNull);
+    return OBJECT_MAPPER.convertValue(filtered, clz);
   }
 }

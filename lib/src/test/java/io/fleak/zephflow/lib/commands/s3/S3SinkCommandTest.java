@@ -15,8 +15,7 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.delta.kernel.data.ColumnarBatch;
@@ -220,6 +219,52 @@ public class S3SinkCommandTest {
             Map.of("key1", "102", "key2", "another string"));
 
     assertEquals(expectedRecords, actualRecords);
+  }
+
+  @Test
+  public void testWriteIntoS3_noDoubleSlashWithTrailingSlashInKeyName() throws Exception {
+    EncodingType encodingType = EncodingType.JSON_OBJECT_LINE;
+    String keyNameWithTrailingSlash = "my-prefix/";
+
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName(keyNameWithTrailingSlash)
+            .encodingType(encodingType.toString())
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .batching(true)
+            .batchSize(1)
+            .build();
+
+    JobContext jobContext = JobContext.builder().metricTags(JOB_CONTEXT.getMetricTags()).build();
+
+    S3SinkCommand command =
+        (S3SinkCommand) new S3SinkCommandFactory().createCommand("myNodeId", jobContext);
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+
+    List<RecordFleakData> inputEvents =
+        List.of(
+            ((RecordFleakData)
+                Objects.requireNonNull(FleakData.wrap(Map.of("key1", "101", "key2", "value")))));
+
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = command.getExecutionContext();
+      command.writeToSink(inputEvents, "test_user", context);
+    } finally {
+      command.terminate();
+    }
+
+    ListObjectsV2Request listObjectsV2Request =
+        ListObjectsV2Request.builder().bucket(BUCKET_NAME).build();
+    var resp = s3Client.listObjectsV2(listObjectsV2Request);
+    assertEquals(1, resp.contents().size());
+
+    String objectKey = resp.contents().get(0).key();
+    assertFalse(objectKey.contains("//"), "S3 key should not contain double slash: " + objectKey);
+    String expectedPattern = "my-prefix/year=\\d{4}/month=\\d{2}/day=\\d{2}/[0-9a-f-]+\\.jsonl";
+    assertTrue(objectKey.matches(expectedPattern), "Key should match pattern: " + objectKey);
   }
 
   private List<Map<String, Object>> readParquetRecords(File parquetFile, StructType schema)
