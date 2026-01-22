@@ -80,9 +80,8 @@ public class BufferedWriter<T> implements Closeable {
     }
 
     if (flushIntervalMs <= 0) {
-      log.debug("Timer-based flushing disabled (interval={})", flushIntervalMs);
-      started = true;
-      return;
+      throw new IllegalArgumentException(
+          "flushIntervalMs must be positive, but was: " + flushIntervalMs);
     }
 
     log.info(

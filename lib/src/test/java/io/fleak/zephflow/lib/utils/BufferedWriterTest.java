@@ -47,7 +47,7 @@ class BufferedWriterTest {
     List<List<String>> flushedBatches = new ArrayList<>();
 
     try (BufferedWriter<String> writer =
-        new BufferedWriter<>(3, 0, flushedBatches::add, "test-thread", false)) {
+        new BufferedWriter<>(3, 100_000, flushedBatches::add, "test-thread", false)) {
       writer.start();
 
       writer.write("item1");
@@ -70,7 +70,7 @@ class BufferedWriterTest {
     List<List<String>> flushedBatches = new ArrayList<>();
 
     try (BufferedWriter<String> writer =
-        new BufferedWriter<>(100, 0, flushedBatches::add, "test-thread", false)) {
+        new BufferedWriter<>(100, 100_000, flushedBatches::add, "test-thread", false)) {
       writer.start();
 
       writer.write("item1");
@@ -90,7 +90,7 @@ class BufferedWriterTest {
     List<List<String>> flushedBatches = new ArrayList<>();
 
     try (BufferedWriter<String> writer =
-        new BufferedWriter<>(100, 0, flushedBatches::add, "test-thread", false)) {
+        new BufferedWriter<>(100, 100_000, flushedBatches::add, "test-thread", false)) {
       writer.start();
 
       writer.write("item1");
@@ -135,7 +135,7 @@ class BufferedWriterTest {
     List<List<String>> flushedBatches = new ArrayList<>();
 
     BufferedWriter<String> writer =
-        new BufferedWriter<>(100, 0, flushedBatches::add, "test-thread", false);
+        new BufferedWriter<>(100, 100_000, flushedBatches::add, "test-thread", false);
     writer.start();
 
     writer.write("item1");
@@ -149,7 +149,8 @@ class BufferedWriterTest {
 
   @Test
   void testWriteAfterCloseThrowsException() {
-    BufferedWriter<String> writer = new BufferedWriter<>(100, 0, batch -> {}, "test-thread", false);
+    BufferedWriter<String> writer =
+        new BufferedWriter<>(100, 100_000, batch -> {}, "test-thread", false);
     writer.start();
     writer.close();
 
@@ -162,7 +163,7 @@ class BufferedWriterTest {
 
     try (BufferedWriter<Integer> writer =
         new BufferedWriter<>(
-            10, 0, batch -> totalFlushed.addAndGet(batch.size()), "test-thread", false)) {
+            10, 100_000, batch -> totalFlushed.addAndGet(batch.size()), "test-thread", false)) {
       writer.start();
 
       int numThreads = 5;
@@ -202,7 +203,7 @@ class BufferedWriterTest {
     List<List<String>> flushedBatches = new ArrayList<>();
 
     try (BufferedWriter<String> writer =
-        new BufferedWriter<>(100, 0, flushedBatches::add, "test-thread", false)) {
+        new BufferedWriter<>(100, 100_000, flushedBatches::add, "test-thread", false)) {
       writer.start();
 
       writer.flush();
