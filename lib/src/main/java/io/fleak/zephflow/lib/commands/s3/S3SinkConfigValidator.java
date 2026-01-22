@@ -41,6 +41,10 @@ public class S3SinkConfigValidator implements ConfigValidator {
                     + "If omitted, ensure default is applied correctly.",
                 config.getBatchSize()));
       }
+      if (encodingType == EncodingType.JSON_OBJECT) {
+        throw new IllegalArgumentException(
+            "JSON_OBJECT encoding does not support batching. Use JSON_OBJECT_LINE or JSON_ARRAY instead.");
+      }
     }
 
     if (encodingType == EncodingType.PARQUET) {

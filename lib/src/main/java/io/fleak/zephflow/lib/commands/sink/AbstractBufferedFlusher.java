@@ -306,6 +306,20 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   // ===== RECOVERY LOGIC =====
 
   /**
+   * Extracts a meaningful message from an exception. Falls back to the cause's message or the
+   * exception class name if getMessage() returns null.
+   */
+  private static String getExceptionMessage(Throwable e) {
+    if (e.getMessage() != null) {
+      return e.getMessage();
+    }
+    if (e.getCause() != null && e.getCause().getMessage() != null) {
+      return e.getCause().getMessage();
+    }
+    return e.getClass().getSimpleName();
+  }
+
+  /**
    * Attempts to flush with recovery. First tries direct flush; if that fails, filters out bad
    * records and flushes the good ones. Subclasses can override for custom recovery logic.
    *
@@ -317,7 +331,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     try {
       return doFlushWithRetry(batch);
     } catch (Exception e) {
-      log.warn("Batch write failed, entering recovery mode: {}", e.getMessage());
+      log.warn("Batch write failed, entering recovery mode: {}", getExceptionMessage(e));
       return filterAndFlush(batch);
     }
   }
@@ -386,9 +400,9 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
       return new SimpleSinkCommand.FlushResult(
           result.successCount(), result.flushedDataSize(), allErrors);
     } catch (Exception e) {
-      log.error("Bulk write of validated records failed: {}", e.getMessage());
+      log.error("Bulk write of validated records failed: {}", getExceptionMessage(e));
       for (Pair<RecordFleakData, T> pair : goodRecords) {
-        errors.add(new ErrorOutput(pair.getLeft(), "Write failed: " + e.getMessage()));
+        errors.add(new ErrorOutput(pair.getLeft(), "Write failed: " + getExceptionMessage(e)));
       }
       return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }

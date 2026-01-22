@@ -30,13 +30,13 @@ class S3SinkConfigValidatorTest {
 
   @Test
   void validateConfig() {
-    Map<String, Object> configMap =
-        Map.of(
-            "regionStr", "us-east-1",
-            "bucketName", "example-bucket",
-            "keyName", "example-key",
-            "encodingType", "JSON_OBJECT",
-            "credentialId", "credential_2");
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "JSON_OBJECT");
+    configMap.put("batching", false);
+    configMap.put("credentialId", "credential_2");
 
     S3SinkDto.Config config = configParser.parseConfig(configMap);
     validator.validateConfig(config, "abc", JOB_CONTEXT);
@@ -111,11 +111,29 @@ class S3SinkConfigValidatorTest {
             "regionStr", "us-east-1",
             "bucketName", "example-bucket",
             "keyName", "example-key",
-            "encodingType", "JSON_OBJECT",
+            "encodingType", "JSON_OBJECT_LINE",
             "credentialId", "credential_2");
 
     S3SinkDto.Config config = configParser.parseConfig(configMap);
     assertTrue(config.isBatching());
     assertEquals(10_000, config.getBatchSize());
+  }
+
+  @Test
+  void validateJsonObjectWithBatching_fails() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "JSON_OBJECT");
+    configMap.put("batching", true);
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("JSON_OBJECT encoding does not support batching"));
   }
 }

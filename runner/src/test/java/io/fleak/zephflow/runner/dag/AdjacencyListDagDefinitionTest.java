@@ -19,6 +19,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 3/21/25 */
@@ -30,5 +33,50 @@ class AdjacencyListDagDefinitionTest {
     String defStr = def.toString();
     AdjacencyListDagDefinition actual = fromYamlString(defStr, new TypeReference<>() {});
     assertEquals(def, actual);
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void duplicate_shouldDeepCopyConfig() {
+    Map<String, Object> nestedConfig = new HashMap<>();
+    nestedConfig.put("nestedKey", "nestedValue");
+
+    Map<String, Object> config = new HashMap<>();
+    config.put("key1", "value1");
+    config.put("nested", nestedConfig);
+
+    var original =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("node1")
+            .commandName("testCommand")
+            .config(config)
+            .outputs(List.of("node2"))
+            .build();
+
+    var duplicate = original.duplicate();
+
+    // Mutate the duplicate's config
+    duplicate.getConfig().put("key1", "mutatedValue");
+    ((Map<String, Object>) duplicate.getConfig().get("nested")).put("nestedKey", "mutatedNested");
+
+    // Original should be unchanged
+    assertEquals("value1", original.getConfig().get("key1"));
+    assertEquals(
+        "nestedValue", ((Map<String, Object>) original.getConfig().get("nested")).get("nestedKey"));
+  }
+
+  @Test
+  void duplicate_shouldHandleNullConfig() {
+    var original =
+        AdjacencyListDagDefinition.DagNode.builder()
+            .id("node1")
+            .commandName("testCommand")
+            .config(null)
+            .outputs(List.of("node2"))
+            .build();
+
+    var duplicate = original.duplicate();
+
+    assertNull(duplicate.getConfig());
   }
 }

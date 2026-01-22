@@ -14,7 +14,9 @@
 package io.fleak.zephflow.runner.dag;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.lib.utils.YamlUtils;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,11 +50,15 @@ public class AdjacencyListDagDefinition {
 
     public DagNode duplicate() {
       var o = Stream.ofNullable(outputs).flatMap(List::stream).toList();
+      Map<String, Object> configCopy =
+          config == null
+              ? null
+              : JsonUtils.OBJECT_MAPPER.convertValue(config, new TypeReference<>() {});
       return DagNode.builder()
           .id(id)
           .commandName(commandName)
-          .config(config)
-          .outputs(new ArrayList<>(o)) // Ensure mutability
+          .config(configCopy)
+          .outputs(new ArrayList<>(o))
           .build();
     }
   }
