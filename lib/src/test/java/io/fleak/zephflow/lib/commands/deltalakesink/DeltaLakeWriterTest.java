@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.conf.Configuration;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -119,11 +120,10 @@ class DeltaLakeWriterTest {
     txn.commit(engine, emptyCloseableIterable());
   }
 
-  @SuppressWarnings("unchecked")
   private static <T> CloseableIterable<T> emptyCloseableIterable() {
     return new CloseableIterable<T>() {
       @Override
-      public CloseableIterator<T> iterator() {
+      public @NonNull CloseableIterator<T> iterator() {
         return new CloseableIterator<T>() {
           @Override
           public boolean hasNext() {
@@ -673,40 +673,19 @@ class DeltaLakeWriterTest {
   }
 
   @Test
-  void testTimerFlushDisabledWhenIntervalIsZero() throws Exception {
+  void testTimerFlushThrowsExceptionWhenIntervalIsZero() {
     String path = tablePath + "_timer_disabled";
     createDeltaTable(path);
     Config testConfig =
         Config.builder()
             .tablePath(path)
             .batchSize(100)
-            .flushIntervalSeconds(0) // Timer disabled
+            .flushIntervalSeconds(0)
             .avroSchema(TEST_AVRO_SCHEMA)
             .build();
 
     DeltaLakeWriter writer = createWriter(testConfig);
-    writer.initialize();
-
-    // Access bufferedWriter field, then its internal scheduler/task fields
-    Class<?> baseClass = DeltaLakeWriter.class.getSuperclass();
-    java.lang.reflect.Field bufferedWriterField = baseClass.getDeclaredField("bufferedWriter");
-    bufferedWriterField.setAccessible(true);
-    Object bufferedWriter = bufferedWriterField.get(writer);
-
-    java.lang.reflect.Field schedulerField =
-        bufferedWriter.getClass().getDeclaredField("scheduler");
-    schedulerField.setAccessible(true);
-    Object scheduler = schedulerField.get(bufferedWriter);
-
-    java.lang.reflect.Field taskField = bufferedWriter.getClass().getDeclaredField("flushTask");
-    taskField.setAccessible(true);
-    Object task = taskField.get(bufferedWriter);
-
-    // Verify that timer is NOT started (scheduler is null when timer is disabled)
-    assertNull(scheduler, "Flush scheduler should be null when timer is disabled");
-    assertNull(task, "Flush task should be null when timer is disabled");
-
-    writer.close();
+    assertThrows(IllegalArgumentException.class, writer::initialize);
   }
 
   @Test
