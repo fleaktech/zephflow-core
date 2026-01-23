@@ -394,6 +394,29 @@ dict(
   }
 
   @Test
+  void testBadFunction_lenientCompileMode() {
+    String evalExpr =
+        """
+dict(
+ status=case(
+    size($.responseElements.directConnectGateways) == 0 => 'Failed',
+    _ => 'Success'
+  )
+)
+""";
+    EvalExpressionParser parser =
+        (EvalExpressionParser) AntlrUtils.parseInput(evalExpr, AntlrUtils.GrammarType.EVAL);
+    CompiledExpression compiled = ExpressionCompiler.compile(parser.language(), null, true);
+    assertNotNull(compiled);
+
+    FleakData input =
+        FleakData.wrap(Map.of("responseElements", Map.of("directConnectGateways", List.of())));
+    Exception exception =
+        assertThrows(IllegalArgumentException.class, () -> compiled.evaluate(input, false));
+    assertEquals("Unknown function: size", exception.getMessage());
+  }
+
+  @Test
   void testTyping() {
     FleakData output = evaluate("parse_int(\"1\") * 10", FleakData.wrap(Map.of()));
     assertEquals(10L, output.unwrap());

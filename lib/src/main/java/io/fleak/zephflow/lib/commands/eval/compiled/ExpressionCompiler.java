@@ -45,21 +45,40 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode> {
 
   private final Map<String, FeelFunction> functionsTable;
+  private final boolean lenient;
 
-  private ExpressionCompiler(PythonExecutor pythonExecutor) {
+  private ExpressionCompiler(PythonExecutor pythonExecutor, boolean lenient) {
     this.functionsTable = FeelFunction.createFunctionsTable(pythonExecutor);
+    this.lenient = lenient;
   }
 
   public static CompiledExpression compile(
       EvalExpressionParser.LanguageContext ctx, PythonExecutor pythonExecutor) {
-    ExpressionCompiler compiler = new ExpressionCompiler(pythonExecutor);
+    return compile(ctx, pythonExecutor, false);
+  }
+
+  public static CompiledExpression compile(
+      EvalExpressionParser.LanguageContext ctx, PythonExecutor pythonExecutor, boolean lenient) {
+    ExpressionCompiler compiler = new ExpressionCompiler(pythonExecutor, lenient);
     ExpressionNode root = compiler.visit(ctx);
     return new CompiledExpression(root);
   }
 
+  @Override
+  public ExpressionNode visit(ParseTree tree) {
+    if (!lenient) {
+      return super.visit(tree);
+    }
+    try {
+      return super.visit(tree);
+    } catch (Exception e) {
+      return new ErrorNode(e.getMessage());
+    }
+  }
+
   public static ExpressionNode compilePathSelectExpr(
       EvalExpressionParser.PathSelectExprContext ctx) {
-    ExpressionCompiler compiler = new ExpressionCompiler(null);
+    ExpressionCompiler compiler = new ExpressionCompiler(null, false);
     return compiler.visitPathSelectExpr(ctx);
   }
 
