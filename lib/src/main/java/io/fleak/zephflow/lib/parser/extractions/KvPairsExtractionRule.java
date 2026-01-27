@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.parser.extractions;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -54,95 +53,101 @@ public class KvPairsExtractionRule implements ExtractionRule {
   }
 
   /**
-   * Extracts key-value pairs from the given raw log string.
+   * Extracts key-value pairs from the given raw log string using a single-pass O(n) state machine.
    *
    * @param raw The log string to parse.
    * @return A Map containing the parsed key-value pairs.
-   * @throws IOException if the underlying parser fails.
    */
   @Override
-  @SuppressWarnings("unchecked")
-  public RecordFleakData extract(String raw) throws IOException {
+  public RecordFleakData extract(String raw) {
     Map<String, Object> resultMap = new HashMap<>();
     if (StringUtils.isBlank(raw)) {
       return new RecordFleakData();
     }
 
-    List<String> pairs = splitRespectingQuotes(raw, pairSeparator);
+    int len = raw.length();
+    int keyStart = 0;
+    int lastKvSepPos = -1;
+    int lastPairSepInValue = -1;
+    boolean inQuotes = false;
 
-    for (String pair : pairs) {
-      if (StringUtils.isBlank(pair)) {
+    for (int i = 0; i < len; ) {
+      char c = raw.charAt(i);
+      char prevChar = (i > 0) ? raw.charAt(i - 1) : '\0';
+
+      if (c == quoteChar && prevChar != escapeChar) {
+        inQuotes = !inQuotes;
+        i++;
         continue;
       }
 
-      int separatorIndex = findSeparatorOutsideQuotes(pair, kvSeparator);
-
-      if (separatorIndex == -1) {
-        throw new IllegalArgumentException("no valid key-value separator found: " + pair);
+      if (inQuotes) {
+        i++;
+        continue;
       }
 
-      String key = pair.substring(0, separatorIndex).trim();
-      String value = pair.substring(separatorIndex + kvSeparator.length()).trim();
-
-      String unquotedKey = unquoteAndUnescape(key);
-      String unquotedValue = unquoteAndUnescape(value);
-
-      if (resultMap.containsKey(unquotedKey)) {
-        Object existing = resultMap.get(unquotedKey);
-        if (existing instanceof List) {
-          ((List<String>) existing).add(unquotedValue);
-        } else {
-          List<String> list = new ArrayList<>();
-          list.add((String) existing);
-          list.add(unquotedValue);
-          resultMap.put(unquotedKey, list);
+      if (matchesSeparator(raw, i, kvSeparator)) {
+        if (lastKvSepPos < 0) {
+          lastKvSepPos = i;
+        } else if (lastPairSepInValue >= 0) {
+          emitPair(resultMap, raw, keyStart, lastKvSepPos, lastPairSepInValue);
+          keyStart = lastPairSepInValue + pairSeparator.length();
+          lastKvSepPos = i;
+          lastPairSepInValue = -1;
         }
-      } else {
-        resultMap.put(unquotedKey, unquotedValue);
+        i += kvSeparator.length();
+        continue;
       }
+
+      if (matchesSeparator(raw, i, pairSeparator)) {
+        if (lastKvSepPos >= 0) {
+          lastPairSepInValue = i;
+        }
+        i += pairSeparator.length();
+        continue;
+      }
+
+      i++;
     }
+
+    if (lastKvSepPos >= 0) {
+      emitPair(resultMap, raw, keyStart, lastKvSepPos, len);
+    }
+
     return (RecordFleakData) FleakData.wrap(resultMap);
   }
 
-  private int findSeparatorOutsideQuotes(String str, String separator) {
-    boolean inQuotes = false;
-    for (int i = 0; i < str.length(); i++) {
-      char c = str.charAt(i);
-      char prevChar = (i > 0) ? str.charAt(i - 1) : '\0';
-
-      if (c == this.quoteChar && prevChar != this.escapeChar) {
-        inQuotes = !inQuotes;
-      } else if (!inQuotes && str.startsWith(separator, i)) {
-        return i;
-      }
-    }
-    return -1;
+  private boolean matchesSeparator(String str, int pos, String separator) {
+    return str.regionMatches(pos, separator, 0, separator.length());
   }
 
-  /** Splits a string by a separator, but ignores separators inside quoted sections. */
-  private List<String> splitRespectingQuotes(String str, String separator) {
-    List<String> parts = new ArrayList<>();
-    StringBuilder currentPart = new StringBuilder();
-    boolean inQuotes = false;
+  @SuppressWarnings("unchecked")
+  private void emitPair(
+      Map<String, Object> resultMap, String raw, int keyStart, int kvSepPos, int valueEnd) {
+    String key = raw.substring(keyStart, kvSepPos).trim();
+    int valueStart = kvSepPos + kvSeparator.length();
+    String value = raw.substring(valueStart, valueEnd).trim();
 
-    for (int i = 0; i < str.length(); i++) {
-      char c = str.charAt(i);
-      char prevChar = (i > 0) ? str.charAt(i - 1) : '\0';
-
-      if (c == this.quoteChar && prevChar != this.escapeChar) {
-        inQuotes = !inQuotes;
-      }
-
-      if (!inQuotes && str.startsWith(separator, i)) {
-        parts.add(currentPart.toString().trim());
-        currentPart.setLength(0);
-        i += separator.length() - 1; // -1 because the loop will increment
-      } else {
-        currentPart.append(c);
-      }
+    if (key.isEmpty()) {
+      return;
     }
-    parts.add(currentPart.toString().trim());
-    return parts;
+
+    String unquotedKey = unquoteAndUnescape(key);
+    String unquotedValue = unquoteAndUnescape(value);
+
+    if (resultMap.containsKey(unquotedKey)) {
+      Object existing = resultMap.get(unquotedKey);
+      if (existing instanceof List) {
+        ((List<String>) existing).add(unquotedValue);
+      } else {
+        List<String> list = new ArrayList<>();
+        list.add((String) existing);
+        list.add(unquotedValue);
+        resultMap.put(unquotedKey, list);
+      }
+    } else {
+      resultMap.put(unquotedKey, unquotedValue);
+    }
   }
 
   /** Checks if a string starts and ends with a double quote. */

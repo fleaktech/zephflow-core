@@ -34,6 +34,35 @@ import org.junit.jupiter.api.Test;
 class KvPairsExtractionRuleTest {
 
   @Nested
+  @DisplayName("Constructor Validation")
+  class ConstructorValidationTests {
+
+    @Test
+    @DisplayName("Should throw when pairSeparator is empty")
+    void testConstructor_EmptyPairSeparator() {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KvPairsExtractionRule(new KvPairExtractionConfig("", "=")));
+    }
+
+    @Test
+    @DisplayName("Should throw when kvSeparator is empty")
+    void testConstructor_EmptyKvSeparator() {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KvPairsExtractionRule(new KvPairExtractionConfig(",", "")));
+    }
+
+    @Test
+    @DisplayName("Should throw when separators are equal")
+    void testConstructor_SameSeparators() {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KvPairsExtractionRule(new KvPairExtractionConfig("=", "=")));
+    }
+  }
+
+  @Nested
   @DisplayName("Standard Parsing with default separators (',' and '=')")
   class StandardParsingTests {
 
@@ -147,12 +176,13 @@ class KvPairsExtractionRuleTest {
     }
 
     @Test
-    @DisplayName("Should skip pairs where the separator is inside quotes")
-    void testExtract_SkipsPairWithInternalSeparator() {
+    @DisplayName("Should include quoted text without kv separator as part of previous value")
+    void testExtract_QuotedTextWithoutSeparatorIncludedInValue() throws Exception {
       String input = "key1=value1,\"key2=value2\"";
+      RecordFleakData result = rule.extract(input);
 
-      Exception e = assertThrows(IllegalArgumentException.class, () -> rule.extract(input));
-      assertEquals("no valid key-value separator found: \"key2=value2\"", e.getMessage());
+      assertEquals(1, result.unwrap().size());
+      assertEquals("value1,\"key2=value2\"", result.unwrap().get("key1"));
     }
 
     @Test
@@ -170,11 +200,60 @@ class KvPairsExtractionRuleTest {
     }
 
     @Test
-    @DisplayName("Should skip pairs without a key-value separator")
-    void testExtract_SkipsPairWithoutSeparator() {
+    @DisplayName("Should include text before first kv separator as key")
+    void testExtract_TextBeforeFirstKvSeparatorIsKey() throws Exception {
       String input = "key1,key2=value2";
-      Exception e = assertThrows(IllegalArgumentException.class, () -> rule.extract(input));
-      assertEquals("no valid key-value separator found: key1", e.getMessage());
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("key1,key2", "value2");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should return empty map when no kv separator exists")
+    void testExtract_NoKvSeparator() throws Exception {
+      String input = "just some text without separator";
+      RecordFleakData result = rule.extract(input);
+      assertTrue(result.unwrap().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Should skip pairs with empty keys")
+    void testExtract_EmptyKeyAfterPairSeparator() throws Exception {
+      String input = "key1=value1,=value2,key3=value3";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("key1", "value1", "key3", "value3");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should handle unclosed quote by treating rest as value")
+    void testExtract_UnclosedQuote() throws Exception {
+      String input = "key1=\"value1,key2=value2";
+      RecordFleakData result = rule.extract(input);
+
+      // Opening quote is preserved since the quote is never closed
+      assertEquals(1, result.unwrap().size());
+      assertEquals("\"value1,key2=value2", result.unwrap().get("key1"));
+    }
+
+    @Test
+    @DisplayName("Should handle single pair with multiple equals unquoted")
+    void testExtract_SinglePairMultipleEquals() throws Exception {
+      String input = "equation=a=b=c";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("equation", "a=b=c");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should return empty map when only kv separator exists")
+    void testExtract_OnlyKvSeparator() throws Exception {
+      String input = "=";
+      RecordFleakData result = rule.extract(input);
+      assertTrue(result.unwrap().isEmpty());
     }
   }
 
@@ -282,6 +361,65 @@ class KvPairsExtractionRuleTest {
       assertEquals(2, unwrapped.size());
       assertEquals(List.of("first", "second", "third"), unwrapped.get("k"));
       assertEquals("x", unwrapped.get("other"));
+    }
+  }
+
+  @Nested
+  @DisplayName("Space-Separated Parsing with Unquoted Spaces in Values")
+  class SpaceSeparatedWithUnquotedSpacesTests {
+
+    private final ExtractionRule rule =
+        new KvPairsExtractionRule(new KvPairExtractionConfig(" ", "="));
+
+    @Test
+    @DisplayName("Should parse values with spaces when next key anchor is present")
+    void testSpaceSeparatedWithUnquotedSpacesInValue() throws Exception {
+      String input = "cat=ZPA User Activity Customer=customer1";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("cat", "ZPA User Activity", "Customer", "customer1");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should handle mixed quoted and unquoted values with spaces")
+    void testMixedQuotedAndUnquotedWithSpaces() throws Exception {
+      String input = "cat=ZPA User Activity status=\"active user\" Customer=customer1";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected =
+          Map.of("cat", "ZPA User Activity", "status", "active user", "Customer", "customer1");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should handle empty value in the middle")
+    void testEmptyValueInMiddleWithSpaces() throws Exception {
+      String input = "key1= key2=value2 key3=value3";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("key1", "", "key2", "value2", "key3", "value3");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should handle value containing equals sign")
+    void testValueContainingEqualsSign() throws Exception {
+      String input = "equation=x=y+z result=42";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("equation", "x=y+z", "result", "42");
+      assertEquals(expected, result.unwrap());
+    }
+
+    @Test
+    @DisplayName("Should handle multiple spaces between pairs")
+    void testMultipleSpacesBetweenPairs() throws Exception {
+      String input = "key1=value1  key2=value2";
+      RecordFleakData result = rule.extract(input);
+
+      Map<String, Object> expected = Map.of("key1", "value1", "key2", "value2");
+      assertEquals(expected, result.unwrap());
     }
   }
 
