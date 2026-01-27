@@ -31,6 +31,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.SimpleHttpClient;
+import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandDto;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
@@ -55,6 +56,7 @@ import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.avro.Schema;
 
 /**
  * A class that represents a flow of data processing operations using a fluent API. It builds a
@@ -517,6 +519,50 @@ public class ZephFlow {
   public ZephFlow stdoutSink(EncodingType encodingType) {
     StdOutDto.Config config = StdOutDto.Config.builder().encodingType(encodingType).build();
     return appendNode(COMMAND_NAME_STDOUT, config);
+  }
+
+  public ZephFlow deltalakeSink(@NonNull String tablePath, @NonNull Schema avroSchema) {
+    return deltalakeSink(tablePath, avroSchema, null, null, null);
+  }
+
+  public ZephFlow deltalakeSink(
+      @NonNull String tablePath, @NonNull Schema avroSchema, List<String> partitionColumns) {
+    return deltalakeSink(tablePath, avroSchema, partitionColumns, null, null);
+  }
+
+  public ZephFlow deltalakeSink(
+      @NonNull String tablePath,
+      @NonNull Schema avroSchema,
+      List<String> partitionColumns,
+      Map<String, String> hadoopConfiguration,
+      UsernamePasswordCredential credential) {
+
+    String credentialId = null;
+    if (credential != null) {
+      credentialId = UUID.randomUUID().toString();
+      this.getJobContext().getOtherProperties().put(credentialId, credential);
+    }
+
+    Map<String, Object> avroSchemaMap;
+    try {
+      avroSchemaMap =
+          OBJECT_MAPPER.convertValue(
+              OBJECT_MAPPER.readTree(avroSchema.toString()), new TypeReference<>() {});
+    } catch (JsonProcessingException e) {
+      throw new RuntimeException("Failed to convert Avro schema to map", e);
+    }
+
+    DeltaLakeSinkDto.Config config =
+        DeltaLakeSinkDto.Config.builder()
+            .tablePath(tablePath)
+            .avroSchema(avroSchemaMap)
+            .partitionColumns(partitionColumns)
+            .hadoopConfiguration(
+                hadoopConfiguration == null ? new HashMap<>() : hadoopConfiguration)
+            .credentialId(credentialId)
+            .build();
+
+    return appendNode(COMMAND_NAME_DELTA_LAKE_SINK, config);
   }
 
   /**

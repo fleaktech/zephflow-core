@@ -12,6 +12,12 @@ dependencies {
   testImplementation libs.aws.s3
   testImplementation libs.aws.kinesis
   testImplementation libs.kafka.clients
+  testImplementation libs.delta.kernel.api
+  testImplementation libs.delta.kernel.defaults
+  testImplementation libs.hadoop.common
+  testImplementation(libs.hadoop.aws) {
+    exclude group: 'software.amazon.awssdk', module: 'bundle'
+  }
 }
 
 tasks.named('test') {
