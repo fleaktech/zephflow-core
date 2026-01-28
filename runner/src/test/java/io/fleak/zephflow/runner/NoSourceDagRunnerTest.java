@@ -572,12 +572,15 @@ class NoSourceDagRunnerTest {
           new NoSourceDagRunner(
               edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
 
-      IllegalArgumentException exception =
+      NodeExecutionException exception =
           assertThrows(
-              IllegalArgumentException.class,
+              NodeExecutionException.class,
               () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll),
-              "Should throw IllegalArgumentException when useDlq=true and errors occur");
+              "Should throw NodeExecutionException when useDlq=true and errors occur");
       assertEquals(errorMessage, exception.getMessage(), "Exception message mismatch");
+      assertEquals(NODE_ID_1, exception.getNodeId(), "NodeId mismatch");
+      assertEquals(CMD_NAME_1, exception.getCommandName(), "CommandName mismatch");
+      assertInstanceOf(IllegalArgumentException.class, exception.getCause());
       verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
       verify(mockScalarCmd2, never()).process(anyList(), anyString(), any());
       verify(mockCounters).increaseInputEventCounter(anyLong(), anyMap());
@@ -664,12 +667,15 @@ class NoSourceDagRunnerTest {
           new NoSourceDagRunner(
               edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
 
-      IllegalArgumentException exception =
+      NodeExecutionException exception =
           assertThrows(
-              IllegalArgumentException.class,
+              NodeExecutionException.class,
               () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll),
-              "Should throw IllegalArgumentException when useDlq=true and sink errors occur");
+              "Should throw NodeExecutionException when useDlq=true and sink errors occur");
       assertEquals(errorMessage, exception.getMessage(), "Exception message mismatch");
+      assertEquals(SINK_ID, exception.getNodeId(), "NodeId mismatch");
+      assertEquals(SINK_CMD_NAME, exception.getCommandName(), "CommandName mismatch");
+      assertInstanceOf(IllegalArgumentException.class, exception.getCause());
       verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
       verify(mockCounters).increaseInputEventCounter(anyLong(), anyMap());
       verify(mockCounters).startStopWatch();

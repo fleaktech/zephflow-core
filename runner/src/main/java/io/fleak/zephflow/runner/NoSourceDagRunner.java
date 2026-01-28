@@ -119,50 +119,56 @@ public record NoSourceDagRunner(
     // Get the already-initialized execution context
     ExecutionContext executionContext = command.getExecutionContext();
 
-    if (command instanceof ScalarCommand scalarCommand) {
-      // Process the event through a scalar command
-      ScalarCommand.ProcessResult result =
-          scalarCommand.process(events, runContext.callingUser, executionContext);
-      runContext.dagResult.handleNodeResult(
-          runContext.callingUserTag,
-          currentNodeId,
-          upstreamNodeId,
-          command.commandName(),
-          runContext.runConfig,
-          result.getOutput(),
-          result.getFailureEvents(),
-          counters,
-          useDlq);
+    try {
+      if (command instanceof ScalarCommand scalarCommand) {
+        // Process the event through a scalar command
+        ScalarCommand.ProcessResult result =
+            scalarCommand.process(events, runContext.callingUser, executionContext);
+        runContext.dagResult.handleNodeResult(
+            runContext.callingUserTag,
+            currentNodeId,
+            upstreamNodeId,
+            command.commandName(),
+            runContext.runConfig,
+            result.getOutput(),
+            result.getFailureEvents(),
+            counters,
+            useDlq);
 
-      routeToDownstream(
-          currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
-      return;
-    }
-    if (command instanceof ScalarSinkCommand sinkCommand) {
-      // Write to sink
-      ScalarSinkCommand.SinkResult result =
-          sinkCommand.writeToSink(events, runContext.callingUser, executionContext);
-      RecordFleakData sinkOutputEvent = sinkResultToOutputEvent(result);
-      runContext.dagResult.handleNodeResult(
-          runContext.callingUserTag,
-          currentNodeId,
-          upstreamNodeId,
-          command.commandName(),
-          runContext.runConfig,
-          List.of(sinkOutputEvent),
-          result.getFailureEvents(),
-          counters,
-          useDlq);
-      Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
-      tags.put(METRIC_TAG_NODE_ID, currentNodeId);
-      tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
-      counters.increaseOutputEventCounter(events.size(), tags);
-
-      if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {
-        result.merge(runContext.dagResult.sinkResultMap.get(currentNodeId));
+        routeToDownstream(
+            currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
+        return;
       }
-      runContext.dagResult.sinkResultMap.put(currentNodeId, result);
-      return;
+      if (command instanceof ScalarSinkCommand sinkCommand) {
+        // Write to sink
+        ScalarSinkCommand.SinkResult result =
+            sinkCommand.writeToSink(events, runContext.callingUser, executionContext);
+        RecordFleakData sinkOutputEvent = sinkResultToOutputEvent(result);
+        runContext.dagResult.handleNodeResult(
+            runContext.callingUserTag,
+            currentNodeId,
+            upstreamNodeId,
+            command.commandName(),
+            runContext.runConfig,
+            List.of(sinkOutputEvent),
+            result.getFailureEvents(),
+            counters,
+            useDlq);
+        Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
+        tags.put(METRIC_TAG_NODE_ID, currentNodeId);
+        tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
+        counters.increaseOutputEventCounter(events.size(), tags);
+
+        if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {
+          result.merge(runContext.dagResult.sinkResultMap.get(currentNodeId));
+        }
+        runContext.dagResult.sinkResultMap.put(currentNodeId, result);
+        return;
+      }
+    } catch (NodeExecutionException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new NodeExecutionException(currentNodeId, command.commandName(), e.getMessage(), e);
     }
     throw new IllegalStateException(
         String.format(
