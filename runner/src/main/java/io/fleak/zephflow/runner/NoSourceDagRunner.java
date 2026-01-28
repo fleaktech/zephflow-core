@@ -182,9 +182,16 @@ public record NoSourceDagRunner(
    * double-checked locking in OperatorCommand.initialize().
    */
   private void initializeAllCommands() {
-    compiledDagWithoutSource.getNodes().stream()
-        .map(Node::getNodeContent)
-        .forEach(command -> command.initialize(metricClientProvider));
+    for (Node<OperatorCommand> node : compiledDagWithoutSource.getNodes()) {
+      OperatorCommand command = node.getNodeContent();
+      try {
+        command.initialize(metricClientProvider);
+      } catch (NodeExecutionException e) {
+        throw e;
+      } catch (Exception e) {
+        throw new NodeExecutionException(node.getId(), command.commandName(), e.getMessage(), e);
+      }
+    }
   }
 
   public void terminate() {
