@@ -14,12 +14,13 @@
 package io.fleak.zephflow.api.metric;
 
 import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.WriteApiBlocking;
+import com.influxdb.client.WriteApi;
+import com.influxdb.client.WriteOptions;
 import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.client.write.Point;
+import io.reactivex.rxjava3.core.BackpressureOverflowStrategy;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -27,18 +28,53 @@ import lombok.extern.slf4j.Slf4j;
 public class InfluxDBV2MetricSender implements AutoCloseable {
 
   private final InfluxDBClient influxDBClient;
-  private final WriteApiBlocking writeApi;
+  private final WriteApi writeApi;
   private final String organization;
   private final String bucket;
   private final String measurementName;
+  private final Map<String, String> cachedEnvironmentTags;
 
   public InfluxDBV2MetricSender(InfluxDBV2Config config, InfluxDBClient influxDBClient) {
     this.organization = config.getOrg();
     this.bucket = config.getBucket();
     this.measurementName = config.getMeasurement();
     this.influxDBClient = influxDBClient;
-    this.writeApi = influxDBClient.getWriteApiBlocking();
-    log.info("InfluxDB V2 Metric Sender initialized with config: {}", config);
+
+    this.cachedEnvironmentTags = initializeEnvironmentTags();
+
+    WriteOptions writeOptions =
+        WriteOptions.builder()
+            .batchSize(config.getBatchSize())
+            .flushInterval(config.getFlushInterval())
+            .bufferLimit(config.getBufferLimit())
+            .retryInterval(config.getRetryInterval())
+            .maxRetries(config.getMaxRetries())
+            .backpressureStrategy(BackpressureOverflowStrategy.DROP_OLDEST)
+            .build();
+
+    this.writeApi = influxDBClient.makeWriteApi(writeOptions);
+
+    log.info(
+        "InfluxDB V2 Metric Sender initialized with config: {} (batchSize={}, flushInterval={}ms, bufferLimit={}, gzip=enabled)",
+        config,
+        config.getBatchSize(),
+        config.getFlushInterval(),
+        config.getBufferLimit());
+  }
+
+  private Map<String, String> initializeEnvironmentTags() {
+    Map<String, String> envTags = new HashMap<>();
+    String podName = System.getenv("HOSTNAME");
+    String namespace = System.getenv("POD_NAMESPACE");
+
+    if (podName != null && !podName.isEmpty()) {
+      envTags.put("pod", podName);
+    }
+    if (namespace != null && !namespace.isEmpty()) {
+      envTags.put("namespace", namespace);
+    }
+
+    return Collections.unmodifiableMap(envTags);
   }
 
   public void sendMetric(
@@ -48,42 +84,36 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
       Map<String, String> tags,
       Map<String, String> additionalTags) {
     try {
-      Map<String, String> allTags = mergeTags(tags, additionalTags);
-      addEnvironmentTags(allTags);
+      Map<String, String> allTags = mergeAllTags(tags, additionalTags);
+      Point point = createPoint(type + "_" + name, value, allTags, Instant.now());
 
-      writePointToInfluxDB(type + "_" + name, value, allTags, Instant.now());
+      writeApi.writePoint(bucket, organization, point);
 
-      log.debug("Sent {} metric: {} = {}", type, name, value);
+      log.debug("Queued {} metric: {} = {}", type, name, value);
     } catch (Exception e) {
       log.warn("Error sending metric to InfluxDB 2.x: {} = {}", name, value, e);
     }
   }
 
-  private void writePointToInfluxDB(
-      String fieldName, Object value, Map<String, String> tags, Instant timestamp) {
-    Point point = createPoint(fieldName, value, tags, timestamp);
-    writeApi.writePoint(bucket, organization, point);
-  }
-
-  private Map<String, String> mergeTags(
+  private Map<String, String> mergeAllTags(
       Map<String, String> tags, Map<String, String> additionalTags) {
-    Map<String, String> merged = new HashMap<>(tags != null ? tags : Map.of());
+    int expectedSize =
+        cachedEnvironmentTags.size()
+            + (tags != null ? tags.size() : 0)
+            + (additionalTags != null ? additionalTags.size() : 0);
+
+    Map<String, String> merged = new HashMap<>(expectedSize);
+
+    merged.putAll(cachedEnvironmentTags);
+
+    if (tags != null) {
+      merged.putAll(tags);
+    }
     if (additionalTags != null) {
       merged.putAll(additionalTags);
     }
+
     return merged;
-  }
-
-  private void addEnvironmentTags(Map<String, String> tags) {
-    String podName = System.getenv("HOSTNAME");
-    String namespace = System.getenv("POD_NAMESPACE");
-
-    if (podName != null && !podName.isEmpty()) {
-      tags.put("pod", podName);
-    }
-    if (namespace != null && !namespace.isEmpty()) {
-      tags.put("namespace", namespace);
-    }
   }
 
   public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags) {
@@ -98,17 +128,19 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     }
 
     try {
-      Map<String, String> allTags = new HashMap<>(tags != null ? tags : Map.of());
-      addEnvironmentTags(allTags);
+      Map<String, String> allTags = mergeAllTags(tags, null);
 
+      List<Point> points = new ArrayList<>(metrics.size());
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
         Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestamp);
-        writeApi.writePoint(bucket, organization, point);
+        points.add(point);
       }
 
-      log.debug("Sent batch of {} metrics to InfluxDB 2.x", metrics.size());
+      writeApi.writePoints(bucket, organization, points);
+
+      log.debug("Queued batch of {} metrics to InfluxDB 2.x", metrics.size());
     } catch (Exception e) {
-      log.warn("Error sending batch metrics to InfluxDB 2.x", e);
+      log.warn("Error queuing batch metrics to InfluxDB 2.x", e);
     }
   }
 
@@ -141,6 +173,11 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
   @Override
   public void close() {
     try {
+      if (writeApi != null) {
+        writeApi.flush();
+        writeApi.close();
+        log.debug("InfluxDB 2.x WriteApi flushed and closed");
+      }
       if (influxDBClient != null) {
         influxDBClient.close();
         log.debug("InfluxDB 2.x client closed");
@@ -157,5 +194,11 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     private String bucket;
     private String measurement;
     private String token;
+
+    private int batchSize = 10000;
+    private int flushInterval = 1000;
+    private int bufferLimit = 50000;
+    private int retryInterval = 5000;
+    private int maxRetries = 3;
   }
 }

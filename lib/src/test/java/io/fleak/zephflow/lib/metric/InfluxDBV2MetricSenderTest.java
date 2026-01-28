@@ -13,16 +13,18 @@
  */
 package io.fleak.zephflow.lib.metric;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.WriteApiBlocking;
+import com.influxdb.client.WriteApi;
+import com.influxdb.client.WriteOptions;
 import com.influxdb.client.write.Point;
 import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +35,7 @@ class InfluxDBV2MetricSenderTest {
 
   @Mock private InfluxDBClient mockInfluxDBClient;
 
-  @Mock private WriteApiBlocking mockWriteApi;
+  @Mock private WriteApi mockWriteApi;
 
   private InfluxDBV2MetricSender influxDBV2MetricSender;
 
@@ -41,7 +43,7 @@ class InfluxDBV2MetricSenderTest {
   void setUp() {
     MockitoAnnotations.openMocks(this);
 
-    when(mockInfluxDBClient.getWriteApiBlocking()).thenReturn(mockWriteApi);
+    when(mockInfluxDBClient.makeWriteApi(any(WriteOptions.class))).thenReturn(mockWriteApi);
 
     InfluxDBV2MetricSender.InfluxDBV2Config config = new InfluxDBV2MetricSender.InfluxDBV2Config();
     config.setUrl("http://localhost:8086");
@@ -155,7 +157,7 @@ class InfluxDBV2MetricSenderTest {
 
     influxDBV2MetricSender.sendMetrics(metrics, tags);
 
-    verify(mockWriteApi, times(3)).writePoint(anyString(), anyString(), any(Point.class));
+    verify(mockWriteApi, times(1)).writePoints(anyString(), anyString(), any(List.class));
   }
 
   @Test
@@ -165,7 +167,7 @@ class InfluxDBV2MetricSenderTest {
 
     influxDBV2MetricSender.sendMetrics(metrics, tags);
 
-    verify(mockWriteApi, never()).writePoint(anyString(), anyString(), any(Point.class));
+    verify(mockWriteApi, never()).writePoints(anyString(), anyString(), any(List.class));
   }
 
   @Test
@@ -174,14 +176,14 @@ class InfluxDBV2MetricSenderTest {
 
     influxDBV2MetricSender.sendMetrics(null, tags);
 
-    verify(mockWriteApi, never()).writePoint(anyString(), anyString(), any(Point.class));
+    verify(mockWriteApi, never()).writePoints(anyString(), anyString(), any(List.class));
   }
 
   @Test
   void sendMetricsException() {
     doThrow(new RuntimeException("Test exception"))
         .when(mockWriteApi)
-        .writePoint(anyString(), anyString(), any(Point.class));
+        .writePoints(anyString(), anyString(), any(List.class));
 
     Map<String, Object> metrics = new HashMap<>();
     metrics.put("metric1", 10);
@@ -193,25 +195,27 @@ class InfluxDBV2MetricSenderTest {
           influxDBV2MetricSender.sendMetrics(metrics, tags);
         });
 
-    verify(mockWriteApi, times(1)).writePoint(anyString(), anyString(), any(Point.class));
+    verify(mockWriteApi, times(1)).writePoints(anyString(), anyString(), any(List.class));
   }
 
   @Test
-  void closeClosesInfluxDBClient() {
+  void closeClosesWriteApiAndInfluxDBClient() {
     influxDBV2MetricSender.close();
 
+    verify(mockWriteApi, times(1)).flush();
+    verify(mockWriteApi, times(1)).close();
     verify(mockInfluxDBClient, times(1)).close();
   }
 
   @Test
   void closeWithException_DoesNotPropagate() {
-    doThrow(new RuntimeException("Close exception")).when(mockInfluxDBClient).close();
+    doThrow(new RuntimeException("Close exception")).when(mockWriteApi).flush();
 
     assertDoesNotThrow(
         () -> {
           influxDBV2MetricSender.close();
         });
 
-    verify(mockInfluxDBClient, times(1)).close();
+    verify(mockWriteApi, times(1)).flush();
   }
 }
