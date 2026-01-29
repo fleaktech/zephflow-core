@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.api.metric;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
@@ -20,14 +22,17 @@ import lombok.extern.slf4j.Slf4j;
 public class InfluxDBV2MetricClientProvider implements MetricClientProvider {
 
   private final InfluxDBV2MetricSender metricSender;
+  private final List<InfluxDBV2FleakCounter> counters = new ArrayList<>();
 
   public InfluxDBV2MetricClientProvider(InfluxDBV2MetricSender metricSender) {
     this.metricSender = metricSender;
   }
 
   @Override
-  public FleakCounter counter(String name, Map<String, String> tags) {
-    return new InfluxDBV2FleakCounter(name, tags, metricSender);
+  public synchronized FleakCounter counter(String name, Map<String, String> tags) {
+    InfluxDBV2FleakCounter counter = new InfluxDBV2FleakCounter(name, tags, metricSender);
+    counters.add(counter);
+    return counter;
   }
 
   @Override
@@ -43,6 +48,13 @@ public class InfluxDBV2MetricClientProvider implements MetricClientProvider {
   @Override
   public void close() {
     try {
+      for (InfluxDBV2FleakCounter counter : counters) {
+        try {
+          counter.flush();
+        } catch (Exception e) {
+          log.error("Error flushing counter", e);
+        }
+      }
       metricSender.close();
       log.info("InfluxDBV2MetricClientProvider closed successfully");
     } catch (Exception e) {

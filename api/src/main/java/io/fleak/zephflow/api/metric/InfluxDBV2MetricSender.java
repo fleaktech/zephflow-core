@@ -13,14 +13,16 @@
  */
 package io.fleak.zephflow.api.metric;
 
+import static io.reactivex.rxjava3.schedulers.Schedulers.newThread;
+
 import com.influxdb.client.InfluxDBClient;
 import com.influxdb.client.WriteApi;
 import com.influxdb.client.WriteOptions;
 import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.client.write.Point;
-import io.reactivex.rxjava3.core.BackpressureOverflowStrategy;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,6 +35,9 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
   private final String bucket;
   private final String measurementName;
   private final Map<String, String> cachedEnvironmentTags;
+
+  private final AtomicLong metricsQueued = new AtomicLong(0);
+  private final AtomicLong metricsSent = new AtomicLong(0);
 
   public InfluxDBV2MetricSender(InfluxDBV2Config config, InfluxDBClient influxDBClient) {
     this.organization = config.getOrg();
@@ -49,10 +54,12 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
             .bufferLimit(config.getBufferLimit())
             .retryInterval(config.getRetryInterval())
             .maxRetries(config.getMaxRetries())
-            .backpressureStrategy(BackpressureOverflowStrategy.DROP_OLDEST)
+            .writeScheduler(newThread())
             .build();
 
     this.writeApi = influxDBClient.makeWriteApi(writeOptions);
+
+    registerShutdownHook();
 
     log.info(
         "InfluxDB V2 Metric Sender initialized with config: {} (batchSize={}, flushInterval={}ms, bufferLimit={}, gzip=enabled)",
@@ -60,6 +67,27 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
         config.getBatchSize(),
         config.getFlushInterval(),
         config.getBufferLimit());
+  }
+
+  private void registerShutdownHook() {
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  log.info("Shutdown hook triggered - flushing metrics before exit...");
+                  try {
+                    if (writeApi != null) {
+                      writeApi.flush();
+                      log.info(
+                          "Shutdown hook completed flush - queued: {}, sent: {}",
+                          metricsQueued.get(),
+                          metricsSent.get());
+                    }
+                  } catch (Exception e) {
+                    log.error("Error in shutdown hook", e);
+                  }
+                },
+                "influxdb-shutdown-hook"));
   }
 
   private Map<String, String> initializeEnvironmentTags() {
@@ -87,33 +115,21 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
       Map<String, String> allTags = mergeAllTags(tags, additionalTags);
       Point point = createPoint(type + "_" + name, value, allTags, Instant.now());
 
-      writeApi.writePoint(bucket, organization, point);
-
-      log.debug("Queued {} metric: {} = {}", type, name, value);
+      try {
+        writeApi.writePoint(bucket, organization, point);
+        metricsQueued.incrementAndGet();
+      } catch (Exception writeException) {
+        log.error(
+            "writeApi.writePoint() threw exception for metric {}_{}: {}",
+            type,
+            name,
+            writeException.getMessage(),
+            writeException);
+        throw writeException;
+      }
     } catch (Exception e) {
       log.warn("Error sending metric to InfluxDB 2.x: {} = {}", name, value, e);
     }
-  }
-
-  private Map<String, String> mergeAllTags(
-      Map<String, String> tags, Map<String, String> additionalTags) {
-    int expectedSize =
-        cachedEnvironmentTags.size()
-            + (tags != null ? tags.size() : 0)
-            + (additionalTags != null ? additionalTags.size() : 0);
-
-    Map<String, String> merged = new HashMap<>(expectedSize);
-
-    merged.putAll(cachedEnvironmentTags);
-
-    if (tags != null) {
-      merged.putAll(tags);
-    }
-    if (additionalTags != null) {
-      merged.putAll(additionalTags);
-    }
-
-    return merged;
   }
 
   public void sendMetrics(Map<String, Object> metrics, Map<String, String> tags) {
@@ -137,11 +153,31 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
       }
 
       writeApi.writePoints(bucket, organization, points);
-
-      log.debug("Queued batch of {} metrics to InfluxDB 2.x", metrics.size());
+      metricsQueued.addAndGet(points.size());
     } catch (Exception e) {
       log.warn("Error queuing batch metrics to InfluxDB 2.x", e);
     }
+  }
+
+  private Map<String, String> mergeAllTags(
+      Map<String, String> tags, Map<String, String> additionalTags) {
+    int expectedSize =
+        cachedEnvironmentTags.size()
+            + (tags != null ? tags.size() : 0)
+            + (additionalTags != null ? additionalTags.size() : 0);
+
+    Map<String, String> merged = new HashMap<>(expectedSize);
+
+    merged.putAll(cachedEnvironmentTags);
+
+    if (tags != null) {
+      merged.putAll(tags);
+    }
+    if (additionalTags != null) {
+      merged.putAll(additionalTags);
+    }
+
+    return merged;
   }
 
   private Point createPoint(
@@ -175,15 +211,15 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     try {
       if (writeApi != null) {
         writeApi.flush();
+        Thread.sleep(1000);
         writeApi.close();
-        log.debug("InfluxDB 2.x WriteApi flushed and closed");
       }
       if (influxDBClient != null) {
         influxDBClient.close();
-        log.debug("InfluxDB 2.x client closed");
+        log.info("InfluxDB 2.x client closed");
       }
     } catch (Exception e) {
-      log.warn("Error closing InfluxDB 2.x client", e);
+      log.error("Error closing InfluxDB 2.x client", e);
     }
   }
 
@@ -195,8 +231,8 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     private String measurement;
     private String token;
 
-    private int batchSize = 10000;
-    private int flushInterval = 1000;
+    private int batchSize = 5000;
+    private int flushInterval = 500;
     private int bufferLimit = 50000;
     private int retryInterval = 5000;
     private int maxRetries = 3;
