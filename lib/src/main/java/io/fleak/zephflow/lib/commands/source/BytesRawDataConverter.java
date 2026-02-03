@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.source;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -44,15 +45,20 @@ public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> 
   public ConvertedResult<SerializedEvent> convert(
       SerializedEvent sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
-      sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, Map.of());
       List<RecordFleakData> events =
           fleakDeserializer.deserialize(decompressor.decompress(sourceRecord));
-      sourceInitializedConfig.inputEventCounter().increase(events.size(), Map.of());
+
+      Map<String, String> eventTags =
+          getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.get(0));
+
+      sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, eventTags);
+      sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
       if (log.isDebugEnabled()) {
         events.forEach(e -> log.debug("got message: {}", toJsonString(e)));
       }
       return ConvertedResult.success(events, sourceRecord);
     } catch (Exception e) {
+      sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, Map.of());
       sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
       log.error("failed to deserialize event:\n{}", sourceRecord);
       return ConvertedResult.failure(e, sourceRecord);

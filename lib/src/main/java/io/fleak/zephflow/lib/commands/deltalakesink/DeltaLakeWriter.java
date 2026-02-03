@@ -256,13 +256,13 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   @Override
   protected void reportMetrics(
       SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
-    sinkOutputCounter.increase(result.successCount(), Map.of());
-    outputSizeCounter.increase(result.flushedDataSize(), Map.of());
+    sinkOutputCounter.increase(result.successCount(), metricTags);
+    outputSizeCounter.increase(result.flushedDataSize(), metricTags);
   }
 
   @Override
   protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
-    sinkErrorCounter.increase(errorCount, Map.of());
+    sinkErrorCounter.increase(errorCount, metricTags);
   }
 
   // ===== DELTA LAKE WRITE LOGIC =====
