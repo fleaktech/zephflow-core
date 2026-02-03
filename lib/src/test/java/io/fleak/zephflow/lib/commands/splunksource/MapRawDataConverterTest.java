@@ -14,15 +14,41 @@
 package io.fleak.zephflow.lib.commands.splunksource;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import java.util.HashMap;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class MapRawDataConverterTest {
+
+  private MapRawDataConverter converter;
+  private SourceExecutionContext<?> mockContext;
+  private FleakCounter mockInputEventCounter;
+  private FleakCounter mockDataSizeCounter;
+  private FleakCounter mockDeserializeFailureCounter;
+
+  @BeforeEach
+  void setUp() {
+    converter = new MapRawDataConverter();
+    mockContext = mock(SourceExecutionContext.class);
+    mockInputEventCounter = mock(FleakCounter.class);
+    mockDataSizeCounter = mock(FleakCounter.class);
+    mockDeserializeFailureCounter = mock(FleakCounter.class);
+
+    when(mockContext.inputEventCounter()).thenReturn(mockInputEventCounter);
+    when(mockContext.dataSizeCounter()).thenReturn(mockDataSizeCounter);
+    when(mockContext.deserializeFailureCounter()).thenReturn(mockDeserializeFailureCounter);
+  }
 
   @Test
   void testMapRawDataConverter() {
@@ -55,5 +81,24 @@ class MapRawDataConverterTest {
     assertEquals("server1", record.getPayload().get("host").unwrap());
     assertEquals("/var/log/app.log", record.getPayload().get("source").unwrap());
     assertEquals("Log message", record.getPayload().get("_raw").unwrap());
+  }
+
+  @Test
+  void testConvert_verifiesMetricTagsAreExtractedAndPassed() {
+    // Arrange: Create a simple Splunk event
+    Map<String, String> sourceRecord = new HashMap<>();
+    sourceRecord.put("host", "server1");
+    sourceRecord.put("_raw", "test log");
+
+    // Act
+    ConvertedResult<Map<String, String>> result = converter.convert(sourceRecord, mockContext);
+
+    // Assert
+    assertNull(result.error());
+    assertEquals(1, result.transformedData().size());
+
+    verify(mockDataSizeCounter).increase(anyLong(), any());
+    verify(mockInputEventCounter).increase(eq(1L), any());
+    verify(mockDeserializeFailureCounter, never()).increase(any());
   }
 }

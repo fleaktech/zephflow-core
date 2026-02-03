@@ -549,4 +549,63 @@ class BatchDatabricksFlusherTest {
         result.errorOutputList().get(0).errorMessage().contains("validation error"),
         "Error message should indicate validation failure in recovery mode");
   }
+
+  @Test
+  void testReportMetrics_shouldPassMetricTagsToCounters() {
+    // Arrange
+    FleakCounter mockSinkOutputCounter = mock(FleakCounter.class);
+    FleakCounter mockOutputSizeCounter = mock(FleakCounter.class);
+
+    BatchDatabricksFlusher flusher = createFlusher();
+
+    try {
+      java.lang.reflect.Field sinkOutputField =
+          BatchDatabricksFlusher.class.getDeclaredField("sinkOutputCounter");
+      sinkOutputField.setAccessible(true);
+      sinkOutputField.set(flusher, mockSinkOutputCounter);
+
+      java.lang.reflect.Field outputSizeField =
+          BatchDatabricksFlusher.class.getDeclaredField("outputSizeCounter");
+      outputSizeField.setAccessible(true);
+      outputSizeField.set(flusher, mockOutputSizeCounter);
+    } catch (Exception e) {
+      fail("Failed to set up test: " + e.getMessage());
+    }
+
+    SimpleSinkCommand.FlushResult result =
+        new SimpleSinkCommand.FlushResult(200, 10000L, List.of());
+    Map<String, String> metricTags = Map.of("tenant_id", "789", "cluster", "prod-1");
+
+    // Act
+    flusher.reportMetrics(result, metricTags);
+
+    // Assert
+    verify(mockSinkOutputCounter).increase(200L, metricTags);
+    verify(mockOutputSizeCounter).increase(10000L, metricTags);
+  }
+
+  @Test
+  void testReportErrorMetrics_shouldPassMetricTagsToCounters() {
+    // Arrange
+    FleakCounter mockSinkErrorCounter = mock(FleakCounter.class);
+
+    BatchDatabricksFlusher flusher = createFlusher();
+
+    try {
+      java.lang.reflect.Field sinkErrorField =
+          BatchDatabricksFlusher.class.getDeclaredField("sinkErrorCounter");
+      sinkErrorField.setAccessible(true);
+      sinkErrorField.set(flusher, mockSinkErrorCounter);
+    } catch (Exception e) {
+      fail("Failed to set up test: " + e.getMessage());
+    }
+
+    Map<String, String> metricTags = Map.of("tenant_id", "999", "pipeline", "ingestion");
+
+    // Act
+    flusher.reportErrorMetrics(5, metricTags);
+
+    // Assert
+    verify(mockSinkErrorCounter).increase(5L, metricTags);
+  }
 }

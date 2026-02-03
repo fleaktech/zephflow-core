@@ -969,4 +969,36 @@ class DeltaLakeWriterTest {
     assertTrue(exception.getMessage().contains("items[element].price"));
     assertTrue(exception.getMessage().contains("nullability mismatch"));
   }
+
+  @Test
+  void testReportMetrics_shouldPassMetricTagsToCounters() {
+    // Arrange
+    Config testConfig = Config.builder().tablePath(tablePath).avroSchema(TEST_AVRO_SCHEMA).build();
+    DeltaLakeWriter writer = createWriter(testConfig);
+
+    SimpleSinkCommand.FlushResult result = new SimpleSinkCommand.FlushResult(100, 5000L, List.of());
+    Map<String, String> metricTags = Map.of("tenant_id", "123", "environment", "prod");
+
+    // Act
+    writer.reportMetrics(result, metricTags);
+
+    // Assert - verify the mocked counters from setUp() received the correct calls
+    verify(sinkOutputCounter).increase(100L, metricTags);
+    verify(outputSizeCounter).increase(5000L, metricTags);
+  }
+
+  @Test
+  void testReportErrorMetrics_shouldPassMetricTagsToCounters() {
+    // Arrange
+    Config testConfig = Config.builder().tablePath(tablePath).avroSchema(TEST_AVRO_SCHEMA).build();
+    DeltaLakeWriter writer = createWriter(testConfig);
+
+    Map<String, String> metricTags = Map.of("tenant_id", "456", "region", "us-east");
+
+    // Act
+    writer.reportErrorMetrics(10, metricTags);
+
+    // Assert - verify the mocked counter from setUp() received the correct call
+    verify(sinkErrorCounter).increase(10L, metricTags);
+  }
 }

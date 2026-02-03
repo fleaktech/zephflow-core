@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.splunksource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -32,8 +33,11 @@ public class MapRawDataConverter implements RawDataConverter<Map<String, String>
       Map<String, String> sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
       RecordFleakData record = (RecordFleakData) FleakData.wrap(sourceRecord);
-      sourceInitializedConfig.inputEventCounter().increase(1, Map.of());
 
+      Map<String, String> eventTags = getCallingUserTagAndEventTags(null, record);
+
+      sourceInitializedConfig.dataSizeCounter().increase(1, eventTags);
+      sourceInitializedConfig.inputEventCounter().increase(1, eventTags);
       if (log.isTraceEnabled()) {
         log.trace("Converted Splunk event: {}", toJsonString(record));
       }
