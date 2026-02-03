@@ -1138,8 +1138,7 @@ public interface FeelFunction {
 
       FleakData arrayData = args.get(0).evaluate(ctx);
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
-        throw new IllegalArgumentException(
-            "arr_foreach: first argument should be an array or object but found: " + arrayData);
+        return null;
       }
 
       if (arrayData instanceof RecordFleakData) {

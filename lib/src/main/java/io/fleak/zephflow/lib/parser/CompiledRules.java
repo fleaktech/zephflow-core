@@ -39,6 +39,9 @@ public interface CompiledRules {
         return input;
       }
       String strVal = targetValue.getStringValue();
+      if (strVal == null || strVal.isEmpty()) {
+        return input;
+      }
       RecordFleakData parsedData;
       try {
         parsedData = extractionRule.extract(strVal);
