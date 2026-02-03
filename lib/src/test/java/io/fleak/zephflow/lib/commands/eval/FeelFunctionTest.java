@@ -696,13 +696,9 @@ def add_one(x):
   public void testArrForeach_firstArgNull() {
     FleakData testData = FleakData.wrap(Map.of());
 
-    IllegalArgumentException e =
-        assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                evaluateExpression("arr_foreach($.items, item, item.category == \"C\")", testData));
-    assertEquals(
-        "arr_foreach: first argument should be an array or object but found: null", e.getMessage());
+    FleakData result =
+        evaluateExpression("arr_foreach($.items, item, item.category == \"C\")", testData);
+    assertNull(result);
   }
 
   private void testFunctionExecution(FleakData testData, String expression, Object expectedValue) {

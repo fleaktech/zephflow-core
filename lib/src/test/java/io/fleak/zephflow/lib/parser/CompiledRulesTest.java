@@ -83,4 +83,20 @@ class CompiledRulesTest {
     RecordFleakData output = parseRule.parse(inputEvent);
     assertEquals(Map.of("my_field", Map.of("a", 100L)), output.unwrap());
   }
+
+  @Test
+  public void testEmptyTargetFieldReturnsInputUnchanged() {
+    RecordFleakData inputEvent =
+        (RecordFleakData) FleakData.wrap(Map.of("k", "", "other", "value"));
+    ParserConfigs.ParserConfig parserConfig =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("k")
+            .extractionConfig(new JsonExtractionConfig("my_field"))
+            .removeTargetField(true)
+            .build();
+    ParserConfigCompiler parserConfigCompiler = new ParserConfigCompiler();
+    CompiledRules.ParseRule parseRule = parserConfigCompiler.compile(parserConfig);
+    RecordFleakData output = parseRule.parse(inputEvent);
+    assertEquals(inputEvent, output);
+  }
 }
