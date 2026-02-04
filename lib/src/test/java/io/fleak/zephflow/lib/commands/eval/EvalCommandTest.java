@@ -102,6 +102,33 @@ dict(
   }
 
   @Test
+  public void testArrToDict() {
+    String evalExpr =
+        """
+dict(
+  metrics=arr_to_dict($.columns, elem, elem.key, array(parse_float(elem.value)))
+)""";
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            FleakData.wrap(
+                Map.of(
+                    "columns",
+                    List.of(
+                        Map.of("key", "cpu", "value", "0.85"),
+                        Map.of("key", "mem", "value", "0.62"),
+                        Map.of("key", "disk", "value", "0.33"))));
+    FleakData expected =
+        FleakData.wrap(
+            Map.of(
+                "metrics",
+                Map.of(
+                    "cpu", List.of(0.85),
+                    "mem", List.of(0.62),
+                    "disk", List.of(0.33))));
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
   public void testDict() throws IOException {
     String evalExpr =
         """
