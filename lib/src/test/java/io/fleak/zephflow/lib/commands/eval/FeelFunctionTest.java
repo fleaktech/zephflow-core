@@ -21,6 +21,7 @@ import io.fleak.zephflow.lib.commands.eval.compiled.CompiledExpression;
 import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -693,12 +694,220 @@ def add_one(x):
   }
 
   @Test
+  public void testArrToDictBasic() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "columns",
+                List.of(
+                    Map.of("key", "cpu", "value", "0.85"), Map.of("key", "mem", "value", "0.62"))));
+
+    FleakData result =
+        evaluateExpression(
+            "arr_to_dict($.columns, elem, elem.key, parse_float(elem.value))", testData);
+    assertEquals(FleakData.wrap(Map.of("cpu", 0.85, "mem", 0.62)), result);
+  }
+
+  @Test
+  public void testArrToDictWithArrayValue() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "columns",
+                List.of(
+                    Map.of("key", "cpu", "value", "0.85"), Map.of("key", "mem", "value", "0.62"))));
+
+    FleakData result =
+        evaluateExpression(
+            "arr_to_dict($.columns, elem, elem.key, array(parse_float(elem.value)))", testData);
+    assertEquals(FleakData.wrap(Map.of("cpu", List.of(0.85), "mem", List.of(0.62))), result);
+  }
+
+  @Test
+  public void testArrToDictDuplicateKeys() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of("items", List.of(Map.of("k", "a", "v", 1), Map.of("k", "a", "v", 2))));
+
+    FleakData result = evaluateExpression("arr_to_dict($.items, e, e.k, e.v)", testData);
+    assertEquals(FleakData.wrap(Map.of("a", 2)), result);
+  }
+
+  @Test
+  public void testArrToDictNullInput() {
+    FleakData testData = FleakData.wrap(Map.of());
+
+    FleakData result = evaluateExpression("arr_to_dict($.missing, e, e.k, e.v)", testData);
+    assertNull(result);
+  }
+
+  @Test
+  public void testArrToDictObjectInput() {
+    FleakData testData = FleakData.wrap(Map.of("item", Map.of("k", "key1", "v", 42)));
+
+    FleakData result = evaluateExpression("arr_to_dict($.item, e, e.k, e.v)", testData);
+    assertEquals(FleakData.wrap(Map.of("key1", 42)), result);
+  }
+
+  @Test
+  public void testArrToDictEmptyArray() {
+    FleakData testData = FleakData.wrap(Map.of("items", List.of()));
+
+    FleakData result = evaluateExpression("arr_to_dict($.items, e, e.k, e.v)", testData);
+    assertEquals(FleakData.wrap(Map.of()), result);
+  }
+
+  @Test
+  public void testArrToDictNonStringKey() {
+    FleakData testData = FleakData.wrap(Map.of("items", List.of(Map.of("k", 123, "v", "val"))));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> evaluateExpression("arr_to_dict($.items, e, e.k, e.v)", testData));
+  }
+
+  @Test
+  public void testStrReplaceFunction() {
+    FleakData testData = new StringPrimitiveFleakData("test");
+
+    testFunctionExecution(testData, "str_replace(\"2024 3Q\", \" \", \"-\")", "2024-3Q");
+    testFunctionExecution(testData, "str_replace(\"a.b.c\", \".\", \"/\")", "a/b/c");
+    testFunctionExecution(testData, "str_replace(\"hello\", \"x\", \"y\")", "hello");
+    testFunctionExecution(testData, "str_replace(null, \"a\", \"b\")", null);
+    testFunctionExecution(testData, "str_replace(\"abc\", \"b\", \"\")", "ac");
+  }
+
+  @Test
+  public void testStrReplaceNullTargetOrReplacement() {
+    FleakData testData = new StringPrimitiveFleakData("test");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> evaluateExpression("str_replace(\"abc\", null, \"x\")", testData));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> evaluateExpression("str_replace(\"abc\", \"a\", null)", testData));
+  }
+
+  @Test
   public void testArrForeach_firstArgNull() {
     FleakData testData = FleakData.wrap(Map.of());
 
     FleakData result =
         evaluateExpression("arr_foreach($.items, item, item.category == \"C\")", testData);
     assertNull(result);
+  }
+
+  @Test
+  public void testSingstatBopTransformation() {
+    String inputJson =
+        """
+        {
+          "Data": {
+            "row": [
+              {
+                "rowText": "Financial Account (Net)",
+                "columns": [
+                  {"key": "2024 Q3", "value": "24500.2"},
+                  {"key": "2024 Q2", "value": "18900.5"}
+                ]
+              },
+              {
+                "rowText": "   Direct Investment",
+                "columns": [{"key": "2024 Q3", "value": "15200.1"}]
+              },
+              {
+                "rowText": "      Direct Investment Assets",
+                "columns": [{"key": "2024 Q3", "value": "8500.0"}]
+              },
+              {
+                "rowText": "      Direct Investment Liabilities",
+                "columns": [{"key": "2024 Q3", "value": "6700.1"}]
+              }
+            ]
+          }
+        }
+        """;
+
+    String expr =
+        """
+dict(
+  header = dict(
+    id = "SG_BOP_SUBMISSION",
+    test = false,
+    prepared = "2026-02-03T12:00:00Z",
+    sender = dict(id = "SINGSTAT"),
+    structure = dict(structureID = "IMF_BOP_BPM6")
+  ),
+  dataSets = array(
+    dict(
+      action = "Replace",
+      structureRef = "IMF_BOP_BPM6",
+      observations = arr_to_dict(
+        arr_flatten(
+          arr_foreach($.Data.row, row,
+            arr_foreach(row.columns, elem,
+              dict(
+                k = "Q:SG:FA:" +
+                  case(
+                    str_contains(row.rowText, "Direct Investment") => "DI",
+                    str_contains(row.rowText, "Portfolio Investment") => "PI",
+                    str_contains(row.rowText, "Financial Derivatives") => "FD",
+                    str_contains(row.rowText, "Other Investment") => "OI",
+                    str_contains(row.rowText, "Reserve Assets") => "RA",
+                    _ => "_T"
+                  ) + ":" +
+                  case(
+                    str_contains(row.rowText, "Assets") => "A",
+                    str_contains(row.rowText, "Liabilities") => "L",
+                    _ => "NET"
+                  ) + ":" + str_replace(elem.key, " ", "-"),
+                v = array(parse_float(elem.value), 0, "A")
+              )
+            )
+          )
+        ),
+        entry,
+        entry.k,
+        entry.v
+      )
+    )
+  )
+)
+""";
+
+    String expectedJson =
+        """
+        {
+          "header": {
+            "id": "SG_BOP_SUBMISSION",
+            "test": false,
+            "prepared": "2026-02-03T12:00:00Z",
+            "sender": {"id": "SINGSTAT"},
+            "structure": {"structureID": "IMF_BOP_BPM6"}
+          },
+          "dataSets": [
+            {
+              "action": "Replace",
+              "structureRef": "IMF_BOP_BPM6",
+              "observations": {
+                "Q:SG:FA:_T:NET:2024-Q3": [24500.2, 0, "A"],
+                "Q:SG:FA:_T:NET:2024-Q2": [18900.5, 0, "A"],
+                "Q:SG:FA:DI:NET:2024-Q3": [15200.1, 0, "A"],
+                "Q:SG:FA:DI:A:2024-Q3": [8500.0, 0, "A"],
+                "Q:SG:FA:DI:L:2024-Q3": [6700.1, 0, "A"]
+              }
+            }
+          ]
+        }
+        """;
+
+    FleakData inputData = JsonUtils.loadFleakDataFromJsonString(inputJson);
+    FleakData result = evaluateExpression(expr, inputData);
+    assertNotNull(result);
+
+    FleakData expected = JsonUtils.loadFleakDataFromJsonString(expectedJson);
+    assertEquals(expected, result);
   }
 
   private void testFunctionExecution(FleakData testData, String expression, Object expectedValue) {
