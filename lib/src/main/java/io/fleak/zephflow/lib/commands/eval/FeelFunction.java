@@ -649,6 +649,43 @@ public interface FeelFunction {
     }
   }
 
+  class StrReplaceFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("str_replace", 3, "string, target, and replacement");
+    }
+
+    @Override
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData stringData = evaluatedArgs.get(0);
+      FleakData targetData = evaluatedArgs.get(1);
+      FleakData replacementData = evaluatedArgs.get(2);
+
+      if (stringData == null) {
+        return null;
+      }
+
+      Preconditions.checkArgument(
+          targetData instanceof StringPrimitiveFleakData,
+          "str_replace: second argument (target) must be a string but found: %s",
+          targetData == null ? "null" : targetData.unwrap());
+
+      Preconditions.checkArgument(
+          replacementData instanceof StringPrimitiveFleakData,
+          "str_replace: third argument (replacement) must be a string but found: %s",
+          replacementData == null ? "null" : replacementData.unwrap());
+
+      String input = stringData.getStringValue();
+      String target = targetData.getStringValue();
+      String replacement = replacementData.getStringValue();
+
+      return new StringPrimitiveFleakData(input.replace(target, replacement));
+    }
+  }
+
   /*
   substrFunction:
   Extract a substring from a string using SQL or Python style syntax.
@@ -1363,6 +1400,65 @@ public interface FeelFunction {
     }
   }
 
+  class ArrToDictFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required(
+          "arr_to_dict", 4, "array, variable name, key expression, and value expression");
+    }
+
+    @Override
+    public boolean isLazyEvaluation() {
+      return true;
+    }
+
+    @Override
+    public FleakData evaluateCompiled(
+        EvalContext ctx,
+        List<ExpressionNode> args,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx,
+        List<String> lazyArgTexts) {
+      if (args.size() != 4) {
+        throw new IllegalArgumentException(
+            "arr_to_dict expects 4 arguments: array, variable name, key expression, and value expression");
+      }
+
+      FleakData arrayData = args.get(0).evaluate(ctx);
+
+      if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
+        return null;
+      }
+
+      if (arrayData instanceof RecordFleakData) {
+        arrayData = new ArrayFleakData(List.of(arrayData));
+      }
+
+      String elemVarName = lazyArgTexts.get(1);
+      ExpressionNode keyNode = args.get(2);
+      ExpressionNode valueNode = args.get(3);
+      Map<String, FleakData> result = new LinkedHashMap<>();
+
+      for (FleakData elem : arrayData.getArrayPayload()) {
+        ctx.enterScope();
+        try {
+          ctx.setVariable(elemVarName, elem);
+          FleakData keyResult = keyNode.evaluate(ctx);
+          Preconditions.checkArgument(
+              keyResult instanceof StringPrimitiveFleakData,
+              "arr_to_dict: key expression must evaluate to a string but got: %s",
+              keyResult == null ? "null" : keyResult.getClass().getSimpleName());
+          String key = keyResult.getStringValue();
+          FleakData value = valueNode.evaluate(ctx);
+          result.put(key, value);
+        } finally {
+          ctx.exitScope();
+        }
+      }
+
+      return new RecordFleakData(result);
+    }
+  }
+
   /*
   dictMergeFunction:
   Merge a set of dictionaries into one.
@@ -1699,6 +1795,7 @@ public interface FeelFunction {
             .put("parse_float", new ParseFloatFunction())
             .put("array", new ArrayFunction())
             .put("str_split", new StrSplitFunction())
+            .put("str_replace", new StrReplaceFunction())
             .put("substr", new SubstrFunction())
             .put("duration_str_to_mills", new DurationStrToMillsFunction())
             .put("arr_flatten", new ArrFlattenFunction())
@@ -1706,6 +1803,7 @@ public interface FeelFunction {
             .put("arr_foreach", new ArrForEachFunction())
             .put("arr_find", new ArrFindFunction())
             .put("arr_filter", new ArrFilterFunction())
+            .put("arr_to_dict", new ArrToDictFunction())
             .put("dict_merge", new DictMergeFunction())
             .put("dict_remove", new DictRemoveFunction())
             .put("floor", new FloorFunction())
