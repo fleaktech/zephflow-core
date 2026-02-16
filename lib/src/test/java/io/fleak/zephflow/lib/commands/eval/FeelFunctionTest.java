@@ -910,6 +910,33 @@ dict(
     assertEquals(expected, result);
   }
 
+  @Test
+  public void testInFunction() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "nums", List.of(1, 2, 3),
+                "items", List.of(Map.of("name", "Alice"), Map.of("name", "Bob"))));
+
+    // primitive found
+    testFunctionExecution(testData, "in(2, $.nums)", true);
+    // primitive not found
+    testFunctionExecution(testData, "in(5, $.nums)", false);
+    // empty array
+    testFunctionExecution(testData, "in(1, array())", false);
+    // null value
+    testFunctionExecution(testData, "in(null, $.nums)", false);
+    // null array
+    testFunctionExecution(testData, "in(1, $.nonexistent)", false);
+    // object in array
+    testFunctionExecution(testData, "in(dict(name=\"Alice\"), $.items)", true);
+    testFunctionExecution(testData, "in(dict(name=\"Charlie\"), $.items)", false);
+    // non-array second arg
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> evaluateExpression("in(1, \"not_an_array\")", testData));
+  }
+
   private void testFunctionExecution(FleakData testData, String expression, Object expectedValue) {
     try {
       FleakData result = evaluateExpression(expression, testData);
