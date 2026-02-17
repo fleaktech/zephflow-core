@@ -1,7 +1,8 @@
 spring:
   autoconfigure:
     exclude:
-      - org.springframework.boot.micrometer.metrics.autoconfigure.system.SystemMetricsAutoConfiguration
+      - org.springframework.boot.micrometer.metrics.autoconfigure.MetricsAutoConfiguration
+      - org.springframework.boot.micrometer.metrics.autoconfigure.CompositeMeterRegistryAutoConfiguration
 
 management:
   endpoints:
