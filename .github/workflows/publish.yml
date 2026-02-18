@@ -34,13 +34,11 @@ jobs:
       - name: Build with Gradle
         env:
           GRADLE_OPTS: -Xmx2g -Xms1g -XX:MaxMetaspaceSize=512m
-          DOCKER_API_VERSION: "1.44"
         run: ./gradlew build
 
       - name: Run tests
         env:
           GRADLE_OPTS: -Xmx2g -Xms1g -XX:MaxMetaspaceSize=512m
-          DOCKER_API_VERSION: "1.44"
         run: ./gradlew test
 
       - name: Test Report
