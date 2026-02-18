@@ -1778,6 +1778,61 @@ public interface FeelFunction {
     }
   }
 
+  /*
+  inFunction:
+  Check if a value exists in an array.
+
+  Syntax:
+  in(value, array)
+
+  Parameters:
+  - First argument: the value to search for
+  - Second argument: an array to search in
+
+  Returns: true if the value is found in the array, false otherwise.
+  Returns false if either argument is null.
+
+  Uses FleakData.equals() for comparison, so it works with primitives, strings, and objects.
+
+  Examples:
+  in(2, array(1, 2, 3))                    // true
+  in(5, array(1, 2, 3))                    // false
+  in("hello", array("hello", "world"))     // true
+  in(null, array(1, 2, 3))                 // false
+  in(1, null)                              // false
+  */
+  class InFunction implements FeelFunction {
+    @Override
+    public FunctionSignature getSignature() {
+      return FunctionSignature.required("in", 2, "value and array");
+    }
+
+    @Override
+    public FleakData evaluateCompiledEager(
+        EvalContext ctx,
+        List<FleakData> evaluatedArgs,
+        EvalExpressionParser.GenericFunctionCallContext originalCtx) {
+      FleakData value = evaluatedArgs.get(0);
+      FleakData arrayArg = evaluatedArgs.get(1);
+
+      if (value == null || arrayArg == null) {
+        return FleakData.wrap(false);
+      }
+
+      Preconditions.checkArgument(
+          arrayArg instanceof ArrayFleakData,
+          "in: second argument must be an array but found: %s",
+          arrayArg.unwrap());
+
+      for (FleakData elem : arrayArg.getArrayPayload()) {
+        if (value.equals(elem)) {
+          return FleakData.wrap(true);
+        }
+      }
+      return FleakData.wrap(false);
+    }
+  }
+
   // Helper method to create FUNCTIONS_TABLE with optional PythonExecutor
   static Map<String, FeelFunction> createFunctionsTable(PythonExecutor pythonExecutor) {
     var builder =
@@ -1809,7 +1864,8 @@ public interface FeelFunction {
             .put("floor", new FloorFunction())
             .put("ceil", new CeilFunction())
             .put("now", new NowFunction())
-            .put("random_long", new RandomLongFunction());
+            .put("random_long", new RandomLongFunction())
+            .put("in", new InFunction());
 
     if (pythonExecutor != null) {
       builder.put("python", new PythonFunction(pythonExecutor));
