@@ -36,6 +36,7 @@ public class JobContext implements Serializable {
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();
 
+  private String logLevel;
   private DlqConfig dlqConfig;
 
   @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")

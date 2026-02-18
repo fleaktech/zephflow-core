@@ -26,7 +26,10 @@ import io.fleak.zephflow.runner.spi.CommandProvider;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.config.Configurator;
 
 /** Created by bolei on 2/28/25 */
 @Slf4j
@@ -86,6 +89,7 @@ public record DagExecutor(
   }
 
   public void executeDag() throws Exception {
+    applyLogLevel(jobConfig.getDagDefinition().getJobContext());
     var compiledDag = dagCompiler.compile(jobConfig.getDagDefinition(), true);
     Pair<Dag<OperatorCommand>, Dag<OperatorCommand>> entryNodesDagAndRest =
         Dag.splitEntryNodesAndRest(compiledDag);
@@ -130,6 +134,19 @@ public record DagExecutor(
       sourceCommand.terminate();
       noSourceDagRunner.terminate();
     }
+  }
+
+  static void applyLogLevel(JobContext jobContext) {
+    if (jobContext == null || StringUtils.isBlank(jobContext.getLogLevel())) {
+      return;
+    }
+    Level level = Level.toLevel(jobContext.getLogLevel(), null);
+    if (level == null) {
+      log.warn("Invalid log level '{}', ignoring", jobContext.getLogLevel());
+      return;
+    }
+    log.info("Setting log level to {} for io.fleak.zephflow", level);
+    Configurator.setLevel("io.fleak.zephflow", level);
   }
 
   private DagRunCounters createCounters() {
