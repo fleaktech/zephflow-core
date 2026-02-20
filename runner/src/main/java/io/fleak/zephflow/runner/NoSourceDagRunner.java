@@ -24,6 +24,7 @@ import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
@@ -56,11 +57,11 @@ public record NoSourceDagRunner(
         sourceNodeIds.size() == 1,
         String.format(
             "Only single source DAG is supported but found %d sources", sourceNodeIds.size()));
-    var sourceNodeId = sourceNodeIds.get(0);
+    var sourceNodeId = sourceNodeIds.getFirst();
     String commandName = "source_node";
 
     Map<String, String> tags =
-        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.getFirst());
 
     counters.increaseInputEventCounter(events.size(), tags);
     counters.startStopWatch();

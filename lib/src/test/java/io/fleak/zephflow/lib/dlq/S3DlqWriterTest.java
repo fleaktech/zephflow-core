@@ -149,6 +149,24 @@ public class S3DlqWriterTest {
     }
   }
 
+  @Test
+  void testUploadedDeadLettersContainNodeId() throws IOException, InterruptedException {
+    int batchSize = 2;
+    long flushIntervalMillis = 10000;
+    createAndOpenDlqWriter(batchSize, flushIntervalMillis);
+    writeDeadLetters(batchSize);
+
+    Thread.sleep(2000);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size());
+
+    List<DeadLetter> deadLetters = readRawDeadLettersFromS3(dlqWriter.s3Client, objectKeys.get(0));
+    for (DeadLetter dl : deadLetters) {
+      assertEquals("test-node", dl.getNodeId().toString());
+    }
+  }
+
   private List<String> listS3Objects(S3Client s3Client) {
     ListObjectsV2Request listRequest = ListObjectsV2Request.builder().bucket(BUCKET_NAME).build();
     ListObjectsV2Response listResponse = s3Client.listObjectsV2(listRequest);
@@ -168,10 +186,29 @@ public class S3DlqWriterTest {
                   ("key-" + i).getBytes(),
                   ("value-" + i).getBytes(),
                   Map.of("metadata_value", "metadata_value"));
-      dlqWriter.writeToDlq(i, serializedEvent, "msg" + i);
+      dlqWriter.writeToDlq(i, serializedEvent, "msg" + i, "test-node");
       if (writtenDeadLetters != null) {
         writtenDeadLetters.add(serializedEvent);
       }
+    }
+  }
+
+  private List<DeadLetter> readRawDeadLettersFromS3(S3Client s3Client, String objectKey)
+      throws IOException {
+    GetObjectRequest getObjectRequest =
+        GetObjectRequest.builder().bucket(BUCKET_NAME).key(objectKey).build();
+    ResponseBytes<GetObjectResponse> s3ObjectBytes = s3Client.getObjectAsBytes(getObjectRequest);
+    byte[] data = s3ObjectBytes.asByteArray();
+
+    SpecificDatumReader<DeadLetter> datumReader = new SpecificDatumReader<>(DeadLetter.class);
+    try (SeekableByteArrayInput seekableByteArrayInput = new SeekableByteArrayInput(data);
+        DataFileReader<DeadLetter> dataFileReader =
+            new DataFileReader<>(seekableByteArrayInput, datumReader)) {
+      List<DeadLetter> deadLetters = new ArrayList<>();
+      while (dataFileReader.hasNext()) {
+        deadLetters.add(dataFileReader.next());
+      }
+      return deadLetters;
     }
   }
 

@@ -14,6 +14,8 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -23,6 +25,7 @@ import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.HashMap;
@@ -106,6 +109,7 @@ class BatchS3FlusherTest {
         fileWriter,
         batchSize,
         flushIntervalMs,
+        null,
         null,
         null);
   }
@@ -223,7 +227,7 @@ class BatchS3FlusherTest {
 
     flusher =
         new BatchS3Flusher(
-            s3TransferResources, BUCKET_NAME, KEY_NAME, parquetWriter, 5, 60000, null, null);
+            s3TransferResources, BUCKET_NAME, KEY_NAME, parquetWriter, 5, 60000, null, null, null);
     flusher.initialize();
 
     for (int i = 0; i < 5; i++) {
@@ -263,5 +267,42 @@ class BatchS3FlusherTest {
       listRequest =
           listRequest.toBuilder().continuationToken(listResponse.nextContinuationToken()).build();
     } while (listResponse.isTruncated());
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
+    DlqWriter mockDlqWriter = mock(DlqWriter.class);
+    BlobFileWriter<RecordFleakData> mockFileWriter = mock(BlobFileWriter.class);
+    when(mockFileWriter.getFileExtension()).thenReturn("jsonl");
+    when(mockFileWriter.writeToTempFiles(anyList(), any()))
+        .thenThrow(new RuntimeException("S3 upload error"));
+
+    AwsClientFactory.S3TransferResources s3TransferResources = createS3TransferResources();
+    BatchS3Flusher dlqFlusher =
+        new BatchS3Flusher(
+            s3TransferResources,
+            BUCKET_NAME,
+            KEY_NAME,
+            mockFileWriter,
+            100,
+            60000,
+            mockDlqWriter,
+            null,
+            "s3-test-node");
+    dlqFlusher.initialize();
+
+    Map<String, Object> data = Map.of("id", 1, "name", "test");
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(data);
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record, record);
+    dlqFlusher.flush(events, Map.of());
+
+    dlqFlusher.executeScheduledFlush();
+
+    verify(mockDlqWriter)
+        .writeToDlq(anyLong(), any(), contains("S3 upload error"), eq("s3-test-node"));
+    dlqFlusher.close();
   }
 }

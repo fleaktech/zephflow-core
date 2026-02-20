@@ -80,8 +80,9 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       DlqWriter dlqWriter,
       @NonNull FleakCounter sinkOutputCounter,
       @NonNull FleakCounter outputSizeCounter,
-      @NonNull FleakCounter sinkErrorCounter) {
-    super(dlqWriter, jobContext);
+      @NonNull FleakCounter sinkErrorCounter,
+      String nodeId) {
+    super(dlqWriter, jobContext, nodeId);
     this.config = config;
     this.jobContext = jobContext;
     this.sinkOutputCounter = sinkOutputCounter;

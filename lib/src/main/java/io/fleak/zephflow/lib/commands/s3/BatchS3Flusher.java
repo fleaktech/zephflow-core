@@ -62,8 +62,9 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       int batchSize,
       long flushIntervalMs,
       DlqWriter dlqWriter,
-      JobContext jobContext) {
-    super(dlqWriter, jobContext);
+      JobContext jobContext,
+      String nodeId) {
+    super(dlqWriter, jobContext, nodeId);
     this.s3TransferResources = s3TransferResources;
     this.bucketName = bucketName;
     this.keyName = keyName;

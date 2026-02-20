@@ -77,6 +77,10 @@ class BatchDatabricksFlusherTest {
   }
 
   private BatchDatabricksFlusher createFlusher() {
+    return createFlusher(null);
+  }
+
+  private BatchDatabricksFlusher createFlusher(String nodeId) {
     return new BatchDatabricksFlusher(
         config,
         parquetWriter,
@@ -87,7 +91,8 @@ class BatchDatabricksFlusherTest {
         schema,
         sinkOutputCounter,
         outputSizeCounter,
-        sinkErrorCounter);
+        sinkErrorCounter,
+        nodeId);
   }
 
   private File createMockFile(String name) throws Exception {
@@ -152,7 +157,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter)) {
+            sinkErrorCounter,
+            null)) {
 
       File mockFile = createMockFile("test.parquet");
 
@@ -206,7 +212,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter)) {
+            sinkErrorCounter,
+            null)) {
 
       when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
           .thenThrow(new RuntimeException("Parquet write failed"));
@@ -250,7 +257,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter)) {
+            sinkErrorCounter,
+            null)) {
 
       File mockFile = createMockFile("test.parquet");
 
@@ -300,7 +308,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter)) {
+            sinkErrorCounter,
+            null)) {
 
       File mockFile = createMockFile("test.parquet");
 
@@ -364,7 +373,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter);
+            sinkErrorCounter,
+            null);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -424,7 +434,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter);
+            sinkErrorCounter,
+            null);
 
     File mockFile = createMockFile("test.parquet");
 
@@ -463,7 +474,27 @@ class BatchDatabricksFlusherTest {
 
     flusher.executeScheduledFlush();
 
-    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("Scheduled flush error"));
+    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("Scheduled flush error"), isNull());
+  }
+
+  @Test
+  void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
+    BatchDatabricksFlusher flusher = createFlusher("test-node");
+
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(
+        (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
+        Map.of("id", 1, "name", "test"));
+    flusher.flush(events, Map.of());
+
+    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+        .thenThrow(new RuntimeException("Scheduled flush error"));
+
+    flusher.executeScheduledFlush();
+
+    verify(dlqWriter)
+        .writeToDlq(anyLong(), any(), contains("Scheduled flush error"), eq("test-node"));
   }
 
   @Test
@@ -479,7 +510,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter)) {
+            sinkErrorCounter,
+            null)) {
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
           new SimpleSinkCommand.PreparedInputEvents<>();
       events.add(
@@ -519,7 +551,8 @@ class BatchDatabricksFlusherTest {
             schema,
             sinkOutputCounter,
             outputSizeCounter,
-            sinkErrorCounter);
+            sinkErrorCounter,
+            null);
 
     // Valid: id is integer, name is string
     Map<String, Object> validData = Map.of("id", 1, "name", "valid");

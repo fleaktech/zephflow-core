@@ -240,7 +240,8 @@ class DeltaLakeS3IntegrationTest {
             null,
             mock(FleakCounter.class),
             mock(FleakCounter.class),
-            mock(FleakCounter.class));
+            mock(FleakCounter.class),
+            null);
 
     // Test initialization with S3 credentials from JobContext
     assertDoesNotThrow(

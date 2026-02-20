@@ -63,8 +63,9 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       JobContext jobContext,
       @NonNull FleakCounter sinkOutputCounter,
       @NonNull FleakCounter outputSizeCounter,
-      @NonNull FleakCounter sinkErrorCounter) {
-    super(dlqWriter, jobContext);
+      @NonNull FleakCounter sinkErrorCounter,
+      String nodeId) {
+    super(dlqWriter, jobContext, nodeId);
     this.config = config;
     this.sinkOutputCounter = sinkOutputCounter;
     this.outputSizeCounter = outputSizeCounter;
@@ -94,8 +95,9 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       StructType schema,
       @NonNull FleakCounter sinkOutputCounter,
       @NonNull FleakCounter outputSizeCounter,
-      @NonNull FleakCounter sinkErrorCounter) {
-    super(dlqWriter, null);
+      @NonNull FleakCounter sinkErrorCounter,
+      String nodeId) {
+    super(dlqWriter, null, nodeId);
     this.config = config;
     this.parquetWriter = parquetWriter;
     this.volumeUploader = volumeUploader;

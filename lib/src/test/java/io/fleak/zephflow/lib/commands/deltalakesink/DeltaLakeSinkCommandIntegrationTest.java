@@ -95,7 +95,8 @@ class DeltaLakeSinkCommandIntegrationTest {
             null,
             mock(FleakCounter.class),
             mock(FleakCounter.class),
-            mock(FleakCounter.class));
+            mock(FleakCounter.class),
+            null);
     writer.initialize();
 
     // Create test data

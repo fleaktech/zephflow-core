@@ -20,8 +20,10 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
+import io.fleak.zephflow.runner.dag.Node;
 import io.fleak.zephflow.runner.spi.CommandProvider;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
@@ -96,11 +98,12 @@ public record DagExecutor(
     Preconditions.checkArgument(
         CollectionUtils.size(entryNodesDagAndRest.getKey().getNodes()) == 1,
         "dag executor only supports dag with exactly one entry node");
-    OperatorCommand command =
-        new ArrayList<>(entryNodesDagAndRest.getKey().getNodes()).get(0).getNodeContent();
-    Preconditions.checkArgument(command instanceof SourceCommand);
-    SourceCommand sourceCommand = (SourceCommand) command;
+    Node<OperatorCommand> entryNode =
+        new ArrayList<>(entryNodesDagAndRest.getKey().getNodes()).getFirst();
+    Preconditions.checkArgument(entryNode.getNodeContent() instanceof SourceCommand);
+    SourceCommand sourceCommand = (SourceCommand) entryNode.getNodeContent();
     List<Edge> edgesFromSource = new ArrayList<>(entryNodesDagAndRest.getKey().getEdges());
+    String sourceNodeId = entryNode.getId();
     Dag<OperatorCommand> subDagWithoutSource = entryNodesDagAndRest.getValue();
     DagRunCounters counters = createCounters();
     NoSourceDagRunner noSourceDagRunner =
@@ -124,10 +127,16 @@ public record DagExecutor(
 
             @Override
             public void accept(List<RecordFleakData> recordFleakData) {
-              noSourceDagRunner.run(
-                  recordFleakData,
-                  jobConfig.getJobId(),
-                  new NoSourceDagRunner.DagRunConfig(true, false));
+              try {
+                noSourceDagRunner.run(
+                    recordFleakData,
+                    jobConfig.getJobId(),
+                    new NoSourceDagRunner.DagRunConfig(true, false));
+              } catch (NodeExecutionException e) {
+                throw e;
+              } catch (Exception e) {
+                throw new NodeExecutionException(sourceNodeId, "unknown", e.getMessage(), e);
+              }
             }
           });
     } finally {

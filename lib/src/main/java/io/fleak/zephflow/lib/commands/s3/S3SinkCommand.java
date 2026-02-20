@@ -102,7 +102,8 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
               config.getBatchSize(),
               config.getFlushIntervalMillis(),
               dlqWriter,
-              jobContext);
+              jobContext,
+              nodeId);
       flusher.initialize();
       return flusher;
     } else {
