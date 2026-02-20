@@ -14,13 +14,14 @@
 package io.fleak.zephflow.lib.commands.source;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
@@ -206,7 +207,8 @@ class SimpleSourceCommandTest {
     verify(mockEncoder).serialize(same(serializedEvent));
     // Verify DLQ writing
     verify(mockDlqWriter)
-        .writeToDlq(anyLong(), same(serializedEvent), contains("Test processing error"));
+        .writeToDlq(
+            anyLong(), same(serializedEvent), contains("Test processing error"), eq(TEST_NODE_ID));
     verify(dataSizeCounter).increase(9, Map.of());
     verify(inputEventCounter).increase(1, Map.of());
     verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
@@ -235,11 +237,47 @@ class SimpleSourceCommandTest {
 
     verify(mockEncoder).serialize(same(serializedEvent));
     verify(mockDlqWriter)
-        .writeToDlq(anyLong(), same(serializedEvent), contains("Test deserialization error"));
+        .writeToDlq(
+            anyLong(),
+            same(serializedEvent),
+            contains("Test deserialization error"),
+            eq(TEST_NODE_ID));
     verify(dataSizeCounter).increase(9, Map.of());
     verify(inputEventCounter, never()).increase(anyLong(), anyMap());
     verify(inputEventCounter, never()).increase(anyMap());
     verify(deserializeFailureCounter).increase(Map.of());
+  }
+
+  @Test
+  void testExecuteWithDownstreamNodeError() throws Exception {
+    SerializedEvent serializedEvent = new SerializedEvent(null, "test data".getBytes(), null);
+    RecordFleakData mockRecord = mock(RecordFleakData.class);
+
+    List<SerializedEvent> fetched = List.of(serializedEvent);
+    when(mockDeserializer.deserialize(same(serializedEvent))).thenReturn(List.of(mockRecord));
+
+    NodeExecutionException downstreamError =
+        new NodeExecutionException(
+            "parseNode", "parser", "Parse failed", new RuntimeException("Parse failed"));
+    doThrow(downstreamError).when(mockSourceEventAcceptor).accept(any());
+
+    when(mockFetcher.fetch())
+        .thenAnswer(
+            invocation -> {
+              command.terminate();
+              return fetched;
+            });
+
+    when(mockEncoder.serialize(same(serializedEvent))).thenReturn(serializedEvent);
+
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
+
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
+
+    verify(mockDlqWriter)
+        .writeToDlq(anyLong(), same(serializedEvent), contains("Parse failed"), eq("parseNode"));
   }
 
   @Test

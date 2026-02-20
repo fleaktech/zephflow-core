@@ -29,6 +29,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;

@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.source;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
@@ -150,8 +151,10 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       } catch (Exception e) {
         log.debug("failed to process data: {}", convertedResult.transformedData(), e);
         if (dlqWriter != null) {
+          String failingNodeId = e instanceof NodeExecutionException nee ? nee.getNodeId() : nodeId;
           SerializedEvent raw = rawDataEncoder.serialize(convertedResult.sourceRecord());
-          dlqWriter.writeToDlq(System.currentTimeMillis(), raw, ExceptionUtils.getStackTrace(e));
+          dlqWriter.writeToDlq(
+              System.currentTimeMillis(), raw, ExceptionUtils.getStackTrace(e), failingNodeId);
         }
       }
     }

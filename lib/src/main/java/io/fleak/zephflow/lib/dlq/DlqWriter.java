@@ -21,11 +21,13 @@ import java.util.Optional;
 
 /** Created by bolei on 11/5/24 */
 public abstract class DlqWriter implements Closeable {
-  public void writeToDlq(long processingTs, SerializedEvent serializedEvent, String errorMsg) {
+  public void writeToDlq(
+      long processingTs, SerializedEvent serializedEvent, String errorMsg, String nodeId) {
     DeadLetter.Builder builder =
         DeadLetter.newBuilder()
             .setProcessingTimestamp(processingTs)
             .setErrorMessage(errorMsg)
+            .setNodeId(nodeId)
             .setMetadata(serializedEvent.metadata());
 
     Optional.ofNullable(serializedEvent.key()).ifPresent(k -> builder.setKey(ByteBuffer.wrap(k)));
