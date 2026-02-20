@@ -208,7 +208,7 @@ class SimpleSourceCommandTest {
     // Verify DLQ writing
     verify(mockDlqWriter)
         .writeToDlq(
-            anyLong(), same(serializedEvent), contains("Test processing error"), eq(TEST_NODE_ID));
+            anyLong(), same(serializedEvent), contains("Test processing error"), eq("unknown"));
     verify(dataSizeCounter).increase(9, Map.of());
     verify(inputEventCounter).increase(1, Map.of());
     verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
