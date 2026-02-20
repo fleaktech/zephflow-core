@@ -70,7 +70,8 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
             dlqWriter,
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
-            counters.sinkErrorCounter());
+            counters.sinkErrorCounter(),
+            nodeId);
     writer.initialize();
     return writer;
   }

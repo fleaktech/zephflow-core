@@ -38,6 +38,10 @@
     {
       "name": "errorMessage",
       "type": "string"
+    },
+    {
+      "name": "nodeId",
+      "type": "string"
     }
   ]
 }

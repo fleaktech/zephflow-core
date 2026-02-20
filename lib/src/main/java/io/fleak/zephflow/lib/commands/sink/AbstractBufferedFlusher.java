@@ -45,13 +45,15 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected static final long INITIAL_RETRY_DELAY_MS = 1000;
 
   protected final DlqWriter dlqWriter;
+  protected final String nodeId;
   protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
   protected final boolean testMode;
 
   private BufferedWriter<Pair<RecordFleakData, T>> bufferedWriter;
 
-  protected AbstractBufferedFlusher(DlqWriter dlqWriter, JobContext jobContext) {
+  protected AbstractBufferedFlusher(DlqWriter dlqWriter, JobContext jobContext, String nodeId) {
     this.dlqWriter = dlqWriter;
+    this.nodeId = nodeId;
     this.testMode =
         jobContext != null
             && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
@@ -428,7 +430,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     for (ErrorOutput error : errors) {
       try {
         SerializedEvent serialized = recordEncoder.serialize(error.inputEvent());
-        dlqWriter.writeToDlq(ts, serialized, error.errorMessage());
+        dlqWriter.writeToDlq(ts, serialized, error.errorMessage(), nodeId);
       } catch (Exception e) {
         dlqWriteFailures++;
         log.debug("Failed to write to DLQ: {}", e.getMessage());

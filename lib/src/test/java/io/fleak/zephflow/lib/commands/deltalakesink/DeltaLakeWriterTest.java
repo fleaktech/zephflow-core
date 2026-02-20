@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.deltalakesink;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import io.delta.kernel.Operation;
@@ -37,6 +38,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -88,8 +90,18 @@ class DeltaLakeWriterTest {
   }
 
   private DeltaLakeWriter createWriter(Config config) {
+    return createWriter(config, null, null);
+  }
+
+  private DeltaLakeWriter createWriter(Config config, DlqWriter dlqWriter, String nodeId) {
     return new DeltaLakeWriter(
-        config, jobContext, null, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+        config,
+        jobContext,
+        dlqWriter,
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter,
+        nodeId);
   }
 
   /** Creates a Delta table at the given path with the test schema (id, name, value) */
@@ -1000,5 +1012,32 @@ class DeltaLakeWriterTest {
 
     // Assert - verify the mocked counter from setUp() received the correct call
     verify(sinkErrorCounter).increase(10L, metricTags);
+  }
+
+  @Test
+  void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
+    DlqWriter mockDlqWriter = mock(DlqWriter.class);
+
+    Config testConfig =
+        Config.builder().tablePath(tablePath).batchSize(100).avroSchema(TEST_AVRO_SCHEMA).build();
+    DeltaLakeWriter writer = createWriter(testConfig, mockDlqWriter, "delta-test-node");
+    writer.initialize();
+
+    // Use invalid data (string for int field) to trigger a write error
+    Map<String, Object> invalidData = new HashMap<>();
+    invalidData.put("id", "not-a-number");
+    invalidData.put("name", "test");
+    invalidData.put("value", 1.0);
+
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(invalidData);
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record, invalidData);
+    writer.flush(events, Map.of());
+
+    writer.executeScheduledFlush();
+
+    verify(mockDlqWriter).writeToDlq(anyLong(), any(), any(String.class), eq("delta-test-node"));
+    writer.close();
   }
 }

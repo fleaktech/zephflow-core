@@ -82,7 +82,8 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
               jobContext,
               counters.sinkOutputCounter(),
               counters.outputSizeCounter(),
-              counters.sinkErrorCounter());
+              counters.sinkErrorCounter(),
+              nodeId);
       flusher.initialize();
       return flusher;
     } catch (IOException e) {
