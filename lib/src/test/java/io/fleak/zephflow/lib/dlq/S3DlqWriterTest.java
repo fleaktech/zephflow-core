@@ -50,7 +50,13 @@ public class S3DlqWriterTest {
   protected static MinIOContainer minioContainer =
       new MinIOContainer(DockerImageName.parse("minio/minio:latest")).withCommand("server /data");
 
+  private static final String TEST_KEY_PREFIX = "test-env/pipeline-1/deployment-1/run-1";
+
   private void createAndOpenDlqWriter(int batchSize, long flushIntervalMillis) {
+    createAndOpenDlqWriter(batchSize, flushIntervalMillis, TEST_KEY_PREFIX);
+  }
+
+  private void createAndOpenDlqWriter(int batchSize, long flushIntervalMillis, String keyPrefix) {
     String endpoint = minioContainer.getS3URL();
     String accessKey = minioContainer.getUserName();
     String secretKey = minioContainer.getPassword();
@@ -61,7 +67,8 @@ public class S3DlqWriterTest {
             batchSize,
             flushIntervalMillis,
             new UsernamePasswordCredential(accessKey, secretKey),
-            endpoint);
+            endpoint,
+            keyPrefix);
     dlqWriter.open();
     dlqWriter.s3Client.createBucket(b -> b.bucket(BUCKET_NAME));
   }
@@ -117,8 +124,27 @@ public class S3DlqWriterTest {
     assertEquals(1, objectKeys.size(), "Expected one object in S3.");
 
     String objectKey = objectKeys.get(0);
-    String regex = "\\d{4}/\\d{2}/\\d{2}/\\d{2}/dead-letters-\\d+\\.avro";
-    assertTrue(objectKey.matches(regex), "Object key does not match expected format.");
+    String regex =
+        TEST_KEY_PREFIX
+            + "/dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+\\.avro";
+    assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
+  }
+
+  @Test
+  void testS3ObjectKeyFormatWithNullPrefix() throws InterruptedException {
+    int batchSize = 1;
+    long flushIntervalMillis = 10000;
+    createAndOpenDlqWriter(batchSize, flushIntervalMillis, null);
+    writeDeadLetters(batchSize);
+    Thread.sleep(2000);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size());
+
+    String objectKey = objectKeys.get(0);
+    String regex =
+        "dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+\\.avro";
+    assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
   }
 
   @Test

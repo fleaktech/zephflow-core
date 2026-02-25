@@ -89,9 +89,10 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
               config.getS3EndpointOverride());
 
       BlobFileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
+      String keyPrefix = (String) jobContext.getOtherProperties().get("DATA_KEY_PREFIX");
       DlqWriter dlqWriter = null;
       if (jobContext.getDlqConfig() instanceof JobContext.S3DlqConfig s3DlqConfig) {
-        dlqWriter = S3DlqWriter.createS3DlqWriter(s3DlqConfig);
+        dlqWriter = S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
       }
       BatchS3Flusher flusher =
           new BatchS3Flusher(
