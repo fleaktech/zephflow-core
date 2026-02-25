@@ -68,7 +68,7 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     FleakCounter deserializeFailureCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
 
-    String keyPrefix = (String) jobContext.getOtherProperties().get("DATA_KEY_PREFIX");
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
     DlqWriter dlqWriter =
         Optional.of(jobContext)
             .map(JobContext::getDlqConfig)

@@ -32,6 +32,7 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class JobContext implements Serializable {
   public static final String FLAG_TEST_MODE = "TEST_MODE";
+  public static final String DATA_KEY_PREFIX = "DATA_KEY_PREFIX";
 
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();
@@ -57,5 +58,7 @@ public class JobContext implements Serializable {
     private int flushIntervalMillis;
     private String accessKeyId;
     private String secretAccessKey;
+    private String s3EndpointOverride;
+    private @Builder.Default long rawDataSampleIntervalMs = 60_000;
   }
 }

@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.dlq;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -62,6 +63,24 @@ public class S3DlqWriterTest {
     String secretKey = minioContainer.getPassword();
     dlqWriter =
         S3DlqWriter.createS3DlqWriter(
+            Region.US_EAST_1.toString(),
+            BUCKET_NAME,
+            batchSize,
+            flushIntervalMillis,
+            new UsernamePasswordCredential(accessKey, secretKey),
+            endpoint,
+            keyPrefix);
+    dlqWriter.open();
+    dlqWriter.s3Client.createBucket(b -> b.bucket(BUCKET_NAME));
+  }
+
+  private void createAndOpenSampleWriter(
+      int batchSize, long flushIntervalMillis, String keyPrefix) {
+    String endpoint = minioContainer.getS3URL();
+    String accessKey = minioContainer.getUserName();
+    String secretKey = minioContainer.getPassword();
+    dlqWriter =
+        S3DlqWriter.createS3SampleWriter(
             Region.US_EAST_1.toString(),
             BUCKET_NAME,
             batchSize,
@@ -148,6 +167,41 @@ public class S3DlqWriterTest {
   }
 
   @Test
+  void testSampleWriterS3ObjectKeyFormat() throws InterruptedException {
+    int batchSize = 1;
+    long flushIntervalMillis = 10000;
+    createAndOpenSampleWriter(batchSize, flushIntervalMillis, TEST_KEY_PREFIX);
+    writeDeadLetters(batchSize);
+    Thread.sleep(2000);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size(), "Expected one object in S3.");
+
+    String objectKey = objectKeys.get(0);
+    String regex =
+        TEST_KEY_PREFIX
+            + "/raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+\\.avro";
+    assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
+  }
+
+  @Test
+  void testSampleWriterS3ObjectKeyFormatWithNullPrefix() throws InterruptedException {
+    int batchSize = 1;
+    long flushIntervalMillis = 10000;
+    createAndOpenSampleWriter(batchSize, flushIntervalMillis, null);
+    writeDeadLetters(batchSize);
+    Thread.sleep(2000);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size());
+
+    String objectKey = objectKeys.get(0);
+    String regex =
+        "raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+\\.avro";
+    assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
+  }
+
+  @Test
   void testUploadedDeadLettersContent() throws IOException, InterruptedException {
     int batchSize = 3;
     long flushIntervalMillis = 10000;
@@ -191,6 +245,56 @@ public class S3DlqWriterTest {
     for (DeadLetter dl : deadLetters) {
       assertEquals("test-node", dl.getNodeId().toString());
     }
+  }
+
+  @Test
+  void testCreateS3DlqWriterFromConfig() throws InterruptedException {
+    JobContext.S3DlqConfig config =
+        JobContext.S3DlqConfig.builder()
+            .region(Region.US_EAST_1.toString())
+            .bucket(BUCKET_NAME)
+            .batchSize(1)
+            .flushIntervalMillis(10000)
+            .accessKeyId(minioContainer.getUserName())
+            .secretAccessKey(minioContainer.getPassword())
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .build();
+
+    dlqWriter = S3DlqWriter.createS3DlqWriter(config, TEST_KEY_PREFIX);
+    dlqWriter.open();
+    dlqWriter.s3Client.createBucket(b -> b.bucket(BUCKET_NAME));
+
+    writeDeadLetters(1);
+    Thread.sleep(2000);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size());
+    assertTrue(objectKeys.get(0).startsWith(TEST_KEY_PREFIX + "/dead-letters/"));
+  }
+
+  @Test
+  void testCreateS3SampleWriterFromConfig() throws InterruptedException {
+    JobContext.S3DlqConfig config =
+        JobContext.S3DlqConfig.builder()
+            .region(Region.US_EAST_1.toString())
+            .bucket(BUCKET_NAME)
+            .batchSize(1)
+            .flushIntervalMillis(10000)
+            .accessKeyId(minioContainer.getUserName())
+            .secretAccessKey(minioContainer.getPassword())
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .build();
+
+    dlqWriter = S3DlqWriter.createS3SampleWriter(config, TEST_KEY_PREFIX);
+    dlqWriter.open();
+    dlqWriter.s3Client.createBucket(b -> b.bucket(BUCKET_NAME));
+
+    writeDeadLetters(1);
+    Thread.sleep(2000);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size());
+    assertTrue(objectKeys.get(0).startsWith(TEST_KEY_PREFIX + "/raw-data-samples/"));
   }
 
   private List<String> listS3Objects(S3Client s3Client) {
