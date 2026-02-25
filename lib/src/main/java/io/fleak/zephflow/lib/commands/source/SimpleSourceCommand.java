@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.S3DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.util.List;
@@ -55,7 +56,9 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     Fetcher.Committer committer = fetcher.committer();
 
     DlqWriter dlqWriter = sourceInitializedConfig.dlqWriter();
+    RawDataSampler<T> rawDataSampler = createRawDataSampler(encoder);
     try {
+      rawDataSampler.open();
       int sleep = SLEEP_INIT;
       while (!finished.get()) {
         // 1. Fetch source-specific records
@@ -75,6 +78,9 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
           sleep = Math.min(sleep + SLEEP_INC, SLEEP_MAX);
           continue;
         }
+
+        rawDataSampler.maybeSample(fetchedData);
+
         // 2. Convert raw input into internal data structure
         List<ConvertedResult<T>> convertedResults =
             fetchedData.stream().map(fd -> converter.convert(fd, sourceInitializedConfig)).toList();
@@ -86,6 +92,12 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     } catch (Exception e) {
       log.error("Fleak Source unexpected exception", e);
     } finally {
+      try {
+        rawDataSampler.close();
+      } catch (Exception e) {
+        log.debug("failed to close raw data sampler", e);
+      }
+
       try {
         sourceEventAcceptor.terminate();
       } catch (Exception e) {
@@ -178,5 +190,16 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   public void terminate() throws IOException {
     finished.set(true);
     super.terminate();
+  }
+
+  private RawDataSampler<T> createRawDataSampler(RawDataEncoder<T> encoder) {
+    JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
+    if (!(dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig)) {
+      return RawDataSampler.noOp();
+    }
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+    DlqWriter sampleWriter = S3DlqWriter.createS3SampleWriter(s3DlqConfig, keyPrefix);
+    return new RawDataSampler<>(
+        encoder, sampleWriter, nodeId, s3DlqConfig.getRawDataSampleIntervalMs());
   }
 }

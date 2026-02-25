@@ -23,7 +23,7 @@ class S3DlqWriterKeyPrefixTest {
   private static final long FIXED_TIMESTAMP = 1700000000000L;
 
   private S3DlqWriter createWriter(String keyPrefix) {
-    return new S3DlqWriter(null, BUCKET_NAME, 1, 1000, keyPrefix);
+    return new S3DlqWriter(null, BUCKET_NAME, 1, 1000, keyPrefix, "dead-letters", "deadletter");
   }
 
   @Test
