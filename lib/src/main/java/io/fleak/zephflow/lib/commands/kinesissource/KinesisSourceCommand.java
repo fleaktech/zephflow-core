@@ -62,10 +62,11 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     FleakCounter deserializeFailureCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
 
+    String keyPrefix = (String) jobContext.getOtherProperties().get("DATA_KEY_PREFIX");
     DlqWriter dlqWriter =
         Optional.of(jobContext)
             .map(JobContext::getDlqConfig)
-            .map(this::createDlqWriter)
+            .map(c -> createDlqWriter(c, keyPrefix))
             .orElse(null);
     if (dlqWriter != null) {
       dlqWriter.open();
@@ -113,9 +114,9 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
         DecompressorFactory.getDecompressor(config.getCompressionTypes()));
   }
 
-  private DlqWriter createDlqWriter(JobContext.DlqConfig dlqConfig) {
+  private DlqWriter createDlqWriter(JobContext.DlqConfig dlqConfig, String keyPrefix) {
     if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      return S3DlqWriter.createS3DlqWriter(s3DlqConfig);
+      return S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
     }
     throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
   }

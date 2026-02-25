@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.UUID;
 import javax.annotation.Nonnull;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -41,9 +42,11 @@ public class S3DlqWriter extends DlqWriter {
   @VisibleForTesting final BufferedWriter<DeadLetter> bufferedWriter;
   @VisibleForTesting final S3Client s3Client;
   private final String bucketName;
+  private final String keyPrefix;
   private final DeadLetterS3CommiterSerializer serializer;
 
-  public static S3DlqWriter createS3DlqWriter(JobContext.S3DlqConfig s3DlqConfig) {
+  public static S3DlqWriter createS3DlqWriter(
+      JobContext.S3DlqConfig s3DlqConfig, String keyPrefix) {
     return createS3DlqWriter(
         s3DlqConfig.getRegion(),
         s3DlqConfig.getBucket(),
@@ -51,7 +54,8 @@ public class S3DlqWriter extends DlqWriter {
         s3DlqConfig.getFlushIntervalMillis(),
         new UsernamePasswordCredential(
             s3DlqConfig.getAccessKeyId(), s3DlqConfig.getSecretAccessKey()),
-        null);
+        null,
+        keyPrefix);
   }
 
   @VisibleForTesting
@@ -61,7 +65,8 @@ public class S3DlqWriter extends DlqWriter {
       int batchSize,
       long flushIntervalMillis,
       UsernamePasswordCredential credential,
-      String s3EndpointOverride) {
+      String s3EndpointOverride,
+      String keyPrefix) {
     Preconditions.checkArgument(
         batchSize > 0, "batchSize must be positive but provided %d", batchSize);
     Preconditions.checkArgument(
@@ -72,13 +77,19 @@ public class S3DlqWriter extends DlqWriter {
     S3Client s3Client =
         new AwsClientFactory().createS3Client(region, credential, s3EndpointOverride);
 
-    return new S3DlqWriter(s3Client, bucketName, batchSize, flushIntervalMillis);
+    return new S3DlqWriter(s3Client, bucketName, batchSize, flushIntervalMillis, keyPrefix);
   }
 
   @VisibleForTesting
-  S3DlqWriter(S3Client s3Client, String bucketName, int batchSize, long flushIntervalMillis) {
+  S3DlqWriter(
+      S3Client s3Client,
+      String bucketName,
+      int batchSize,
+      long flushIntervalMillis,
+      String keyPrefix) {
     this.s3Client = s3Client;
     this.bucketName = bucketName;
+    this.keyPrefix = sanitizeKeyPrefix(keyPrefix);
     this.serializer = new DeadLetterS3CommiterSerializer();
     this.bufferedWriter =
         new BufferedWriter<>(
@@ -101,6 +112,14 @@ public class S3DlqWriter extends DlqWriter {
     s3Client.close();
   }
 
+  private static String sanitizeKeyPrefix(String prefix) {
+    if (prefix == null) return null;
+    String sanitized = prefix.strip();
+    while (sanitized.startsWith("/")) sanitized = sanitized.substring(1);
+    while (sanitized.endsWith("/")) sanitized = sanitized.substring(0, sanitized.length() - 1);
+    return sanitized.isEmpty() ? null : sanitized;
+  }
+
   private void uploadToS3(List<DeadLetter> batch) {
     long timestamp = System.currentTimeMillis();
 
@@ -121,16 +140,25 @@ public class S3DlqWriter extends DlqWriter {
     }
   }
 
-  private String generateS3ObjectKey(long timestamp) {
+  @VisibleForTesting
+  String generateS3ObjectKey(long timestamp) {
     Instant instant = Instant.ofEpochMilli(timestamp);
     ZonedDateTime utcDateTime = instant.atZone(ZoneOffset.UTC);
 
-    String year = String.format("%04d", utcDateTime.getYear());
-    String month = String.format("%02d", utcDateTime.getMonthValue());
-    String day = String.format("%02d", utcDateTime.getDayOfMonth());
+    String date =
+        String.format(
+            "%04d-%02d-%02d",
+            utcDateTime.getYear(), utcDateTime.getMonthValue(), utcDateTime.getDayOfMonth());
     String hour = String.format("%02d", utcDateTime.getHour());
+    String uuid = UUID.randomUUID().toString();
 
-    return String.format("%s/%s/%s/%s/dead-letters-%d.avro", year, month, day, hour, timestamp);
+    String timePath =
+        String.format(
+            "dead-letters/dt=%s/hr=%s/deadletter-%d_%s.avro", date, hour, timestamp, uuid);
+    if (keyPrefix != null && !keyPrefix.isEmpty()) {
+      return keyPrefix + "/" + timePath;
+    }
+    return timePath;
   }
 
   private void uploadToS3WithRetry(byte[] data, String objectKey) {
