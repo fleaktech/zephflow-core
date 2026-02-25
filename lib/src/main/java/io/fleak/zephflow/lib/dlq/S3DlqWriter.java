@@ -38,24 +38,30 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 @Slf4j
 public class S3DlqWriter extends DlqWriter {
   private static final int MAX_RETRIES = 3;
+  private static final String DEFAULT_PATH_SEGMENT = "dead-letters";
+  private static final String DEFAULT_FILE_PREFIX = "deadletter";
 
   @VisibleForTesting final BufferedWriter<DeadLetter> bufferedWriter;
   @VisibleForTesting final S3Client s3Client;
   private final String bucketName;
   private final String keyPrefix;
+  private final String pathSegment;
+  private final String filePrefix;
   private final DeadLetterS3CommiterSerializer serializer;
 
   public static S3DlqWriter createS3DlqWriter(
       JobContext.S3DlqConfig s3DlqConfig, String keyPrefix) {
-    return createS3DlqWriter(
+    return createWriter(
         s3DlqConfig.getRegion(),
         s3DlqConfig.getBucket(),
         s3DlqConfig.getBatchSize(),
         s3DlqConfig.getFlushIntervalMillis(),
         new UsernamePasswordCredential(
             s3DlqConfig.getAccessKeyId(), s3DlqConfig.getSecretAccessKey()),
-        null,
-        keyPrefix);
+        s3DlqConfig.getS3EndpointOverride(),
+        keyPrefix,
+        DEFAULT_PATH_SEGMENT,
+        DEFAULT_FILE_PREFIX);
   }
 
   @VisibleForTesting
@@ -67,17 +73,74 @@ public class S3DlqWriter extends DlqWriter {
       UsernamePasswordCredential credential,
       String s3EndpointOverride,
       String keyPrefix) {
+    return createWriter(
+        region,
+        bucketName,
+        batchSize,
+        flushIntervalMillis,
+        credential,
+        s3EndpointOverride,
+        keyPrefix,
+        DEFAULT_PATH_SEGMENT,
+        DEFAULT_FILE_PREFIX);
+  }
+
+  public static S3DlqWriter createS3SampleWriter(
+      JobContext.S3DlqConfig s3DlqConfig, String keyPrefix) {
+    return createWriter(
+        s3DlqConfig.getRegion(),
+        s3DlqConfig.getBucket(),
+        s3DlqConfig.getBatchSize(),
+        s3DlqConfig.getFlushIntervalMillis(),
+        new UsernamePasswordCredential(
+            s3DlqConfig.getAccessKeyId(), s3DlqConfig.getSecretAccessKey()),
+        s3DlqConfig.getS3EndpointOverride(),
+        keyPrefix,
+        "raw-data-samples",
+        "sample");
+  }
+
+  @VisibleForTesting
+  public static S3DlqWriter createS3SampleWriter(
+      @Nonnull String region,
+      @NonNull String bucketName,
+      int batchSize,
+      long flushIntervalMillis,
+      UsernamePasswordCredential credential,
+      String s3EndpointOverride,
+      String keyPrefix) {
+    return createWriter(
+        region,
+        bucketName,
+        batchSize,
+        flushIntervalMillis,
+        credential,
+        s3EndpointOverride,
+        keyPrefix,
+        "raw-data-samples",
+        "sample");
+  }
+
+  private static S3DlqWriter createWriter(
+      @Nonnull String region,
+      @NonNull String bucketName,
+      int batchSize,
+      long flushIntervalMillis,
+      UsernamePasswordCredential credential,
+      String s3EndpointOverride,
+      String keyPrefix,
+      String pathSegment,
+      String filePrefix) {
     Preconditions.checkArgument(
         batchSize > 0, "batchSize must be positive but provided %d", batchSize);
     Preconditions.checkArgument(
         flushIntervalMillis > 0,
         "flushIntervalMillis must be positive but provided %d",
         flushIntervalMillis);
-
     S3Client s3Client =
         new AwsClientFactory().createS3Client(region, credential, s3EndpointOverride);
-
-    return new S3DlqWriter(s3Client, bucketName, batchSize, flushIntervalMillis, keyPrefix);
+    return new S3DlqWriter(
+        s3Client, bucketName, batchSize, flushIntervalMillis, keyPrefix, pathSegment, filePrefix);
   }
 
   @VisibleForTesting
@@ -86,14 +149,18 @@ public class S3DlqWriter extends DlqWriter {
       String bucketName,
       int batchSize,
       long flushIntervalMillis,
-      String keyPrefix) {
+      String keyPrefix,
+      String pathSegment,
+      String filePrefix) {
     this.s3Client = s3Client;
     this.bucketName = bucketName;
     this.keyPrefix = sanitizeKeyPrefix(keyPrefix);
+    this.pathSegment = pathSegment;
+    this.filePrefix = filePrefix;
     this.serializer = new DeadLetterS3CommiterSerializer();
     this.bufferedWriter =
         new BufferedWriter<>(
-            batchSize, flushIntervalMillis, this::uploadToS3, "s3-dlq-writer-flusher");
+            batchSize, flushIntervalMillis, this::uploadToS3, "s3-" + pathSegment + "-flusher");
   }
 
   @Override
@@ -154,7 +221,7 @@ public class S3DlqWriter extends DlqWriter {
 
     String timePath =
         String.format(
-            "dead-letters/dt=%s/hr=%s/deadletter-%d_%s.avro", date, hour, timestamp, uuid);
+            "%s/dt=%s/hr=%s/%s-%d_%s.avro", pathSegment, date, hour, filePrefix, timestamp, uuid);
     if (keyPrefix != null && !keyPrefix.isEmpty()) {
       return keyPrefix + "/" + timePath;
     }

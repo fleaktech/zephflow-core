@@ -82,7 +82,7 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
       return null;
     }
     if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      String keyPrefix = (String) jobContext.getOtherProperties().get("DATA_KEY_PREFIX");
+      String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
       DlqWriter writer = S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
       writer.open();
       return writer;

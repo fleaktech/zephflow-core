@@ -335,4 +335,28 @@ class SimpleSourceCommandTest {
     verify(mockCommitter).commit();
     verify(mockSourceEventAcceptor).terminate();
   }
+
+  @Test
+  void testNoDlqConfigReturnsNoOpSampler() throws Exception {
+    // No DLQ config set — sampler should be no-op and not cause issues
+    when(mockJobContext.getDlqConfig()).thenReturn(null);
+
+    RecordFleakData mockRecord = mock(RecordFleakData.class);
+    SerializedEvent mockRaw = new SerializedEvent(null, "abcdef".getBytes(), null);
+    when(mockFetcher.fetch())
+        .thenAnswer(
+            i -> {
+              command.terminate();
+              return List.of(mockRaw);
+            });
+    when(mockDeserializer.deserialize(same(mockRaw))).thenReturn(List.of(mockRecord));
+    when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
+    when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
+
+    command.initialize(mockMetricClientProvider);
+    command.execute("testUser", mockSourceEventAcceptor);
+
+    verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
+    verify(mockSourceEventAcceptor).terminate();
+  }
 }
