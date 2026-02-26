@@ -194,16 +194,16 @@ public class S3DlqWriter extends DlqWriter {
     try {
       data = serializer.serialize(batch);
     } catch (Exception e) {
-      log.error("failed to serialize dead letters, dropping {} records", batch.size(), e);
+      log.error("failed to serialize {}, dropping {} records", pathSegment, batch.size(), e);
       return;
     }
 
     String objectKey = generateS3ObjectKey(timestamp);
     try {
       uploadToS3WithRetry(data, objectKey);
-      log.info("Uploaded {} dead letters to s3://{}/{}", batch.size(), bucketName, objectKey);
+      log.info("Uploaded {} records to s3://{}/{}", batch.size(), bucketName, objectKey);
     } catch (Exception e) {
-      log.error("failed to write to DLQ. data: {}", toBase64String(data), e);
+      log.error("failed to write to S3 {}. data: {}", pathSegment, toBase64String(data), e);
     }
   }
 
