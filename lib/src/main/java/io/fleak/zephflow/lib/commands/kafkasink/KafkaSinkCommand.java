@@ -64,11 +64,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
-        createKafkaFlusher(
-            config,
-            counters.sinkOutputCounter(),
-            counters.outputSizeCounter(),
-            counters.sinkErrorCounter());
+        createKafkaFlusher(config, counters.sinkErrorCounter());
 
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
@@ -84,10 +80,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
-      KafkaSinkDto.Config config,
-      FleakCounter asyncSuccessCounter,
-      FleakCounter asyncOutputSizeCounter,
-      FleakCounter asyncErrorCounter) {
+      KafkaSinkDto.Config config, FleakCounter asyncErrorCounter) {
     Properties props = getProperties(config);
 
     boolean isTestMode =
@@ -115,13 +108,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     KafkaProducer<byte[], byte[]> producer = kafkaProducerClientFactory.createKafkaProducer(props);
 
     return new KafkaSinkFlusher(
-        producer,
-        config.getTopic(),
-        serializer,
-        partitionKeyExpression,
-        asyncSuccessCounter,
-        asyncOutputSizeCounter,
-        asyncErrorCounter);
+        producer, config.getTopic(), serializer, partitionKeyExpression, asyncErrorCounter);
   }
 
   private static @NotNull Properties getProperties(KafkaSinkDto.Config config) {
