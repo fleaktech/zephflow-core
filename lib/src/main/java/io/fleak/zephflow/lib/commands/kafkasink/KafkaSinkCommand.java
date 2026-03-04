@@ -63,9 +63,6 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
-    // Pass real output/size counters to the flusher so the async delivery callback can increment
-    // them on confirmed broker delivery. SinkExecutionContext receives noop counters for those
-    // slots to prevent writeOneBatch from double-counting at submission time.
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
         createKafkaFlusher(
             config,
@@ -81,8 +78,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         messagePreProcessor,
         counters.inputMessageCounter(),
         counters.errorCounter(),
-        FleakCounter.noop(), // tracked async by flusher callback
-        FleakCounter.noop(), // tracked async by flusher callback
+        FleakCounter.noop(),
+        FleakCounter.noop(),
         counters.sinkErrorCounter());
   }
 

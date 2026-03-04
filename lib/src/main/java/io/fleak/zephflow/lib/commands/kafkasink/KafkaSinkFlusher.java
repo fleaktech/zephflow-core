@@ -128,8 +128,6 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         sentCount,
         errorOutputs.size());
 
-    // successCount = submitted count (for SinkResult error accounting).
-    // flushedDataSize = 0: delivery-confirmed size is tracked async via asyncDeliveredSizeCounter.
     return new SimpleSinkCommand.FlushResult(sentCount, 0, errorOutputs);
   }
 
