@@ -41,6 +41,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   private final String topic;
   private final FleakSerializer<?> fleakSerializer;
   private final PathExpression partitionKeyExpression;
+  private final FleakCounter asyncDeliveredCountCounter;
+  private final FleakCounter asyncDeliveredSizeCounter;
   private final FleakCounter asyncErrorCounter;
 
   private volatile boolean closed = false;
@@ -50,11 +52,15 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       @NonNull String topic,
       @NonNull FleakSerializer<?> fleakSerializer,
       PathExpression partitionKeyExpression, // This one can stay nullable
+      @NonNull FleakCounter asyncDeliveredCountCounter,
+      @NonNull FleakCounter asyncDeliveredSizeCounter,
       @NonNull FleakCounter asyncErrorCounter) {
     this.producer = producer;
     this.topic = topic;
     this.fleakSerializer = fleakSerializer;
     this.partitionKeyExpression = partitionKeyExpression;
+    this.asyncDeliveredCountCounter = asyncDeliveredCountCounter;
+    this.asyncDeliveredSizeCounter = asyncDeliveredSizeCounter;
     this.asyncErrorCounter = asyncErrorCounter;
   }
 
@@ -75,7 +81,6 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
 
     List<ErrorOutput> errorOutputs = new ArrayList<>();
     int sentCount = 0;
-    long totalSize = 0;
 
     for (RecordFleakData event : events) {
       try {
@@ -94,7 +99,6 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         if (eventValue == null || eventValue.length == 0) {
           continue;
         }
-        int recordSize = eventValue.length;
         producer.send(
             new ProducerRecord<>(topic, keyBytesValue, eventValue),
             (metadata, exception) -> {
@@ -104,6 +108,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
                 asyncErrorCounter.increase(metricTags);
                 return;
               }
+              asyncDeliveredCountCounter.increase(metricTags);
+              asyncDeliveredSizeCounter.increase(eventValue.length, metricTags);
               log.debug(
                   "Sent event to Kafka: topic={}, partition={}, offset={}",
                   metadata.topic(),
@@ -111,7 +117,6 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
                   metadata.offset());
             });
         sentCount++;
-        totalSize += recordSize;
       } catch (Exception e) {
         log.error("Failed to send Kafka record for event: {}", toJsonString(event), e);
         errorOutputs.add(new ErrorOutput(event, e.getMessage()));
@@ -123,7 +128,9 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         sentCount,
         errorOutputs.size());
 
-    return new SimpleSinkCommand.FlushResult(sentCount, totalSize, errorOutputs);
+    // successCount = submitted count (for SinkResult error accounting).
+    // flushedDataSize = 0: delivery-confirmed size is tracked async via asyncDeliveredSizeCounter.
+    return new SimpleSinkCommand.FlushResult(sentCount, 0, errorOutputs);
   }
 
   @Override

@@ -17,7 +17,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -41,6 +40,8 @@ class KafkaSinkFlusherTest {
 
   @Mock private KafkaProducer<byte[], byte[]> mockProducer;
   @Mock private FleakSerializer<Object> mockSerializer;
+  @Mock private FleakCounter mockDeliveredCountCounter;
+  @Mock private FleakCounter mockDeliveredSizeCounter;
   @Mock private FleakCounter mockAsyncErrorCounter;
 
   private final String topic = "test-topic";
@@ -71,7 +72,14 @@ class KafkaSinkFlusherTest {
         .send(any(ProducerRecord.class), any(Callback.class));
 
     flusher =
-        new KafkaSinkFlusher(mockProducer, topic, mockSerializer, null, mockAsyncErrorCounter);
+        new KafkaSinkFlusher(
+            mockProducer,
+            topic,
+            mockSerializer,
+            null,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
   }
 
   private static final Map<String, String> TEST_METRIC_TAGS = Map.of("callingUser", "testUser");
@@ -84,39 +92,12 @@ class KafkaSinkFlusherTest {
     SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents, TEST_METRIC_TAGS);
 
     assertEquals(3, result.successCount());
+    assertEquals(0, result.flushedDataSize()); // size tracked via async counter, not FlushResult
     assertEquals(0, result.errorOutputList().size());
     verify(mockProducer, times(3)).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockDeliveredCountCounter, times(3)).increase(TEST_METRIC_TAGS);
+    verify(mockDeliveredSizeCounter, times(3)).increase(TEST_DATA.length, TEST_METRIC_TAGS);
     verify(mockAsyncErrorCounter, never()).increase(any());
-  }
-
-  @Test
-  void testSuccessCount_IsEqualToNumberOfRecordsSubmittedToProducer() throws Exception {
-    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
-        createPreparedEvents(testEvents.subList(0, 3));
-
-    SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents, TEST_METRIC_TAGS);
-
-    // Key assertion: successCount must NOT be zero when records are successfully submitted
-    assertNotEquals(
-        0, result.successCount(), "successCount must not be zero when records are submitted");
-    assertEquals(3, result.successCount());
-  }
-
-  @Test
-  void testSinkResultErrorCount_IsZeroWhenAllRecordsSubmitted() throws Exception {
-    List<RecordFleakData> batch = testEvents.subList(0, 3);
-    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
-        createPreparedEvents(batch);
-
-    SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents, TEST_METRIC_TAGS);
-
-    // Simulate how SimpleSinkCommand.writeOneBatch() computes error count:
-    ScalarSinkCommand.SinkResult sinkResult =
-        new ScalarSinkCommand.SinkResult(
-            batch.size(), result.successCount(), result.errorOutputList());
-
-    assertEquals(
-        0, sinkResult.errorCount(), "SinkResult.errorCount() must be 0 when all records succeed");
   }
 
   @Test
@@ -133,8 +114,11 @@ class KafkaSinkFlusherTest {
     SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents, TEST_METRIC_TAGS);
 
     assertEquals(2, result.successCount(), "Only successfully-submitted records count");
+    assertEquals(0, result.flushedDataSize());
     assertEquals(1, result.errorOutputList().size(), "Sync failures appear in errorOutputList");
     verify(mockProducer, times(2)).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockDeliveredCountCounter, times(2)).increase(TEST_METRIC_TAGS);
+    verify(mockDeliveredSizeCounter, times(2)).increase(TEST_DATA.length, TEST_METRIC_TAGS);
   }
 
   @Test
@@ -144,7 +128,14 @@ class KafkaSinkFlusherTest {
         .thenThrow(new RuntimeException("Serialization error"));
 
     KafkaSinkFlusher failingFlusher =
-        new KafkaSinkFlusher(mockProducer, topic, failingSerializer, null, mockAsyncErrorCounter);
+        new KafkaSinkFlusher(
+            mockProducer,
+            topic,
+            failingSerializer,
+            null,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, 3));
@@ -153,8 +144,11 @@ class KafkaSinkFlusherTest {
 
     assertNotNull(result);
     assertEquals(0, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     assertEquals(3, result.errorOutputList().size());
     verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockDeliveredCountCounter, never()).increase(any());
+    verify(mockDeliveredSizeCounter, never()).increase(anyLong(), any());
 
     failingFlusher.close();
   }
@@ -179,10 +173,12 @@ class KafkaSinkFlusherTest {
     assertNotNull(result);
     assertEquals(
         3, result.successCount(), "Records submitted count even when async delivery fails");
+    assertEquals(0, result.flushedDataSize());
     assertEquals(0, result.errorOutputList().size(), "Async failures don't appear as sync errors");
     verify(mockProducer, times(3)).send(any(ProducerRecord.class), any(Callback.class));
-    // Async error counter incremented via callback for each delivery failure
     verify(mockAsyncErrorCounter, times(3)).increase(TEST_METRIC_TAGS);
+    verify(mockDeliveredCountCounter, never()).increase(any());
+    verify(mockDeliveredSizeCounter, never()).increase(anyLong(), any());
   }
 
   @Test
@@ -199,6 +195,8 @@ class KafkaSinkFlusherTest {
     assertEquals(0, result.successCount());
     assertEquals(0, result.flushedDataSize());
     assertEquals(3, result.errorOutputList().size());
+    verify(mockDeliveredCountCounter, never()).increase(any());
+    verify(mockDeliveredSizeCounter, never()).increase(anyLong(), any());
   }
 
   @Test
@@ -217,7 +215,13 @@ class KafkaSinkFlusherTest {
     PathExpression keyExpression = PathExpression.fromString("$.message");
     KafkaSinkFlusher flusherWithKey =
         new KafkaSinkFlusher(
-            mockProducer, topic, mockSerializer, keyExpression, mockAsyncErrorCounter);
+            mockProducer,
+            topic,
+            mockSerializer,
+            keyExpression,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, 3));
@@ -226,7 +230,10 @@ class KafkaSinkFlusherTest {
 
     assertNotNull(result);
     assertEquals(3, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     verify(mockProducer, times(3)).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockDeliveredCountCounter, times(3)).increase(TEST_METRIC_TAGS);
+    verify(mockDeliveredSizeCounter, times(3)).increase(TEST_DATA.length, TEST_METRIC_TAGS);
 
     flusherWithKey.close();
   }
@@ -239,6 +246,7 @@ class KafkaSinkFlusherTest {
     SimpleSinkCommand.FlushResult result = flusher.flush(emptyEvents, TEST_METRIC_TAGS);
 
     assertEquals(0, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     assertEquals(0, result.errorOutputList().size());
     verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
   }
@@ -264,8 +272,11 @@ class KafkaSinkFlusherTest {
     SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents, TEST_METRIC_TAGS);
 
     assertEquals(3, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     assertEquals(0, result.errorOutputList().size());
     verify(mockProducer, times(3)).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockDeliveredCountCounter, times(3)).increase(TEST_METRIC_TAGS);
+    verify(mockDeliveredSizeCounter, times(3)).increase(TEST_DATA.length, TEST_METRIC_TAGS);
   }
 
   @Test
@@ -289,7 +300,14 @@ class KafkaSinkFlusherTest {
         .thenReturn(new SerializedEvent(null, null, Map.of()));
 
     KafkaSinkFlusher nullValueFlusher =
-        new KafkaSinkFlusher(mockProducer, topic, nullValueSerializer, null, mockAsyncErrorCounter);
+        new KafkaSinkFlusher(
+            mockProducer,
+            topic,
+            nullValueSerializer,
+            null,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, 3));
@@ -298,6 +316,7 @@ class KafkaSinkFlusherTest {
 
     assertNotNull(result);
     assertEquals(0, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
 
     nullValueFlusher.close();
@@ -310,7 +329,13 @@ class KafkaSinkFlusherTest {
 
     KafkaSinkFlusher nullKeyFlusher =
         new KafkaSinkFlusher(
-            mockProducer, topic, mockSerializer, nullKeyExpression, mockAsyncErrorCounter);
+            mockProducer,
+            topic,
+            mockSerializer,
+            nullKeyExpression,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, 3));
@@ -319,7 +344,10 @@ class KafkaSinkFlusherTest {
 
     assertNotNull(result);
     assertEquals(3, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     verify(mockProducer, times(3)).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockDeliveredCountCounter, times(3)).increase(TEST_METRIC_TAGS);
+    verify(mockDeliveredSizeCounter, times(3)).increase(TEST_DATA.length, TEST_METRIC_TAGS);
 
     nullKeyFlusher.close();
   }
@@ -332,7 +360,13 @@ class KafkaSinkFlusherTest {
 
     KafkaSinkFlusher errorKeyFlusher =
         new KafkaSinkFlusher(
-            mockProducer, topic, mockSerializer, errorKeyExpression, mockAsyncErrorCounter);
+            mockProducer,
+            topic,
+            mockSerializer,
+            errorKeyExpression,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, 3));
@@ -341,7 +375,10 @@ class KafkaSinkFlusherTest {
 
     assertNotNull(result);
     assertEquals(0, result.successCount());
+    assertEquals(0, result.flushedDataSize());
     assertEquals(3, result.errorOutputList().size());
+    verify(mockDeliveredCountCounter, never()).increase(any());
+    verify(mockDeliveredSizeCounter, never()).increase(anyLong(), any());
 
     errorKeyFlusher.close();
   }

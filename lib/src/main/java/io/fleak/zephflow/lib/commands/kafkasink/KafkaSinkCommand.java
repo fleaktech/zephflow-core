@@ -63,8 +63,15 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
+    // Pass real output/size counters to the flusher so the async delivery callback can increment
+    // them on confirmed broker delivery. SinkExecutionContext receives noop counters for those
+    // slots to prevent writeOneBatch from double-counting at submission time.
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
-        createKafkaFlusher(config, counters.sinkErrorCounter());
+        createKafkaFlusher(
+            config,
+            counters.sinkOutputCounter(),
+            counters.outputSizeCounter(),
+            counters.sinkErrorCounter());
 
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
@@ -74,13 +81,16 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         messagePreProcessor,
         counters.inputMessageCounter(),
         counters.errorCounter(),
-        counters.sinkOutputCounter(),
-        counters.outputSizeCounter(),
+        FleakCounter.noop(), // tracked async by flusher callback
+        FleakCounter.noop(), // tracked async by flusher callback
         counters.sinkErrorCounter());
   }
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
-      KafkaSinkDto.Config config, FleakCounter asyncErrorCounter) {
+      KafkaSinkDto.Config config,
+      FleakCounter asyncDeliveredCountCounter,
+      FleakCounter asyncDeliveredSizeCounter,
+      FleakCounter asyncErrorCounter) {
     Properties props = getProperties(config);
 
     boolean isTestMode =
@@ -108,7 +118,13 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     KafkaProducer<byte[], byte[]> producer = kafkaProducerClientFactory.createKafkaProducer(props);
 
     return new KafkaSinkFlusher(
-        producer, config.getTopic(), serializer, partitionKeyExpression, asyncErrorCounter);
+        producer,
+        config.getTopic(),
+        serializer,
+        partitionKeyExpression,
+        asyncDeliveredCountCounter,
+        asyncDeliveredSizeCounter,
+        asyncErrorCounter);
   }
 
   private static @NotNull Properties getProperties(KafkaSinkDto.Config config) {
