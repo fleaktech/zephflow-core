@@ -29,8 +29,11 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
+import io.fleak.zephflow.lib.utils.JsonUtils;
+import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
@@ -899,5 +902,139 @@ class NoSourceDagRunnerTest {
     assertTrue(dagResult.outputEvents.get(NODE_ID_1).isEmpty());
     assertTrue(dagResult.outputByStep.get(NODE_ID_1).get(SOURCE_NODE_ID).isEmpty());
     assertTrue(dagResult.errorByStep.isEmpty());
+  }
+
+  @Test
+  void testParseAssertionDag() throws Exception {
+    JobContext jobContext =
+        JobContext.builder()
+            .metricTags(Map.of(METRIC_TAG_SERVICE, "test_svc", METRIC_TAG_ENV, "test_env"))
+            .build();
+
+    List<AdjacencyListDagDefinition.DagNode> dagNodes =
+        List.of(
+            AdjacencyListDagDefinition.DagNode.builder()
+                .id("parse")
+                .commandName("parser")
+                .config(
+                    Map.of(
+                        "targetField",
+                        "__raw__",
+                        "removeTargetField",
+                        false,
+                        "extractionConfig",
+                        Map.of(
+                            "type", "delimited_text",
+                            "delimiter", "|",
+                            "columns",
+                                List.of(
+                                    "Timestamp",
+                                    "SourceIP",
+                                    "DestIP",
+                                    "Application",
+                                    "Action",
+                                    "BytesSent"))))
+                .outputs(List.of("validate_action"))
+                .build(),
+            AdjacencyListDagDefinition.DagNode.builder()
+                .id("validate_action")
+                .commandName("assertion")
+                .config(
+                    Map.of(
+                        "expression",
+                        "in($.Action, array(\"ALLOW\", \"BLOCK\", \"DROP\", \"ALERT\"))"))
+                .outputs(List.of())
+                .build());
+
+    AdjacencyListDagDefinition dagDefinition =
+        AdjacencyListDagDefinition.builder().jobContext(jobContext).dag(dagNodes).build();
+
+    DagCompiler dagCompiler = new DagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS);
+    Dag<OperatorCommand> compiledDag = dagCompiler.compile(dagDefinition, false);
+
+    List<Edge> edgesFromSource = new ArrayList<>();
+    for (var node : compiledDag.getEntryNodes()) {
+      edgesFromSource.add(Edge.builder().from("source").to(node.getId()).build());
+    }
+
+    DagRunCounters counters =
+        DagRunCounters.createPipelineCounters(
+            new MetricClientProvider.NoopMetricClientProvider(), jobContext.getMetricTags());
+
+    noSourceDagRunner =
+        new NoSourceDagRunner(
+            edgesFromSource,
+            compiledDag,
+            new MetricClientProvider.NoopMetricClientProvider(),
+            counters,
+            false);
+
+    List<RecordFleakData> inputEvents =
+        List.of(
+            new RecordFleakData(
+                Map.of(
+                    "__raw__",
+                    new StringPrimitiveFleakData(
+                        "2023-10-27 10:00:01|192.168.1.15|10.0.0.5|ALLOW|450"))),
+            new RecordFleakData(
+                Map.of(
+                    "__raw__",
+                    new StringPrimitiveFleakData(
+                        "2023-10-27 10:00:02|192.168.1.22|10.0.0.8|BLOCK|0"))),
+            new RecordFleakData(
+                Map.of(
+                    "__raw__",
+                    new StringPrimitiveFleakData(
+                        "2023-10-27 11:00:01|192.168.1.15|10.0.0.5|Facebook|ALLOW|450"))),
+            new RecordFleakData(
+                Map.of(
+                    "__raw__",
+                    new StringPrimitiveFleakData(
+                        "2023-10-27 11:00:02|192.168.1.22|10.0.0.8|Gmail|BLOCK|0"))));
+
+    DagResult dagResult =
+        noSourceDagRunner.run(
+            inputEvents, CALLING_USER, new NoSourceDagRunner.DagRunConfig(true, true));
+
+    String expectedOutputEvents =
+        """
+        {"validate_action":[
+          {"__raw__":"2023-10-27 11:00:01|192.168.1.15|10.0.0.5|Facebook|ALLOW|450","Timestamp":"2023-10-27 11:00:01","SourceIP":"192.168.1.15","DestIP":"10.0.0.5","Application":"Facebook","Action":"ALLOW","BytesSent":"450"},
+          {"__raw__":"2023-10-27 11:00:02|192.168.1.22|10.0.0.8|Gmail|BLOCK|0","Timestamp":"2023-10-27 11:00:02","SourceIP":"192.168.1.22","DestIP":"10.0.0.8","Application":"Gmail","Action":"BLOCK","BytesSent":"0"}
+        ]}""";
+
+    String expectedOutputByStep =
+        """
+        {
+          "parse":{"source":[
+            {"__raw__":"2023-10-27 10:00:01|192.168.1.15|10.0.0.5|ALLOW|450","Timestamp":"2023-10-27 10:00:01","SourceIP":"192.168.1.15","DestIP":"10.0.0.5","Application":"ALLOW","Action":"450"},
+            {"__raw__":"2023-10-27 10:00:02|192.168.1.22|10.0.0.8|BLOCK|0","Timestamp":"2023-10-27 10:00:02","SourceIP":"192.168.1.22","DestIP":"10.0.0.8","Application":"BLOCK","Action":"0"},
+            {"__raw__":"2023-10-27 11:00:01|192.168.1.15|10.0.0.5|Facebook|ALLOW|450","Timestamp":"2023-10-27 11:00:01","SourceIP":"192.168.1.15","DestIP":"10.0.0.5","Application":"Facebook","Action":"ALLOW","BytesSent":"450"},
+            {"__raw__":"2023-10-27 11:00:02|192.168.1.22|10.0.0.8|Gmail|BLOCK|0","Timestamp":"2023-10-27 11:00:02","SourceIP":"192.168.1.22","DestIP":"10.0.0.8","Application":"Gmail","Action":"BLOCK","BytesSent":"0"}
+          ]},
+          "validate_action":{"parse":[
+            {"__raw__":"2023-10-27 11:00:01|192.168.1.15|10.0.0.5|Facebook|ALLOW|450","Timestamp":"2023-10-27 11:00:01","SourceIP":"192.168.1.15","DestIP":"10.0.0.5","Application":"Facebook","Action":"ALLOW","BytesSent":"450"},
+            {"__raw__":"2023-10-27 11:00:02|192.168.1.22|10.0.0.8|Gmail|BLOCK|0","Timestamp":"2023-10-27 11:00:02","SourceIP":"192.168.1.22","DestIP":"10.0.0.8","Application":"Gmail","Action":"BLOCK","BytesSent":"0"}
+          ]}
+        }""";
+
+    String expectedErrorByStep =
+        """
+        {"validate_action":{"parse":[
+          {"inputEvent":{"__raw__":"2023-10-27 10:00:01|192.168.1.15|10.0.0.5|ALLOW|450","Timestamp":"2023-10-27 10:00:01","SourceIP":"192.168.1.15","DestIP":"10.0.0.5","Application":"ALLOW","Action":"450"},
+           "errorMessage":"assertion 'in($.Action,array(\\"ALLOW\\",\\"BLOCK\\",\\"DROP\\",\\"ALERT\\"))' failed on record: {\\"Action\\":\\"450\\",\\"SourceIP\\":\\"192.168.1.15\\",\\"DestIP\\":\\"10.0.0.5\\",\\"__raw__\\":\\"2023-10-27 10:00:01|192.168.1.15|10.0.0.5|ALLOW|450\\",\\"Timestamp\\":\\"2023-10-27 10:00:01\\",\\"Application\\":\\"ALLOW\\"}"},
+          {"inputEvent":{"__raw__":"2023-10-27 10:00:02|192.168.1.22|10.0.0.8|BLOCK|0","Timestamp":"2023-10-27 10:00:02","SourceIP":"192.168.1.22","DestIP":"10.0.0.8","Application":"BLOCK","Action":"0"},
+           "errorMessage":"assertion 'in($.Action,array(\\"ALLOW\\",\\"BLOCK\\",\\"DROP\\",\\"ALERT\\"))' failed on record: {\\"Action\\":\\"0\\",\\"SourceIP\\":\\"192.168.1.22\\",\\"DestIP\\":\\"10.0.0.8\\",\\"__raw__\\":\\"2023-10-27 10:00:02|192.168.1.22|10.0.0.8|BLOCK|0\\",\\"Timestamp\\":\\"2023-10-27 10:00:02\\",\\"Application\\":\\"BLOCK\\"}"}
+        ]}}""";
+
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree(expectedOutputEvents),
+        JsonUtils.OBJECT_MAPPER.readTree(toJsonString(dagResult.outputEvents)));
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree(expectedOutputByStep),
+        JsonUtils.OBJECT_MAPPER.readTree(toJsonString(dagResult.outputByStep)));
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree(expectedErrorByStep),
+        JsonUtils.OBJECT_MAPPER.readTree(toJsonString(dagResult.errorByStep)));
   }
 }
