@@ -73,7 +73,9 @@ class AssertionCommandTest {
 
     assertEquals(List.of(r0), processResult.getOutput());
     assertEquals(
-        List.of(new ErrorOutput(r1, "assertion failed: " + toJsonString(r1.unwrap()))),
+        List.of(
+            new ErrorOutput(
+                r1, "assertion '$.foo%2==0' failed on record: " + toJsonString(r1.unwrap()))),
         processResult.getFailureEvents());
 
     verify(inputMessageCounter, times(2)).increase(any());
@@ -99,8 +101,10 @@ class AssertionCommandTest {
     assertTrue(processResult.getOutput().isEmpty());
     assertEquals(
         List.of(
-            new ErrorOutput(r0, "assertion failed: " + toJsonString(r0.unwrap())),
-            new ErrorOutput(r1, "assertion failed: " + toJsonString(r1.unwrap()))),
+            new ErrorOutput(
+                r0, "assertion 'dict(bar=$.foo)' failed on record: " + toJsonString(r0.unwrap())),
+            new ErrorOutput(
+                r1, "assertion 'dict(bar=$.foo)' failed on record: " + toJsonString(r1.unwrap()))),
         processResult.getFailureEvents());
 
     verify(inputMessageCounter, times(2)).increase(any());
