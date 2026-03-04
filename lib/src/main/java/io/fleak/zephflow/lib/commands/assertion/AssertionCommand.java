@@ -73,7 +73,11 @@ public class AssertionCommand extends ScalarCommand {
       return List.of();
     }
     evalContext.getErrorCounter().increase(callingUserTagAndEventTags);
-    throw new IllegalArgumentException("assertion failed: " + toJsonString(event.unwrap()));
+    throw new IllegalArgumentException(
+        "assertion '"
+            + evalContext.getLanguageContext().expression().getText()
+            + "' failed on record: "
+            + toJsonString(event.unwrap()));
   }
 
   @Override
