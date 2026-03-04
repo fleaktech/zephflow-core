@@ -186,6 +186,22 @@ class KafkaSinkFlusherTest {
   }
 
   @Test
+  void testErrorHandling_SyncProducerFailure() throws Exception {
+    doThrow(new RuntimeException("Buffer full"))
+        .when(mockProducer)
+        .send(any(ProducerRecord.class), any(Callback.class));
+
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
+        createPreparedEvents(testEvents.subList(0, 3));
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(preparedEvents, TEST_METRIC_TAGS);
+
+    assertEquals(0, result.successCount());
+    assertEquals(0, result.flushedDataSize());
+    assertEquals(3, result.errorOutputList().size());
+  }
+
+  @Test
   void testClosedFlusher_ThrowsException() throws Exception {
     flusher.close();
 

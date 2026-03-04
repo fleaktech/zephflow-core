@@ -95,7 +95,6 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
           continue;
         }
         int recordSize = eventValue.length;
-        totalSize += recordSize;
         producer.send(
             new ProducerRecord<>(topic, keyBytesValue, eventValue),
             (metadata, exception) -> {
@@ -112,6 +111,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
                   metadata.offset());
             });
         sentCount++;
+        totalSize += recordSize;
       } catch (Exception e) {
         log.error("Failed to send Kafka record for event: {}", toJsonString(event), e);
         errorOutputs.add(new ErrorOutput(event, e.getMessage()));
