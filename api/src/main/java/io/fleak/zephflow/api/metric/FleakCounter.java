@@ -20,14 +20,4 @@ public interface FleakCounter {
   void increase(Map<String, String> additionalTags);
 
   void increase(long n, Map<String, String> additionalTags);
-
-  static FleakCounter noop() {
-    return new FleakCounter() {
-      @Override
-      public void increase(Map<String, String> additionalTags) {}
-
-      @Override
-      public void increase(long n, Map<String, String> additionalTags) {}
-    };
-  }
 }

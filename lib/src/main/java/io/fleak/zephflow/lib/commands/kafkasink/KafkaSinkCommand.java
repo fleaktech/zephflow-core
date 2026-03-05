@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_KAFKA_SINK;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
@@ -78,8 +79,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         messagePreProcessor,
         counters.inputMessageCounter(),
         counters.errorCounter(),
-        FleakCounter.noop(),
-        FleakCounter.noop(),
+        new NoopFleakCounter(),
+        new NoopFleakCounter(),
         counters.sinkErrorCounter());
   }
 
