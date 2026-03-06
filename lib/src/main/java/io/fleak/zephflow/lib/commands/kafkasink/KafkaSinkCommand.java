@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_KAFKA_SINK;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
@@ -78,15 +79,15 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         messagePreProcessor,
         counters.inputMessageCounter(),
         counters.errorCounter(),
-        counters.sinkOutputCounter(),
-        counters.outputSizeCounter(),
+        new NoopFleakCounter(),
+        new NoopFleakCounter(),
         counters.sinkErrorCounter());
   }
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
       KafkaSinkDto.Config config,
-      FleakCounter asyncSuccessCounter,
-      FleakCounter asyncOutputSizeCounter,
+      FleakCounter asyncDeliveredCountCounter,
+      FleakCounter asyncDeliveredSizeCounter,
       FleakCounter asyncErrorCounter) {
     Properties props = getProperties(config);
 
@@ -119,8 +120,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         config.getTopic(),
         serializer,
         partitionKeyExpression,
-        asyncSuccessCounter,
-        asyncOutputSizeCounter,
+        asyncDeliveredCountCounter,
+        asyncDeliveredSizeCounter,
         asyncErrorCounter);
   }
 
