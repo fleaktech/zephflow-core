@@ -1022,9 +1022,9 @@ class NoSourceDagRunnerTest {
         """
         {"validate_action":{"parse":[
           {"inputEvent":{"__raw__":"2023-10-27 10:00:01|192.168.1.15|10.0.0.5|ALLOW|450","Timestamp":"2023-10-27 10:00:01","SourceIP":"192.168.1.15","DestIP":"10.0.0.5","Application":"ALLOW","Action":"450"},
-           "errorMessage":"assertion 'in($.Action,array(\\"ALLOW\\",\\"BLOCK\\",\\"DROP\\",\\"ALERT\\"))' failed on record: {\\"Action\\":\\"450\\",\\"SourceIP\\":\\"192.168.1.15\\",\\"DestIP\\":\\"10.0.0.5\\",\\"__raw__\\":\\"2023-10-27 10:00:01|192.168.1.15|10.0.0.5|ALLOW|450\\",\\"Timestamp\\":\\"2023-10-27 10:00:01\\",\\"Application\\":\\"ALLOW\\"}"},
+           "errorMessage":"assertion 'in($.Action,array(\\"ALLOW\\",\\"BLOCK\\",\\"DROP\\",\\"ALERT\\"))' failed"},
           {"inputEvent":{"__raw__":"2023-10-27 10:00:02|192.168.1.22|10.0.0.8|BLOCK|0","Timestamp":"2023-10-27 10:00:02","SourceIP":"192.168.1.22","DestIP":"10.0.0.8","Application":"BLOCK","Action":"0"},
-           "errorMessage":"assertion 'in($.Action,array(\\"ALLOW\\",\\"BLOCK\\",\\"DROP\\",\\"ALERT\\"))' failed on record: {\\"Action\\":\\"0\\",\\"SourceIP\\":\\"192.168.1.22\\",\\"DestIP\\":\\"10.0.0.8\\",\\"__raw__\\":\\"2023-10-27 10:00:02|192.168.1.22|10.0.0.8|BLOCK|0\\",\\"Timestamp\\":\\"2023-10-27 10:00:02\\",\\"Application\\":\\"BLOCK\\"}"}
+           "errorMessage":"assertion 'in($.Action,array(\\"ALLOW\\",\\"BLOCK\\",\\"DROP\\",\\"ALERT\\"))' failed"}
         ]}}""";
 
     assertEquals(

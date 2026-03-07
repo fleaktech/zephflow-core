@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.assertion;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_ASSERTION;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
@@ -74,10 +73,7 @@ public class AssertionCommand extends ScalarCommand {
     }
     evalContext.getErrorCounter().increase(callingUserTagAndEventTags);
     throw new IllegalArgumentException(
-        "assertion '"
-            + evalContext.getLanguageContext().expression().getText()
-            + "' failed on record: "
-            + toJsonString(event.unwrap()));
+        "assertion '" + evalContext.getLanguageContext().expression().getText() + "' failed");
   }
 
   @Override

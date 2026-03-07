@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.eval;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_EVAL;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_ERROR_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
@@ -144,7 +143,7 @@ public class EvalCommand extends ScalarCommand {
               .getFailureEvents()
               .add(
                   new ErrorOutput(
-                      event, "Illegal result type: " + toJsonString(fleakData.unwrap())));
+                      event, "Illegal result type: " + fleakData.getClass().getSimpleName()));
         }
       } catch (Exception e) {
         evalContext.getErrorCounter().increase(tags);
