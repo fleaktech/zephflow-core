@@ -18,10 +18,38 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.Value;
 
 /** Created by bolei on 4/22/25 */
 public interface GraalUtils {
+
+  static Value convertToPythonValue(Context context, Object o) {
+    switch (o) {
+      case null -> {
+        return context.asValue(null);
+      }
+      case Map<?, ?> map -> {
+        Value pythonDict = context.eval("python", "{}");
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+          Value key = convertToPythonValue(context, entry.getKey());
+          Value val = convertToPythonValue(context, entry.getValue());
+          pythonDict.putHashEntry(key, val);
+        }
+        return pythonDict;
+      }
+      case List<?> list -> {
+        Value pythonList = context.eval("python", "[]");
+        for (Object e : list) {
+          pythonList.invokeMember("append", convertToPythonValue(context, e));
+        }
+        return pythonList;
+      }
+      default -> {}
+    }
+    return context.asValue(o);
+  }
+
   static FleakData graalValueToFleakData(Value value) {
     if (value == null || value.isNull()) {
       return null; // Represent FEEL null
