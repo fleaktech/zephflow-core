@@ -663,6 +663,73 @@ def add_one(x):
   }
 
   @Test
+  public void testPythonFunctionWithMapArg() {
+    FleakData testData = FleakData.wrap(Map.of("record", Map.of("name", "alice", "age", 30)));
+
+    String script =
+        """
+python(
+  '
+def listify(arg1):
+    result = []
+    for key, value in arg1.items():
+        result.append(str(key) + "=" + str(value))
+    result.sort()
+    return result
+',
+  $["record"]
+)""";
+
+    try {
+      EvalExpressionParser parser =
+          (EvalExpressionParser) AntlrUtils.parseInput(script, AntlrUtils.GrammarType.EVAL);
+      var languageContext = parser.language();
+
+      try (PythonExecutor pythonExecutor = PythonExecutor.createPythonExecutor(languageContext)) {
+        CompiledExpression compiled = ExpressionCompiler.compile(languageContext, pythonExecutor);
+        FleakData result = compiled.evaluate(testData);
+        assertNotNull(result);
+        assertEquals(List.of("age=30", "name=alice"), result.unwrap());
+      }
+    } catch (Exception e) {
+      fail("Python with Map arg failed: " + e.getMessage());
+    }
+  }
+
+  @Test
+  public void testPythonFunctionWithNestedStructures() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "data", Map.of("users", List.of(Map.of("name", "alice"), Map.of("name", "bob")))));
+
+    String script =
+        """
+python(
+  '
+def extract_names(data):
+    return [u["name"] for u in data["users"]]
+',
+  $["data"]
+)""";
+
+    try {
+      EvalExpressionParser parser =
+          (EvalExpressionParser) AntlrUtils.parseInput(script, AntlrUtils.GrammarType.EVAL);
+      var languageContext = parser.language();
+
+      try (PythonExecutor pythonExecutor = PythonExecutor.createPythonExecutor(languageContext)) {
+        CompiledExpression compiled = ExpressionCompiler.compile(languageContext, pythonExecutor);
+        FleakData result = compiled.evaluate(testData);
+        assertNotNull(result);
+        assertEquals(List.of("alice", "bob"), result.unwrap());
+      }
+    } catch (Exception e) {
+      fail("Python with nested structures failed: " + e.getMessage());
+    }
+  }
+
+  @Test
   public void testPythonErrorHandling() {
     FleakData testData = new StringPrimitiveFleakData("test");
 

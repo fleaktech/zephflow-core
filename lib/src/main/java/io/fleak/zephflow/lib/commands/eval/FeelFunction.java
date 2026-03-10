@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
 import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import io.fleak.zephflow.lib.commands.eval.python.CompiledPythonFunction;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
+import io.fleak.zephflow.lib.utils.GraalUtils;
 import java.security.SecureRandom;
 import java.text.NumberFormat;
 import java.text.ParseException;
@@ -1748,18 +1749,7 @@ public interface FeelFunction {
         Object[] pythonArgs =
             feelArgs.stream()
                 .map(fd -> fd != null ? fd.unwrap() : null)
-                .map(
-                    o -> {
-                      if (o instanceof List<?> list) {
-                        Value pythonList = context.eval("python", "[]");
-                        for (Object e : list) {
-                          pythonList.invokeMember("append", context.asValue(e));
-                        }
-                        return pythonList;
-                      } else {
-                        return o;
-                      }
-                    })
+                .map(o -> (Object) GraalUtils.convertToPythonValue(context, o))
                 .toArray();
         context.enter();
         try {
