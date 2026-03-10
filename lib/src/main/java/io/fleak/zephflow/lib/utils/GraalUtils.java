@@ -25,27 +25,24 @@ import org.graalvm.polyglot.Value;
 public interface GraalUtils {
 
   static Value convertToPythonValue(Context context, Object o) {
-    switch (o) {
-      case null -> {
-        return context.asValue(null);
+    if (o == null) {
+      return context.asValue(null);
+    }
+    if (o instanceof Map<?, ?> map) {
+      Value pythonDict = context.eval("python", "{}");
+      for (Map.Entry<?, ?> entry : map.entrySet()) {
+        Value key = convertToPythonValue(context, entry.getKey());
+        Value val = convertToPythonValue(context, entry.getValue());
+        pythonDict.putHashEntry(key, val);
       }
-      case Map<?, ?> map -> {
-        Value pythonDict = context.eval("python", "{}");
-        for (Map.Entry<?, ?> entry : map.entrySet()) {
-          Value key = convertToPythonValue(context, entry.getKey());
-          Value val = convertToPythonValue(context, entry.getValue());
-          pythonDict.putHashEntry(key, val);
-        }
-        return pythonDict;
+      return pythonDict;
+    }
+    if (o instanceof List<?> list) {
+      Value pythonList = context.eval("python", "[]");
+      for (Object e : list) {
+        pythonList.invokeMember("append", convertToPythonValue(context, e));
       }
-      case List<?> list -> {
-        Value pythonList = context.eval("python", "[]");
-        for (Object e : list) {
-          pythonList.invokeMember("append", convertToPythonValue(context, e));
-        }
-        return pythonList;
-      }
-      default -> {}
+      return pythonList;
     }
     return context.asValue(o);
   }
