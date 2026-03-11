@@ -79,7 +79,7 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                         .id(n.getId())
                         .build();
                   } catch (Exception e) {
-                    log.error("dag compilation error at node {}: {}", n.getId(), rdn, e);
+                    log.warn("dag compilation error at node {}: {}", n.getId(), rdn, e);
                     throw new DagCompilationException(
                         DagCompilationException.ErrorType.NODE_COMPILATION,
                         n.getId(),
