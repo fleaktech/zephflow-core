@@ -20,7 +20,6 @@ import io.fleak.zephflow.runner.dag.*;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 3/4/25 */
@@ -89,13 +88,13 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                         e);
                   }
                 })
-            .collect(Collectors.toList());
+            .toList();
 
     // Compile edges (now simpler without conditions)
     List<Edge> compiledEdges =
         rawDag.getEdges().stream()
             .map(e -> Edge.builder().from(e.getFrom()).to(e.getTo()).build())
-            .collect(Collectors.toList());
+            .toList();
 
     return new Dag<>(compiledNodes, compiledEdges);
   }

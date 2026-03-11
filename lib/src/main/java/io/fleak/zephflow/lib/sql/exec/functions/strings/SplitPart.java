@@ -33,7 +33,7 @@ public class SplitPart extends BaseFunction {
 
     assertArgs(args, 3, "(input, delimiter, field)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return null;
 
     var delimiter = args.get(1);

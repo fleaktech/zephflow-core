@@ -41,9 +41,7 @@ public class CorrelatedFunctionCall<E> extends Table<Row> implements CorrelatedI
 
   @Override
   public List<Algebra.Column> getHeader() {
-    return srf.getFuncFrom().getSchema().stream()
-        .map(Algebras::column)
-        .collect(Collectors.toList());
+    return srf.getFuncFrom().getSchema().stream().map(Algebras::column).toList();
   }
 
   @Override
@@ -82,7 +80,7 @@ public class CorrelatedFunctionCall<E> extends Table<Row> implements CorrelatedI
     if (schema.size() == 1) {
       // when a single schema column is provided we wrap the whole return value with the schema
       var m = new LinkedHashMap<Row.Key, Row.Value>();
-      var col = schema.get(0);
+      var col = schema.getFirst();
       m.put(Row.asKey(col.getRelName(), col.getName(), 0), Row.asValue(obj));
       return MapRow.wrapMap(typeSystem, relationNames, m);
     }

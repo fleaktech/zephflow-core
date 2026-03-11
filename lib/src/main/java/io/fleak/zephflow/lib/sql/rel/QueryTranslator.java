@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class QueryTranslator {
   private static final AtomicInteger anonymousRelNameCounter = new AtomicInteger();
@@ -32,7 +31,9 @@ public class QueryTranslator {
     NamedRelation rel;
 
     String mainRelName =
-        query.getFrom().isEmpty() ? anonymousRelName() : query.getFrom().get(0).getAliasOrName();
+        query.getFrom().isEmpty()
+            ? anonymousRelName()
+            : query.getFrom().getFirst().getAliasOrName();
 
     rel = translateQueryFrom(query); // from renames happen here
     rel = translateLateralJoins(query, rel);
@@ -94,8 +95,8 @@ public class QueryTranslator {
       if (groupCol instanceof QueryAST.Expr expr) {
         exprs.add((Expr<E>) Algebras.astExpr(expr));
 
-      } else if (groupCol instanceof QueryAST.SimpleColumn) {
-        columns.add(Algebras.column((QueryAST.SimpleColumn) groupCol));
+      } else if (groupCol instanceof QueryAST.SimpleColumn col) {
+        columns.add(Algebras.column(col));
       } else {
         throw new RuntimeException(groupCol + " is not supported in group by");
       }
@@ -221,9 +222,9 @@ public class QueryTranslator {
   private static NamedRelation translateQueryFrom(QueryAST.Query query) {
     var froms = query.getFrom();
     if (froms.size() == 1) {
-      return translateFrom(froms.get(0));
+      return translateFrom(froms.getFirst());
     } else if (froms.size() > 1) {
-      var rels = froms.stream().map(QueryTranslator::translateFrom).collect(Collectors.toList());
+      var rels = froms.stream().map(QueryTranslator::translateFrom).toList();
       return Algebras.crossProduct(rels, anonymousRelName());
     }
 

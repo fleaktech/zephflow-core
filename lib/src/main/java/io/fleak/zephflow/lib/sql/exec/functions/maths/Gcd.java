@@ -33,7 +33,7 @@ public class Gcd extends BaseFunction {
 
     assertArgs(args, 2, "(a, b)");
 
-    var a = integerTypeCast.cast(args.get(0));
+    var a = integerTypeCast.cast(args.getFirst());
     var b = integerTypeCast.cast(args.get(1));
 
     while (b != 0) {

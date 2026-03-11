@@ -50,7 +50,7 @@ public class StringAgg extends BaseFunction implements AggregateFunction<StringB
       throw new RuntimeException("string_agg requires 2 arguments; expression and a separator.");
     }
 
-    var s = toStringCast.cast(arguments.get(0));
+    var s = toStringCast.cast(arguments.getFirst());
     var sep = toStringCast.cast(arguments.get(1));
 
     if (state.isEmpty()) return state.append(s);

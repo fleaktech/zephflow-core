@@ -175,7 +175,7 @@ public class ExpressionToASTListener extends ExpressionSQLParserBaseListener {
       if (q == null)
         throw new RuntimeException("query cannot be null after exiting a where clause");
 
-      q.setWhere(datums.get(0));
+      q.setWhere(datums.getFirst());
     }
   }
 
@@ -316,7 +316,7 @@ public class ExpressionToASTListener extends ExpressionSQLParserBaseListener {
       if (q == null)
         throw new RuntimeException("query cannot be null after exiting a having clause");
 
-      q.setHaving(datums.get(0));
+      q.setHaving(datums.getFirst());
     }
   }
 
@@ -742,10 +742,10 @@ public class ExpressionToASTListener extends ExpressionSQLParserBaseListener {
     if (args.isEmpty()) {
       stack.push(QueryAST.constant(true));
     } else if (args.size() == 1) {
-      stack.push(args.get(0));
+      stack.push(args.getFirst());
     } else {
       var left =
-          QueryAST.binaryBoolExpr(args.get(0), args.get(1), QueryAST.BinaryBooleanOperator.AND);
+          QueryAST.binaryBoolExpr(args.getFirst(), args.get(1), QueryAST.BinaryBooleanOperator.AND);
       var op =
           ctx.condition.getText().equalsIgnoreCase("and")
               ? QueryAST.BinaryBooleanOperator.AND

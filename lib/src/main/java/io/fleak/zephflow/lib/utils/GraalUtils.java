@@ -25,24 +25,27 @@ import org.graalvm.polyglot.Value;
 public interface GraalUtils {
 
   static Value convertToPythonValue(Context context, Object o) {
-    if (o == null) {
-      return context.asValue(null);
-    }
-    if (o instanceof Map<?, ?> map) {
-      Value pythonDict = context.eval("python", "{}");
-      for (Map.Entry<?, ?> entry : map.entrySet()) {
-        Value key = convertToPythonValue(context, entry.getKey());
-        Value val = convertToPythonValue(context, entry.getValue());
-        pythonDict.putHashEntry(key, val);
+    switch (o) {
+      case null -> {
+        return context.asValue(null);
       }
-      return pythonDict;
-    }
-    if (o instanceof List<?> list) {
-      Value pythonList = context.eval("python", "[]");
-      for (Object e : list) {
-        pythonList.invokeMember("append", convertToPythonValue(context, e));
+      case Map<?, ?> map -> {
+        Value pythonDict = context.eval("python", "{}");
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+          Value key = convertToPythonValue(context, entry.getKey());
+          Value val = convertToPythonValue(context, entry.getValue());
+          pythonDict.putHashEntry(key, val);
+        }
+        return pythonDict;
       }
-      return pythonList;
+      case List<?> list -> {
+        Value pythonList = context.eval("python", "[]");
+        for (Object e : list) {
+          pythonList.invokeMember("append", convertToPythonValue(context, e));
+        }
+        return pythonList;
+      }
+      default -> {}
     }
     return context.asValue(o);
   }
@@ -70,8 +73,6 @@ public interface GraalUtils {
                 + value
                 + ". Representing as String.");
         return new StringPrimitiveFleakData(value.toString());
-        // Or: throw new IllegalArgumentException("Cannot represent Python number in FleakData: " +
-        // value);
       }
     } else if (value.hasArrayElements()) {
       long size = value.getArraySize();
@@ -110,8 +111,6 @@ public interface GraalUtils {
               + value.getMetaObject()
               + ". Converting to string representation.");
       return new StringPrimitiveFleakData(value.toString());
-      // Or: throw new IllegalArgumentException("Cannot convert Python type to FleakData: " +
-      // value.getMetaObject());
     }
   }
 }

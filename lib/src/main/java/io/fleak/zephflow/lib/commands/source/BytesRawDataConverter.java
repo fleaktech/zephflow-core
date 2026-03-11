@@ -49,7 +49,7 @@ public class BytesRawDataConverter implements RawDataConverter<SerializedEvent> 
           fleakDeserializer.deserialize(decompressor.decompress(sourceRecord));
 
       Map<String, String> eventTags =
-          getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.get(0));
+          getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
 
       sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.value().length, eventTags);
       sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);

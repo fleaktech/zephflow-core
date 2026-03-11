@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import lombok.NonNull;
 import org.apache.commons.csv.CSVFormat;
@@ -77,7 +76,7 @@ public class DelimitedTextExtractionRule implements ExtractionRule {
                       new IOException("Parser returned no records for a non-empty column string."));
 
       // Convert the parsed record into a list of strings.
-      columns = StreamSupport.stream(record.spliterator(), false).collect(Collectors.toList());
+      columns = StreamSupport.stream(record.spliterator(), false).toList();
 
     } catch (IOException e) {
       // If parsing fails, it indicates a malformed input string.

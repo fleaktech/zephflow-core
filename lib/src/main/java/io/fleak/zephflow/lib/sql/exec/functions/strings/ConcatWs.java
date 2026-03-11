@@ -29,7 +29,7 @@ public class ConcatWs extends BaseFunction {
   @Override
   public Object apply(List<Object> args) {
 
-    var separator = args.get(0);
+    var separator = args.getFirst();
     if (separator == null) return "";
 
     var strings = args.subList(1, args.size());

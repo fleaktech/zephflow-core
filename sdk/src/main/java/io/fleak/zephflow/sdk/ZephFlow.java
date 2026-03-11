@@ -51,7 +51,6 @@ import java.io.Serializable;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.*;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.NonNull;
@@ -255,7 +254,7 @@ public class ZephFlow {
     // If there is only one sink, return its flow directly.
     // If there are multiple sinks, merge them into a single ZephFlow object.
     if (sinkFlows.size() == 1) {
-      return sinkFlows.get(0);
+      return sinkFlows.getFirst();
     } else {
       return ZephFlow.merge(sinkFlows.toArray(new ZephFlow[0]));
     }
@@ -302,7 +301,7 @@ public class ZephFlow {
                 parentId ->
                     reconstructFlowRecursive(
                         parentId, nodeMap, parentMap, flowCache, jobContext, metricClientProvider))
-            .collect(Collectors.toList());
+            .toList();
 
     // 5. Construct the ZephFlow for the current node using its definition and its upstream flows.
     ZephFlow newFlow = new ZephFlow(currentNode, upstreamFlows, jobContext, metricClientProvider);
@@ -764,7 +763,7 @@ public class ZephFlow {
     } else {
       // If this flow is a merge point (no node), pass up the leaves from its upstreams.
       // Remove nulls just in case, although they shouldn't occur with current logic.
-      return allUpstreamLeafNodes.stream().filter(Objects::nonNull).collect(Collectors.toList());
+      return allUpstreamLeafNodes.stream().filter(Objects::nonNull).toList();
     }
   }
 

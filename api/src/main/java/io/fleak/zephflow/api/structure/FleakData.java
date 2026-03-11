@@ -20,7 +20,6 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.*;
-import java.util.stream.Collectors;
 import lombok.NonNull;
 
 /**
@@ -70,17 +69,14 @@ public interface FleakData extends Comparable<FleakData> {
           String.format("this (%s) and that (%s) are not of the same type", this, o));
     }
 
-    if (this instanceof StringPrimitiveFleakData) {
-      return this.getStringValue().compareTo(o.getStringValue());
-    }
-    if (this instanceof BooleanPrimitiveFleakData) {
-      return Boolean.compare(this.isTrueValue(), o.isTrueValue());
-    }
-    if (this instanceof NumberPrimitiveFleakData) {
-      return Double.compare(this.getNumberValue(), o.getNumberValue());
-    }
-
-    throw new RuntimeException(String.format("cannot compare this (%s) and that (%s)", this, o));
+    return switch (this) {
+      case StringPrimitiveFleakData s -> this.getStringValue().compareTo(o.getStringValue());
+      case BooleanPrimitiveFleakData b -> Boolean.compare(this.isTrueValue(), o.isTrueValue());
+      case NumberPrimitiveFleakData n -> Double.compare(this.getNumberValue(), o.getNumberValue());
+      default ->
+          throw new RuntimeException(
+              String.format("cannot compare this (%s) and that (%s)", this, o));
+    };
   }
 
   static boolean valueComparable(FleakData d1, FleakData d2) {
@@ -98,55 +94,28 @@ public interface FleakData extends Comparable<FleakData> {
   Object unwrap();
 
   static FleakData wrap(Object obj) {
-    if (obj == null) {
-      return null;
-    }
-
-    if (obj instanceof FleakData) {
-      return (FleakData) obj;
-    }
-
-    if (obj instanceof Map<?, ?> map) {
-      var retMap = new HashMap<String, FleakData>();
-      for (var entry : map.entrySet()) {
-        retMap.put(entry.getKey().toString(), wrap(entry.getValue()));
+    return switch (obj) {
+      case null -> null;
+      case FleakData fd -> fd;
+      case Map<?, ?> map -> {
+        var retMap = new HashMap<String, FleakData>();
+        for (var entry : map.entrySet()) {
+          retMap.put(entry.getKey().toString(), wrap(entry.getValue()));
+        }
+        yield new RecordFleakData(retMap);
       }
-      return new RecordFleakData(retMap);
-    }
-
-    if (obj instanceof ObjectNode n) {
-      return wrap(OBJECT_MAPPER.convertValue(n, new TypeReference<>() {}));
-    }
-
-    if (obj instanceof Collection<?> l) {
-      return new ArrayFleakData(
-          l.stream().map(FleakData::wrap).collect(Collectors.<FleakData>toList()));
-    }
-
-    if (obj instanceof Integer n) {
-      return new NumberPrimitiveFleakData(
-          n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
-    }
-
-    if (obj instanceof Long n) {
-      return new NumberPrimitiveFleakData(
-          n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
-    }
-
-    if (obj instanceof Float n) {
-      return new NumberPrimitiveFleakData(
-          n.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
-    }
-
-    if (obj instanceof Number n) {
-      return new NumberPrimitiveFleakData(
-          n.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
-    }
-
-    if (obj instanceof Boolean b) {
-      return new BooleanPrimitiveFleakData(b);
-    }
-
-    return new StringPrimitiveFleakData(obj.toString());
+      case ObjectNode n -> wrap(OBJECT_MAPPER.convertValue(n, new TypeReference<>() {}));
+      case Collection<?> l -> new ArrayFleakData(l.stream().map(FleakData::wrap).toList());
+      case Integer n ->
+          new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
+      case Long n ->
+          new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
+      case Float n ->
+          new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
+      case Number n ->
+          new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
+      case Boolean b -> new BooleanPrimitiveFleakData(b);
+      default -> new StringPrimitiveFleakData(obj.toString());
+    };
   }
 }

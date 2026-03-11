@@ -24,15 +24,15 @@ import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 public record ArrayAccessStepNode(ExpressionNode indexNode) implements StepNode {
   @Override
   public FleakData apply(FleakData value, EvalContext ctx) {
-    if (!(value instanceof ArrayFleakData)) {
+    if (!(value instanceof ArrayFleakData arr)) {
       return null;
     }
 
     int index = ctx.evalArgAsInt(indexNode, "array index");
-    if (!validArrayIndex(value.getArrayPayload(), index)) {
+    if (!validArrayIndex(arr.getArrayPayload(), index)) {
       return null;
     }
 
-    return value.getArrayPayload().get(index);
+    return arr.getArrayPayload().get(index);
   }
 }

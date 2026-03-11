@@ -63,7 +63,7 @@ public class AssertionCommand extends ScalarCommand {
       // evaluation to false
     }
 
-    if (fleakData instanceof BooleanPrimitiveFleakData && fleakData.isTrueValue()) {
+    if (fleakData instanceof BooleanPrimitiveFleakData b && b.isTrueValue()) {
       evalContext.getOutputMessageCounter().increase(callingUserTagAndEventTags);
       return List.of(event);
     }

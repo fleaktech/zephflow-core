@@ -30,7 +30,7 @@ public class CastFn extends BaseFunction {
 
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "<cast string>, <object>");
-    var type = args.get(0).toString().toLowerCase();
+    var type = args.getFirst().toString().toLowerCase();
     var typeToCast = args.get(1);
 
     if (type.equals("long")

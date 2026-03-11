@@ -33,7 +33,7 @@ public class Left extends BaseFunction {
 
     assertArgs(args, 2, "(input, length)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return null;
 
     var length = integerTypeCast.cast(args.get(1));

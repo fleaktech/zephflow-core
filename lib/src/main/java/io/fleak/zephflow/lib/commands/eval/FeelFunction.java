@@ -32,7 +32,6 @@ import java.util.*;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.graalvm.polyglot.*;
@@ -137,7 +136,7 @@ public interface FeelFunction {
         throw new IllegalArgumentException("ts_str_to_epoch expects 2 arguments");
       }
 
-      FleakData timestampStrFd = evaluatedArgs.get(0);
+      FleakData timestampStrFd = evaluatedArgs.getFirst();
       Preconditions.checkArgument(
           timestampStrFd instanceof StringPrimitiveFleakData,
           "ts_str_to_epoch: timestamp field to be parsed is not a string: %s",
@@ -193,7 +192,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData val1 = evaluatedArgs.get(0);
+      FleakData val1 = evaluatedArgs.getFirst();
       FleakData val2 = evaluatedArgs.get(1);
       if (val1 == null || val2 == null) {
         return FleakData.wrap(false);
@@ -243,7 +242,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData inputFd = evaluatedArgs.get(0);
+      FleakData inputFd = evaluatedArgs.getFirst();
       if (inputFd == null) {
         return new BooleanPrimitiveFleakData(false);
       }
@@ -282,7 +281,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData arg = evaluatedArgs.get(0);
+      FleakData arg = evaluatedArgs.getFirst();
       if (arg == null) {
         return null;
       }
@@ -305,7 +304,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData arg = evaluatedArgs.get(0);
+      FleakData arg = evaluatedArgs.getFirst();
       if (arg == null) {
         return null;
       }
@@ -328,7 +327,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData arg = evaluatedArgs.get(0);
+      FleakData arg = evaluatedArgs.getFirst();
       if (arg == null) {
         return null;
       }
@@ -354,7 +353,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      return evaluateSizeOf(evaluatedArgs.get(0));
+      return evaluateSizeOf(evaluatedArgs.getFirst());
     }
 
     private FleakData evaluateSizeOf(FleakData arg) {
@@ -429,7 +428,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData targetValue = evaluatedArgs.get(0);
+      FleakData targetValue = evaluatedArgs.getFirst();
       if (targetValue == null) {
         return new RecordFleakData();
       }
@@ -469,7 +468,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData valueFd = evaluatedArgs.get(0);
+      FleakData valueFd = evaluatedArgs.getFirst();
       Preconditions.checkArgument(
           valueFd instanceof StringPrimitiveFleakData,
           "parse_int: argument to be parsed is not a string: %s",
@@ -514,7 +513,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      return parseFloatValue(evaluatedArgs.get(0));
+      return parseFloatValue(evaluatedArgs.getFirst());
     }
 
     private FleakData parseFloatValue(FleakData valueFd) {
@@ -609,7 +608,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData stringData = evaluatedArgs.get(0);
+      FleakData stringData = evaluatedArgs.getFirst();
       FleakData delimiterData = evaluatedArgs.get(1);
 
       if (stringData == null) {
@@ -661,7 +660,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData stringData = evaluatedArgs.get(0);
+      FleakData stringData = evaluatedArgs.getFirst();
       FleakData targetData = evaluatedArgs.get(1);
       FleakData replacementData = evaluatedArgs.get(2);
 
@@ -769,7 +768,7 @@ public interface FeelFunction {
         throw new IllegalArgumentException("substr expects 2 or 3 arguments");
       }
 
-      FleakData strFd = evaluatedArgs.get(0);
+      FleakData strFd = evaluatedArgs.getFirst();
       if (strFd == null) {
         return null;
       }
@@ -809,7 +808,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData durStrFd = evaluatedArgs.get(0);
+      FleakData durStrFd = evaluatedArgs.getFirst();
       Preconditions.checkArgument(
           durStrFd instanceof StringPrimitiveFleakData,
           "duration_str_to_mills: duration argument is not a string: %s",
@@ -879,7 +878,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData epochFd = evaluatedArgs.get(0);
+      FleakData epochFd = evaluatedArgs.getFirst();
       Preconditions.checkArgument(
           epochFd instanceof NumberPrimitiveFleakData,
           "epoch_to_ts_str: timestamp field to be parsed is not a number: %s",
@@ -962,7 +961,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData fleakData = evaluatedArgs.get(0);
+      FleakData fleakData = evaluatedArgs.getFirst();
       Preconditions.checkArgument(
           fleakData instanceof ArrayFleakData,
           "arr_flatten argument must be an array but found: %s",
@@ -972,7 +971,7 @@ public interface FeelFunction {
           fleakData.getArrayPayload().stream()
               .flatMap(
                   l -> l instanceof ArrayFleakData ? l.getArrayPayload().stream() : Stream.of(l))
-              .collect(Collectors.toList());
+              .toList();
 
       return new ArrayFleakData(arrPayload);
     }
@@ -1035,12 +1034,12 @@ public interface FeelFunction {
       int step = 1;
 
       if (evaluatedArgs.size() == 1) {
-        end = EvalContext.fleakDataToInt(evaluatedArgs.get(0), "count");
+        end = EvalContext.fleakDataToInt(evaluatedArgs.getFirst(), "count");
       } else if (evaluatedArgs.size() == 2) {
-        start = EvalContext.fleakDataToInt(evaluatedArgs.get(0), "start");
+        start = EvalContext.fleakDataToInt(evaluatedArgs.getFirst(), "start");
         end = EvalContext.fleakDataToInt(evaluatedArgs.get(1), "end");
       } else {
-        start = EvalContext.fleakDataToInt(evaluatedArgs.get(0), "start");
+        start = EvalContext.fleakDataToInt(evaluatedArgs.getFirst(), "start");
         end = EvalContext.fleakDataToInt(evaluatedArgs.get(1), "end");
         step = EvalContext.fleakDataToInt(evaluatedArgs.get(2), "step");
       }
@@ -1174,7 +1173,7 @@ public interface FeelFunction {
             "arr_foreach expects 3 arguments: array, variable name, and expression");
       }
 
-      FleakData arrayData = args.get(0).evaluate(ctx);
+      FleakData arrayData = args.getFirst().evaluate(ctx);
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         return null;
       }
@@ -1269,7 +1268,7 @@ public interface FeelFunction {
             "arr_find expects 3 arguments: array, variable name, and condition");
       }
 
-      FleakData arrayData = args.get(0).evaluate(ctx);
+      FleakData arrayData = args.getFirst().evaluate(ctx);
 
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         return null;
@@ -1369,7 +1368,7 @@ public interface FeelFunction {
             "arr_filter expects 3 arguments: array, variable name, and condition");
       }
 
-      FleakData arrayData = args.get(0).evaluate(ctx);
+      FleakData arrayData = args.getFirst().evaluate(ctx);
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         return FleakData.wrap(List.of());
       }
@@ -1424,7 +1423,7 @@ public interface FeelFunction {
             "arr_to_dict expects 4 arguments: array, variable name, key expression, and value expression");
       }
 
-      FleakData arrayData = args.get(0).evaluate(ctx);
+      FleakData arrayData = args.getFirst().evaluate(ctx);
 
       if (!(arrayData instanceof ArrayFleakData) && !(arrayData instanceof RecordFleakData)) {
         return null;
@@ -1548,7 +1547,7 @@ public interface FeelFunction {
             "dict_remove expects at least 2 arguments: dictionary and at least one key to remove");
       }
 
-      FleakData dictData = evaluatedArgs.get(0);
+      FleakData dictData = evaluatedArgs.getFirst();
       if (dictData == null) {
         return null;
       }
@@ -1596,7 +1595,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData arg = evaluatedArgs.get(0);
+      FleakData arg = evaluatedArgs.getFirst();
       if (!(arg instanceof NumberPrimitiveFleakData)) {
         throw new IllegalArgumentException(
             "floor: argument must be a number but found: "
@@ -1625,7 +1624,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData arg = evaluatedArgs.get(0);
+      FleakData arg = evaluatedArgs.getFirst();
       if (!(arg instanceof NumberPrimitiveFleakData)) {
         throw new IllegalArgumentException(
             "ceil: argument must be a number but found: "
@@ -1802,7 +1801,7 @@ public interface FeelFunction {
         EvalContext ctx,
         List<FleakData> evaluatedArgs,
         EvalExpressionParser.GenericFunctionCallContext originalCtx) {
-      FleakData value = evaluatedArgs.get(0);
+      FleakData value = evaluatedArgs.getFirst();
       FleakData arrayArg = evaluatedArgs.get(1);
 
       if (value == null || arrayArg == null) {

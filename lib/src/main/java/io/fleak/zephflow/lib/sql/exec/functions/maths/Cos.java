@@ -33,7 +33,7 @@ public class Cos extends BaseFunction {
 
     assertArgs(args, 1, "(radians)");
 
-    var arg = args.get(0);
+    var arg = args.getFirst();
     if (arg == null) return null;
 
     var radians = doubleTypeCast.cast(arg);

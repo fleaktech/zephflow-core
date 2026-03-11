@@ -29,7 +29,7 @@ public class Position extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "(substring, string)");
 
-    var substring = args.get(0);
+    var substring = args.getFirst();
     if (substring == null) return 0;
 
     var string = args.get(1);

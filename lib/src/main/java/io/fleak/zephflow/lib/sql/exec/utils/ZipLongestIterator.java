@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.sql.exec.utils;
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 public class ZipLongestIterator<T, R> implements Iterator<R> {
 
@@ -73,9 +72,6 @@ public class ZipLongestIterator<T, R> implements Iterator<R> {
       T fillValue,
       Iterable<T>... ts) {
     return new ZipLongestIterator<>(
-        constantPrefix,
-        Arrays.stream(ts).map(Iterable::iterator).collect(Collectors.toList()),
-        combineFn,
-        fillValue);
+        constantPrefix, Arrays.stream(ts).map(Iterable::iterator).toList(), combineFn, fillValue);
   }
 }

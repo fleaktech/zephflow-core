@@ -32,7 +32,7 @@ public class RegexpMatches extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "(input, pattern)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return List.of();
 
     var pattern = args.get(1);
