@@ -86,7 +86,7 @@ public class AggregateScan<E> extends ExtTable {
         var data = evalArgs((List<E>) fn.getFuncCall().getArgs(), innerRow);
         // here we have the expression data
         // we can use it as a key to see if the row was seen or not
-        var dataList = data.collect(Collectors.toList());
+        var dataList = data.toList();
         if (!isDistinct || keysSeen.add(dataList)) {
           state = aggFn.update(state, dataList);
         }

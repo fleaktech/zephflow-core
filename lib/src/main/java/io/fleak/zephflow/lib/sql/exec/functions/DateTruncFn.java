@@ -28,7 +28,7 @@ public class DateTruncFn extends BaseFunction {
   @SuppressWarnings("all")
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "<date field>, <date>");
-    var datePart = args.get(0).toString();
+    var datePart = args.getFirst().toString();
     var arg = args.get(1);
     var dateObj = typeSystem.lookupTypeCast(Timestamp.class).cast(arg);
     /** sets to the "zero" value a date part */

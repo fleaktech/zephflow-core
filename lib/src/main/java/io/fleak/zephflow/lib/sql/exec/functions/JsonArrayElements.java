@@ -27,7 +27,7 @@ public class JsonArrayElements extends BaseFunction {
   @Override
   public Object apply(List<Object> args) {
     assertArgs(args, 1, "datum");
-    if (args.get(0) == null) return null;
-    return typeSystem.lookupTypeCast(Iterable.class).cast(args.get(0));
+    if (args.getFirst() == null) return null;
+    return typeSystem.lookupTypeCast(Iterable.class).cast(args.getFirst());
   }
 }

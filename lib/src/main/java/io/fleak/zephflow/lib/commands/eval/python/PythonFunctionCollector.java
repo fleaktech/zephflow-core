@@ -38,7 +38,7 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
     if ("python".equals(functionName)) {
       // Extract the Python script from the first argument
       if (ctx.arguments() != null && !ctx.arguments().expression().isEmpty()) {
-        String scriptText = ctx.arguments().expression().get(0).getText();
+        String scriptText = ctx.arguments().expression().getFirst().getText();
 
         // Handle QUOTED_IDENTIFIER - remove outer quotes and handle escape sequences
         if ((scriptText.startsWith("'") && scriptText.endsWith("'"))
@@ -115,9 +115,9 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
 
       // 5. Validate discovery results based on DEFINED functions
       if (definedFunctions.size() == 1) {
-        log.debug("Found function defined by script: {}", definedFunctionNames.get(0));
+        log.debug("Found function defined by script: {}", definedFunctionNames.getFirst());
         return new CompiledPythonFunction(
-            definedFunctionNames.get(0), definedFunctions.get(0), pythonContext);
+            definedFunctionNames.getFirst(), definedFunctions.getFirst(), pythonContext);
       }
 
       // Log or handle error: 0 or >1 functions *defined by the script* found

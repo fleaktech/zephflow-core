@@ -33,140 +33,109 @@ public abstract class TypeCast<T> {
   public static class LongTypeCast extends TypeCast<Long> {
     @Override
     public Long cast(Object v) {
-      if (v == null) return 0L;
-
-      if (v instanceof Long) return (Long) v;
-
-      if (v instanceof Number) return ((Number) v).longValue();
-
-      if (v instanceof Boolean) return (Boolean) v ? 1L : 0L;
-
-      if (v instanceof String) return Long.parseLong((String) v);
-
-      throw new RuntimeException(v + " type " + v.getClass() + " cannot be cast to long");
+      return switch (v) {
+        case null -> 0L;
+        case Long l -> l;
+        case Number n -> n.longValue();
+        case Boolean b -> b ? 1L : 0L;
+        case String s -> Long.parseLong(s);
+        default ->
+            throw new RuntimeException(v + " type " + v.getClass() + " cannot be cast to long");
+      };
     }
   }
 
   public static class IntegerTypeCast extends TypeCast<Integer> {
     @Override
     public Integer cast(Object v) {
-      if (v == null) return 0;
-
-      if (v instanceof Integer) return (Integer) v;
-
-      if (v instanceof Number) return ((Number) v).intValue();
-
-      if (v instanceof Boolean) return (Boolean) v ? 1 : 0;
-
-      if (v instanceof String) return Integer.parseInt((String) v);
-
-      throw new RuntimeException(v + " type " + v.getClass() + " cannot be cast to integer");
+      return switch (v) {
+        case null -> 0;
+        case Integer i -> i;
+        case Number n -> n.intValue();
+        case Boolean b -> b ? 1 : 0;
+        case String s -> Integer.parseInt(s);
+        default ->
+            throw new RuntimeException(v + " type " + v.getClass() + " cannot be cast to integer");
+      };
     }
   }
 
   public static class ShortTypeCast extends TypeCast<Short> {
     @Override
     public Short cast(Object v) {
-      if (v == null) return 0;
-
-      if (v instanceof Short) return (Short) v;
-
-      if (v instanceof Number) return ((Number) v).shortValue();
-
-      if (v instanceof Boolean) return (short) ((Boolean) v ? 1 : 0);
-
-      if (v instanceof String) return Short.parseShort((String) v);
-
-      throw new RuntimeException(v + " type " + v.getClass() + " cannot be cast to short");
+      return switch (v) {
+        case null -> 0;
+        case Short s -> s;
+        case Number n -> n.shortValue();
+        case Boolean b -> (short) (b ? 1 : 0);
+        case String s -> Short.parseShort(s);
+        default ->
+            throw new RuntimeException(v + " type " + v.getClass() + " cannot be cast to short");
+      };
     }
   }
 
   public static class DoubleTypeCast extends TypeCast<Double> {
     @Override
     public Double cast(Object v) {
-      if (v == null) return 0.0D;
-
-      if (v instanceof Double) return (Double) v;
-
-      if (v instanceof Number) return ((Number) v).doubleValue();
-
-      if (v instanceof String) return Double.parseDouble((String) v);
-
-      if (v instanceof NumberPrimitiveFleakData)
-        return ((NumberPrimitiveFleakData) v).getNumberValue();
-
-      if (v instanceof StringPrimitiveFleakData)
-        return Double.parseDouble(((StringPrimitiveFleakData) v).getStringValue());
-
-      throw new ClassCastException(v + " type " + v.getClass() + " cannot be cast to double");
+      return switch (v) {
+        case null -> 0.0D;
+        case Double d -> d;
+        case NumberPrimitiveFleakData n -> n.getNumberValue();
+        case StringPrimitiveFleakData s -> Double.parseDouble(s.getStringValue());
+        case Number n -> n.doubleValue();
+        case String s -> Double.parseDouble(s);
+        default ->
+            throw new ClassCastException(v + " type " + v.getClass() + " cannot be cast to double");
+      };
     }
   }
 
   public static class BigDecimalTypeCast extends TypeCast<BigDecimal> {
     @Override
     public BigDecimal cast(Object v) {
-      if (v == null) return BigDecimal.ZERO;
-
-      if (v instanceof Double) {
-        return BigDecimal.valueOf((Double) v);
-      }
-
-      if (v instanceof Number) {
-        return BigDecimal.valueOf(((Number) v).longValue());
-      }
-
-      return new BigDecimal(v.toString());
+      return switch (v) {
+        case null -> BigDecimal.ZERO;
+        case Double d -> BigDecimal.valueOf(d);
+        case Number n -> BigDecimal.valueOf(n.longValue());
+        default -> new BigDecimal(v.toString());
+      };
     }
   }
 
   public static class BooleanTypeCast extends TypeCast<Boolean> {
     @Override
     public Boolean cast(Object v) {
-      if (v == null) return Boolean.FALSE;
-
-      if (v instanceof Number n && !(v instanceof Float || v instanceof Double))
-        return Math.abs(n.intValue()) > 0 ? Boolean.TRUE : Boolean.FALSE;
-
-      if (v instanceof Boolean b) return b;
-
-      if (v instanceof String s) {
-        switch (s.toLowerCase()) {
-          case "true":
-          case "t":
-          case "yes":
-          case "y":
-          case "1":
-          case "on":
-            return true;
-          case "false":
-          case "f":
-          case "no":
-          case "n":
-          case "0":
-          case "off":
-            return false;
-        }
-      }
-
-      throw new RuntimeException("Cannot cast " + v.getClass() + " to a boolean type");
+      return switch (v) {
+        case null -> Boolean.FALSE;
+        case Float f ->
+            throw new RuntimeException("Cannot cast " + v.getClass() + " to a boolean type");
+        case Double d ->
+            throw new RuntimeException("Cannot cast " + v.getClass() + " to a boolean type");
+        case Number n -> Math.abs(n.intValue()) > 0 ? Boolean.TRUE : Boolean.FALSE;
+        case Boolean b -> b;
+        case String s ->
+            switch (s.toLowerCase()) {
+              case "true", "t", "yes", "y", "1", "on" -> true;
+              case "false", "f", "no", "n", "0", "off" -> false;
+              default ->
+                  throw new RuntimeException("Cannot cast " + v.getClass() + " to a boolean type");
+            };
+        default -> throw new RuntimeException("Cannot cast " + v.getClass() + " to a boolean type");
+      };
     }
   }
 
   public static class StringTypeCast extends TypeCast<String> {
     @Override
     public String cast(Object v) {
-
-      if (v == null) return null;
-
-      if (v instanceof String s) {
-        return s;
-      }
-
-      if (v instanceof Number || v instanceof Boolean) {
-        return v.toString();
-      }
-
-      return JsonUtils.toJsonString(v);
+      return switch (v) {
+        case null -> null;
+        case String s -> s;
+        case Number n -> v.toString();
+        case Boolean b -> v.toString();
+        default -> JsonUtils.toJsonString(v);
+      };
     }
   }
 
@@ -175,22 +144,19 @@ public abstract class TypeCast<T> {
 
     @Override
     public Map<?, ?> cast(Object v) {
-      if (v == null) return null;
-
-      if (v instanceof Map m) {
-        return m;
-      }
-      if (v instanceof String s) {
-        try {
-          return OBJECT_MAPPER.readValue(s, Map.class);
-        } catch (JsonProcessingException e) {
-          throw new RuntimeException(e);
+      return switch (v) {
+        case null -> null;
+        case Map m -> m;
+        case String s -> {
+          try {
+            yield OBJECT_MAPPER.readValue(s, Map.class);
+          } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+          }
         }
-      }
-      if (v instanceof ObjectNode on) {
-        return OBJECT_MAPPER.convertValue(on, Map.class);
-      }
-      throw new ClassCastException("cannot cast " + v.getClass() + " to a map");
+        case ObjectNode on -> OBJECT_MAPPER.convertValue(on, Map.class);
+        default -> throw new ClassCastException("cannot cast " + v.getClass() + " to a map");
+      };
     }
   }
 
@@ -202,32 +168,28 @@ public abstract class TypeCast<T> {
     public List<?> cast(Object v) {
       if (v == null) return List.of();
 
-      if (v instanceof Map m) {
-        return m.keySet().stream().toList();
-      }
-      if (v instanceof List<?> l) {
-        return l;
-      }
       if (v.getClass().isArray()) {
         return createList(v);
       }
-      if (v instanceof String s) {
-        try {
-          return MAPPER.readValue(s, List.class);
-        } catch (JsonProcessingException e) {
-          throw new RuntimeException(e);
-        }
-      }
-      if (v instanceof Collection<?> c) {
-        return new ArrayList<>(c);
-      }
-      if (v instanceof ArrayNode an) {
-        ArrayList<JsonNode> jsonNodeArrayList = new ArrayList<>();
-        an.forEach(jn -> jsonNodeArrayList.add(jn));
-        return jsonNodeArrayList;
-      }
 
-      throw new ClassCastException("cannot cast " + v.getClass() + " to a list");
+      return switch (v) {
+        case Map m -> m.keySet().stream().toList();
+        case List<?> l -> l;
+        case String s -> {
+          try {
+            yield MAPPER.readValue(s, List.class);
+          } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+          }
+        }
+        case Collection<?> c -> new ArrayList<>(c);
+        case ArrayNode an -> {
+          var jsonNodeArrayList = new ArrayList<JsonNode>();
+          an.forEach(jsonNodeArrayList::add);
+          yield jsonNodeArrayList;
+        }
+        default -> throw new ClassCastException("cannot cast " + v.getClass() + " to a list");
+      };
     }
 
     /** Use reflection to convert Object and Primitive arrays to a list */
@@ -246,16 +208,15 @@ public abstract class TypeCast<T> {
   public static class IterableTypeCast extends TypeCast<Iterable<?>> {
     @Override
     public Iterable<?> cast(Object v) {
-
-      if (v instanceof Map<?, ?> m) {
-        return m.keySet().stream().toList();
-      } else if (v instanceof Iterable<?> l) {
-        return l;
-      } else if (v.getClass().isArray()) {
+      if (v.getClass().isArray()) {
         return createList(v);
       }
 
-      throw new ClassCastException("cannot cast " + v.getClass() + " to a iterable");
+      return switch (v) {
+        case Map<?, ?> m -> m.keySet().stream().toList();
+        case Iterable<?> l -> l;
+        default -> throw new ClassCastException("cannot cast " + v.getClass() + " to a iterable");
+      };
     }
 
     /** Use reflection to convert Object and Primitive arrays to a list */

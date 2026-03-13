@@ -25,7 +25,6 @@ import io.fleak.zephflow.api.structure.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public abstract class JsonUtils {
   public static final ObjectMapper OBJECT_MAPPER;
@@ -274,9 +273,6 @@ public abstract class JsonUtils {
       throws JsonProcessingException {
     List<Map<String, Object>> events =
         OBJECT_MAPPER.readValue(jsonEvents, new TypeReference<>() {});
-    return events.stream()
-        .map(FleakData::wrap)
-        .map(RecordFleakData.class::cast)
-        .collect(Collectors.toList());
+    return events.stream().map(FleakData::wrap).map(RecordFleakData.class::cast).toList();
   }
 }

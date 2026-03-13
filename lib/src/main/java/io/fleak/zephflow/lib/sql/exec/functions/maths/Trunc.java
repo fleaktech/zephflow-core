@@ -33,7 +33,7 @@ public class Trunc extends BaseFunction {
     if (doubleTypeCast == null) doubleTypeCast = typeSystem.lookupTypeCast(Double.class);
     if (integerTypeCast == null) integerTypeCast = typeSystem.lookupTypeCast(Integer.class);
 
-    var arg = args.get(0);
+    var arg = args.getFirst();
     if (arg == null) return null;
 
     var number = doubleTypeCast.cast(arg);

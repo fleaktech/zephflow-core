@@ -17,7 +17,6 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import java.util.*;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import lombok.*;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -112,7 +111,7 @@ public class Dag<T> {
             node ->
                 !incomingEdgesIndex.containsKey(node.getId())
                     || incomingEdgesIndex.get(node.getId()).isEmpty())
-        .collect(Collectors.toList());
+        .toList();
   }
 
   @Override
@@ -195,7 +194,7 @@ public class Dag<T> {
       if (outgoingEdges.isEmpty()) {
         continue;
       }
-      String downstream = outgoingEdges.get(0).getTo();
+      String downstream = outgoingEdges.getFirst().getTo();
       throw new IllegalStateException(
           "Invalid DAG: Sink node '"
               + node.getId()
@@ -213,7 +212,7 @@ public class Dag<T> {
       if (incomingEdges.isEmpty()) {
         continue;
       }
-      String upstream = incomingEdges.get(0).getFrom();
+      String upstream = incomingEdges.getFirst().getFrom();
       throw new IllegalStateException(
           "Invalid DAG: Source node '"
               + node.getId()

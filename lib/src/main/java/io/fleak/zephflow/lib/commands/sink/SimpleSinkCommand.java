@@ -48,7 +48,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   public SinkResult writeToSink(
       List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
     Map<String, String> tags =
-        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.getFirst());
     List<List<RecordFleakData>> batches = Lists.partition(events, batchSize());
     long ts = System.currentTimeMillis();
 

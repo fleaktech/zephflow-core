@@ -21,9 +21,9 @@ import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
 public record FieldAccessStepNode(String fieldName) implements StepNode {
   @Override
   public FleakData apply(FleakData value, EvalContext ctx) {
-    if (!(value instanceof RecordFleakData)) {
+    if (!(value instanceof RecordFleakData record)) {
       return null;
     }
-    return value.getPayload().get(fieldName);
+    return record.getPayload().get(fieldName);
   }
 }

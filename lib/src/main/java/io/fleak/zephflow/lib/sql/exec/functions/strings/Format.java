@@ -29,7 +29,7 @@ public class Format extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "(format_string, args...)");
 
-    var formatString = args.get(0);
+    var formatString = args.getFirst();
     if (formatString == null) return null;
 
     var formatArgs = args.subList(1, args.size());

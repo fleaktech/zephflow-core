@@ -29,7 +29,7 @@ public class Replace extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 3, "(input, search, replace)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return null;
 
     var search = args.get(1);

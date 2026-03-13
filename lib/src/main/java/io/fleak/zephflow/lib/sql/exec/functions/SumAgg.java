@@ -46,7 +46,7 @@ public class SumAgg extends BaseFunction implements AggregateFunction<SumAgg.Sta
     for (Object argument : arguments) {
       if (argument == null) continue;
       if (arithmetic == null) {
-        arithmetic = typeSystem.lookupTypeArithmetic(arguments.get(0).getClass());
+        arithmetic = typeSystem.lookupTypeArithmetic(arguments.getFirst().getClass());
       }
 
       state.v = arithmetic.add(argument, state.v);

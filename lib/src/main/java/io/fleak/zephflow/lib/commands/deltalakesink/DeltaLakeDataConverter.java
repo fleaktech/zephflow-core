@@ -94,84 +94,72 @@ public class DeltaLakeDataConverter {
 
   /** Allocate the appropriate ColumnVector type based on DataType */
   private static ColumnVector allocateVector(DataType type, int size) {
-    if (type instanceof ByteType) {
-      return new ByteColumnVector(type, size);
-    } else if (type instanceof ShortType) {
-      return new ShortColumnVector(type, size);
-    } else if (type instanceof IntegerType || type instanceof DateType) {
-      return new IntColumnVector(type, size);
-    } else if (type instanceof LongType
-        || type instanceof TimestampType
-        || type instanceof TimestampNTZType) {
-      return new LongColumnVector(type, size);
-    } else if (type instanceof FloatType) {
-      return new FloatColumnVector(type, size);
-    } else if (type instanceof DoubleType) {
-      return new DoubleColumnVector(type, size);
-    } else if (type instanceof BooleanType) {
-      return new BooleanColumnVector(type, size);
-    } else if (type instanceof StringType) {
-      return new StringColumnVector(type, size);
-    } else if (type instanceof BinaryType) {
-      return new BinaryColumnVector(type, size);
-    } else if (type instanceof DecimalType) {
-      return new DecimalColumnVector(type, size);
-    } else {
-      // Arrays, Structs, Maps
-      return new ObjectColumnVector(type, size);
-    }
+    return switch (type) {
+      case ByteType t -> new ByteColumnVector(type, size);
+      case ShortType t -> new ShortColumnVector(type, size);
+      case IntegerType t -> new IntColumnVector(type, size);
+      case DateType t -> new IntColumnVector(type, size);
+      case LongType t -> new LongColumnVector(type, size);
+      case TimestampType t -> new LongColumnVector(type, size);
+      case TimestampNTZType t -> new LongColumnVector(type, size);
+      case FloatType t -> new FloatColumnVector(type, size);
+      case DoubleType t -> new DoubleColumnVector(type, size);
+      case BooleanType t -> new BooleanColumnVector(type, size);
+      case StringType t -> new StringColumnVector(type, size);
+      case BinaryType t -> new BinaryColumnVector(type, size);
+      case DecimalType t -> new DecimalColumnVector(type, size);
+      default -> new ObjectColumnVector(type, size);
+    };
   }
 
   /** Set null at the given row index */
   private static void setNull(ColumnVector vector, int rowId) {
-    if (vector instanceof ByteColumnVector v) v.setNull(rowId);
-    else if (vector instanceof ShortColumnVector v) v.setNull(rowId);
-    else if (vector instanceof IntColumnVector v) v.setNull(rowId);
-    else if (vector instanceof LongColumnVector v) v.setNull(rowId);
-    else if (vector instanceof FloatColumnVector v) v.setNull(rowId);
-    else if (vector instanceof DoubleColumnVector v) v.setNull(rowId);
-    else if (vector instanceof BooleanColumnVector v) v.setNull(rowId);
-    else if (vector instanceof StringColumnVector v) v.setNull(rowId);
-    else if (vector instanceof BinaryColumnVector v) v.setNull(rowId);
-    else if (vector instanceof DecimalColumnVector v) v.setNull(rowId);
-    else if (vector instanceof ObjectColumnVector v) v.set(rowId, null);
+    switch (vector) {
+      case ByteColumnVector v -> v.setNull(rowId);
+      case ShortColumnVector v -> v.setNull(rowId);
+      case IntColumnVector v -> v.setNull(rowId);
+      case LongColumnVector v -> v.setNull(rowId);
+      case FloatColumnVector v -> v.setNull(rowId);
+      case DoubleColumnVector v -> v.setNull(rowId);
+      case BooleanColumnVector v -> v.setNull(rowId);
+      case StringColumnVector v -> v.setNull(rowId);
+      case BinaryColumnVector v -> v.setNull(rowId);
+      case DecimalColumnVector v -> v.setNull(rowId);
+      case ObjectColumnVector v -> v.set(rowId, null);
+      default -> {}
+    }
   }
 
   /** Set value at the given row index */
   private static void setValue(ColumnVector vector, int rowId, Object value, DataType dataType) {
-    if (vector instanceof ByteColumnVector v) {
-      v.set(rowId, ((Number) value).byteValue());
-    } else if (vector instanceof ShortColumnVector v) {
-      v.set(rowId, ((Number) value).shortValue());
-    } else if (vector instanceof IntColumnVector v) {
-      v.set(rowId, ((Number) value).intValue());
-    } else if (vector instanceof LongColumnVector v) {
-      if (value instanceof java.sql.Timestamp ts) {
-        java.time.Instant inst = ts.toInstant();
-        v.set(rowId, inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
-      } else {
-        v.set(rowId, ((Number) value).longValue());
+    switch (vector) {
+      case ByteColumnVector v -> v.set(rowId, ((Number) value).byteValue());
+      case ShortColumnVector v -> v.set(rowId, ((Number) value).shortValue());
+      case IntColumnVector v -> v.set(rowId, ((Number) value).intValue());
+      case LongColumnVector v -> {
+        if (value instanceof java.sql.Timestamp ts) {
+          java.time.Instant inst = ts.toInstant();
+          v.set(rowId, inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
+        } else {
+          v.set(rowId, ((Number) value).longValue());
+        }
       }
-    } else if (vector instanceof FloatColumnVector v) {
-      v.set(rowId, ((Number) value).floatValue());
-    } else if (vector instanceof DoubleColumnVector v) {
-      v.set(rowId, ((Number) value).doubleValue());
-    } else if (vector instanceof BooleanColumnVector v) {
-      v.set(rowId, (Boolean) value);
-    } else if (vector instanceof StringColumnVector v) {
-      v.set(rowId, value.toString());
-    } else if (vector instanceof BinaryColumnVector v) {
-      v.set(rowId, (byte[]) value);
-    } else if (vector instanceof DecimalColumnVector v) {
-      if (value instanceof BigDecimal bd) {
-        v.set(rowId, bd);
-      } else if (value instanceof Number n) {
-        v.set(rowId, BigDecimal.valueOf(n.doubleValue()));
-      } else {
-        v.set(rowId, new BigDecimal(value.toString()));
+      case FloatColumnVector v -> v.set(rowId, ((Number) value).floatValue());
+      case DoubleColumnVector v -> v.set(rowId, ((Number) value).doubleValue());
+      case BooleanColumnVector v -> v.set(rowId, (Boolean) value);
+      case StringColumnVector v -> v.set(rowId, value.toString());
+      case BinaryColumnVector v -> v.set(rowId, (byte[]) value);
+      case DecimalColumnVector v -> {
+        if (value instanceof BigDecimal bd) {
+          v.set(rowId, bd);
+        } else if (value instanceof Number n) {
+          v.set(rowId, BigDecimal.valueOf(n.doubleValue()));
+        } else {
+          v.set(rowId, new BigDecimal(value.toString()));
+        }
       }
-    } else if (vector instanceof ObjectColumnVector v) {
-      v.set(rowId, value);
+      case ObjectColumnVector v -> v.set(rowId, value);
+      default -> {}
     }
   }
 
@@ -181,7 +169,7 @@ public class DeltaLakeDataConverter {
       throw new IllegalArgumentException("Cannot infer schema from empty data");
     }
 
-    Map<String, Object> firstRecord = data.get(0);
+    Map<String, Object> firstRecord = data.getFirst();
     List<StructField> fields = new ArrayList<>();
 
     for (Map.Entry<String, Object> entry : firstRecord.entrySet()) {
@@ -195,73 +183,56 @@ public class DeltaLakeDataConverter {
   }
 
   private static DataType inferDataType(Object value) {
-    if (value == null) {
-      return StringType.STRING;
-    }
-
-    // Handle FleakData types first
-    if (value instanceof StringPrimitiveFleakData) {
-      return StringType.STRING;
-    } else if (value instanceof NumberPrimitiveFleakData numberData) {
-      return switch (numberData.getNumberType()) {
-        case LONG -> LongType.LONG;
-        case DOUBLE -> DoubleType.DOUBLE;
-      };
-    } else if (value instanceof BooleanPrimitiveFleakData) {
-      return BooleanType.BOOLEAN;
-    } else if (value instanceof ArrayFleakData arrayData) {
-      List<FleakData> arrayPayload = arrayData.getArrayPayload();
-      if (!arrayPayload.isEmpty()) {
-        DataType elementType = inferDataType(arrayPayload.get(0));
-        return new ArrayType(elementType, true);
-      } else {
-        return new ArrayType(StringType.STRING, true);
+    return switch (value) {
+      case null -> StringType.STRING;
+      case StringPrimitiveFleakData s -> StringType.STRING;
+      case NumberPrimitiveFleakData numberData ->
+          switch (numberData.getNumberType()) {
+            case LONG -> LongType.LONG;
+            case DOUBLE -> DoubleType.DOUBLE;
+          };
+      case BooleanPrimitiveFleakData b -> BooleanType.BOOLEAN;
+      case ArrayFleakData arrayData -> {
+        List<FleakData> arrayPayload = arrayData.getArrayPayload();
+        yield !arrayPayload.isEmpty()
+            ? new ArrayType(inferDataType(arrayPayload.getFirst()), true)
+            : new ArrayType(StringType.STRING, true);
       }
-    } else if (value instanceof RecordFleakData recordData) {
-      Map<String, FleakData> payload = recordData.getPayload();
-      List<StructField> fields = new ArrayList<>();
-      for (Map.Entry<String, FleakData> entry : payload.entrySet()) {
-        String fieldName = entry.getKey();
-        DataType fieldType = inferDataType(entry.getValue());
-        fields.add(new StructField(fieldName, fieldType, true));
+      case RecordFleakData recordData -> {
+        Map<String, FleakData> payload = recordData.getPayload();
+        List<StructField> fields = new ArrayList<>();
+        for (Map.Entry<String, FleakData> entry : payload.entrySet()) {
+          fields.add(new StructField(entry.getKey(), inferDataType(entry.getValue()), true));
+        }
+        yield new StructType(fields);
       }
-      return new StructType(fields);
-    }
-
-    // Handle regular Java types
-    else if (value instanceof String) {
-      return StringType.STRING;
-    } else if (value instanceof Integer) {
-      return IntegerType.INTEGER;
-    } else if (value instanceof Long) {
-      return LongType.LONG;
-    } else if (value instanceof Double || value instanceof Float) {
-      return DoubleType.DOUBLE;
-    } else if (value instanceof Boolean) {
-      return BooleanType.BOOLEAN;
-    } else if (value instanceof java.sql.Timestamp || value instanceof java.time.Instant) {
-      return TimestampType.TIMESTAMP;
-    } else if (value instanceof BigDecimal) {
-      return new DecimalType(38, 18);
-    } else if (value instanceof List<?> list) {
-      if (!list.isEmpty()) {
-        DataType elementType = inferDataType(list.get(0));
-        return new ArrayType(elementType, true);
-      } else {
-        return new ArrayType(StringType.STRING, true);
+      case String s -> StringType.STRING;
+      case Integer i -> IntegerType.INTEGER;
+      case Long l -> LongType.LONG;
+      case Double d -> DoubleType.DOUBLE;
+      case Float f -> DoubleType.DOUBLE;
+      case Boolean b -> BooleanType.BOOLEAN;
+      case java.sql.Timestamp ts -> TimestampType.TIMESTAMP;
+      case java.time.Instant inst -> TimestampType.TIMESTAMP;
+      case BigDecimal bd -> new DecimalType(38, 18);
+      case List<?> list -> {
+        yield !list.isEmpty()
+            ? new ArrayType(inferDataType(list.getFirst()), true)
+            : new ArrayType(StringType.STRING, true);
       }
-    } else if (value instanceof Map<?, ?> map) {
-      List<StructField> fields = new ArrayList<>();
-      for (Map.Entry<?, ?> entry : map.entrySet()) {
-        String fieldName = entry.getKey().toString();
-        DataType fieldType = inferDataType(entry.getValue());
-        fields.add(new StructField(fieldName, fieldType, true));
+      case Map<?, ?> map -> {
+        List<StructField> fields = new ArrayList<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+          fields.add(
+              new StructField(entry.getKey().toString(), inferDataType(entry.getValue()), true));
+        }
+        yield new StructType(fields);
       }
-      return new StructType(fields);
-    } else {
-      log.debug("Unknown type for value {}, defaulting to STRING", value.getClass());
-      return StringType.STRING;
-    }
+      default -> {
+        log.debug("Unknown type for value {}, defaulting to STRING", value.getClass());
+        yield StringType.STRING;
+      }
+    };
   }
 
   private static Object convertValueToSchemaType(
@@ -272,53 +243,94 @@ public class DeltaLakeDataConverter {
 
     Object unwrappedValue = unwrapFleakData(value);
 
-    if (targetType instanceof StringType) {
-      return unwrappedValue.toString();
-    } else if (targetType instanceof ByteType) {
-      if (unwrappedValue instanceof Number) {
-        return ((Number) unwrappedValue).byteValue();
-      }
-      return Byte.parseByte(unwrappedValue.toString());
-    } else if (targetType instanceof ShortType) {
-      if (unwrappedValue instanceof Number) {
-        return ((Number) unwrappedValue).shortValue();
-      }
-      return Short.parseShort(unwrappedValue.toString());
-    } else if (targetType instanceof IntegerType || targetType instanceof DateType) {
-      if (unwrappedValue instanceof Number) {
-        return ((Number) unwrappedValue).intValue();
-      }
-      try {
-        return Integer.parseInt(unwrappedValue.toString());
-      } catch (NumberFormatException e) {
+    return switch (targetType) {
+      case StringType t -> unwrappedValue.toString();
+      case ByteType t ->
+          unwrappedValue instanceof Number n
+              ? n.byteValue()
+              : Byte.parseByte(unwrappedValue.toString());
+      case ShortType t ->
+          unwrappedValue instanceof Number n
+              ? n.shortValue()
+              : Short.parseShort(unwrappedValue.toString());
+      case IntegerType t -> convertToInt(unwrappedValue, fieldName);
+      case DateType t -> convertToInt(unwrappedValue, fieldName);
+      case LongType t -> convertToLong(unwrappedValue, fieldName);
+      case TimestampType t -> convertToTimestamp(unwrappedValue, fieldName);
+      case TimestampNTZType t -> convertToTimestamp(unwrappedValue, fieldName);
+      case FloatType t ->
+          unwrappedValue instanceof Number n
+              ? n.floatValue()
+              : Float.parseFloat(unwrappedValue.toString());
+      case DoubleType t -> convertToDouble(unwrappedValue, fieldName);
+      case BooleanType t ->
+          unwrappedValue instanceof Boolean b ? b : Boolean.parseBoolean(unwrappedValue.toString());
+      case BinaryType t ->
+          unwrappedValue instanceof byte[] bytes ? bytes : unwrappedValue.toString().getBytes();
+      case DecimalType t -> convertToDecimal(unwrappedValue);
+      case ArrayType arrayType -> {
+        if (unwrappedValue instanceof List<?> list) {
+          List<Object> convertedList = new ArrayList<>();
+          for (Object element : list) {
+            convertedList.add(
+                convertValueToSchemaType(
+                    element, arrayType.getElementType(), fieldName + "[element]"));
+          }
+          yield convertedList;
+        }
         throw new IllegalArgumentException(
             String.format(
-                "Cannot convert value '%s' to integer for field '%s'", unwrappedValue, fieldName),
-            e);
+                "Expected array for field '%s' but got %s",
+                fieldName, unwrappedValue.getClass().getSimpleName()));
       }
-    } else if (targetType instanceof LongType) {
-      if (unwrappedValue instanceof Number) {
-        return ((Number) unwrappedValue).longValue();
-      }
-      try {
-        return Long.parseLong(unwrappedValue.toString());
-      } catch (NumberFormatException e) {
+      case StructType t -> {
+        if (unwrappedValue instanceof Map) {
+          yield unwrappedValue;
+        }
         throw new IllegalArgumentException(
             String.format(
-                "Cannot convert value '%s' to long for field '%s'", unwrappedValue, fieldName),
-            e);
+                "Expected map/struct for field '%s' but got %s",
+                fieldName, unwrappedValue.getClass().getSimpleName()));
       }
-    } else if (targetType instanceof TimestampType || targetType instanceof TimestampNTZType) {
-      if (unwrappedValue instanceof java.sql.Timestamp) {
-        return unwrappedValue;
-      } else if (unwrappedValue instanceof java.time.Instant) {
-        return java.sql.Timestamp.from((java.time.Instant) unwrappedValue);
-      } else if (unwrappedValue instanceof Long) {
-        return new java.sql.Timestamp((Long) unwrappedValue);
-      } else {
+      default -> {
+        log.debug("Using unwrapped value for field {} with type {}", fieldName, targetType);
+        yield unwrappedValue;
+      }
+    };
+  }
+
+  private static Object convertToInt(Object unwrappedValue, String fieldName) {
+    if (unwrappedValue instanceof Number n) return n.intValue();
+    try {
+      return Integer.parseInt(unwrappedValue.toString());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Cannot convert value '%s' to integer for field '%s'", unwrappedValue, fieldName),
+          e);
+    }
+  }
+
+  private static Object convertToLong(Object unwrappedValue, String fieldName) {
+    if (unwrappedValue instanceof Number n) return n.longValue();
+    try {
+      return Long.parseLong(unwrappedValue.toString());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Cannot convert value '%s' to long for field '%s'", unwrappedValue, fieldName),
+          e);
+    }
+  }
+
+  private static Object convertToTimestamp(Object unwrappedValue, String fieldName) {
+    return switch (unwrappedValue) {
+      case java.sql.Timestamp ts -> ts;
+      case java.time.Instant inst -> java.sql.Timestamp.from(inst);
+      case Long l -> new java.sql.Timestamp(l);
+      default -> {
         try {
-          long timestamp = Long.parseLong(unwrappedValue.toString());
-          return new java.sql.Timestamp(timestamp);
+          yield new java.sql.Timestamp(Long.parseLong(unwrappedValue.toString()));
         } catch (NumberFormatException e) {
           throw new IllegalArgumentException(
               String.format(
@@ -327,78 +339,32 @@ public class DeltaLakeDataConverter {
               e);
         }
       }
-    } else if (targetType instanceof FloatType) {
-      if (unwrappedValue instanceof Number) {
-        return ((Number) unwrappedValue).floatValue();
-      }
-      return Float.parseFloat(unwrappedValue.toString());
-    } else if (targetType instanceof DoubleType) {
-      if (unwrappedValue instanceof Number) {
-        return ((Number) unwrappedValue).doubleValue();
-      }
-      try {
-        return Double.parseDouble(unwrappedValue.toString());
-      } catch (NumberFormatException e) {
-        throw new IllegalArgumentException(
-            String.format(
-                "Cannot convert value '%s' to double for field '%s'", unwrappedValue, fieldName),
-            e);
-      }
-    } else if (targetType instanceof BooleanType) {
-      if (unwrappedValue instanceof Boolean) {
-        return unwrappedValue;
-      } else {
-        return Boolean.parseBoolean(unwrappedValue.toString());
-      }
-    } else if (targetType instanceof BinaryType) {
-      if (unwrappedValue instanceof byte[]) {
-        return unwrappedValue;
-      }
-      return unwrappedValue.toString().getBytes();
-    } else if (targetType instanceof DecimalType) {
-      if (unwrappedValue instanceof BigDecimal) {
-        return unwrappedValue;
-      } else if (unwrappedValue instanceof Number) {
-        return BigDecimal.valueOf(((Number) unwrappedValue).doubleValue());
-      }
-      return new BigDecimal(unwrappedValue.toString());
-    } else if (targetType instanceof ArrayType arrayType) {
-      if (unwrappedValue instanceof List<?> list) {
-        List<Object> convertedList = new ArrayList<>();
-        for (Object element : list) {
-          Object convertedElement =
-              convertValueToSchemaType(
-                  element, arrayType.getElementType(), fieldName + "[element]");
-          convertedList.add(convertedElement);
-        }
-        return convertedList;
-      } else {
-        throw new IllegalArgumentException(
-            String.format(
-                "Expected array for field '%s' but got %s",
-                fieldName, unwrappedValue.getClass().getSimpleName()));
-      }
-    } else if (targetType instanceof StructType) {
-      if (unwrappedValue instanceof Map) {
-        return unwrappedValue;
-      } else {
-        throw new IllegalArgumentException(
-            String.format(
-                "Expected map/struct for field '%s' but got %s",
-                fieldName, unwrappedValue.getClass().getSimpleName()));
-      }
-    }
+    };
+  }
 
-    log.debug("Using unwrapped value for field {} with type {}", fieldName, targetType);
-    return unwrappedValue;
+  private static Object convertToDouble(Object unwrappedValue, String fieldName) {
+    if (unwrappedValue instanceof Number n) return n.doubleValue();
+    try {
+      return Double.parseDouble(unwrappedValue.toString());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Cannot convert value '%s' to double for field '%s'", unwrappedValue, fieldName),
+          e);
+    }
+  }
+
+  private static BigDecimal convertToDecimal(Object unwrappedValue) {
+    return switch (unwrappedValue) {
+      case BigDecimal bd -> bd;
+      case Number n -> BigDecimal.valueOf(n.doubleValue());
+      default -> new BigDecimal(unwrappedValue.toString());
+    };
   }
 
   private static Object unwrapFleakData(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof FleakData) {
-      return ((FleakData) value).unwrap();
+    if (value instanceof FleakData fd) {
+      return fd.unwrap();
     }
     return value;
   }
@@ -1006,34 +972,38 @@ public class DeltaLakeDataConverter {
 
     @Override
     public int getInt(int rowId) {
-      Object value = data[rowId];
-      if (value == null) return 0;
-      if (value instanceof Number) return ((Number) value).intValue();
-      return Integer.parseInt(value.toString());
+      return switch (data[rowId]) {
+        case null -> 0;
+        case Number n -> n.intValue();
+        default -> Integer.parseInt(data[rowId].toString());
+      };
     }
 
     @Override
     public long getLong(int rowId) {
-      Object value = data[rowId];
-      if (value == null) return 0L;
-      if (value instanceof Number) return ((Number) value).longValue();
-      return Long.parseLong(value.toString());
+      return switch (data[rowId]) {
+        case null -> 0L;
+        case Number n -> n.longValue();
+        default -> Long.parseLong(data[rowId].toString());
+      };
     }
 
     @Override
     public double getDouble(int rowId) {
-      Object value = data[rowId];
-      if (value == null) return 0.0;
-      if (value instanceof Number) return ((Number) value).doubleValue();
-      return Double.parseDouble(value.toString());
+      return switch (data[rowId]) {
+        case null -> 0.0;
+        case Number n -> n.doubleValue();
+        default -> Double.parseDouble(data[rowId].toString());
+      };
     }
 
     @Override
     public boolean getBoolean(int rowId) {
-      Object value = data[rowId];
-      if (value == null) return false;
-      if (value instanceof Boolean) return (Boolean) value;
-      return Boolean.parseBoolean(value.toString());
+      return switch (data[rowId]) {
+        case null -> false;
+        case Boolean b -> b;
+        default -> Boolean.parseBoolean(data[rowId].toString());
+      };
     }
 
     @Override
@@ -1041,14 +1011,17 @@ public class DeltaLakeDataConverter {
       if (!(type instanceof ArrayType arrayType)) {
         throw new UnsupportedOperationException("getArray() is only supported for array types");
       }
-      Object value = data[rowId];
-      if (value == null) return null;
-      if (value instanceof List) {
-        @SuppressWarnings("unchecked")
-        List<Object> list = (List<Object>) value;
-        return new SimpleArrayValue(list, arrayType.getElementType());
-      }
-      throw new IllegalStateException("Expected List for array type but got: " + value.getClass());
+      return switch (data[rowId]) {
+        case null -> null;
+        case List<?> list -> {
+          @SuppressWarnings("unchecked")
+          List<Object> objectList = (List<Object>) list;
+          yield new SimpleArrayValue(objectList, arrayType.getElementType());
+        }
+        default ->
+            throw new IllegalStateException(
+                "Expected List for array type but got: " + data[rowId].getClass());
+      };
     }
 
     @Override

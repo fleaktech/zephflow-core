@@ -29,7 +29,7 @@ public class Reverse extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 1, "(input)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return null;
 
     return new StringBuilder(input.toString()).reverse().toString();

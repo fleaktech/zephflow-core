@@ -19,7 +19,6 @@ import io.fleak.zephflow.lib.commands.eval.FeelFunction;
 import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
 import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /** Represents a function call with compiled argument nodes. */
 public record FunctionCallNode(
@@ -38,8 +37,7 @@ public record FunctionCallNode(
       return function.evaluateCompiled(ctx, argNodes, originalCtx, lazyArgTexts);
     }
 
-    List<FleakData> evaluatedArgs =
-        argNodes.stream().map(node -> node.evaluate(ctx)).collect(Collectors.toList());
+    List<FleakData> evaluatedArgs = argNodes.stream().map(node -> node.evaluate(ctx)).toList();
     return function.evaluateCompiledEager(ctx, evaluatedArgs, originalCtx);
   }
 

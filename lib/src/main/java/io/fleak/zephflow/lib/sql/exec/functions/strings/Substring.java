@@ -33,7 +33,7 @@ public class Substring extends BaseFunction {
 
     assertArgs(args, 3, "(input, start, length)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return null;
 
     var start = integerTypeCast.cast(args.get(1)) - 1;

@@ -32,7 +32,7 @@ public class JsonGetToString extends BaseFunction {
     if (castToString == null) castToString = typeSystem.lookupTypeCast(String.class);
 
     assertArgs(args, 2, "field-name, datum");
-    var key = args.get(0);
+    var key = args.getFirst();
     var datum = args.get(1);
     if (key == null) return null;
     if (datum == null) return null;

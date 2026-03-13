@@ -53,7 +53,7 @@ public class JsonAgg extends BaseFunction
       throw new RuntimeException(
           "json_agg only accepts one argument; " + arguments.size() + " arguments given");
     }
-    var arg = arguments.get(0);
+    var arg = arguments.getFirst();
     if (arg instanceof Map m) {
       state.add(m);
     } else {
