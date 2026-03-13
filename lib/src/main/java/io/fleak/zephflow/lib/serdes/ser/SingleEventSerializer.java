@@ -37,7 +37,8 @@ public class SingleEventSerializer<T> extends FleakSerializer<T> {
   @Override
   public SerializedEvent serialize(@NonNull List<RecordFleakData> events) throws Exception {
     Preconditions.checkArgument(events.size() == 1);
-    TypedEventContainer<T> typedEvent = typedEventConverter.fleakDataToTypedEvent(events.get(0));
+    TypedEventContainer<T> typedEvent =
+        typedEventConverter.fleakDataToTypedEvent(events.getFirst());
     return singleEventTypedSerializer.serialize(typedEvent);
   }
 }

@@ -29,7 +29,7 @@ public class RegexpReplace extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 3, "(input, regex, replacement)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     var regex = args.get(1);
     var replacement = args.get(2);
 

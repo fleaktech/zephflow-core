@@ -33,7 +33,7 @@ public class Lcm extends BaseFunction {
 
     assertArgs(args, 2, "(a, b)");
 
-    var a = integerTypeCast.cast(args.get(0));
+    var a = integerTypeCast.cast(args.getFirst());
     var b = integerTypeCast.cast(args.get(1));
 
     return (a * b) / (Integer) new Gcd(typeSystem).apply(List.of(a, b));

@@ -134,7 +134,7 @@ public class AvroToDeltaSchemaConverter {
         schema.getTypes().stream().filter(s -> s.getType() != Schema.Type.NULL).toList();
 
     if (nonNullTypes.size() == 1) {
-      return nonNullTypes.get(0);
+      return nonNullTypes.getFirst();
     }
 
     throw new IllegalArgumentException(

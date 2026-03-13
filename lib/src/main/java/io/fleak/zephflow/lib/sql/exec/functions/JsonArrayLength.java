@@ -28,7 +28,7 @@ public class JsonArrayLength extends BaseFunction {
   public Object apply(List<Object> args) {
     if (args.isEmpty()) return 0;
 
-    var v1 = args.get(0);
+    var v1 = args.getFirst();
     if (v1 instanceof Collection c) return c.size();
     if (v1.getClass().isArray()) {
       return java.lang.reflect.Array.getLength(v1);

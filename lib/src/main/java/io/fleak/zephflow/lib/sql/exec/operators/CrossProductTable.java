@@ -30,8 +30,7 @@ public class CrossProductTable extends Table<Row> {
 
   public CrossProductTable(List<Table<Row>> childSources) {
     this.childSources = childSources;
-    this.header =
-        childSources.stream().flatMap(s -> s.getHeader().stream()).collect(Collectors.toList());
+    this.header = childSources.stream().flatMap(s -> s.getHeader().stream()).toList();
   }
 
   @Override
@@ -44,7 +43,7 @@ public class CrossProductTable extends Table<Row> {
   public Iterator<Row> iterator() {
     if (childSources.isEmpty()) return Collections.emptyIterator();
 
-    return crossProduct(childSources.get(0), childSources.subList(1, childSources.size()))
+    return crossProduct(childSources.getFirst(), childSources.subList(1, childSources.size()))
         .iterator();
   }
 
@@ -63,7 +62,9 @@ public class CrossProductTable extends Table<Row> {
           .flatMap(
               r ->
                   mergeToRow(
-                      relationNames, r, crossProduct(tbls.get(0), tbls.subList(1, tbls.size()))));
+                      relationNames,
+                      r,
+                      crossProduct(tbls.getFirst(), tbls.subList(1, tbls.size()))));
     }
 
     return Streams.asStream(tbl1.iterator());

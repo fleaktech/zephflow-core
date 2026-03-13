@@ -18,7 +18,6 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.Data;
 
@@ -50,6 +49,6 @@ public class ArrayFleakData implements FleakData {
               if (fd == null) return null;
               return fd.unwrap();
             })
-        .collect(Collectors.toList());
+        .toList();
   }
 }

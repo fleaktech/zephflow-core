@@ -29,7 +29,7 @@ public class BTrim extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "(input, trim_chars)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return null;
 
     var trimChars = args.get(1);

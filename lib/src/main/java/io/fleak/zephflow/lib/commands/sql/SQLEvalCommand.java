@@ -74,7 +74,7 @@ public class SQLEvalCommand extends ScalarCommand {
   public ScalarCommand.ProcessResult process(
       List<RecordFleakData> events, String callingUser, ExecutionContext context) {
     Map<String, String> callingUserTagAndEventTags =
-        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.get(0));
+        getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.getFirst());
     SqlExecutionContext sqlContext = (SqlExecutionContext) context;
     sqlContext.getInputMessageCounter().increase(events.size(), callingUserTagAndEventTags);
 

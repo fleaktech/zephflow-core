@@ -19,7 +19,6 @@ import io.fleak.zephflow.lib.sql.exec.types.TypeSystem;
 import io.fleak.zephflow.lib.sql.rel.Algebra;
 import io.fleak.zephflow.lib.sql.rel.Algebras;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class RelationalInterpreter<E> {
 
@@ -65,9 +64,7 @@ public class RelationalInterpreter<E> {
           outerContext);
     } else if (relation instanceof Algebra.CrossProduct cross) {
       var childSources =
-          cross.getRelations().stream()
-              .map(r -> buildIterable(r, catalog, outerContext))
-              .collect(Collectors.toList());
+          cross.getRelations().stream().map(r -> buildIterable(r, catalog, outerContext)).toList();
       return new CrossProductTable(childSources);
     } else if (relation instanceof Algebra.Restrict<?> restrict) {
       var childSource = buildIterable(restrict.getRelation(), catalog, outerContext);

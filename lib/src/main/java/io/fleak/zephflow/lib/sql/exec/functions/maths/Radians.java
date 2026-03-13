@@ -33,7 +33,7 @@ public class Radians extends BaseFunction {
 
     assertArgs(args, 1, "(degrees)");
 
-    var arg = args.get(0);
+    var arg = args.getFirst();
     if (arg == null) return null;
 
     var degrees = doubleTypeCast.cast(arg);

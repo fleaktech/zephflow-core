@@ -21,7 +21,6 @@ import io.fleak.zephflow.lib.sql.exec.utils.Streams;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 
 public class AliasedTable extends ExtTable {
@@ -30,10 +29,7 @@ public class AliasedTable extends ExtTable {
   final Table<Row> source;
 
   public AliasedTable(TypeSystem typeSystem, String alias, Table<Row> source) {
-    super(
-        typeSystem,
-        source,
-        source.getHeader().stream().map(h -> h.withAlias(alias)).collect(Collectors.toList()));
+    super(typeSystem, source, source.getHeader().stream().map(h -> h.withAlias(alias)).toList());
     this.alias = alias;
     this.source = source;
   }

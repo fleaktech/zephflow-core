@@ -33,7 +33,7 @@ public class Sqrt extends BaseFunction {
 
     assertArgs(args, 1, "(number)");
 
-    var arg = args.get(0);
+    var arg = args.getFirst();
     if (arg == null) return null;
 
     var number = doubleTypeCast.cast(arg);

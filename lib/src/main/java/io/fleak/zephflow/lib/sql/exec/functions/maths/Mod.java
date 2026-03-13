@@ -33,7 +33,7 @@ public class Mod extends BaseFunction {
 
     assertArgs(args, 2, "(dividend, divisor)");
 
-    var dividend = doubleTypeCast.cast(args.get(0));
+    var dividend = doubleTypeCast.cast(args.getFirst());
     var divisor = doubleTypeCast.cast(args.get(1));
 
     return dividend % divisor;

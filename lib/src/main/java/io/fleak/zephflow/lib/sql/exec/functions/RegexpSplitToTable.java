@@ -28,7 +28,7 @@ public class RegexpSplitToTable extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "(input, regex)");
 
-    var input = args.get(0);
+    var input = args.getFirst();
     if (input == null) return List.of();
 
     var regex = args.get(1);

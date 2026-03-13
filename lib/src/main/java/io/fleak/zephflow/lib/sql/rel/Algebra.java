@@ -19,7 +19,6 @@ import io.fleak.zephflow.lib.sql.exec.Row;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 import lombok.*;
 
 /**
@@ -220,7 +219,7 @@ public class Algebra {
 
       // the cross product of a single item is equal to that of the equivalent TableRelation
       if (o instanceof TableRelation && relations.size() == 1) {
-        return o.equals(relations.get(0));
+        return o.equals(relations.getFirst());
       }
 
       if (o == null || getClass() != o.getClass()) return false;
@@ -719,7 +718,7 @@ public class Algebra {
 
     @Override
     public List<Column> getHeader() {
-      return funcFrom.getSchema().stream().map(Algebras::column).collect(Collectors.toList());
+      return funcFrom.getSchema().stream().map(Algebras::column).toList();
     }
   }
 

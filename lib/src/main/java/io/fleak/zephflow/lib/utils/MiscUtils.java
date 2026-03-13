@@ -113,7 +113,7 @@ public interface MiscUtils {
 
   static boolean enforceCredentials(JobContext jobContext) {
     var val = jobContext.getOtherProperties().getOrDefault(FLAG_ENFORCE_CREDENTIALS, null);
-    return val instanceof Boolean && (Boolean) val;
+    return val instanceof Boolean b && b;
   }
 
   static boolean isMetadataField(String fieldName) {
@@ -128,9 +128,9 @@ public interface MiscUtils {
   static <T> T getOneValueFromMapEnsureExactlyOne(Map<?, T> map) {
     Preconditions.checkArgument(
         MapUtils.isNotEmpty(map)
-            && (map.size() == 1 && new ArrayList<>(map.values()).get(0) != null),
+            && (map.size() == 1 && new ArrayList<>(map.values()).getFirst() != null),
         "The map doesn't contain exactly one entry");
-    return new ArrayList<>(map.values()).get(0);
+    return new ArrayList<>(map.values()).getFirst();
   }
 
   static <T> T getOneValueFromCollectionEnsureExactlyOne(Collection<T> c) {

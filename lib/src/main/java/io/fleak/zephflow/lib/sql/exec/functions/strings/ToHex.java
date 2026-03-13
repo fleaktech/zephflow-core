@@ -29,7 +29,7 @@ public class ToHex extends BaseFunction {
   public Object apply(List<Object> args) {
     assertArgs(args, 1, "(number)");
 
-    var number = args.get(0);
+    var number = args.getFirst();
     if (number == null) return null;
 
     return Integer.toHexString(Integer.parseInt(number.toString()));

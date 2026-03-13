@@ -59,7 +59,7 @@ public class RawDataSampler<T> implements Closeable {
       return;
     }
     try {
-      SerializedEvent serializedEvent = encoder.serialize(batch.get(0));
+      SerializedEvent serializedEvent = encoder.serialize(batch.getFirst());
       sampleWriter.writeToDlq(System.currentTimeMillis(), serializedEvent, "", nodeId);
     } catch (Exception e) {
       log.debug("failed to sample raw data", e);

@@ -73,21 +73,17 @@ public record DatabricksSqlExecutor(
       StatementState state = response.getStatus().getState();
 
       switch (state) {
-        case SUCCEEDED:
+        case SUCCEEDED -> {
           return response;
-
-        case FAILED:
-        case CANCELED:
-        case CLOSED:
+        }
+        case FAILED, CANCELED, CLOSED -> {
           String errorMsg = "Unknown error";
           if (response.getStatus().getError() != null) {
             errorMsg = response.getStatus().getError().getMessage();
           }
           throw new RuntimeException("COPY INTO failed with state " + state + ": " + errorMsg);
-
-        case RUNNING:
-        case PENDING:
-        default:
+        }
+        default -> {
           try {
             //noinspection BusyWait
             Thread.sleep(SLEEP_TIME_MS);
@@ -95,7 +91,7 @@ public record DatabricksSqlExecutor(
             Thread.currentThread().interrupt();
             throw new RuntimeException("COPY INTO interrupted while waiting for completion", e);
           }
-          break;
+        }
       }
     }
     try {

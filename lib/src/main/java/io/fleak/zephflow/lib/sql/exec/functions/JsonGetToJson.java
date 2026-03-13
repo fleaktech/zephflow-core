@@ -28,7 +28,7 @@ public class JsonGetToJson extends BaseFunction {
   @Override
   public Object apply(List<Object> args) {
     assertArgs(args, 2, "field-name, datum");
-    var key = args.get(0);
+    var key = args.getFirst();
     var datum = args.get(1);
     if (key == null) return null;
     if (datum == null) return null;

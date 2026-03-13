@@ -33,7 +33,7 @@ public class Power extends BaseFunction {
 
     assertArgs(args, 2, "(base, exponent)");
 
-    var base = doubleTypeCast.cast(args.get(0));
+    var base = doubleTypeCast.cast(args.getFirst());
     var exponent = doubleTypeCast.cast(args.get(1));
 
     return Math.pow(base, exponent);

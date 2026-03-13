@@ -58,7 +58,7 @@ public class DagResult {
       boolean useDlq) {
     if (CollectionUtils.isNotEmpty(failureEvents)) {
       if (useDlq) {
-        throw new IllegalArgumentException(failureEvents.get(0).errorMessage());
+        throw new IllegalArgumentException(failureEvents.getFirst().errorMessage());
       }
       Map<String, String> tags = new HashMap<>(callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, nodeId);

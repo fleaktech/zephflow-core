@@ -34,7 +34,7 @@ public class GrokFn extends BaseFunction {
 
     assertArgs(args, 2, "(pattern, input)");
 
-    var pattern = args.get(0);
+    var pattern = args.getFirst();
     if (pattern == null) return null;
 
     var input = args.get(1);
