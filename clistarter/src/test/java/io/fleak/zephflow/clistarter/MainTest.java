@@ -28,6 +28,28 @@ import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 3/1/25 */
 class MainTest {
+
+  /**
+   * Demonstrates that when a single event has multiple fields processed by python(), and one field
+   * fails, the entire event is dropped (no output). This is because the exception propagates out of
+   * the dict() expression and the whole event ends up in failureEvents.
+   */
+  @Test
+  public void testSingleEventWithTwoPythonFields_oneInvalidFieldDropsWholeEvent() throws Exception {
+    runPipelineTest(
+        "/test_dag_single_event_two_python_fields.yml",
+        "/test_single_event_two_python_fields_input.json",
+        "/test_single_event_two_python_fields_expected.json");
+  }
+
+  @Test
+  public void testSkipFailedFields_oneInvalidFieldDropsOnlyThatField() throws Exception {
+    runPipelineTest(
+        "/test_dag_skip_failed_fields.yml",
+        "/test_skip_failed_fields_input.json",
+        "/test_skip_failed_fields_expected.json");
+  }
+
   @Test
   public void testMain() throws Exception {
     String dagDefStr = MiscUtils.loadStringFromResource("/test_dag_stdio.yml");
@@ -64,6 +86,40 @@ class MainTest {
                           fromJsonResource("/expected_output_stdio.json", new TypeReference<>() {}))
                       .get("d"));
       assertEquals(expected, objects);
+    }
+  }
+
+  private void runPipelineTest(String dagResource, String inputResource, String expectedResource)
+      throws Exception {
+    String dagDefStr = MiscUtils.loadStringFromResource(dagResource);
+    String dagDefBase64Str = MiscUtils.toBase64String(dagDefStr.getBytes());
+    String[] args = {"-d", dagDefBase64Str, "-id", "test_job", "-s", "my_service", "-e", "my_env"};
+
+    String inputJson = MiscUtils.loadStringFromResource(inputResource);
+    String expectedJson = MiscUtils.loadStringFromResource(expectedResource);
+    List<Map<String, Object>> expectedObjects =
+        Objects.requireNonNull(fromJsonString(expectedJson, new TypeReference<>() {}));
+
+    try (InputStream in = new ByteArrayInputStream((inputJson + "\n").getBytes());
+        ByteArrayOutputStream testOut = new ByteArrayOutputStream();
+        PrintStream psOut = new PrintStream(testOut)) {
+
+      System.setIn(in);
+      System.setOut(psOut);
+
+      assertDoesNotThrow(
+          () -> Main.main(args), "Pipeline should not throw on partial data failures");
+
+      List<Map<String, Object>> actualObjects =
+          testOut
+              .toString()
+              .lines()
+              .filter(l -> l.startsWith("{\""))
+              .map(l -> fromJsonString(l, new TypeReference<Map<String, Object>>() {}))
+              .toList();
+
+      assertEquals(expectedObjects.size(), actualObjects.size());
+      assertEquals(new HashSet<>(expectedObjects), new HashSet<>(actualObjects));
     }
   }
 }

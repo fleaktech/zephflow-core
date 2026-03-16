@@ -17,5 +17,10 @@ import io.fleak.zephflow.api.CommandConfig;
 
 /** Created by bolei on 10/19/24 */
 public interface EvalCommandDto {
-  record Config(String expression, boolean assertion) implements CommandConfig {}
+  record Config(String expression, boolean assertion, boolean skipFailedFields)
+      implements CommandConfig {
+    public Config(String expression, boolean assertion) {
+      this(expression, assertion, false);
+    }
+  }
 }

@@ -1,0 +1,32 @@
+jobContext:
+  otherProperties:
+  metricTags:
+    service: "test_service"
+    env: "test_env"
+  dlqConfig:
+
+dag:
+  - id: "source"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "transform"
+
+  - id: "transform"
+    commandName: "eval"
+    config:
+      # Single event with two python fields - if either fails, the whole event is lost
+      expression: |
+        dict(
+          deviceId=$.deviceId,
+          mac1=python('def format_mac(mac): m = mac[2:] if mac.startswith("0x") else mac; c = "".join(x for x in m if x.isalnum()); return ":".join(c.lower()[i:i+2] for i in range(0, 12, 2)) if len(c) == 12 else 1/0', $.mac1),
+          mac2=python('def format_mac(mac): m = mac[2:] if mac.startswith("0x") else mac; c = "".join(x for x in m if x.isalnum()); return ":".join(c.lower()[i:i+2] for i in range(0, 12, 2)) if len(c) == 12 else 1/0', $.mac2)
+        )
+    outputs:
+      - "output"
+
+  - id: "output"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

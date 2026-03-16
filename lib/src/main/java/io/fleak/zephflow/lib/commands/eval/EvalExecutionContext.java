@@ -31,6 +31,7 @@ public class EvalExecutionContext extends DefaultExecutionContext {
 
   EvalExpressionParser.LanguageContext languageContext;
   boolean assertion;
+  boolean skipFailedFields;
   PythonExecutor pythonExecutor;
   CompiledExpression compiledExpression;
 
@@ -40,11 +41,13 @@ public class EvalExecutionContext extends DefaultExecutionContext {
       FleakCounter errorCounter,
       EvalExpressionParser.LanguageContext languageContext,
       boolean assertion,
+      boolean skipFailedFields,
       PythonExecutor pythonExecutor,
       CompiledExpression compiledExpression) {
     super(inputMessageCounter, outputMessageCounter, errorCounter);
     this.languageContext = languageContext;
     this.assertion = assertion;
+    this.skipFailedFields = skipFailedFields;
     this.pythonExecutor = pythonExecutor;
     this.compiledExpression = compiledExpression;
   }
