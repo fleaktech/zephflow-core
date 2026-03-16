@@ -22,11 +22,15 @@ import io.fleak.zephflow.api.structure.FleakData;
 public record CompiledExpression(ExpressionNode root) {
 
   public FleakData evaluate(FleakData event) {
-    return evaluate(event, false);
+    return evaluate(event, false, false);
   }
 
   public FleakData evaluate(FleakData event, boolean lenient) {
-    EvalContext ctx = EvalContext.create(event, lenient);
+    return evaluate(event, lenient, false);
+  }
+
+  public FleakData evaluate(FleakData event, boolean lenient, boolean skipFailedFields) {
+    EvalContext ctx = EvalContext.create(event, lenient, skipFailedFields);
     return root.evaluate(ctx);
   }
 }

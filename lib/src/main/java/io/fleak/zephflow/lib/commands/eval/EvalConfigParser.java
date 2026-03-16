@@ -30,6 +30,7 @@ public class EvalConfigParser implements ConfigParser {
   public CommandConfig parseConfig(Map<String, Object> config) {
     String eval = (String) config.get("expression");
     Preconditions.checkNotNull(eval);
-    return new EvalCommandDto.Config(eval, assertion);
+    boolean skipFailedFields = Boolean.TRUE.equals(config.get("skipFailedFields"));
+    return new EvalCommandDto.Config(eval, assertion, skipFailedFields);
   }
 }

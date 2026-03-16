@@ -102,6 +102,7 @@ public class EvalCommand extends ScalarCommand {
         errorCounter,
         languageContext,
         config.assertion(),
+        config.skipFailedFields(),
         pythonExecutor,
         compiledExpression);
   }
@@ -116,7 +117,10 @@ public class EvalCommand extends ScalarCommand {
       Map<String, String> tags = getCallingUserTagAndEventTags(callingUser, event);
       evalContext.getInputMessageCounter().increase(tags);
       try {
-        FleakData fleakData = evalContext.getCompiledExpression().evaluate(event);
+        FleakData fleakData =
+            evalContext
+                .getCompiledExpression()
+                .evaluate(event, false, evalContext.isSkipFailedFields());
         if (fleakData == null) {
           continue;
         }

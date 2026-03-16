@@ -34,7 +34,9 @@ public record DictNode(List<KvPair> kvPairs) implements ExpressionNode {
       try {
         value = kvPair.valueNode().evaluate(ctx);
       } catch (Exception e) {
-        if (ctx.lenient()) {
+        if (ctx.skipFailedFields()) {
+          continue;
+        } else if (ctx.lenient()) {
           value =
               FleakData.wrap(
                   String.format(

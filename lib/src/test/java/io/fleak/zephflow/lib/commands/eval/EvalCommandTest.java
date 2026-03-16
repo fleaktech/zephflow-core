@@ -1260,6 +1260,45 @@ dict(
         processResult.getFailureEvents().get(0).errorMessage());
   }
 
+  @Test
+  public void testSkipFailedFields_false_wholeEventDropped() {
+    String evalExpr =
+        """
+        dict(
+          field1=$.validField,
+          field2=parse_int($.invalidField)
+        )
+        """;
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            FleakData.wrap(Map.of("validField", "hello", "invalidField", "not_a_number"));
+
+    ScalarCommand.ProcessResult result = runEval(inputEvent, evalExpr, false);
+
+    assertEquals(0, result.getOutput().size());
+    assertEquals(1, result.getFailureEvents().size());
+  }
+
+  @Test
+  public void testSkipFailedFields_true_onlyFailedFieldDropped() {
+    String evalExpr =
+        """
+        dict(
+          field1=$.validField,
+          field2=parse_int($.invalidField)
+        )
+        """;
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            FleakData.wrap(Map.of("validField", "hello", "invalidField", "not_a_number"));
+
+    ScalarCommand.ProcessResult result = runEval(inputEvent, evalExpr, true);
+
+    assertEquals(1, result.getOutput().size());
+    assertEquals(0, result.getFailureEvents().size());
+    assertEquals(FleakData.wrap(Map.of("field1", "hello")), result.getOutput().get(0));
+  }
+
   private void testEval(RecordFleakData inputEvent, String evalExpr, FleakData expected) {
     testEval(inputEvent, evalExpr, List.of((RecordFleakData) expected));
   }
@@ -1272,9 +1311,15 @@ dict(
   }
 
   private ScalarCommand.ProcessResult runEval(RecordFleakData inputEvent, String evalExpr) {
+    return runEval(inputEvent, evalExpr, false);
+  }
+
+  private ScalarCommand.ProcessResult runEval(
+      RecordFleakData inputEvent, String evalExpr, boolean skipFailedFields) {
     EvalCommand evalCommand =
         (EvalCommand) new EvalCommandFactory().createCommand("my_node_id", JOB_CONTEXT);
-    evalCommand.parseAndValidateArg(Map.of("expression", evalExpr));
+    evalCommand.parseAndValidateArg(
+        Map.of("expression", evalExpr, "skipFailedFields", skipFailedFields));
     evalCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
     var context = evalCommand.getExecutionContext();
     ScalarCommand.ProcessResult processResult =
