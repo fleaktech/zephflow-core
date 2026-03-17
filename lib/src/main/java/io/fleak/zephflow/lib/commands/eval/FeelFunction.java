@@ -1194,7 +1194,7 @@ public interface FeelFunction {
           FleakData resultElem = expressionNode.evaluate(ctx);
           resultArray.add(resultElem);
         } catch (Exception e) {
-          log.warn("arr_foreach: skipping failed element. Reason: {}", e.getMessage());
+          log.error("arr_foreach: skipping failed element. Reason: {}", e.getMessage());
         } finally {
           ctx.exitScope();
         }
