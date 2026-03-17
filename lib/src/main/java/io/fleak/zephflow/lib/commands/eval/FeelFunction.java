@@ -1151,6 +1151,7 @@ public interface FeelFunction {
   ]
   ```
   */
+  @Slf4j
   class ArrForEachFunction implements FeelFunction {
     @Override
     public FunctionSignature getSignature() {
@@ -1192,6 +1193,8 @@ public interface FeelFunction {
           ctx.setVariable(elemVarName, elem);
           FleakData resultElem = expressionNode.evaluate(ctx);
           resultArray.add(resultElem);
+        } catch (Exception e) {
+          log.warn("arr_foreach: skipping failed element. Reason: {}", e.getMessage());
         } finally {
           ctx.exitScope();
         }
