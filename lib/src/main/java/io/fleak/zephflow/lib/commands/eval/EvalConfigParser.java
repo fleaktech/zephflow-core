@@ -29,7 +29,8 @@ public class EvalConfigParser implements ConfigParser {
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
     String eval = (String) config.get("expression");
-    Preconditions.checkNotNull(eval);
+    Preconditions.checkArgument(
+        eval != null, "eval command requires 'expression' to be configured");
     return new EvalCommandDto.Config(eval, assertion);
   }
 }
