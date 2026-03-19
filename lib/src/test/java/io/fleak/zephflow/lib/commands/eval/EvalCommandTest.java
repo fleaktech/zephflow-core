@@ -1191,6 +1191,82 @@ dict(
   }
 
   @Test
+  public void testArrayForEach_skipFailedElement_pythonFunc() {
+    // arr_foreach with 3 elements: 1st and 3rd succeed, 2nd fails (python raises exception)
+    // Expected: failed element is skipped, output contains only the 2 successful elements
+    String evalExpr =
+        """
+dict(
+    results=arr_foreach(
+        $.items,
+        elem,
+        dict(
+            val=python(
+                'def process(v):
+                    if v < 0:
+                        raise ValueError("negative value not allowed")
+                    return v * 2',
+                elem.value
+            )
+        )
+    )
+)""";
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            loadFleakDataFromJsonString(
+                """
+                {
+                  "items": [
+                    {"value": 1},
+                    {"value": -1},
+                    {"value": 3}
+                  ]
+                }
+                """);
+    FleakData expected =
+        loadFleakDataFromJsonString(
+            """
+            {"results": [{"val": 2}, {"val": 6}]}
+            """);
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
+  public void testArrayForEach_skipFailedElement() {
+    // arr_foreach with 3 elements: 1st and 3rd succeed, 2nd fails (parse_int on invalid string)
+    // Expected: failed element is skipped, output contains only the 2 successful elements
+    String evalExpr =
+        """
+dict(
+    results=arr_foreach(
+        $.items,
+        elem,
+        dict(
+            val=parse_int(elem.str_val)
+        )
+    )
+)""";
+    RecordFleakData inputEvent =
+        (RecordFleakData)
+            loadFleakDataFromJsonString(
+                """
+                {
+                  "items": [
+                    {"str_val": "1"},
+                    {"str_val": "not_a_number"},
+                    {"str_val": "3"}
+                  ]
+                }
+                """);
+    FleakData expected =
+        loadFleakDataFromJsonString(
+            """
+            {"results": [{"val": 1}, {"val": 3}]}
+            """);
+    testEval(inputEvent, evalExpr, expected);
+  }
+
+  @Test
   public void testOutputMultipleEvents() {
     String inputEventStr =
         """
