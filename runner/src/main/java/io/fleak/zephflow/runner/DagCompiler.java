@@ -84,7 +84,8 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                         n.getId(),
                         n.getNodeContent().getCommandName(),
                         String.format(
-                            "failed to compile DAG node: %s, reason: %s", rdn, e.getMessage()),
+                            "failed to compile node '%s' (command: %s, config: %s), reason: %s",
+                            n.getId(), rdn.getCommandName(), rdn.getArg(), e.getMessage()),
                         e);
                   }
                 })
@@ -106,7 +107,7 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
           DagCompilationException.ErrorType.UNKNOWN_COMMAND,
           nodeId,
           commandName,
-          "unknown command: " + commandName,
+          String.format("unknown command '%s' at node '%s'", commandName, nodeId),
           null);
     }
     return commandFactory;
