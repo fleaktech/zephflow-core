@@ -16,9 +16,18 @@ package io.fleak.zephflow.lib.commands.kafkasink;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 
 public class KafkaSinkConfigValidator implements ConfigValidator {
+
+  static final Set<EncodingType> SUPPORTED_ENCODING_TYPES =
+      Set.of(
+          EncodingType.CSV,
+          EncodingType.JSON_OBJECT,
+          EncodingType.JSON_ARRAY,
+          EncodingType.JSON_OBJECT_LINE);
+
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
@@ -29,10 +38,18 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     if (StringUtils.isBlank(config.getTopic())) {
       throw new IllegalArgumentException("Topic must be provided");
     }
+    EncodingType encodingType;
     try {
-      EncodingType.valueOf(config.getEncodingType().toUpperCase());
+      encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
     } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("Invalid encoding type: " + config.getEncodingType());
+    }
+    if (!SUPPORTED_ENCODING_TYPES.contains(encodingType)) {
+      throw new IllegalArgumentException(
+          "Unsupported encoding type for Kafka sink: "
+              + config.getEncodingType()
+              + ". Supported types: "
+              + SUPPORTED_ENCODING_TYPES);
     }
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());

@@ -82,4 +82,66 @@ class KafkaSinkConfigValidatorTest {
             () -> validator.validateConfig(config, "test-node", null));
     assertTrue(exception.getMessage().contains("Invalid encoding type"));
   }
+
+  @Test
+  void validateConfig_unsupportedEncodingType_stringLine() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.STRING_LINE.name())
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("Unsupported encoding type for Kafka sink"));
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingType_text() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.TEXT.name())
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("Unsupported encoding type for Kafka sink"));
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingType_xml() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.XML.name())
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("Unsupported encoding type for Kafka sink"));
+  }
+
+  @Test
+  void validateConfig_allSupportedEncodingTypes() {
+    for (EncodingType type : KafkaSinkConfigValidator.SUPPORTED_ENCODING_TYPES) {
+      KafkaSinkDto.Config config =
+          KafkaSinkDto.Config.builder()
+              .broker("localhost:9092")
+              .topic("test-topic")
+              .encodingType(type.name())
+              .build();
+
+      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
+    }
+  }
 }
