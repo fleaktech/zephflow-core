@@ -20,6 +20,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.kinesis.common.InitialPositionInStream;
 
@@ -32,6 +33,7 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getRegionStr()), "no region name is provided");
     Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
+    DeserializerFactory.validateEncodingType(config.getEncodingType());
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getStreamName()), "no stream name is provided");
 

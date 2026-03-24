@@ -18,6 +18,7 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -238,5 +239,37 @@ class KafkaSourceConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
+  }
+
+  @Test
+  void testUnsupportedEncodingType_parquet() {
+    KafkaSourceDto.Config config =
+        KafkaSourceDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .groupId("test-group")
+            .encodingType(EncodingType.PARQUET)
+            .build();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", mockJobContext));
+    assertTrue(exception.getMessage().contains("Unsupported deserialization encoding type"));
+  }
+
+  @Test
+  void testAllSupportedEncodingTypes() {
+    for (EncodingType type : DeserializerFactory.SUPPORTED_ENCODING_TYPES) {
+      KafkaSourceDto.Config config =
+          KafkaSourceDto.Config.builder()
+              .broker("localhost:9092")
+              .topic("test-topic")
+              .groupId("test-group")
+              .encodingType(type)
+              .build();
+
+      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
+    }
   }
 }

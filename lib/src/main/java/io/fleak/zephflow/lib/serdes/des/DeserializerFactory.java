@@ -21,10 +21,31 @@ import io.fleak.zephflow.lib.serdes.des.jsonobjline.JsonObjectLineDeserializerFa
 import io.fleak.zephflow.lib.serdes.des.strline.StringLineDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.text.TextDeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.xml.XmlDeserializerFactory;
+import java.util.Set;
 
 /** Created by bolei on 9/16/24 */
 public interface DeserializerFactory<T> {
+  Set<EncodingType> SUPPORTED_ENCODING_TYPES =
+      Set.of(
+          EncodingType.CSV,
+          EncodingType.JSON_OBJECT,
+          EncodingType.JSON_ARRAY,
+          EncodingType.JSON_OBJECT_LINE,
+          EncodingType.STRING_LINE,
+          EncodingType.TEXT,
+          EncodingType.XML);
+
   FleakDeserializer<T> createDeserializer();
+
+  static void validateEncodingType(EncodingType encodingType) {
+    if (!SUPPORTED_ENCODING_TYPES.contains(encodingType)) {
+      throw new IllegalArgumentException(
+          "Unsupported deserialization encoding type: "
+              + encodingType
+              + ". Supported types: "
+              + SUPPORTED_ENCODING_TYPES);
+    }
+  }
 
   static DeserializerFactory<?> createDeserializerFactory(EncodingType encodingType) {
     return switch (encodingType) {

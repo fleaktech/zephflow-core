@@ -13,13 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.kinesis;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.enforceCredentials;
-import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
+import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import org.apache.commons.lang3.StringUtils;
 
 /** Created by bolei on 9/3/24 */
@@ -30,6 +31,8 @@ public class KinesisSinkConfigValidator implements ConfigValidator {
     if (enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
     }
+    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+    SerializerFactory.validateEncodingType(encodingType);
     if (StringUtils.trimToNull(config.getPartitionKeyFieldExpressionStr()) != null) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }

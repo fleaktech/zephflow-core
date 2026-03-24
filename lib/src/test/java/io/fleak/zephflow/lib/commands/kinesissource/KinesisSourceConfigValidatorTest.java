@@ -148,6 +148,15 @@ class KinesisSourceConfigValidatorTest {
                 .encodingType(EncodingType.JSON_OBJECT)
                 .streamName("test")
                 .build(),
-            false));
+            false),
+        // unsupported encoding type PARQUET
+        Arguments.of(
+            KinesisSourceDto.Config.builder()
+                .applicationName("test")
+                .regionStr("us-east-1")
+                .encodingType(EncodingType.PARQUET)
+                .streamName("test")
+                .build(),
+            true));
   }
 }
