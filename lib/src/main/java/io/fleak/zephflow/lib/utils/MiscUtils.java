@@ -89,6 +89,7 @@ public interface MiscUtils {
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";
   String COMMAND_NAME_DELTA_LAKE_SINK = "deltalakesink";
   String COMMAND_NAME_DATABRICKS_SINK = "databrickssink";
+  String COMMAND_NAME_SYSLOG_UDP = "syslogudp";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";
