@@ -13,12 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.parseEnum;
+
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import org.apache.commons.lang3.StringUtils;
 
 public class KafkaSinkConfigValidator implements ConfigValidator {
+
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
@@ -29,11 +33,8 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     if (StringUtils.isBlank(config.getTopic())) {
       throw new IllegalArgumentException("Topic must be provided");
     }
-    try {
-      EncodingType.valueOf(config.getEncodingType().toUpperCase());
-    } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException("Invalid encoding type: " + config.getEncodingType());
-    }
+    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+    SerializerFactory.validateEncodingType(encodingType);
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }

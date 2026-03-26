@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kafkasink;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import org.junit.jupiter.api.Test;
 
 class KafkaSinkConfigValidatorTest {
@@ -80,6 +81,68 @@ class KafkaSinkConfigValidatorTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Invalid encoding type"));
+    assertTrue(exception.getMessage().contains("Invalid value for enum EncodingType"));
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingType_stringLine() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.STRING_LINE.name())
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingType_text() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.TEXT.name())
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingType_xml() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.XML.name())
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
+  }
+
+  @Test
+  void validateConfig_allSupportedEncodingTypes() {
+    for (EncodingType type : SerializerFactory.SUPPORTED_ENCODING_TYPES) {
+      KafkaSinkDto.Config config =
+          KafkaSinkDto.Config.builder()
+              .broker("localhost:9092")
+              .topic("test-topic")
+              .encodingType(type.name())
+              .build();
+
+      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
+    }
   }
 }

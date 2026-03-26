@@ -120,6 +120,24 @@ class S3SinkConfigValidatorTest {
   }
 
   @Test
+  void validateConfig_unsupportedEncodingType() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "TEXT");
+    configMap.put("batching", false);
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("Unsupported encoding type for S3 sink"));
+  }
+
+  @Test
   void validateJsonObjectWithBatching_fails() {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("regionStr", "us-east-1");

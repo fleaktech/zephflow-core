@@ -17,6 +17,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 
 /** Created by bolei on 12/20/24 */
 public class StdOutSinkConfigValidator implements ConfigValidator {
@@ -24,5 +25,6 @@ public class StdOutSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     StdOutDto.Config config = (StdOutDto.Config) commandConfig;
     Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
+    SerializerFactory.validateEncodingType(config.getEncodingType());
   }
 }
