@@ -20,9 +20,20 @@ import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Created by bolei on 9/3/24 */
 public class S3SinkConfigValidator implements ConfigValidator {
+
+  static final Set<EncodingType> SUPPORTED_ENCODING_TYPES;
+
+  static {
+    SUPPORTED_ENCODING_TYPES = new HashSet<>(SerializerFactory.SUPPORTED_ENCODING_TYPES);
+    SUPPORTED_ENCODING_TYPES.add(EncodingType.PARQUET);
+  }
+
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     S3SinkDto.Config config = (S3SinkDto.Config) commandConfig;
@@ -32,6 +43,13 @@ public class S3SinkConfigValidator implements ConfigValidator {
     }
 
     EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+    if (!SUPPORTED_ENCODING_TYPES.contains(encodingType)) {
+      throw new IllegalArgumentException(
+          "Unsupported encoding type for S3 sink: "
+              + encodingType
+              + ". Supported types: "
+              + SUPPORTED_ENCODING_TYPES);
+    }
 
     if (config.isBatching()) {
       if (config.getBatchSize() <= 0) {

@@ -1,0 +1,63 @@
+jobContext:
+  otherProperties:
+    dataKeyPrefix: "my-pipeline/prod"
+  metricTags:
+  dlqConfig:
+    type: "s3"
+    region: "us-east-1"
+    bucket: "my-dlq-bucket"
+    batchSize: 100
+    flushIntervalMillis: 5000
+    accessKeyId: "${AWS_ACCESS_KEY_ID}"
+    secretAccessKey: "${AWS_SECRET_ACCESS_KEY}"
+    # s3EndpointOverride: "http://localhost:9000"  # uncomment for local MinIO testing
+    rawDataSampleIntervalMs: 60000
+dag:
+  #                               /->(even) c
+  # a -> b(calculate type odd/even)
+  #                               \->(odd)  d
+  - id: "a"
+    commandName: "testSource"
+    config:
+    outputs:
+      - "b"
+
+  - id: "b"
+    commandName: "eval"
+    config:
+      expression: |
+        dict(
+          type=case(
+            $.num%2==0 => 'even',
+            $.num%2==1 => 'odd',
+            _ => 'unknown'
+          ),
+          num=$.num
+        )
+    outputs:
+      - "b_to_c_filter"
+      - "b_to_d_filter"
+
+  - id: "b_to_c_filter"
+    commandName: "filter"
+    config:
+      expression: |
+        $.type == 'even'
+    outputs:
+      - "c"
+
+  - id: "b_to_d_filter"
+    commandName: "filter"
+    config:
+      expression: |
+        $.type == 'odd'
+    outputs:
+      - "d"
+
+  - id: "c"
+    commandName: "testSink"
+    config:
+
+  - id: "d"
+    commandName: "testSink"
+    config:

@@ -17,11 +17,14 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 
 public class ReaderConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     var config = (ReaderDto.Config) commandConfig;
     Preconditions.checkNotNull(config.getPath(), "path is missing");
+    Preconditions.checkNotNull(config.getEncodingType(), "encoding type is missing");
+    DeserializerFactory.validateEncodingType(config.getEncodingType());
   }
 }

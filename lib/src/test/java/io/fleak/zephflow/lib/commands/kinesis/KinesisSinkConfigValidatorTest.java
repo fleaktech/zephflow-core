@@ -13,9 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.kinesis;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -45,5 +48,40 @@ class KinesisSinkConfigValidatorTest {
   void validateConfig() {
     KinesisSinkConfigValidator validator = new KinesisSinkConfigValidator();
     validator.validateConfig(KINESIS_SINK_TEST_CONFIG, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT);
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingType() {
+    KinesisSinkConfigValidator validator = new KinesisSinkConfigValidator();
+    KinesisSinkDto.Config config =
+        KinesisSinkDto.Config.builder()
+            .regionStr("us-west-2")
+            .streamName("test-stream")
+            .credentialId("example-credential-id")
+            .encodingType(EncodingType.STRING_LINE.name())
+            .build();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
+  }
+
+  @Test
+  void validateConfig_allSupportedEncodingTypes() {
+    KinesisSinkConfigValidator validator = new KinesisSinkConfigValidator();
+    for (EncodingType type : SerializerFactory.SUPPORTED_ENCODING_TYPES) {
+      KinesisSinkDto.Config config =
+          KinesisSinkDto.Config.builder()
+              .regionStr("us-west-2")
+              .streamName("test-stream")
+              .credentialId("example-credential-id")
+              .encodingType(type.name())
+              .build();
+
+      assertDoesNotThrow(
+          () -> validator.validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
+    }
   }
 }

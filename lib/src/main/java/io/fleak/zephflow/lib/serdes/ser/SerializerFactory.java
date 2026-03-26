@@ -18,10 +18,28 @@ import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.jsonarr.JsonArraySerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.jsonobj.JsonObjectSerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.jsonobjline.JsonObjectLineSerializerFactory;
+import java.util.Set;
 
 /** Created by bolei on 9/16/24 */
 public interface SerializerFactory<T> {
+  Set<EncodingType> SUPPORTED_ENCODING_TYPES =
+      Set.of(
+          EncodingType.CSV,
+          EncodingType.JSON_OBJECT,
+          EncodingType.JSON_ARRAY,
+          EncodingType.JSON_OBJECT_LINE);
+
   FleakSerializer<T> createSerializer();
+
+  static void validateEncodingType(EncodingType encodingType) {
+    if (!SUPPORTED_ENCODING_TYPES.contains(encodingType)) {
+      throw new IllegalArgumentException(
+          "Unsupported serialization encoding type: "
+              + encodingType
+              + ". Supported types: "
+              + SUPPORTED_ENCODING_TYPES);
+    }
+  }
 
   static SerializerFactory<?> createSerializerFactory(EncodingType encodingType) {
     return switch (encodingType) {
