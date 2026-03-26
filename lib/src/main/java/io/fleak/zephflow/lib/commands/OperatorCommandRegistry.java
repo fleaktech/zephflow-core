@@ -35,6 +35,7 @@ import io.fleak.zephflow.lib.commands.splunksource.SplunkSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.sql.SqlCommandFactory;
 import io.fleak.zephflow.lib.commands.stdin.StdInCommandFactory;
 import io.fleak.zephflow.lib.commands.stdout.StdOutSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.syslogudp.SyslogUdpCommandFactory;
 import java.util.Map;
 
 public interface OperatorCommandRegistry {
@@ -60,5 +61,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
           .put(COMMAND_NAME_READER_SOURCE, new ReaderCommandFactory())
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
+          .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
           .build();
 }

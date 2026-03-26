@@ -45,6 +45,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_DELTA_LAKE_SINK)
             .add(COMMAND_NAME_READER_SOURCE)
             .add(COMMAND_NAME_DATABRICKS_SINK)
+            .add(COMMAND_NAME_SYSLOG_UDP)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }
