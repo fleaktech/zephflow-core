@@ -27,7 +27,7 @@ import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.dlq.S3DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
@@ -91,8 +91,8 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
       BlobFileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
       String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
       DlqWriter dlqWriter = null;
-      if (jobContext.getDlqConfig() instanceof JobContext.S3DlqConfig s3DlqConfig) {
-        dlqWriter = S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
+      if (jobContext.getDlqConfig() != null) {
+        dlqWriter = DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), keyPrefix);
       }
       BatchS3Flusher flusher =
           new BatchS3Flusher(
