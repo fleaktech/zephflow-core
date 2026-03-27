@@ -22,7 +22,7 @@ import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.specific.SpecificDatumWriter;
 
 /** Created by bolei on 5/5/25 */
-public class DeadLetterS3CommiterSerializer implements S3CommiterSerializer<DeadLetter> {
+public class DeadLetterCommiterSerializer implements S3CommiterSerializer<DeadLetter> {
   @Override
   public byte[] serialize(List<DeadLetter> events) throws IOException {
     // Use Avro DataFileWriter for serialization

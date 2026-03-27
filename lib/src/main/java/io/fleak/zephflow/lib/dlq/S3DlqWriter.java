@@ -47,7 +47,7 @@ public class S3DlqWriter extends DlqWriter {
   private final String keyPrefix;
   private final String pathSegment;
   private final String filePrefix;
-  private final DeadLetterS3CommiterSerializer serializer;
+  private final DeadLetterCommiterSerializer serializer;
 
   public static S3DlqWriter createS3DlqWriter(
       JobContext.S3DlqConfig s3DlqConfig, String keyPrefix) {
@@ -157,7 +157,7 @@ public class S3DlqWriter extends DlqWriter {
     this.keyPrefix = sanitizeKeyPrefix(keyPrefix);
     this.pathSegment = pathSegment;
     this.filePrefix = filePrefix;
-    this.serializer = new DeadLetterS3CommiterSerializer();
+    this.serializer = new DeadLetterCommiterSerializer();
     this.bufferedWriter =
         new BufferedWriter<>(
             batchSize, flushIntervalMillis, this::uploadToS3, "s3-" + pathSegment + "-flusher");
