@@ -210,6 +210,6 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     if (dlqConfig instanceof JobContext.GcsDlqConfig gcs) {
       return gcs.getRawDataSampleIntervalMs();
     }
-    return 60_000;
+    return 60_000L;
   }
 }
