@@ -62,7 +62,7 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
               ctx.getSourceInterval(),
               scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
         } catch (Exception e) {
-          log.error(
+          log.warn(
               "Failed to pre-compile Python function at {}: {} Script: {}",
               ctx.getSourceInterval(),
               e.getMessage(),
