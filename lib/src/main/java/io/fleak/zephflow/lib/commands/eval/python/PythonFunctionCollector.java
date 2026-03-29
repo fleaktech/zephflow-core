@@ -62,13 +62,13 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
               ctx.getSourceInterval(),
               scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
         } catch (Exception e) {
-          log.warn(
+          log.error(
               "Failed to pre-compile Python function at {}: {} Script: {}",
               ctx.getSourceInterval(),
               e.getMessage(),
               scriptText.substring(0, Math.min(100, scriptText.length())));
-          // Re-throw the exception to maintain original behavior for tests
-          throw new RuntimeException(e.getMessage(), e);
+          // Re-throw as IllegalArgumentException so Sentry client error filter can ignore it
+          throw new IllegalArgumentException(e.getMessage(), e);
         }
       }
     }
