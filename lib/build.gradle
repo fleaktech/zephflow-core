@@ -40,8 +40,11 @@ dependencies {
 
   implementation libs.splunk
 
+  implementation libs.gcs.storage
+
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
+  testImplementation libs.testcontainers.gcloud
 
   antlr libs.antlr4
 }

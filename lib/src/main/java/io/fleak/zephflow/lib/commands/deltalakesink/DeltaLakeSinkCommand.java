@@ -20,7 +20,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.dlq.S3DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
@@ -81,14 +81,10 @@ public class DeltaLakeSinkCommand extends SimpleSinkCommand<Map<String, Object>>
     if (dlqConfig == null) {
       return null;
     }
-    if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-      DlqWriter writer = S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
-      writer.open();
-      return writer;
-    }
-    log.warn("Unsupported DLQ config type: {}", dlqConfig.getClass());
-    return null;
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+    DlqWriter writer = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    writer.open();
+    return writer;
   }
 
   @Override

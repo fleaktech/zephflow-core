@@ -23,7 +23,7 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.dlq.S3DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -96,13 +96,10 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
     if (dlqConfig == null) {
       return null;
     }
-    if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-      DlqWriter writer = S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
-      writer.open();
-      return writer;
-    }
-    throw new UnsupportedOperationException("Unsupported DLQ type: " + dlqConfig);
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+    DlqWriter writer = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    writer.open();
+    return writer;
   }
 
   @Override

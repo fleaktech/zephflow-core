@@ -18,7 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.dlq.S3DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.util.List;
@@ -194,12 +194,22 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
   private RawDataSampler<T> createRawDataSampler(RawDataEncoder<T> encoder) {
     JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
-    if (!(dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig)) {
+    if (dlqConfig == null) {
       return RawDataSampler.noOp();
     }
+    long sampleIntervalMs = getSampleIntervalMs(dlqConfig);
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-    DlqWriter sampleWriter = S3DlqWriter.createS3SampleWriter(s3DlqConfig, keyPrefix);
-    return new RawDataSampler<>(
-        encoder, sampleWriter, nodeId, s3DlqConfig.getRawDataSampleIntervalMs());
+    DlqWriter sampleWriter = DlqWriterFactory.createSampleWriter(dlqConfig, keyPrefix);
+    return new RawDataSampler<>(encoder, sampleWriter, nodeId, sampleIntervalMs);
+  }
+
+  private static long getSampleIntervalMs(JobContext.DlqConfig dlqConfig) {
+    if (dlqConfig instanceof JobContext.S3DlqConfig s3) {
+      return s3.getRawDataSampleIntervalMs();
+    }
+    if (dlqConfig instanceof JobContext.GcsDlqConfig gcs) {
+      return gcs.getRawDataSampleIntervalMs();
+    }
+    return 60_000L;
   }
 }

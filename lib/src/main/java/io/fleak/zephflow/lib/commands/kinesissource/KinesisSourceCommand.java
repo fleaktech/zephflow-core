@@ -20,7 +20,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.dlq.S3DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.compression.DecompressorFactory;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -66,7 +66,7 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     DlqWriter dlqWriter =
         Optional.of(jobContext)
             .map(JobContext::getDlqConfig)
-            .map(c -> createDlqWriter(c, keyPrefix))
+            .map(c -> DlqWriterFactory.createDlqWriter(c, keyPrefix))
             .orElse(null);
     if (dlqWriter != null) {
       dlqWriter.open();
@@ -112,13 +112,6 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
         DeserializerFactory.createDeserializerFactory(config.getEncodingType())
             .createDeserializer(),
         DecompressorFactory.getDecompressor(config.getCompressionTypes()));
-  }
-
-  private DlqWriter createDlqWriter(JobContext.DlqConfig dlqConfig, String keyPrefix) {
-    if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      return S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
-    }
-    throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
   }
 
   @Override
