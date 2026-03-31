@@ -24,7 +24,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.dlq.S3DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import java.net.URL;
 import java.util.Map;
 import java.util.Optional;
@@ -65,7 +65,7 @@ public class SplunkSourceCommand extends SimpleSourceCommand<Map<String, String>
     DlqWriter dlqWriter =
         Optional.of(jobContext)
             .map(JobContext::getDlqConfig)
-            .map(c -> createDlqWriter(c, keyPrefix))
+            .map(c -> DlqWriterFactory.createDlqWriter(c, keyPrefix))
             .orElse(null);
     if (dlqWriter != null) {
       dlqWriter.open();
@@ -102,13 +102,6 @@ public class SplunkSourceCommand extends SimpleSourceCommand<Map<String, String>
     } catch (Exception e) {
       throw new RuntimeException("Failed to connect to Splunk", e);
     }
-  }
-
-  private DlqWriter createDlqWriter(JobContext.DlqConfig dlqConfig, String keyPrefix) {
-    if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      return S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
-    }
-    throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
   }
 
   @Override

@@ -43,6 +43,7 @@ public class JobContext implements Serializable {
   @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
   @JsonSubTypes({
     @JsonSubTypes.Type(value = S3DlqConfig.class, name = "s3"),
+    @JsonSubTypes.Type(value = GcsDlqConfig.class, name = "gcs"),
   })
   public interface DlqConfig {}
 
@@ -59,6 +60,19 @@ public class JobContext implements Serializable {
     private String accessKeyId;
     private String secretAccessKey;
     private String s3EndpointOverride;
+    private @Builder.Default long rawDataSampleIntervalMs = 60_000;
+  }
+
+  @Data
+  @Builder
+  @NoArgsConstructor
+  @AllArgsConstructor
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public static class GcsDlqConfig implements DlqConfig {
+    private String bucket;
+    private String serviceAccountJson;
+    private int batchSize;
+    private int flushIntervalMillis;
     private @Builder.Default long rawDataSampleIntervalMs = 60_000;
   }
 }
