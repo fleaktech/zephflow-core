@@ -162,7 +162,7 @@ testcontainers-gcloud = { module = "org.testcontainers:gcloud", version.ref = "t
 gcs-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "gcs" }
 
 activemq-client-jakarta = { module = "org.apache.activemq:activemq-client-jakarta", version.ref = "activemqClassic" }
-artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client-all", version.ref = "activemqArtemis" }
+artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client", version.ref = "activemqArtemis" }
 jakarta-jms-api = { module = "jakarta.jms:jakarta.jms-api", version.ref = "jakartaJms" }
 
 [plugins]

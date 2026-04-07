@@ -94,6 +94,10 @@ tasks.named('test') {
   testLogging.showStandardStreams = true
 }
 
+tasks.named('jar') {
+  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 tasks.named('sourcesJar') {
   dependsOn 'generateGrammarSource'
   duplicatesStrategy = DuplicatesStrategy.EXCLUDE
