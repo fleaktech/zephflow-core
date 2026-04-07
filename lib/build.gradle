@@ -42,6 +42,10 @@ dependencies {
 
   implementation libs.gcs.storage
 
+  implementation libs.jakarta.jms.api
+  implementation libs.activemq.client.jakarta
+  implementation libs.artemis.jakarta.client
+
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.gcloud
