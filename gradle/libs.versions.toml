@@ -35,6 +35,9 @@ netty = "4.1.122.Final"
 splunk = "1.9.5"
 springCore = "7.0.1"
 gcs = "2.49.0"
+activemqClassic = "5.19.4"
+activemqArtemis = "2.53.0"
+jakartaJms = "3.1.0"
 
 nebulaDependencyLock = "16.1.0"
 nebulaMavenPublish = "23.0.0"
@@ -157,6 +160,10 @@ testcontainers-clickhouse = { module = "org.testcontainers:clickhouse", version.
 testcontainers-gcloud = { module = "org.testcontainers:gcloud", version.ref = "testContainers" }
 
 gcs-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "gcs" }
+
+activemq-client-jakarta = { module = "org.apache.activemq:activemq-client-jakarta", version.ref = "activemqClassic" }
+artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client", version.ref = "activemqArtemis" }
+jakarta-jms-api = { module = "jakarta.jms:jakarta.jms-api", version.ref = "jakartaJms" }
 
 [plugins]
 nebula-dependency-lock = { id = "com.netflix.nebula.dependency-lock", version.ref = "nebulaDependencyLock" }

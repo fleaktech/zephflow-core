@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.CommandFactory;
+import io.fleak.zephflow.lib.commands.activemqsource.ActiveMqSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactory;
@@ -62,5 +63,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_READER_SOURCE, new ReaderCommandFactory())
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
+          .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
           .build();
 }
