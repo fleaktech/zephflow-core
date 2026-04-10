@@ -2,13 +2,7 @@
 <Configuration status="WARN">
   <Appenders>
     <Console name="Console" target="SYSTEM_OUT">
-      <JsonLayout compact="true" eventEol="true" properties="true" stacktraceAsString="true">
-        <KeyValuePair key="task_id" value="${sys:task_id:-}"/>
-        <KeyValuePair key="job_id" value="${sys:job_id:-}"/>
-        <KeyValuePair key="worker_id" value="${sys:worker_id:-}"/>
-        <KeyValuePair key="service" value="${sys:service:-zephflow}"/>
-        <KeyValuePair key="source" value="task"/>
-      </JsonLayout>
+      <JsonLayout compact="true" eventEol="true" properties="true" stacktraceAsString="true"/>
     </Console>
   </Appenders>
   <Loggers>
