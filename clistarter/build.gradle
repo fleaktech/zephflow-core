@@ -21,6 +21,8 @@ shadowJar {
     exclude(dependency('org.graalvm.polyglot:python'))
     exclude(dependency('org.graalvm.python:python'))
     exclude(dependency('org.graalvm.python:python-community'))
+    exclude(dependency('ch.qos.logback:logback-classic'))
+    exclude(dependency('ch.qos.logback:logback-core'))
   }
 }
 
