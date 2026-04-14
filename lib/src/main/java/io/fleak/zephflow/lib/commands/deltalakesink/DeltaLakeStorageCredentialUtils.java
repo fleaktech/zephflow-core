@@ -99,8 +99,9 @@ public interface DeltaLakeStorageCredentialUtils {
     public void applyCredentials(
         Configuration hadoopConf, String tablePath, Object credentialObj, String credentialId) {
       GcpCredential credential = (GcpCredential) credentialObj;
-      // Set project ID
-      hadoopConf.set("fs.gs.project.id", credential.getProjectId());
+      if (credential.getProjectId() != null) {
+        hadoopConf.set("fs.gs.project.id", credential.getProjectId());
+      }
 
       switch (credential.getAuthType()) {
         case SERVICE_ACCOUNT_JSON_KEYFILE -> {
@@ -151,6 +152,9 @@ public interface DeltaLakeStorageCredentialUtils {
           hadoopConf.set("google.cloud.auth.access.token", credential.getAccessToken());
           log.debug("Applied GCS access token authentication");
         }
+        case APPLICATION_DEFAULT ->
+            log.info(
+                "Using Application Default Credentials for GCS (credentialId: {})", credentialId);
       }
     }
   }
