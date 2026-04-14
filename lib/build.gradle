@@ -46,6 +46,8 @@ dependencies {
   implementation libs.activemq.client.jakarta
   implementation libs.artemis.jakarta.client
 
+  implementation libs.angus.mail
+
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.gcloud
