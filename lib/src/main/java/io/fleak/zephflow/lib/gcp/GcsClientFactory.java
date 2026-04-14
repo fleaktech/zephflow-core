@@ -32,7 +32,6 @@ public class GcsClientFactory implements Serializable {
   public Storage createStorageClient() {
     try {
       GoogleCredentials credentials = GoogleCredentials.getApplicationDefault();
-      log.info("Creating GCS client using Application Default Credentials");
       return StorageOptions.newBuilder().setCredentials(credentials).build().getService();
     } catch (IOException e) {
       throw new RuntimeException(
@@ -48,7 +47,6 @@ public class GcsClientFactory implements Serializable {
       ServiceAccountCredentials credentials =
           ServiceAccountCredentials.fromStream(
               new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)));
-      log.info("Creating GCS client using service account JSON keyfile");
       return StorageOptions.newBuilder().setCredentials(credentials).build().getService();
     } catch (IOException e) {
       throw new RuntimeException(

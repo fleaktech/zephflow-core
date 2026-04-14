@@ -35,8 +35,6 @@ class GcsClientFactoryTest {
   @Test
   void testCreateStorageClientWithNullFallsBackToAdc() {
     GcsClientFactory factory = new GcsClientFactory();
-    // In CI without GCP credentials, ADC will throw. Verify we enter the ADC path
-    // by checking the exception message indicates Application Default Credentials.
     RuntimeException ex =
         assertThrows(RuntimeException.class, () -> factory.createStorageClient((String) null));
     assertTrue(
@@ -71,7 +69,6 @@ class GcsClientFactoryTest {
             .authType(GcpCredential.AuthType.APPLICATION_DEFAULT)
             .projectId("test-project")
             .build();
-    // ADC will throw in CI without GCP credentials — verify the ADC path is entered
     RuntimeException ex =
         assertThrows(RuntimeException.class, () -> factory.createStorageClient(credential));
     assertTrue(
@@ -84,7 +81,6 @@ class GcsClientFactoryTest {
     GcsClientFactory factory = new GcsClientFactory();
     GcpCredential credential =
         GcpCredential.builder().authType(GcpCredential.AuthType.APPLICATION_DEFAULT).build();
-    // Verify null projectId does not cause NPE — should still reach ADC path
     RuntimeException ex =
         assertThrows(RuntimeException.class, () -> factory.createStorageClient(credential));
     assertTrue(
@@ -101,7 +97,6 @@ class GcsClientFactoryTest {
             .accessToken("ya29.test-token")
             .projectId("test-project")
             .build();
-    // Access token credentials don't need network — this should succeed
     assertDoesNotThrow(() -> factory.createStorageClient(credential));
   }
 

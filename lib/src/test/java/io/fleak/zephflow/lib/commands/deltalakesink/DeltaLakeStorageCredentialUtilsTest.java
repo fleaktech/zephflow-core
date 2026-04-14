@@ -279,7 +279,6 @@ class DeltaLakeStorageCredentialUtilsTest {
 
     applier.applyCredentials(hadoopConf, "gs://bucket/path", credential, "gcs-cred");
 
-    // ADC mode should set project ID but no explicit auth properties
     assertEquals("test-project", hadoopConf.get("fs.gs.project.id"));
     assertNull(hadoopConf.get("google.cloud.auth.type"));
     assertNull(hadoopConf.get("fs.gs.auth.service.account.enable"));
@@ -296,7 +295,6 @@ class DeltaLakeStorageCredentialUtilsTest {
     assertDoesNotThrow(
         () -> applier.applyCredentials(hadoopConf, "gs://bucket/path", credential, "gcs-cred"));
 
-    // No properties should be set at all
     assertNull(hadoopConf.get("fs.gs.project.id"));
     assertNull(hadoopConf.get("google.cloud.auth.type"));
   }

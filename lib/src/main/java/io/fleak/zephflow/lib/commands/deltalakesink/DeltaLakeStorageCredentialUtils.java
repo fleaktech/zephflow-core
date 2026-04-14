@@ -99,7 +99,6 @@ public interface DeltaLakeStorageCredentialUtils {
     public void applyCredentials(
         Configuration hadoopConf, String tablePath, Object credentialObj, String credentialId) {
       GcpCredential credential = (GcpCredential) credentialObj;
-      // Set project ID
       if (credential.getProjectId() != null) {
         hadoopConf.set("fs.gs.project.id", credential.getProjectId());
       }
@@ -153,14 +152,9 @@ public interface DeltaLakeStorageCredentialUtils {
           hadoopConf.set("google.cloud.auth.access.token", credential.getAccessToken());
           log.debug("Applied GCS access token authentication");
         }
-        case APPLICATION_DEFAULT -> {
-          // Let the GCS Hadoop connector use its default credential chain (ADC).
-          // No explicit auth configuration needed — the connector will resolve
-          // credentials from: GKE Workload Identity, Compute Engine metadata,
-          // GOOGLE_APPLICATION_CREDENTIALS env var, or gcloud CLI login.
-          log.info(
-              "Using Application Default Credentials for GCS (credentialId: {})", credentialId);
-        }
+        case APPLICATION_DEFAULT ->
+            log.info(
+                "Using Application Default Credentials for GCS (credentialId: {})", credentialId);
       }
     }
   }
