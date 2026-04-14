@@ -268,6 +268,38 @@ class DeltaLakeStorageCredentialUtilsTest {
   }
 
   @Test
+  void testGcsCredentialApplierWithApplicationDefault() {
+    DeltaLakeStorageCredentialUtils.GcsCredentialApplier applier =
+        new DeltaLakeStorageCredentialUtils.GcsCredentialApplier();
+    GcpCredential credential =
+        GcpCredential.builder()
+            .authType(GcpCredential.AuthType.APPLICATION_DEFAULT)
+            .projectId("test-project")
+            .build();
+
+    applier.applyCredentials(hadoopConf, "gs://bucket/path", credential, "gcs-cred");
+
+    assertEquals("test-project", hadoopConf.get("fs.gs.project.id"));
+    assertNull(hadoopConf.get("google.cloud.auth.type"));
+    assertNull(hadoopConf.get("fs.gs.auth.service.account.enable"));
+    assertNull(hadoopConf.get("google.cloud.auth.access.token"));
+  }
+
+  @Test
+  void testGcsCredentialApplierWithApplicationDefaultNullProjectId() {
+    DeltaLakeStorageCredentialUtils.GcsCredentialApplier applier =
+        new DeltaLakeStorageCredentialUtils.GcsCredentialApplier();
+    GcpCredential credential =
+        GcpCredential.builder().authType(GcpCredential.AuthType.APPLICATION_DEFAULT).build();
+
+    assertDoesNotThrow(
+        () -> applier.applyCredentials(hadoopConf, "gs://bucket/path", credential, "gcs-cred"));
+
+    assertNull(hadoopConf.get("fs.gs.project.id"));
+    assertNull(hadoopConf.get("google.cloud.auth.type"));
+  }
+
+  @Test
   void testGcsCredentialApplierWithInvalidJson() {
     DeltaLakeStorageCredentialUtils.GcsCredentialApplier applier =
         new DeltaLakeStorageCredentialUtils.GcsCredentialApplier();

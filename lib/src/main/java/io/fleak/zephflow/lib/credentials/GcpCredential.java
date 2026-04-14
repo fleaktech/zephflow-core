@@ -20,35 +20,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 
-/**
- * Credential for Google Cloud Platform services (GCS, BigQuery, etc.)
- *
- * <p>Supported authentication methods:
- *
- * <ul>
- *   <li>OAuth Access Token - Recommended (keeps credentials in memory only)
- *   <li>Service Account JSON keyfile - Supported but NOT recommended (writes credentials to temp
- *       file on disk)
- * </ul>
- *
- * <p>Usage examples:
- *
- * <pre>
- * // OAuth Access Token (recommended - secure in-memory auth)
- * GcpCredential credential = GcpCredential.builder()
- *     .authType(AuthType.ACCESS_TOKEN)
- *     .accessToken("ya29.c.ElqKB...")
- *     .projectId("my-project-123")
- *     .build();
- *
- * // Service Account JSON (supported but NOT recommended - security risk)
- * GcpCredential credential = GcpCredential.builder()
- *     .authType(AuthType.SERVICE_ACCOUNT_JSON_KEYFILE)
- *     .jsonKeyContent("{\"type\":\"service_account\",...}")
- *     .projectId("my-project-123")
- *     .build();
- * </pre>
- */
+/** Credential for Google Cloud Platform services (GCS, BigQuery, etc.) */
 @Data
 @Builder
 @NoArgsConstructor
@@ -60,7 +32,9 @@ public class GcpCredential implements Serializable {
     /** Use service account JSON keyfile for authentication */
     SERVICE_ACCOUNT_JSON_KEYFILE,
     /** Use OAuth access token for authentication */
-    ACCESS_TOKEN
+    ACCESS_TOKEN,
+    /** Use Application Default Credentials for authentication */
+    APPLICATION_DEFAULT
   }
 
   /** Authentication type */
@@ -78,6 +52,6 @@ public class GcpCredential implements Serializable {
    */
   String accessToken;
 
-  /** GCP project ID associated with this credential */
-  @NonNull String projectId;
+  /** GCP project ID associated with this credential. May be null for APPLICATION_DEFAULT. */
+  String projectId;
 }
