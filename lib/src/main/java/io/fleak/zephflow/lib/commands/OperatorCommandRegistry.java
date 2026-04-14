@@ -28,6 +28,7 @@ import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesissource.KinesisSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.ldapsource.LdapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
@@ -64,5 +65,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
           .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
+          .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
           .build();
 }
