@@ -119,6 +119,7 @@ public class SqsSinkFlusher implements SimpleSinkCommand.Flusher<SqsOutboundMess
 
       return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, errorOutputs);
     } catch (Exception e) {
+      log.error("SQS batch send failed", e);
       for (Pair<RecordFleakData, SqsOutboundMessage> pair :
           preparedInputEvents.rawAndPreparedList()) {
         errorOutputs.add(new ErrorOutput(pair.getLeft(), "SQS client error: " + e.getMessage()));

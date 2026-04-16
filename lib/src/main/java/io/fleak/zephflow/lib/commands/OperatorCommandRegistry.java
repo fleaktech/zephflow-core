@@ -24,6 +24,8 @@ import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactor
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
@@ -66,6 +68,8 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
           .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
+          .put(COMMAND_NAME_JDBC_SOURCE, new JdbcSourceCommandFactory())
+          .put(COMMAND_NAME_JDBC_SINK, new JdbcSinkCommandFactory())
           .put(COMMAND_NAME_SQS_SOURCE, new SqsSourceCommandFactory())
           .put(COMMAND_NAME_SQS_SINK, new SqsSinkCommandFactory())
           .build();

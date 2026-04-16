@@ -18,6 +18,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 
@@ -30,21 +31,19 @@ public class StdInSourceFetcher implements Fetcher<SerializedEvent> {
   @Override
   public List<SerializedEvent> fetch() {
     log.debug("Waiting for event from stdin...");
-    StringBuilder inputData = new StringBuilder();
     System.out.println("use an empty line to quit");
     try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+      List<SerializedEvent> events = new ArrayList<>();
       String line;
       while ((line = reader.readLine()) != null && !line.trim().isEmpty()) {
-        inputData.append(line);
+        log.debug("read line from stdin: {}", line);
+        events.add(new SerializedEvent(null, line.getBytes(), null));
       }
-      log.debug("read data from stdin:\n {}", inputData);
-      byte[] raw = inputData.toString().getBytes();
-      SerializedEvent serializedEvent = new SerializedEvent(null, raw, null);
       exhausted = true;
-      return List.of(serializedEvent);
+      return events;
     } catch (Exception e) {
       log.error("failed to read data from stdin", e);
-      return null;
+      return List.of();
     }
   }
 
