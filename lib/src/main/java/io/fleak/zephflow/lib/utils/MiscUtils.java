@@ -97,6 +97,7 @@ public interface MiscUtils {
   String COMMAND_NAME_SQS_SINK = "sqssink";
   String COMMAND_NAME_IMAP_SOURCE = "imapsource";
   String COMMAND_NAME_SMTP_SINK = "smtpsink";
+  String COMMAND_NAME_LDAP_SOURCE = "ldapsource";
   String COMMAND_NAME_GCS_SOURCE = "gcssource";
   String COMMAND_NAME_GCS_SINK = "gcssink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
