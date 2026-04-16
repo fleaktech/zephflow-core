@@ -93,6 +93,8 @@ public interface MiscUtils {
   String COMMAND_NAME_ACTIVEMQ_SOURCE = "activemqsource";
   String COMMAND_NAME_JDBC_SOURCE = "jdbcsource";
   String COMMAND_NAME_JDBC_SINK = "jdbcsink";
+  String COMMAND_NAME_SQS_SOURCE = "sqssource";
+  String COMMAND_NAME_SQS_SINK = "sqssink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";

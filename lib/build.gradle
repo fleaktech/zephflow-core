@@ -16,6 +16,7 @@ dependencies {
   implementation libs.aws.kinesis.client
   implementation libs.aws.dynamodb
   implementation libs.aws.cloudwatch
+  implementation libs.aws.sqs
 
   implementation libs.kafka.clients
   implementation libs.clickhouse.client
