@@ -93,6 +93,7 @@ aws-s3-transfer-manager = { module = "software.amazon.awssdk:s3-transfer-manager
 aws-kinesis-client = { module = "software.amazon.kinesis:amazon-kinesis-client", version.ref = "awsKinesis" }
 aws-dynamodb = { module = "software.amazon.awssdk:dynamodb", version.ref = "aws" }
 aws-cloudwatch = { module = "software.amazon.awssdk:cloudwatch", version.ref = "aws" }
+aws-sqs = { module = "software.amazon.awssdk:sqs", version.ref = "aws" }
 
 kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafka" }
 

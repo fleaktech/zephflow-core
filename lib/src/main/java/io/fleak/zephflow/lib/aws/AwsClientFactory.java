@@ -32,6 +32,7 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.transfer.s3.S3TransferManager;
 
 /** Created by bolei on 8/6/24 */
@@ -86,6 +87,13 @@ public class AwsClientFactory implements Serializable {
   public KinesisClient createKinesisClient(
       String regionStr, UsernamePasswordCredential usernamePasswordCredential) {
     var builder = KinesisClient.builder();
+    builder = setupClientBuilder(builder, regionStr, usernamePasswordCredential);
+    return builder.build();
+  }
+
+  public SqsClient createSqsClient(
+      String regionStr, UsernamePasswordCredential usernamePasswordCredential) {
+    var builder = SqsClient.builder();
     builder = setupClientBuilder(builder, regionStr, usernamePasswordCredential);
     return builder.build();
   }
