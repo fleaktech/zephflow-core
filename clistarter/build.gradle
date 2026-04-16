@@ -8,13 +8,10 @@ application {
   mainClass = 'io.fleak.zephflow.clistarter.Main'
 }
 
-import com.github.jengelman.gradle.plugins.shadow.transformers.ServiceFileTransformer
-
 shadowJar {
   zip64 true
   archiveClassifier.set('all')
-  transform(ServiceFileTransformer) {
-  }
+  mergeServiceFiles()
 
   // Exclude POM-only GraalVM artifacts (no JARs) while keeping actual implementation JARs
   dependencies {
