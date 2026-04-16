@@ -57,6 +57,7 @@ dependencies {
   implementation libs.angus.mail
   implementation libs.azure.storage.blob
 
+  testImplementation libs.unboundid.ldapsdk
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.gcloud
