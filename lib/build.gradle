@@ -46,6 +46,10 @@ dependencies {
   implementation libs.activemq.client.jakarta
   implementation libs.artemis.jakarta.client
 
+  runtimeOnly libs.postgresql.driver
+  runtimeOnly libs.mysql.connector
+  runtimeOnly libs.mariadb.connector
+
   testImplementation libs.h2.database
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
