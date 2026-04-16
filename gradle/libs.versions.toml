@@ -39,6 +39,9 @@ activemqClassic = "5.19.4"
 activemqArtemis = "2.53.0"
 jakartaJms = "3.1.0"
 h2 = "2.2.224"
+postgresql = "42.7.3"
+mysql = "9.2.0"
+mariadb = "3.5.2"
 
 nebulaDependencyLock = "16.1.0"
 nebulaMavenPublish = "23.0.0"
@@ -166,6 +169,9 @@ activemq-client-jakarta = { module = "org.apache.activemq:activemq-client-jakart
 artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client", version.ref = "activemqArtemis" }
 jakarta-jms-api = { module = "jakarta.jms:jakarta.jms-api", version.ref = "jakartaJms" }
 h2-database = { module = "com.h2database:h2", version.ref = "h2" }
+postgresql-driver = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+mysql-connector = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
+mariadb-connector = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = "mariadb" }
 
 [plugins]
 nebula-dependency-lock = { id = "com.netflix.nebula.dependency-lock", version.ref = "nebulaDependencyLock" }
