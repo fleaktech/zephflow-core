@@ -95,6 +95,8 @@ public interface MiscUtils {
   String COMMAND_NAME_JDBC_SINK = "jdbcsink";
   String COMMAND_NAME_SQS_SOURCE = "sqssource";
   String COMMAND_NAME_SQS_SINK = "sqssink";
+  String COMMAND_NAME_IMAP_SOURCE = "imapsource";
+  String COMMAND_NAME_SMTP_SINK = "smtpsink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";
