@@ -45,6 +45,7 @@ mariadb = "3.5.2"
 ojdbc = "23.7.0.25.01"
 mssqlJdbc = "12.10.0.jre11"
 angusMail = "2.0.3"
+azureStorageBlob = "12.28.0"
 
 nebulaDependencyLock = "16.1.0"
 nebulaMavenPublish = "23.0.0"
@@ -179,6 +180,7 @@ mariadb-connector = { module = "org.mariadb.jdbc:mariadb-java-client", version.r
 ojdbc-driver = { module = "com.oracle.database.jdbc:ojdbc11", version.ref = "ojdbc" }
 mssql-jdbc-driver = { module = "com.microsoft.sqlserver:mssql-jdbc", version.ref = "mssqlJdbc" }
 angus-mail = { module = "org.eclipse.angus:angus-mail", version.ref = "angusMail" }
+azure-storage-blob = { module = "com.azure:azure-storage-blob", version.ref = "azureStorageBlob" }
 
 [plugins]
 nebula-dependency-lock = { id = "com.netflix.nebula.dependency-lock", version.ref = "nebulaDependencyLock" }
