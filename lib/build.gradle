@@ -55,6 +55,7 @@ dependencies {
 
   testImplementation libs.h2.database
   implementation libs.angus.mail
+  implementation libs.azure.storage.blob
 
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
