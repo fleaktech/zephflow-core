@@ -54,6 +54,8 @@ dependencies {
   runtimeOnly libs.mssql.jdbc.driver
 
   testImplementation libs.h2.database
+  implementation libs.angus.mail
+
   testImplementation libs.unboundid.ldapsdk
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
