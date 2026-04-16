@@ -49,6 +49,8 @@ dependencies {
   runtimeOnly libs.postgresql.driver
   runtimeOnly libs.mysql.connector
   runtimeOnly libs.mariadb.connector
+  runtimeOnly libs.ojdbc.driver
+  runtimeOnly libs.mssql.jdbc.driver
 
   testImplementation libs.h2.database
   testImplementation libs.jackson.dataformat.yaml

@@ -52,7 +52,7 @@ class JdbcSourceFetcherTest {
   @Test
   void testFetchBatchMode() throws Exception {
     JdbcSourceFetcher fetcher =
-        new JdbcSourceFetcher(JDBC_URL, null, null, "SELECT * FROM test_events", null, 1000);
+        new JdbcSourceFetcher(JDBC_URL, null, null, "SELECT * FROM test_events", null, 1000, 0);
 
     assertFalse(fetcher.isExhausted());
 
@@ -80,7 +80,7 @@ class JdbcSourceFetcherTest {
     }
 
     JdbcSourceFetcher fetcher =
-        new JdbcSourceFetcher(JDBC_URL, null, null, "SELECT * FROM test_events", null, 1000);
+        new JdbcSourceFetcher(JDBC_URL, null, null, "SELECT * FROM test_events", null, 1000, 0);
 
     List<Map<String, Object>> results = fetcher.fetch();
     assertTrue(results.isEmpty());
@@ -95,9 +95,10 @@ class JdbcSourceFetcherTest {
             JDBC_URL,
             null,
             null,
-            "SELECT * FROM test_events WHERE :watermark IS NULL OR id > :watermark ORDER BY id",
+            "SELECT * FROM test_events WHERE id > :watermark ORDER BY id",
             "ID",
-            1000);
+            1000,
+            0);
 
     assertFalse(fetcher.isExhausted());
 
@@ -121,9 +122,10 @@ class JdbcSourceFetcherTest {
             JDBC_URL,
             null,
             null,
-            "SELECT * FROM test_events WHERE :watermark IS NULL OR id > :watermark ORDER BY id",
+            "SELECT * FROM test_events WHERE id > :watermark ORDER BY id",
             "ID",
-            1000);
+            1000,
+            0);
 
     List<Map<String, Object>> results1 = fetcher.fetch();
     assertEquals(3, results1.size());
@@ -146,7 +148,7 @@ class JdbcSourceFetcherTest {
   void testFetchWithFetchSizeLimit() throws Exception {
     JdbcSourceFetcher fetcher =
         new JdbcSourceFetcher(
-            JDBC_URL, null, null, "SELECT * FROM test_events ORDER BY id", null, 2);
+            JDBC_URL, null, null, "SELECT * FROM test_events ORDER BY id", null, 2, 0);
 
     List<Map<String, Object>> results = fetcher.fetch();
     assertEquals(2, results.size());

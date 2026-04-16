@@ -104,7 +104,8 @@ public class JdbcSourceCommand extends SimpleSourceCommand<Map<String, Object>> 
         password,
         config.getQuery(),
         config.getWatermarkColumn(),
-        config.getFetchSize());
+        config.getFetchSize(),
+        config.getPollIntervalMs());
   }
 
   @Override

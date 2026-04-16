@@ -28,12 +28,14 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
   private final String queryTemplate;
   private final String watermarkColumn;
   private final int fetchSize;
+  private final long pollIntervalMs;
   private final boolean streaming;
 
   private Connection connection;
   private Object lastWatermarkValue;
   private volatile boolean exhausted = false;
   private boolean batchFetchDone = false;
+  private long lastQueryTime = 0;
 
   public JdbcSourceFetcher(
       String jdbcUrl,
@@ -41,13 +43,15 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
       String password,
       String queryTemplate,
       String watermarkColumn,
-      int fetchSize) {
+      int fetchSize,
+      long pollIntervalMs) {
     this.jdbcUrl = jdbcUrl;
     this.username = username;
     this.password = password;
     this.queryTemplate = queryTemplate;
     this.watermarkColumn = watermarkColumn;
     this.fetchSize = fetchSize;
+    this.pollIntervalMs = pollIntervalMs;
     this.streaming = watermarkColumn != null && !watermarkColumn.isBlank();
   }
 
@@ -57,6 +61,19 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
       exhausted = true;
       return List.of();
     }
+    if (streaming && lastWatermarkValue != null && lastQueryTime > 0) {
+      long elapsed = System.currentTimeMillis() - lastQueryTime;
+      long toWait = pollIntervalMs - elapsed;
+      if (toWait > 0) {
+        try {
+          Thread.sleep(toWait);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return List.of();
+        }
+      }
+    }
+    lastQueryTime = System.currentTimeMillis();
     try {
       ensureConnection();
       String sql = buildQuery();
@@ -88,6 +105,7 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
 
   private void ensureConnection() throws SQLException {
     if (connection == null || connection.isClosed()) {
+      JdbcDriverLoader.loadDriverForUrl(jdbcUrl);
       if (username != null) {
         connection = DriverManager.getConnection(jdbcUrl, username, password);
       } else {
@@ -97,8 +115,16 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
   }
 
   private String buildQuery() {
-    if (!streaming || lastWatermarkValue == null) {
+    if (!streaming) {
       return queryTemplate.replace(":watermark", "NULL");
+    }
+    if (lastWatermarkValue == null) {
+      // Initial streaming fetch: replace "column op :watermark" with "1=1" so all rows are
+      // returned.
+      // Then replace any remaining :watermark occurrences (e.g. from IS NULL patterns) with NULL.
+      return queryTemplate
+          .replaceAll("\\S+\\s*(?:>=|<=|!=|>|<|=)\\s*:watermark", "1=1")
+          .replace(":watermark", "NULL");
     }
     String watermarkStr;
     if (lastWatermarkValue instanceof Number) {

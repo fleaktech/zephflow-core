@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.jdbcsink;
 
+import io.fleak.zephflow.lib.commands.jdbcsource.JdbcDriverLoader;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
 import java.sql.*;
@@ -111,6 +112,7 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
 
   private void ensureConnection() throws SQLException {
     if (connection == null || connection.isClosed()) {
+      JdbcDriverLoader.loadDriverForUrl(jdbcUrl);
       if (username != null) {
         connection = DriverManager.getConnection(jdbcUrl, username, password);
       } else {
