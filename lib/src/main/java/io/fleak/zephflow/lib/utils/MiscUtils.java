@@ -97,6 +97,7 @@ public interface MiscUtils {
   String COMMAND_NAME_SQS_SINK = "sqssink";
   String COMMAND_NAME_IMAP_SOURCE = "imapsource";
   String COMMAND_NAME_SMTP_SINK = "smtpsink";
+  String COMMAND_NAME_LDAP_SOURCE = "ldapsource";
   String COMMAND_NAME_AZURE_BLOB_SOURCE = "azureblobsource";
   String COMMAND_NAME_AZURE_BLOB_SINK = "azureblobsink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";

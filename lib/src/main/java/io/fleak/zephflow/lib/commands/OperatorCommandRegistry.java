@@ -31,6 +31,7 @@ import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesissource.KinesisSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.ldapsource.LdapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
@@ -78,6 +79,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_SQS_SINK, new SqsSinkCommandFactory())
           .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
           .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
+          .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_BLOB_SOURCE, new AzureBlobSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())
           .build();
