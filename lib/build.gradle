@@ -16,6 +16,7 @@ dependencies {
   implementation libs.aws.kinesis.client
   implementation libs.aws.dynamodb
   implementation libs.aws.cloudwatch
+  implementation libs.aws.sqs
 
   implementation libs.kafka.clients
   implementation libs.clickhouse.client
@@ -46,6 +47,13 @@ dependencies {
   implementation libs.activemq.client.jakarta
   implementation libs.artemis.jakarta.client
 
+  runtimeOnly libs.postgresql.driver
+  runtimeOnly libs.mysql.connector
+  runtimeOnly libs.mariadb.connector
+  runtimeOnly libs.ojdbc.driver
+  runtimeOnly libs.mssql.jdbc.driver
+
+  testImplementation libs.h2.database
   testImplementation libs.unboundid.ldapsdk
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse

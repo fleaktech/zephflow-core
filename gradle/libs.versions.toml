@@ -38,6 +38,12 @@ gcs = "2.49.0"
 activemqClassic = "5.19.4"
 activemqArtemis = "2.53.0"
 jakartaJms = "3.1.0"
+h2 = "2.2.224"
+postgresql = "42.7.3"
+mysql = "9.2.0"
+mariadb = "3.5.2"
+ojdbc = "23.7.0.25.01"
+mssqlJdbc = "12.10.0.jre11"
 unboundidLdapsdk = "7.0.1"
 
 nebulaDependencyLock = "16.1.0"
@@ -87,6 +93,7 @@ aws-s3-transfer-manager = { module = "software.amazon.awssdk:s3-transfer-manager
 aws-kinesis-client = { module = "software.amazon.kinesis:amazon-kinesis-client", version.ref = "awsKinesis" }
 aws-dynamodb = { module = "software.amazon.awssdk:dynamodb", version.ref = "aws" }
 aws-cloudwatch = { module = "software.amazon.awssdk:cloudwatch", version.ref = "aws" }
+aws-sqs = { module = "software.amazon.awssdk:sqs", version.ref = "aws" }
 
 kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafka" }
 
@@ -165,6 +172,12 @@ gcs-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = 
 activemq-client-jakarta = { module = "org.apache.activemq:activemq-client-jakarta", version.ref = "activemqClassic" }
 artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client", version.ref = "activemqArtemis" }
 jakarta-jms-api = { module = "jakarta.jms:jakarta.jms-api", version.ref = "jakartaJms" }
+h2-database = { module = "com.h2database:h2", version.ref = "h2" }
+postgresql-driver = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+mysql-connector = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
+mariadb-connector = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = "mariadb" }
+ojdbc-driver = { module = "com.oracle.database.jdbc:ojdbc11", version.ref = "ojdbc" }
+mssql-jdbc-driver = { module = "com.microsoft.sqlserver:mssql-jdbc", version.ref = "mssqlJdbc" }
 unboundid-ldapsdk = { module = "com.unboundid:unboundid-ldapsdk", version.ref = "unboundidLdapsdk" }
 
 [plugins]

@@ -91,6 +91,10 @@ public interface MiscUtils {
   String COMMAND_NAME_DATABRICKS_SINK = "databrickssink";
   String COMMAND_NAME_SYSLOG_UDP = "syslogudp";
   String COMMAND_NAME_ACTIVEMQ_SOURCE = "activemqsource";
+  String COMMAND_NAME_JDBC_SOURCE = "jdbcsource";
+  String COMMAND_NAME_JDBC_SINK = "jdbcsink";
+  String COMMAND_NAME_SQS_SOURCE = "sqssource";
+  String COMMAND_NAME_SQS_SINK = "sqssink";
   String COMMAND_NAME_LDAP_SOURCE = "ldapsource";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
