@@ -24,6 +24,7 @@ import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactor
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
@@ -34,6 +35,7 @@ import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
+import io.fleak.zephflow.lib.commands.smtpsink.SmtpSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunksource.SplunkSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.sql.SqlCommandFactory;
 import io.fleak.zephflow.lib.commands.sqssink.SqsSinkCommandFactory;
@@ -72,5 +74,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_JDBC_SINK, new JdbcSinkCommandFactory())
           .put(COMMAND_NAME_SQS_SOURCE, new SqsSourceCommandFactory())
           .put(COMMAND_NAME_SQS_SINK, new SqsSinkCommandFactory())
+          .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
+          .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
           .build();
 }
