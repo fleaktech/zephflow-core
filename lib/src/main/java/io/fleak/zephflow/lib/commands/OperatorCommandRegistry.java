@@ -24,9 +24,9 @@ import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactor
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
-import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
