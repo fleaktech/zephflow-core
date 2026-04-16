@@ -85,9 +85,9 @@ class StdInSourceFetcherTest {
     // Execute fetch
     var result = fetcher.fetch();
 
-    // Verify results
+    // Verify results - empty input produces no events
     assertNotNull(result);
-    assertEquals(1, result.size());
+    assertTrue(result.isEmpty());
   }
 
   @Test
@@ -105,8 +105,9 @@ class StdInSourceFetcherTest {
     // Execute fetch
     var result = fetcher.fetch();
 
-    // Verify results
-    assertNull(result);
+    // Verify results - error returns empty list, not null
+    assertNotNull(result);
+    assertTrue(result.isEmpty());
   }
 
   @Test

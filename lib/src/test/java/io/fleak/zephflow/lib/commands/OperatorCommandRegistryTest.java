@@ -49,6 +49,8 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_ACTIVEMQ_SOURCE)
             .add(COMMAND_NAME_JDBC_SINK)
             .add(COMMAND_NAME_JDBC_SOURCE)
+            .add(COMMAND_NAME_SQS_SINK)
+            .add(COMMAND_NAME_SQS_SOURCE)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }
