@@ -25,19 +25,15 @@ public interface SentinelSinkDto {
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    /** Entra ID tenant GUID. */
     @NonNull private String tenantId;
-    /** Data Collection Endpoint Logs Ingestion URI. */
     @NonNull private String dceEndpoint;
     /** DCR immutable ID — must start with "dcr-". */
     @NonNull private String dcrImmutableId;
-    /** Stream name declared in the DCR (e.g. Custom-ZephflowTest_CL). */
     @NonNull private String streamName;
     /**
      * ID of a stored UsernamePasswordCredential: username = clientId, password = clientSecret.
      */
     @NonNull private String credentialId;
-    /** Field name in the event to use as the timestamp. Defaults to "TimeGenerated". */
     @Builder.Default private String timeGeneratedField = "TimeGenerated";
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
