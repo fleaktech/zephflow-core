@@ -23,10 +23,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import lombok.extern.slf4j.Slf4j;
 
-/** Acquires and caches an Entra ID access token via the client-credentials OAuth2 flow. */
-@Slf4j
 public class EntraIdTokenProvider {
 
   private static final String TOKEN_ENDPOINT_TEMPLATE =
@@ -38,7 +35,7 @@ public class EntraIdTokenProvider {
   private final String clientSecret;
   private final HttpClient httpClient;
 
-  private volatile String cachedToken;
+  private String cachedToken;
 
   public EntraIdTokenProvider(
       String tenantId, String clientId, String clientSecret, HttpClient httpClient) {
@@ -48,7 +45,7 @@ public class EntraIdTokenProvider {
     this.httpClient = httpClient;
   }
 
-  public String getToken() throws Exception {
+  public synchronized String getToken() throws Exception {
     if (cachedToken != null) {
       return cachedToken;
     }
@@ -56,7 +53,7 @@ public class EntraIdTokenProvider {
     return cachedToken;
   }
 
-  public void invalidate() {
+  public synchronized void invalidate() {
     cachedToken = null;
   }
 
@@ -72,7 +69,11 @@ public class EntraIdTokenProvider {
 
     HttpRequest request =
         HttpRequest.newBuilder()
-            .uri(URI.create(String.format(TOKEN_ENDPOINT_TEMPLATE, tenantId)))
+            .uri(
+                URI.create(
+                    String.format(
+                        TOKEN_ENDPOINT_TEMPLATE,
+                        URLEncoder.encode(tenantId, StandardCharsets.UTF_8))))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .timeout(Duration.ofSeconds(30))
