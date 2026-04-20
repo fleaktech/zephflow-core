@@ -25,18 +25,18 @@ public interface SentinelSinkDto {
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    /** Azure Log Analytics Workspace ID (GUID). */
-    @NonNull private String workspaceId;
+    /** Entra ID tenant GUID. */
+    @NonNull private String tenantId;
+    /** Data Collection Endpoint Logs Ingestion URI. */
+    @NonNull private String dceEndpoint;
+    /** DCR immutable ID — must start with "dcr-". */
+    @NonNull private String dcrImmutableId;
+    /** Stream name declared in the DCR (e.g. Custom-ZephflowTest_CL). */
+    @NonNull private String streamName;
     /**
-     * ID of a stored UsernamePasswordCredential where password is the workspace primary or
-     * secondary shared key (base64-encoded).
+     * ID of a stored UsernamePasswordCredential: username = clientId, password = clientSecret.
      */
     @NonNull private String credentialId;
-    /**
-     * Custom log table name. Must be alphanumeric/underscore only and max 100 characters. Azure
-     * will append "_CL" suffix to this name in the workspace.
-     */
-    @NonNull private String logType;
     /** Field name in the event to use as the timestamp. Defaults to "TimeGenerated". */
     @Builder.Default private String timeGeneratedField = "TimeGenerated";
 
