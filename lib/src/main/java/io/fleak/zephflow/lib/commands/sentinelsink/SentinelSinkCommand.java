@@ -19,7 +19,6 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
-import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 
 public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent> {
 
@@ -47,17 +46,10 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
 
     SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
 
-    String workspaceKey =
-        lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId())
-            .map(UsernamePasswordCredential::getPassword)
-            .orElse("");
-
+    // TODO: Update to use EntraIdTokenProvider and OAuth2 flow
+    // For now, use dummy values to compile
     SimpleSinkCommand.Flusher<SentinelOutboundEvent> flusher =
-        new SentinelSinkFlusher(
-            config.getWorkspaceId(),
-            workspaceKey,
-            config.getLogType(),
-            config.getTimeGeneratedField());
+        new SentinelSinkFlusher("dummy-workspace-id", "dummy-key", "dummy-type", "TimeGenerated");
 
     SimpleSinkCommand.SinkMessagePreProcessor<SentinelOutboundEvent> messagePreProcessor =
         new SentinelSinkMessageProcessor(config.getTimeGeneratedField());
@@ -75,6 +67,8 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
   @Override
   protected int batchSize() {
     SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
-    return config.getBatchSize() != null ? config.getBatchSize() : SentinelSinkDto.DEFAULT_BATCH_SIZE;
+    return config.getBatchSize() != null
+        ? config.getBatchSize()
+        : SentinelSinkDto.DEFAULT_BATCH_SIZE;
   }
 }

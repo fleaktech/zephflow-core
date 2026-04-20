@@ -27,13 +27,15 @@ public interface SentinelSinkDto {
   class Config implements CommandConfig {
     @NonNull private String tenantId;
     @NonNull private String dceEndpoint;
+
     /** DCR immutable ID — must start with "dcr-". */
     @NonNull private String dcrImmutableId;
+
     @NonNull private String streamName;
-    /**
-     * ID of a stored UsernamePasswordCredential: username = clientId, password = clientSecret.
-     */
+
+    /** ID of a stored UsernamePasswordCredential: username = clientId, password = clientSecret. */
     @NonNull private String credentialId;
+
     @Builder.Default private String timeGeneratedField = "TimeGenerated";
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;

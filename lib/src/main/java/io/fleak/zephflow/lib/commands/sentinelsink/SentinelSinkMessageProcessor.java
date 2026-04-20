@@ -37,7 +37,8 @@ public class SentinelSinkMessageProcessor
   public SentinelOutboundEvent preprocess(RecordFleakData event, long ts) {
     try {
       // Convert RecordFleakData to a Map for JSON serialization
-      Map<String, Object> payload = new LinkedHashMap<>(OBJECT_MAPPER.convertValue(event, Map.class));
+      Map<String, Object> payload =
+          new LinkedHashMap<>(OBJECT_MAPPER.convertValue(event, Map.class));
 
       // Inject TimeGenerated if not already present
       if (!payload.containsKey(timeGeneratedField)) {
@@ -49,7 +50,11 @@ public class SentinelSinkMessageProcessor
       log.error("Failed to preprocess event for Sentinel", e);
       // Return minimal JSON so the batch can still be sent
       return new SentinelOutboundEvent(
-          "{\"" + timeGeneratedField + "\":\"" + DateTimeFormatter.ISO_INSTANT.format(Instant.now()) + "\"}");
+          "{\""
+              + timeGeneratedField
+              + "\":\""
+              + DateTimeFormatter.ISO_INSTANT.format(Instant.now())
+              + "\"}");
     }
   }
 }
