@@ -45,7 +45,6 @@ class SentinelSinkFlusherTest {
             "https://my-dce.eastus.ingest.monitor.azure.com",
             "dcr-abc123",
             "Custom-ZephflowTest_CL",
-            "TimeGenerated",
             mockTokenProvider,
             mockHttpClient);
   }
@@ -131,6 +130,7 @@ class SentinelSinkFlusherTest {
     assertEquals(0, result.successCount());
     assertEquals(1, result.errorOutputList().size());
     assertTrue(result.errorOutputList().get(0).errorMessage().contains("401"));
+    verify(mockTokenProvider).invalidate();
   }
 
   @Test

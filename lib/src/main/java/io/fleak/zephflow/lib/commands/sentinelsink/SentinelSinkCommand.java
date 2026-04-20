@@ -57,7 +57,6 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
             "https://dummy.ingest.monitor.azure.com",
             "dcr-dummy",
             "Custom-Dummy_CL",
-            config.getTimeGeneratedField(),
             tokenProvider,
             httpClient);
 

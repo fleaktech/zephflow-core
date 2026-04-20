@@ -34,7 +34,6 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
   private final String dceEndpoint;
   private final String dcrImmutableId;
   private final String streamName;
-  private final String timeGeneratedField;
   private final EntraIdTokenProvider tokenProvider;
   private final HttpClient httpClient;
 
@@ -42,13 +41,11 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
       String dceEndpoint,
       String dcrImmutableId,
       String streamName,
-      String timeGeneratedField,
       EntraIdTokenProvider tokenProvider,
       HttpClient httpClient) {
     this.dceEndpoint = dceEndpoint;
     this.dcrImmutableId = dcrImmutableId;
     this.streamName = streamName;
-    this.timeGeneratedField = timeGeneratedField;
     this.tokenProvider = tokenProvider;
     this.httpClient = httpClient;
   }
@@ -94,7 +91,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
                     p ->
                         new ErrorOutput(
                             p.getLeft(), "Sentinel API error " + statusCode + ": " + responseBody))
-                .collect(Collectors.toList());
+                .toList();
         return new SimpleSinkCommand.FlushResult(0, 0, errors);
       }
     } catch (Exception e) {
@@ -103,7 +100,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
           preparedInputEvents.rawAndPreparedList().stream()
               .map(
                   p -> new ErrorOutput(p.getLeft(), "Sentinel connection error: " + e.getMessage()))
-              .collect(Collectors.toList());
+              .toList();
       return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }
   }
@@ -131,7 +128,5 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
   }
 
   @Override
-  public void close() {
-    // HttpClient does not require explicit closing
-  }
+  public void close() {}
 }
