@@ -23,26 +23,22 @@ import org.apache.commons.lang3.StringUtils;
 
 public class SentinelSinkConfigValidator implements ConfigValidator {
 
-  private static final int MAX_LOG_TYPE_LENGTH = 100;
-  private static final String LOG_TYPE_PATTERN = "[A-Za-z0-9_]+";
-
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
 
     Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getWorkspaceId()), "workspaceId is required");
+        StringUtils.isNotBlank(config.getTenantId()), "tenantId is required");
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(config.getDceEndpoint()), "dceEndpoint is required");
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(config.getDcrImmutableId()), "dcrImmutableId is required");
+    Preconditions.checkArgument(
+        config.getDcrImmutableId().startsWith("dcr-"), "dcrImmutableId must start with 'dcr-'");
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(config.getStreamName()), "streamName is required");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getCredentialId()), "credentialId is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getLogType()), "logType is required");
-    Preconditions.checkArgument(
-        config.getLogType().matches(LOG_TYPE_PATTERN),
-        "logType must contain only alphanumeric characters and underscores");
-    Preconditions.checkArgument(
-        config.getLogType().length() <= MAX_LOG_TYPE_LENGTH,
-        "logType must not exceed %s characters",
-        MAX_LOG_TYPE_LENGTH);
 
     if (config.getBatchSize() != null) {
       Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");

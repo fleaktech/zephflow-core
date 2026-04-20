@@ -1,11 +1,10 @@
 jobContext:
   otherProperties:
-    # Credential entry for the Sentinel service principal.
     # username = Application (client) ID from your App Registration
     # password = Client secret VALUE (shown once at creation time)
     sentinel_cred:
-      username: "YOUR_CLIENT_ID"
-      password: "YOUR_CLIENT_SECRET"
+      username: "5c45b9fd-38c2-4431-917a-a880cdf7d34a"
+      password: "<your-client-secret-here>"
 
   metricTags:
   dlqConfig:
@@ -25,10 +24,10 @@ dag:
   - id: "sentinel"
     commandName: "sentinelsink"
     config:
-      tenantId: "YOUR_TENANT_ID"
-      dceEndpoint: "https://YOUR-DCE-NAME.eastus-1.ingest.monitor.azure.com"
-      dcrImmutableId: "dcr-YOUR_DCR_IMMUTABLE_ID"
-      streamName: "Custom-ZephflowTest_CL"
+      tenantId: "71373c6f-eb1b-40bf-bcf4-19abdb2b9ca3"
+      dceEndpoint: "https://zephflow-sentinel-test-ofgm.eastus-1.ingest.monitor.azure.com"
+      dcrImmutableId: "dcr-1152983a0e9842e89f458d7508f91fce"
+      streamName: "zephflow-sentinel-test_CL"
       credentialId: "sentinel_cred"
       timeGeneratedField: "TimeGenerated"
       batchSize: 10

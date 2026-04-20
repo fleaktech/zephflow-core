@@ -36,8 +36,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Flushes events to Azure Log Analytics via the HTTP Data Collector API.
  *
- * <p>Reference:
- * https://docs.microsoft.com/en-us/azure/azure-monitor/logs/data-collector-api
+ * <p>Reference: https://docs.microsoft.com/en-us/azure/azure-monitor/logs/data-collector-api
  */
 @Slf4j
 public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOutboundEvent> {
@@ -85,10 +84,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
     String authorization = buildAuthorization(dateStr, bodyBytes.length);
 
     String endpoint =
-        "https://"
-            + workspaceId
-            + ".ods.opinsights.azure.com/api/logs?api-version="
-            + API_VERSION;
+        "https://" + workspaceId + ".ods.opinsights.azure.com/api/logs?api-version=" + API_VERSION;
 
     HttpRequest request =
         HttpRequest.newBuilder()
@@ -110,8 +106,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
         log.debug("Successfully sent {} events to Microsoft Sentinel", events.size());
         return new SimpleSinkCommand.FlushResult(events.size(), bodyBytes.length, List.of());
       } else {
-        log.error(
-            "Sentinel API returned status {}: {}", response.statusCode(), response.body());
+        log.error("Sentinel API returned status {}: {}", response.statusCode(), response.body());
         List<ErrorOutput> errors =
             preparedInputEvents.rawAndPreparedList().stream()
                 .map(
@@ -126,7 +121,8 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
       log.error("Failed to send events to Microsoft Sentinel", e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()
-              .map(p -> new ErrorOutput(p.getLeft(), "Sentinel connection error: " + e.getMessage()))
+              .map(
+                  p -> new ErrorOutput(p.getLeft(), "Sentinel connection error: " + e.getMessage()))
               .collect(Collectors.toList());
       return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }
@@ -134,11 +130,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
 
   private String buildAuthorization(String dateStr, int contentLength) throws Exception {
     String stringToSign =
-        "POST\n"
-            + contentLength
-            + "\napplication/json\nx-ms-date:"
-            + dateStr
-            + "\n/api/logs";
+        "POST\n" + contentLength + "\napplication/json\nx-ms-date:" + dateStr + "\n/api/logs";
 
     Mac mac = Mac.getInstance("HmacSHA256");
     mac.init(new SecretKeySpec(Base64.getDecoder().decode(workspaceKey), "HmacSHA256"));
