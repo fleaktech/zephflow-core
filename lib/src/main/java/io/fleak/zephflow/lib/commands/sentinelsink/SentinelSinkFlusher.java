@@ -21,44 +21,36 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Flushes events to Azure Log Analytics via the HTTP Data Collector API.
- *
- * <p>Reference: https://docs.microsoft.com/en-us/azure/azure-monitor/logs/data-collector-api
- */
 @Slf4j
 public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOutboundEvent> {
 
-  private static final DateTimeFormatter RFC_1123_FORMATTER =
-      DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
-          .withZone(ZoneOffset.UTC);
-  private static final String API_VERSION = "2016-04-01";
+  private static final String API_VERSION = "2023-01-01";
 
-  private final String workspaceId;
-  private final String workspaceKey;
-  private final String logType;
+  private final String dceEndpoint;
+  private final String dcrImmutableId;
+  private final String streamName;
   private final String timeGeneratedField;
+  private final EntraIdTokenProvider tokenProvider;
   private final HttpClient httpClient;
 
   public SentinelSinkFlusher(
-      String workspaceId, String workspaceKey, String logType, String timeGeneratedField) {
-    this.workspaceId = workspaceId;
-    this.workspaceKey = workspaceKey;
-    this.logType = logType;
+      String dceEndpoint,
+      String dcrImmutableId,
+      String streamName,
+      String timeGeneratedField,
+      EntraIdTokenProvider tokenProvider,
+      HttpClient httpClient) {
+    this.dceEndpoint = dceEndpoint;
+    this.dcrImmutableId = dcrImmutableId;
+    this.streamName = streamName;
     this.timeGeneratedField = timeGeneratedField;
-    this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
+    this.tokenProvider = tokenProvider;
+    this.httpClient = httpClient;
   }
 
   @Override
@@ -71,7 +63,6 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    // Build JSON array body
     String jsonBody =
         "["
             + events.stream()
@@ -80,40 +71,29 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
             + "]";
     byte[] bodyBytes = jsonBody.getBytes(StandardCharsets.UTF_8);
 
-    String dateStr = RFC_1123_FORMATTER.format(ZonedDateTime.now(ZoneOffset.UTC));
-    String authorization = buildAuthorization(dateStr, bodyBytes.length);
-
-    String endpoint =
-        "https://" + workspaceId + ".ods.opinsights.azure.com/api/logs?api-version=" + API_VERSION;
-
-    HttpRequest request =
-        HttpRequest.newBuilder()
-            .uri(URI.create(endpoint))
-            .header("Log-Type", logType)
-            .header("x-ms-date", dateStr)
-            .header("time-generated-field", timeGeneratedField)
-            .header("Content-Type", "application/json")
-            .header("Authorization", authorization)
-            .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
-            .timeout(Duration.ofSeconds(60))
-            .build();
-
     try {
-      HttpResponse<String> response =
-          httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      String token = tokenProvider.getToken();
+      HttpResponse<String> response = sendRequest(token, bodyBytes);
 
-      if (response.statusCode() == 200) {
+      if (response.statusCode() == 401) {
+        tokenProvider.invalidate();
+        token = tokenProvider.getToken();
+        response = sendRequest(token, bodyBytes);
+      }
+
+      if (response.statusCode() == 204) {
         log.debug("Successfully sent {} events to Microsoft Sentinel", events.size());
         return new SimpleSinkCommand.FlushResult(events.size(), bodyBytes.length, List.of());
       } else {
-        log.error("Sentinel API returned status {}: {}", response.statusCode(), response.body());
+        final int statusCode = response.statusCode();
+        final String responseBody = response.body();
+        log.error("Sentinel API returned status {}: {}", statusCode, responseBody);
         List<ErrorOutput> errors =
             preparedInputEvents.rawAndPreparedList().stream()
                 .map(
                     p ->
                         new ErrorOutput(
-                            p.getLeft(),
-                            "Sentinel API error " + response.statusCode() + ": " + response.body()))
+                            p.getLeft(), "Sentinel API error " + statusCode + ": " + responseBody))
                 .collect(Collectors.toList());
         return new SimpleSinkCommand.FlushResult(0, 0, errors);
       }
@@ -128,17 +108,26 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
     }
   }
 
-  private String buildAuthorization(String dateStr, int contentLength) throws Exception {
-    String stringToSign =
-        "POST\n" + contentLength + "\napplication/json\nx-ms-date:" + dateStr + "\n/api/logs";
+  private HttpResponse<String> sendRequest(String token, byte[] bodyBytes) throws Exception {
+    String endpoint =
+        dceEndpoint
+            + "/dataCollectionRules/"
+            + dcrImmutableId
+            + "/streams/"
+            + streamName
+            + "?api-version="
+            + API_VERSION;
 
-    Mac mac = Mac.getInstance("HmacSHA256");
-    mac.init(new SecretKeySpec(Base64.getDecoder().decode(workspaceKey), "HmacSHA256"));
-    String signature =
-        Base64.getEncoder()
-            .encodeToString(mac.doFinal(stringToSign.getBytes(StandardCharsets.UTF_8)));
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(URI.create(endpoint))
+            .header("Authorization", "Bearer " + token)
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
+            .timeout(Duration.ofSeconds(60))
+            .build();
 
-    return "SharedKey " + workspaceId + ":" + signature;
+    return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
   }
 
   @Override
