@@ -38,7 +38,6 @@ class EntraIdTokenProviderTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void getToken_fetchesAndCachesToken() throws Exception {
     when(mockResponse.statusCode()).thenReturn(200);
     when(mockResponse.body()).thenReturn("{\"access_token\":\"my-token\",\"expires_in\":3600}");
@@ -52,7 +51,6 @@ class EntraIdTokenProviderTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void getToken_returnsCachedTokenOnSecondCall() throws Exception {
     when(mockResponse.statusCode()).thenReturn(200);
     when(mockResponse.body()).thenReturn("{\"access_token\":\"my-token\",\"expires_in\":3600}");
@@ -66,7 +64,6 @@ class EntraIdTokenProviderTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void invalidate_clearsCache_forcesNewFetch() throws Exception {
     when(mockResponse.statusCode()).thenReturn(200);
     when(mockResponse.body()).thenReturn("{\"access_token\":\"my-token\",\"expires_in\":3600}");
@@ -81,7 +78,6 @@ class EntraIdTokenProviderTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void getToken_throwsOnNon200() throws Exception {
     when(mockResponse.statusCode()).thenReturn(401);
     when(mockResponse.body()).thenReturn("{\"error\":\"invalid_client\"}");
@@ -93,7 +89,6 @@ class EntraIdTokenProviderTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void getToken_throwsWhenAccessTokenMissingFromResponse() throws Exception {
     when(mockResponse.statusCode()).thenReturn(200);
     when(mockResponse.body()).thenReturn("{\"token_type\":\"Bearer\"}");
