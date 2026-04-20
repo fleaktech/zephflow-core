@@ -19,6 +19,8 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import java.net.http.HttpClient;
+import java.time.Duration;
 
 public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent> {
 
@@ -46,10 +48,18 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
 
     SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
 
-    // TODO: Update to use EntraIdTokenProvider and OAuth2 flow
-    // For now, use dummy values to compile
+    // TODO (Task 5): Wire up real EntraIdTokenProvider from config
+    HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
+    EntraIdTokenProvider tokenProvider =
+        new EntraIdTokenProvider("dummy-tenant", "dummy-client", "dummy-secret", httpClient);
     SimpleSinkCommand.Flusher<SentinelOutboundEvent> flusher =
-        new SentinelSinkFlusher("dummy-workspace-id", "dummy-key", "dummy-type", "TimeGenerated");
+        new SentinelSinkFlusher(
+            "https://dummy.ingest.monitor.azure.com",
+            "dcr-dummy",
+            "Custom-Dummy_CL",
+            config.getTimeGeneratedField(),
+            tokenProvider,
+            httpClient);
 
     SimpleSinkCommand.SinkMessagePreProcessor<SentinelOutboundEvent> messagePreProcessor =
         new SentinelSinkMessageProcessor(config.getTimeGeneratedField());
