@@ -1,50 +1,34 @@
 jobContext:
   otherProperties:
-    # Credential entry: key must match "credentialId" in sentinelsink config below.
-    # "username" is not used by Sentinel auth but is required by UsernamePasswordCredential.
-    # "password" is the Azure Log Analytics workspace Primary or Secondary Shared Key (base64-encoded string from the portal).
+    # Credential entry for the Sentinel service principal.
+    # username = Application (client) ID from your App Registration
+    # password = Client secret VALUE (shown once at creation time)
     sentinel_cred:
-      username: "azure"
-      password: "YOUR_BASE64_WORKSPACE_SHARED_KEY"
-
-    # Set to true to enforce credential lookup at validation time (optional).
-    # enforce_cred: true
+      username: "YOUR_CLIENT_ID"
+      password: "YOUR_CLIENT_SECRET"
 
   metricTags:
   dlqConfig:
 
 dag:
-  # Source: read JSON events from stdin (one JSON object per line).
+  # Source: read JSON events from stdin, one JSON object per line.
   - id: "source"
     commandName: "stdin"
     config:
       encodingType: "JSON_OBJECT"
     outputs:
-      - "enrich"
-
-  # Optional transform: add or reshape fields before sending to Sentinel.
-  # Remove or modify this node as needed. The sentinelsink will auto-inject
-  # "TimeGenerated" (ISO-8601) if the field is absent.
-  - id: "enrich"
-    commandName: "eval"
-    config:
-      expression: |
-        dict(
-          source=$.source,
-          severity=$.severity,
-          message=$.message,
-          host=$.host
-        )
-    outputs:
       - "sentinel"
 
-  # Sink: send events to Microsoft Sentinel via the HTTP Data Collector API.
-  # The table will appear in Log Analytics as "<logType>_CL" (e.g. "ZephflowTest_CL").
+  # Sink: send events to Microsoft Sentinel via the Logs Ingestion API.
+  # The DCR maps the stream to a table — e.g. streamName "Custom-ZephflowTest_CL"
+  # lands in table "ZephflowTest_CL" in your Log Analytics workspace.
   - id: "sentinel"
     commandName: "sentinelsink"
     config:
-      workspaceId: "YOUR_WORKSPACE_ID"      # Azure Log Analytics Workspace ID (GUID)
-      credentialId: "sentinel_cred"          # Must match the key in otherProperties above
-      logType: "ZephflowTest"                # Alphanumeric/underscore only; Azure appends "_CL"
-      timeGeneratedField: "TimeGenerated"    # Optional, this is the default
-      batchSize: 10                          # Optional, default is 500
+      tenantId: "YOUR_TENANT_ID"
+      dceEndpoint: "https://YOUR-DCE-NAME.eastus-1.ingest.monitor.azure.com"
+      dcrImmutableId: "dcr-YOUR_DCR_IMMUTABLE_ID"
+      streamName: "Custom-ZephflowTest_CL"
+      credentialId: "sentinel_cred"
+      timeGeneratedField: "TimeGenerated"
+      batchSize: 10
