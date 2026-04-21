@@ -34,7 +34,7 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import lombok.*;
+import lombok.NonNull;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.apache.commons.cli.CommandLine;
@@ -100,7 +100,6 @@ public interface MiscUtils {
   String COMMAND_NAME_LDAP_SOURCE = "ldapsource";
   String COMMAND_NAME_AZURE_MONITOR_SINK = "azuremonitorsink";
   String COMMAND_NAME_AZURE_MONITOR_SOURCE = "azuremonitorsource";
-  String COMMAND_NAME_SENTINEL_SINK = "sentinelsink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";
