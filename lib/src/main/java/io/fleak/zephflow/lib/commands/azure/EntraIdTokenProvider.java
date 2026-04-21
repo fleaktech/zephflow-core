@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.azure;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.Preconditions;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -23,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import org.apache.commons.lang3.StringUtils;
 
 public class EntraIdTokenProvider {
 
@@ -44,6 +46,7 @@ public class EntraIdTokenProvider {
     this.clientSecret = clientSecret;
     this.scope = scope;
     this.httpClient = httpClient;
+    Preconditions.checkArgument(StringUtils.isNotBlank(scope), "scope must not be blank");
   }
 
   public synchronized String getToken() throws Exception {
