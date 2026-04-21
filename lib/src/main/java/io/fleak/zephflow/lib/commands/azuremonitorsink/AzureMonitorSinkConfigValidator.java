@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
@@ -21,11 +21,11 @@ import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import org.apache.commons.lang3.StringUtils;
 
-public class SentinelSinkConfigValidator implements ConfigValidator {
+public class AzureMonitorSinkConfigValidator implements ConfigValidator {
 
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
-    SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
+    AzureMonitorSinkDto.Config config = (AzureMonitorSinkDto.Config) commandConfig;
 
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getTenantId()), "tenantId is required");

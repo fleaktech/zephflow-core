@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
@@ -24,9 +24,9 @@ import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
-public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent> {
+public class AzureMonitorSinkCommand extends SimpleSinkCommand<AzureMonitorSinkOutboundEvent> {
 
-  protected SentinelSinkCommand(
+  protected AzureMonitorSinkCommand(
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
@@ -36,7 +36,7 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
 
   @Override
   public String commandName() {
-    return COMMAND_NAME_SENTINEL_SINK;
+    return COMMAND_NAME_AZURE_MONITOR_SINK;
   }
 
   @Override
@@ -48,7 +48,7 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
     SinkCounters counters =
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
-    SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
+    AzureMonitorSinkDto.Config config = (AzureMonitorSinkDto.Config) commandConfig;
 
     String clientId =
         lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId())
@@ -68,16 +68,16 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
             "https://monitor.azure.com/.default",
             httpClient);
 
-    SimpleSinkCommand.Flusher<SentinelOutboundEvent> flusher =
-        new SentinelSinkFlusher(
+    SimpleSinkCommand.Flusher<AzureMonitorSinkOutboundEvent> flusher =
+        new AzureMonitorSinkFlusher(
             config.getDceEndpoint(),
             config.getDcrImmutableId(),
             config.getStreamName(),
             tokenProvider,
             httpClient);
 
-    SimpleSinkCommand.SinkMessagePreProcessor<SentinelOutboundEvent> messagePreProcessor =
-        new SentinelSinkMessageProcessor(config.getTimeGeneratedField());
+    SimpleSinkCommand.SinkMessagePreProcessor<AzureMonitorSinkOutboundEvent> messagePreProcessor =
+        new AzureMonitorSinkMessageProcessor(config.getTimeGeneratedField());
 
     return new SinkExecutionContext<>(
         flusher,
@@ -91,9 +91,9 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
 
   @Override
   protected int batchSize() {
-    SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
+    AzureMonitorSinkDto.Config config = (AzureMonitorSinkDto.Config) commandConfig;
     return config.getBatchSize() != null
         ? config.getBatchSize()
-        : SentinelSinkDto.DEFAULT_BATCH_SIZE;
+        : AzureMonitorSinkDto.DEFAULT_BATCH_SIZE;
   }
 }

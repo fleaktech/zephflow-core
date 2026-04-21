@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.lib.commands.azure.EntraIdTokenProvider;
@@ -28,7 +28,8 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOutboundEvent> {
+public class AzureMonitorSinkFlusher
+    implements SimpleSinkCommand.Flusher<AzureMonitorSinkOutboundEvent> {
 
   private static final String API_VERSION = "2023-01-01";
 
@@ -38,7 +39,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
   private final EntraIdTokenProvider tokenProvider;
   private final HttpClient httpClient;
 
-  public SentinelSinkFlusher(
+  public AzureMonitorSinkFlusher(
       String dceEndpoint,
       String dcrImmutableId,
       String streamName,
@@ -53,10 +54,10 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
 
   @Override
   public SimpleSinkCommand.FlushResult flush(
-      SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> preparedInputEvents,
+      SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
-    List<SentinelOutboundEvent> events = preparedInputEvents.preparedList();
+    List<AzureMonitorSinkOutboundEvent> events = preparedInputEvents.preparedList();
     if (events.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
@@ -64,7 +65,7 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
     String jsonBody =
         "["
             + events.stream()
-                .map(SentinelOutboundEvent::jsonPayload)
+                .map(AzureMonitorSinkOutboundEvent::jsonPayload)
                 .collect(Collectors.joining(","))
             + "]";
     byte[] bodyBytes = jsonBody.getBytes(StandardCharsets.UTF_8);
@@ -80,27 +81,30 @@ public class SentinelSinkFlusher implements SimpleSinkCommand.Flusher<SentinelOu
       }
 
       if (response.statusCode() == 204) {
-        log.debug("Successfully sent {} events to Microsoft Sentinel", events.size());
+        log.debug("Successfully sent {} events to Azure Monitor", events.size());
         return new SimpleSinkCommand.FlushResult(events.size(), bodyBytes.length, List.of());
       } else {
         final int statusCode = response.statusCode();
         final String responseBody = response.body();
-        log.error("Sentinel API returned status {}: {}", statusCode, responseBody);
+        log.error("Azure Monitor API returned status {}: {}", statusCode, responseBody);
         List<ErrorOutput> errors =
             preparedInputEvents.rawAndPreparedList().stream()
                 .map(
                     p ->
                         new ErrorOutput(
-                            p.getLeft(), "Sentinel API error " + statusCode + ": " + responseBody))
+                            p.getLeft(),
+                            "Azure Monitor API error " + statusCode + ": " + responseBody))
                 .toList();
         return new SimpleSinkCommand.FlushResult(0, 0, errors);
       }
     } catch (Exception e) {
-      log.error("Failed to send events to Microsoft Sentinel", e);
+      log.error("Failed to send events to Azure Monitor", e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()
               .map(
-                  p -> new ErrorOutput(p.getLeft(), "Sentinel connection error: " + e.getMessage()))
+                  p ->
+                      new ErrorOutput(
+                          p.getLeft(), "Azure Monitor connection error: " + e.getMessage()))
               .toList();
       return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }

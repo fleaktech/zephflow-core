@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,7 +21,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-class SentinelSinkConfigValidatorTest {
+class AzureMonitorSinkConfigValidatorTest {
 
   static final JobContext TEST_JOB_CONTEXT =
       JobContext.builder()
@@ -33,10 +33,10 @@ class SentinelSinkConfigValidatorTest {
                       new HashMap<>(Map.of("username", "client-id", "password", "client-secret")))))
           .build();
 
-  private final SentinelSinkConfigValidator validator = new SentinelSinkConfigValidator();
+  private final AzureMonitorSinkConfigValidator validator = new AzureMonitorSinkConfigValidator();
 
-  private SentinelSinkDto.Config validConfig() {
-    return SentinelSinkDto.Config.builder()
+  private AzureMonitorSinkDto.Config validConfig() {
+    return AzureMonitorSinkDto.Config.builder()
         .tenantId("tenant-id")
         .dceEndpoint("https://my-dce.eastus.ingest.monitor.azure.com")
         .dcrImmutableId("dcr-abc123")
@@ -52,7 +52,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_missingTenantId() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setTenantId("");
     assertThrows(
         IllegalArgumentException.class,
@@ -61,7 +61,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_missingDceEndpoint() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setDceEndpoint("");
     assertThrows(
         IllegalArgumentException.class,
@@ -70,7 +70,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_missingDcrImmutableId() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setDcrImmutableId("");
     assertThrows(
         IllegalArgumentException.class,
@@ -79,7 +79,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_dcrImmutableIdWrongPrefix() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setDcrImmutableId("abc-123456");
     assertThrows(
         IllegalArgumentException.class,
@@ -88,7 +88,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_missingStreamName() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setStreamName("");
     assertThrows(
         IllegalArgumentException.class,
@@ -97,7 +97,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_missingCredentialId() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setCredentialId("");
     assertThrows(
         IllegalArgumentException.class,
@@ -106,7 +106,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_batchSizeZero() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setBatchSize(0);
     assertThrows(
         IllegalArgumentException.class,
@@ -115,7 +115,7 @@ class SentinelSinkConfigValidatorTest {
 
   @Test
   void validateConfig_batchSizeOne_isValid() {
-    SentinelSinkDto.Config c = validConfig();
+    AzureMonitorSinkDto.Config c = validConfig();
     c.setBatchSize(1);
     assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
   }

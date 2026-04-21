@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.CommandType;
@@ -19,14 +19,14 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
 
-public class SentinelSinkCommandFactory extends CommandFactory {
+public class AzureMonitorSinkCommandFactory extends CommandFactory {
 
   @Override
   public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
-    JsonConfigParser<SentinelSinkDto.Config> configParser =
-        new JsonConfigParser<>(SentinelSinkDto.Config.class);
-    SentinelSinkConfigValidator validator = new SentinelSinkConfigValidator();
-    return new SentinelSinkCommand(nodeId, jobContext, configParser, validator);
+    JsonConfigParser<AzureMonitorSinkDto.Config> configParser =
+        new JsonConfigParser<>(AzureMonitorSinkDto.Config.class);
+    AzureMonitorSinkConfigValidator validator = new AzureMonitorSinkConfigValidator();
+    return new AzureMonitorSinkCommand(nodeId, jobContext, configParser, validator);
   }
 
   @Override
