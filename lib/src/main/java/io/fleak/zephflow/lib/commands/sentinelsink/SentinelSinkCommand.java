@@ -19,6 +19,7 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
@@ -48,15 +49,24 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
 
     SentinelSinkDto.Config config = (SentinelSinkDto.Config) commandConfig;
 
-    // TODO (Task 5): Wire up real EntraIdTokenProvider from config
+    String clientId =
+        lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId())
+            .map(UsernamePasswordCredential::getUsername)
+            .orElse("");
+    String clientSecret =
+        lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId())
+            .map(UsernamePasswordCredential::getPassword)
+            .orElse("");
+
     HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
     EntraIdTokenProvider tokenProvider =
-        new EntraIdTokenProvider("dummy-tenant", "dummy-client", "dummy-secret", httpClient);
+        new EntraIdTokenProvider(config.getTenantId(), clientId, clientSecret, httpClient);
+
     SimpleSinkCommand.Flusher<SentinelOutboundEvent> flusher =
         new SentinelSinkFlusher(
-            "https://dummy.ingest.monitor.azure.com",
-            "dcr-dummy",
-            "Custom-Dummy_CL",
+            config.getDceEndpoint(),
+            config.getDcrImmutableId(),
+            config.getStreamName(),
             tokenProvider,
             httpClient);
 
