@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.sentinelsink;
 
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.lib.commands.azure.EntraIdTokenProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.net.URI;
 import java.net.http.HttpClient;

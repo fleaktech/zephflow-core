@@ -19,6 +19,7 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import io.fleak.zephflow.lib.commands.azure.EntraIdTokenProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
