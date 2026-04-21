@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azure;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
@@ -28,20 +28,21 @@ public class EntraIdTokenProvider {
 
   private static final String TOKEN_ENDPOINT_TEMPLATE =
       "https://login.microsoftonline.com/%s/oauth2/v2.0/token";
-  private static final String SCOPE = "https://monitor.azure.com//.default";
 
   private final String tenantId;
   private final String clientId;
   private final String clientSecret;
+  private final String scope;
   private final HttpClient httpClient;
 
   private String cachedToken;
 
   public EntraIdTokenProvider(
-      String tenantId, String clientId, String clientSecret, HttpClient httpClient) {
+      String tenantId, String clientId, String clientSecret, String scope, HttpClient httpClient) {
     this.tenantId = tenantId;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
+    this.scope = scope;
     this.httpClient = httpClient;
   }
 
@@ -65,7 +66,7 @@ public class EntraIdTokenProvider {
             + "&client_secret="
             + URLEncoder.encode(clientSecret, StandardCharsets.UTF_8)
             + "&scope="
-            + URLEncoder.encode(SCOPE, StandardCharsets.UTF_8);
+            + URLEncoder.encode(scope, StandardCharsets.UTF_8);
 
     HttpRequest request =
         HttpRequest.newBuilder()

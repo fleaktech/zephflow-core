@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.azure.EntraIdTokenProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
@@ -60,7 +61,12 @@ public class SentinelSinkCommand extends SimpleSinkCommand<SentinelOutboundEvent
 
     HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
     EntraIdTokenProvider tokenProvider =
-        new EntraIdTokenProvider(config.getTenantId(), clientId, clientSecret, httpClient);
+        new EntraIdTokenProvider(
+            config.getTenantId(),
+            clientId,
+            clientSecret,
+            "https://monitor.azure.com/.default",
+            httpClient);
 
     SimpleSinkCommand.Flusher<SentinelOutboundEvent> flusher =
         new SentinelSinkFlusher(
