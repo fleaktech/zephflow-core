@@ -54,6 +54,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_IMAP_SOURCE)
             .add(COMMAND_NAME_SMTP_SINK)
             .add(COMMAND_NAME_LDAP_SOURCE)
+            .add(COMMAND_NAME_SENTINEL_SINK)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }
