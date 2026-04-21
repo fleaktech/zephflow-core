@@ -28,12 +28,10 @@ public interface AzureMonitorSinkDto {
     @NonNull private String tenantId;
     @NonNull private String dceEndpoint;
 
-    /** DCR immutable ID — must start with "dcr-". */
     @NonNull private String dcrImmutableId;
 
     @NonNull private String streamName;
 
-    /** ID of a stored UsernamePasswordCredential: username = clientId, password = clientSecret. */
     @NonNull private String credentialId;
 
     @Builder.Default private String timeGeneratedField = "TimeGenerated";
