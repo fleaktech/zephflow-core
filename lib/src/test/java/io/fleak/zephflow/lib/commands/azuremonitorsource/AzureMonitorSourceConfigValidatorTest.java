@@ -37,17 +37,21 @@ class AzureMonitorSourceConfigValidatorTest {
   }
 
   @Test
-  void validConfig_withExplicitBatchSize_passes() {
+  void batchSizeNegative_fails() {
     var config =
         AzureMonitorSourceDto.Config.builder()
             .workspaceId("ws-guid")
             .tenantId("tenant-guid")
             .kqlQuery("TableName_CL | limit 10")
             .credentialId("cred-id")
-            .batchSize(1)
+            .batchSize(-1)
             .build();
 
-    assertDoesNotThrow(() -> validator.validateConfig(config, "node", TestUtils.JOB_CONTEXT));
+    var ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "node", TestUtils.JOB_CONTEXT));
+    assertTrue(ex.getMessage().contains("batchSize"));
   }
 
   @Test
