@@ -16,12 +16,12 @@ dag:
     config:
       encodingType: "JSON_OBJECT"
     outputs:
-      - "sentinel"
+      - "sink"
 
-  # Sink: send events to Microsoft Sentinel via the Logs Ingestion API.
-  # The DCR maps the stream to a table — e.g. streamName "Custom-ZephflowTest_CL"
-  # lands in table "ZephflowTest_CL" in your Log Analytics workspace.
-  - id: "sentinel"
+  # Sink: send events to Azure Monitor via the Logs Ingestion API.
+  # The DCR maps the stream to a table — e.g. streamName "Custom-ZephflowTest2_CL"
+  # lands in table "ZephflowTest2_CL" in your Log Analytics workspace.
+  - id: "sink"
     commandName: "azuremonitorsink"
     config:
       tenantId: "71373c6f-eb1b-40bf-bcf4-19abdb2b9ca3"
