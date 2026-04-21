@@ -11,12 +11,12 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import io.fleak.zephflow.api.CommandConfig;
 import lombok.*;
 
-public interface SentinelSinkDto {
+public interface AzureMonitorSinkDto {
 
   int DEFAULT_BATCH_SIZE = 500;
 

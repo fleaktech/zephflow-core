@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,12 +28,12 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class SentinelSinkFlusherTest {
+class AzureMonitorSinkFlusherTest {
 
   private HttpClient mockHttpClient;
   private HttpResponse<String> mockResponse;
   private EntraIdTokenProvider mockTokenProvider;
-  private SentinelSinkFlusher flusher;
+  private AzureMonitorSinkFlusher flusher;
 
   @BeforeEach
   @SuppressWarnings("unchecked")
@@ -42,7 +42,7 @@ class SentinelSinkFlusherTest {
     mockResponse = mock(HttpResponse.class);
     mockTokenProvider = mock(EntraIdTokenProvider.class);
     flusher =
-        new SentinelSinkFlusher(
+        new AzureMonitorSinkFlusher(
             "https://my-dce.eastus.ingest.monitor.azure.com",
             "dcr-abc123",
             "Custom-ZephflowTest_CL",
@@ -52,7 +52,7 @@ class SentinelSinkFlusherTest {
 
   @Test
   void flush_emptyBatch_returnsZeroWithNoHttpCall() throws Exception {
-    SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> events =
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
 
     SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
@@ -71,11 +71,11 @@ class SentinelSinkFlusherTest {
     when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenReturn(mockResponse);
 
-    SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> events =
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
     RecordFleakData record =
         new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello")));
-    events.add(record, new SentinelOutboundEvent("{\"msg\":\"hello\"}"));
+    events.add(record, new AzureMonitorSinkOutboundEvent("{\"msg\":\"hello\"}"));
 
     SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
@@ -98,11 +98,11 @@ class SentinelSinkFlusherTest {
         .thenReturn(unauthorizedResponse)
         .thenReturn(mockResponse);
 
-    SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> events =
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
     RecordFleakData record =
         new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello")));
-    events.add(record, new SentinelOutboundEvent("{\"msg\":\"hello\"}"));
+    events.add(record, new AzureMonitorSinkOutboundEvent("{\"msg\":\"hello\"}"));
 
     SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
@@ -120,11 +120,11 @@ class SentinelSinkFlusherTest {
     when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenReturn(mockResponse);
 
-    SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> events =
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
     RecordFleakData record =
         new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello")));
-    events.add(record, new SentinelOutboundEvent("{\"msg\":\"hello\"}"));
+    events.add(record, new AzureMonitorSinkOutboundEvent("{\"msg\":\"hello\"}"));
 
     SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
@@ -143,11 +143,11 @@ class SentinelSinkFlusherTest {
     when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenReturn(mockResponse);
 
-    SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> events =
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
     RecordFleakData record =
         new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello")));
-    events.add(record, new SentinelOutboundEvent("{\"msg\":\"hello\"}"));
+    events.add(record, new AzureMonitorSinkOutboundEvent("{\"msg\":\"hello\"}"));
 
     SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 
@@ -163,11 +163,11 @@ class SentinelSinkFlusherTest {
     when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenThrow(new RuntimeException("Connection refused"));
 
-    SimpleSinkCommand.PreparedInputEvents<SentinelOutboundEvent> events =
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
     RecordFleakData record =
         new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello")));
-    events.add(record, new SentinelOutboundEvent("{\"msg\":\"hello\"}"));
+    events.add(record, new AzureMonitorSinkOutboundEvent("{\"msg\":\"hello\"}"));
 
     SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
 

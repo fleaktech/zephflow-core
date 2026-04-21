@@ -22,12 +22,12 @@ dag:
   # The DCR maps the stream to a table — e.g. streamName "Custom-ZephflowTest_CL"
   # lands in table "ZephflowTest_CL" in your Log Analytics workspace.
   - id: "sentinel"
-    commandName: "sentinelsink"
+    commandName: "azuremonitorsink"
     config:
       tenantId: "71373c6f-eb1b-40bf-bcf4-19abdb2b9ca3"
       dceEndpoint: "https://zephflow-sentinel-test-ofgm.eastus-1.ingest.monitor.azure.com"
       dcrImmutableId: "dcr-1152983a0e9842e89f458d7508f91fce"
-      streamName: "zephflow-sentinel-test_CL"
+      streamName: "Custom-ZephflowTest2_CL"
       credentialId: "sentinel_cred"
       timeGeneratedField: "TimeGenerated"
       batchSize: 10

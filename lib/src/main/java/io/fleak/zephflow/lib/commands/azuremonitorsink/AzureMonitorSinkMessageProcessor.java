@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sentinelsink;
+package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
@@ -24,17 +24,17 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class SentinelSinkMessageProcessor
-    implements SimpleSinkCommand.SinkMessagePreProcessor<SentinelOutboundEvent> {
+public class AzureMonitorSinkMessageProcessor
+    implements SimpleSinkCommand.SinkMessagePreProcessor<AzureMonitorSinkOutboundEvent> {
 
   private final String timeGeneratedField;
 
-  public SentinelSinkMessageProcessor(String timeGeneratedField) {
+  public AzureMonitorSinkMessageProcessor(String timeGeneratedField) {
     this.timeGeneratedField = timeGeneratedField;
   }
 
   @Override
-  public SentinelOutboundEvent preprocess(RecordFleakData event, long ts) {
+  public AzureMonitorSinkOutboundEvent preprocess(RecordFleakData event, long ts) {
     try {
       // Convert RecordFleakData to a Map for JSON serialization
       Map<String, Object> payload =
@@ -45,11 +45,11 @@ public class SentinelSinkMessageProcessor
         payload.put(timeGeneratedField, DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
       }
 
-      return new SentinelOutboundEvent(OBJECT_MAPPER.writeValueAsString(payload));
+      return new AzureMonitorSinkOutboundEvent(OBJECT_MAPPER.writeValueAsString(payload));
     } catch (Exception e) {
-      log.error("Failed to preprocess event for Sentinel", e);
+      log.error("Failed to preprocess event for Azure Monitor", e);
       // Return minimal JSON so the batch can still be sent
-      return new SentinelOutboundEvent(
+      return new AzureMonitorSinkOutboundEvent(
           "{\""
               + timeGeneratedField
               + "\":\""
