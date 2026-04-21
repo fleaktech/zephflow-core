@@ -55,6 +55,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_SMTP_SINK)
             .add(COMMAND_NAME_LDAP_SOURCE)
             .add(COMMAND_NAME_SENTINEL_SINK)
+            .add(COMMAND_NAME_AZURE_MONITOR_SOURCE)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }
