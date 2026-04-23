@@ -13,5 +13,4 @@
  */
 package io.fleak.zephflow.lib.commands.elasticsearchsink;
 
-/** Represents a document prepared for indexing via the Elasticsearch Bulk API. */
 public record ElasticsearchOutboundDoc(String jsonPayload) {}

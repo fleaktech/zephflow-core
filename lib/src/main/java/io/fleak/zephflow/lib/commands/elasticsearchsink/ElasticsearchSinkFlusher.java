@@ -31,11 +31,6 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * Flushes events to Elasticsearch using the Bulk API.
- *
- * <p>Reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
- */
 @Slf4j
 public class ElasticsearchSinkFlusher
     implements SimpleSinkCommand.Flusher<ElasticsearchOutboundDoc> {

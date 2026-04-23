@@ -29,9 +29,6 @@ public interface ElasticsearchSourceDto {
   class Config implements CommandConfig {
     @NonNull private String host;
 
-    /**
-     * ID of a UsernamePasswordCredential (username + password only; API key auth not supported).
-     */
     private String credentialId;
 
     @NonNull private String index;

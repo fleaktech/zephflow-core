@@ -30,11 +30,6 @@ import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * Fetches documents from Elasticsearch using the Scroll API.
- *
- * <p>Reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/scroll-api.html
- */
 @Slf4j
 public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument> {
 

@@ -15,8 +15,4 @@ package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import java.util.Map;
 
-/**
- * Represents a raw Elasticsearch document as returned by the Scroll API, including the document
- * metadata and its _source fields.
- */
 public record ElasticsearchDocument(String id, String index, Map<String, Object> source) {}
