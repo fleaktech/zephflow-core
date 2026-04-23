@@ -19,6 +19,8 @@ import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.activemqsource.ActiveMqSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
+import io.fleak.zephflow.lib.commands.azuremonitorsink.AzureMonitorSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.azuremonitorsource.AzureMonitorSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
@@ -80,6 +82,8 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
           .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
           .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
+          .put(COMMAND_NAME_AZURE_MONITOR_SINK, new AzureMonitorSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
           .build();
