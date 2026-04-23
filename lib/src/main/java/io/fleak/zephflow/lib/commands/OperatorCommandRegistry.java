@@ -24,6 +24,8 @@ import io.fleak.zephflow.lib.commands.azuremonitorsource.AzureMonitorSourceComma
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.elasticsearchsink.ElasticsearchSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
@@ -82,5 +84,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_MONITOR_SINK, new AzureMonitorSinkCommandFactory())
           .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
+          .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
+          .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
           .build();
 }
