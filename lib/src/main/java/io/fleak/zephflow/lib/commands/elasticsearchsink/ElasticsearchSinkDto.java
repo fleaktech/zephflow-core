@@ -25,19 +25,15 @@ public interface ElasticsearchSinkDto {
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    /** Elasticsearch host URL (e.g. https://my-cluster.es.io:9200). */
     @NonNull private String host;
 
     /**
-     * ID of a stored UsernamePasswordCredential where username is the ES username and password is
-     * the ES password or API key.
+     * ID of a UsernamePasswordCredential (username + password only; API key auth not supported).
      */
     private String credentialId;
 
-    /** Target index name. */
     @NonNull private String index;
 
-    /** Number of documents to write per bulk request. Defaults to 500. */
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
   }
 }

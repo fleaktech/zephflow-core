@@ -28,7 +28,11 @@ public class ElasticsearchRawDataEncoder implements RawDataEncoder<Elasticsearch
     try {
       byte[] bytes = OBJECT_MAPPER.writeValueAsBytes(doc.source());
       Map<String, String> metadata =
-          Map.of("_id", doc.id() != null ? doc.id() : "", "_index", doc.index() != null ? doc.index() : "");
+          Map.of(
+              "_id",
+              doc.id() != null ? doc.id() : "",
+              "_index",
+              doc.index() != null ? doc.index() : "");
       return new SerializedEvent(null, bytes, metadata);
     } catch (Exception e) {
       log.warn("Failed to encode Elasticsearch document id={}", doc.id(), e);

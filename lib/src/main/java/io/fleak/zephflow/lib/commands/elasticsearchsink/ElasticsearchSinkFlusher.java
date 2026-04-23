@@ -34,8 +34,7 @@ import org.apache.commons.lang3.StringUtils;
 /**
  * Flushes events to Elasticsearch using the Bulk API.
  *
- * <p>Reference:
- * https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
+ * <p>Reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
  */
 @Slf4j
 public class ElasticsearchSinkFlusher
@@ -55,8 +54,7 @@ public class ElasticsearchSinkFlusher
       String credentials = username + ":" + password;
       this.authHeader =
           "Basic "
-              + Base64.getEncoder()
-                  .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+              + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
     } else {
       this.authHeader = null;
     }
@@ -72,8 +70,9 @@ public class ElasticsearchSinkFlusher
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    // Build NDJSON bulk request body
-    String actionMeta = "{\"index\":{\"_index\":\"" + index + "\"}}";
+    var metaNode = OBJECT_MAPPER.createObjectNode();
+    metaNode.putObject("index").put("_index", index);
+    String actionMeta = OBJECT_MAPPER.writeValueAsString(metaNode);
     StringBuilder ndjson = new StringBuilder();
     for (ElasticsearchOutboundDoc doc : docs) {
       ndjson.append(actionMeta).append("\n");
@@ -116,7 +115,6 @@ public class ElasticsearchSinkFlusher
       return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }
 
-    // Parse bulk response to detect per-item errors
     JsonNode bulkResponse = OBJECT_MAPPER.readTree(response.body());
     boolean hasErrors = bulkResponse.path("errors").asBoolean(false);
     if (!hasErrors) {
@@ -124,7 +122,6 @@ public class ElasticsearchSinkFlusher
       return new SimpleSinkCommand.FlushResult(docs.size(), bodyBytes.length, List.of());
     }
 
-    // Collect per-item errors
     List<ErrorOutput> errors = new ArrayList<>();
     int successCount = 0;
     JsonNode items = bulkResponse.path("items");
@@ -136,21 +133,17 @@ public class ElasticsearchSinkFlusher
       if (status >= 200 && status < 300) {
         successCount++;
       } else {
-        String errorReason =
-            indexResult.path("error").path("reason").asText("unknown error");
+        String errorReason = indexResult.path("error").path("reason").asText("unknown error");
         if (i < rawAndPrepared.size()) {
           errors.add(new ErrorOutput(rawAndPrepared.get(i).getLeft(), errorReason));
         }
       }
     }
 
-    log.debug(
-        "Elasticsearch bulk: {} succeeded, {} failed", successCount, errors.size());
+    log.debug("Elasticsearch bulk: {} succeeded, {} failed", successCount, errors.size());
     return new SimpleSinkCommand.FlushResult(successCount, bodyBytes.length, errors);
   }
 
   @Override
-  public void close() {
-    // HttpClient does not require explicit closing
-  }
+  public void close() {}
 }

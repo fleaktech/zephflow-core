@@ -41,7 +41,11 @@ public class ElasticsearchRawDataConverter implements RawDataConverter<Elasticse
     try {
       byte[] bytes = OBJECT_MAPPER.writeValueAsBytes(doc.source());
       Map<String, String> metadata =
-          Map.of("_id", doc.id() != null ? doc.id() : "", "_index", doc.index() != null ? doc.index() : "");
+          Map.of(
+              "_id",
+              doc.id() != null ? doc.id() : "",
+              "_index",
+              doc.index() != null ? doc.index() : "");
 
       SerializedEvent serializedEvent = new SerializedEvent(null, bytes, metadata);
       List<RecordFleakData> events = fleakDeserializer.deserialize(serializedEvent);

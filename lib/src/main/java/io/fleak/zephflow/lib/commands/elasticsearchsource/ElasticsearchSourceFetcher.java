@@ -68,8 +68,7 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
       String credentials = username + ":" + password;
       this.authHeader =
           "Basic "
-              + Base64.getEncoder()
-                  .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+              + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
     } else {
       this.authHeader = null;
     }
@@ -114,20 +113,20 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
   }
 
   private List<ElasticsearchDocument> continueScroll() throws Exception {
-    String bodyJson =
-        "{\"scroll\":\"" + scrollTimeout + "\",\"scroll_id\":\"" + scrollId + "\"}";
+    var bodyNode = OBJECT_MAPPER.createObjectNode();
+    bodyNode.put("scroll", scrollTimeout);
+    bodyNode.put("scroll_id", scrollId);
     String url = host + "/_search/scroll";
 
-    HttpRequest request = buildRequest(url, bodyJson);
+    HttpRequest request = buildRequest(url, OBJECT_MAPPER.writeValueAsString(bodyNode));
     HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
     if (response.statusCode() != 200) {
-      log.warn(
-          "Elasticsearch scroll failed with status {}: {}",
-          response.statusCode(),
-          response.body());
-      exhausted = true;
-      return List.of();
+      throw new RuntimeException(
+          "Elasticsearch scroll failed with status "
+              + response.statusCode()
+              + ": "
+              + response.body());
     }
 
     return parseScrollResponse(response.body());
@@ -152,7 +151,6 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
   private List<ElasticsearchDocument> parseScrollResponse(String body) throws IOException {
     JsonNode root = OBJECT_MAPPER.readTree(body);
 
-    // Update scroll_id for next page
     JsonNode scrollIdNode = root.get("_scroll_id");
     if (scrollIdNode != null) {
       scrollId = scrollIdNode.asText();
@@ -186,12 +184,15 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
       return;
     }
     try {
-      String bodyJson = "{\"scroll_id\":[\"" + scrollId + "\"]}";
+      var bodyNode = OBJECT_MAPPER.createObjectNode();
+      bodyNode.putArray("scroll_id").add(scrollId);
+      String bodyJson = OBJECT_MAPPER.writeValueAsString(bodyNode);
       HttpRequest.Builder builder =
           HttpRequest.newBuilder()
               .uri(URI.create(host + "/_search/scroll"))
               .header("Content-Type", "application/json")
-              .method("DELETE", HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
+              .method(
+                  "DELETE", HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
               .timeout(Duration.ofSeconds(10));
       if (authHeader != null) {
         builder.header("Authorization", authHeader);
@@ -202,15 +203,15 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
     }
   }
 
-  private String buildInitialBody() {
-    StringBuilder sb = new StringBuilder("{\"size\":" + batchSize);
+  private String buildInitialBody() throws IOException {
+    var body = OBJECT_MAPPER.createObjectNode();
+    body.put("size", batchSize);
     if (StringUtils.isNotBlank(query)) {
-      sb.append(",\"query\":").append(query);
+      body.set("query", OBJECT_MAPPER.readTree(query));
     } else {
-      sb.append(",\"query\":{\"match_all\":{}}");
+      body.putObject("query").putObject("match_all");
     }
-    sb.append("}");
-    return sb.toString();
+    return OBJECT_MAPPER.writeValueAsString(body);
   }
 
   @Override

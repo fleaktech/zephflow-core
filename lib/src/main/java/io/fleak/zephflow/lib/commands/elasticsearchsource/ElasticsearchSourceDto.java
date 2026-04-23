@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import lombok.*;
 
 public interface ElasticsearchSourceDto {
@@ -26,31 +27,21 @@ public interface ElasticsearchSourceDto {
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    /** Elasticsearch host URL (e.g. https://my-cluster.es.io:9200). */
     @NonNull private String host;
 
     /**
-     * ID of a stored UsernamePasswordCredential where username is the ES username and password is
-     * the ES password or API key.
+     * ID of a UsernamePasswordCredential (username + password only; API key auth not supported).
      */
     private String credentialId;
 
-    /** Index name or pattern to read from (e.g. "logs-*"). */
     @NonNull private String index;
 
-    /**
-     * Optional Elasticsearch query DSL JSON (the "query" part only). When null, matches all
-     * documents.
-     */
     private String query;
 
-    /** Scroll context keep-alive duration. Defaults to "5m". */
     @Builder.Default private String scrollTimeout = DEFAULT_SCROLL_TIMEOUT;
 
-    /** Number of documents to fetch per scroll page. Defaults to 500. */
     @Builder.Default private int batchSize = DEFAULT_BATCH_SIZE;
 
-    /** Encoding type for deserializing document _source fields. */
-    @NonNull private String encodingType;
+    @NonNull private EncodingType encodingType;
   }
 }
