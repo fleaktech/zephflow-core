@@ -42,6 +42,8 @@ import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
+import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.gcssource.GcsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.smtpsink.SmtpSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunksource.SplunkSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.sql.SqlCommandFactory;
@@ -90,5 +92,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
+          .put(COMMAND_NAME_GCS_SOURCE, new GcsSourceCommandFactory())
+          .put(COMMAND_NAME_GCS_SINK, new GcsSinkCommandFactory())
           .build();
 }

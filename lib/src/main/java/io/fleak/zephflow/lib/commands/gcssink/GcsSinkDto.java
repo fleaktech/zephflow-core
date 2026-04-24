@@ -28,12 +28,8 @@ public interface GcsSinkDto {
   class Config implements CommandConfig {
     @NonNull private String bucketName;
 
-    /** Prefix for generated object names. Defaults to {@link #DEFAULT_OBJECT_PREFIX}. */
     private String objectPrefix;
 
-    /**
-     * Optional ID of a stored GcpCredential. If absent, Application Default Credentials are used.
-     */
     private String credentialId;
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
