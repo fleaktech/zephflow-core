@@ -28,6 +28,8 @@ import io.fleak.zephflow.lib.commands.elasticsearchsink.ElasticsearchSinkCommand
 import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.gcssource.GcsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
@@ -86,5 +88,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
+          .put(COMMAND_NAME_GCS_SOURCE, new GcsSourceCommandFactory())
+          .put(COMMAND_NAME_GCS_SINK, new GcsSinkCommandFactory())
           .build();
 }
