@@ -11,30 +11,28 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssink;
+package io.fleak.zephflow.lib.commands.elasticsearchsink;
 
 import io.fleak.zephflow.api.CommandConfig;
 import lombok.*;
 
-public interface GcsSinkDto {
+public interface ElasticsearchSinkDto {
 
-  int DEFAULT_BATCH_SIZE = 100;
-  String DEFAULT_OBJECT_PREFIX = "events/";
+  int DEFAULT_BATCH_SIZE = 500;
 
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    @NonNull private String bucketName;
-
-    /** Prefix for generated object names. Defaults to {@link #DEFAULT_OBJECT_PREFIX}. */
-    private String objectPrefix;
+    @NonNull private String host;
 
     /**
-     * Optional ID of a stored GcpCredential. If absent, Application Default Credentials are used.
+     * ID of a UsernamePasswordCredential (username + password only; API key auth not supported).
      */
     private String credentialId;
+
+    @NonNull private String index;
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
   }

@@ -54,6 +54,12 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_IMAP_SOURCE)
             .add(COMMAND_NAME_SMTP_SINK)
             .add(COMMAND_NAME_LDAP_SOURCE)
+            .add(COMMAND_NAME_GCS_SOURCE)
+            .add(COMMAND_NAME_GCS_SINK)
+            .add(COMMAND_NAME_AZURE_MONITOR_SINK)
+            .add(COMMAND_NAME_AZURE_MONITOR_SOURCE)
+            .add(COMMAND_NAME_ELASTICSEARCH_SOURCE)
+            .add(COMMAND_NAME_ELASTICSEARCH_SINK)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }

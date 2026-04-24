@@ -11,31 +11,25 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssink;
+package io.fleak.zephflow.lib.commands.azuremonitorsource;
 
 import io.fleak.zephflow.api.CommandConfig;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-public interface GcsSinkDto {
-
-  int DEFAULT_BATCH_SIZE = 100;
-  String DEFAULT_OBJECT_PREFIX = "events/";
+public interface AzureMonitorSourceDto {
 
   @Data
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    @NonNull private String bucketName;
-
-    /** Prefix for generated object names. Defaults to {@link #DEFAULT_OBJECT_PREFIX}. */
-    private String objectPrefix;
-
-    /**
-     * Optional ID of a stored GcpCredential. If absent, Application Default Credentials are used.
-     */
+    private String workspaceId;
+    private String tenantId;
+    private String kqlQuery;
     private String credentialId;
-
-    @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
+    @Builder.Default private int batchSize = 1000;
   }
 }

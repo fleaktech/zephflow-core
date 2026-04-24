@@ -11,36 +11,31 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssink;
+package io.fleak.zephflow.lib.commands.elasticsearchsink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.cloud.storage.Storage;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
-import io.fleak.zephflow.lib.credentials.GcpCredential;
-import io.fleak.zephflow.lib.gcp.GcsClientFactory;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
+import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
-public class GcsSinkCommand extends SimpleSinkCommand<GcsOutboundMessage> {
+public class ElasticsearchSinkCommand extends SimpleSinkCommand<ElasticsearchOutboundDoc> {
 
-  private final GcsClientFactory gcsClientFactory;
-
-  protected GcsSinkCommand(
+  protected ElasticsearchSinkCommand(
       String nodeId,
       JobContext jobContext,
       ConfigParser configParser,
-      ConfigValidator configValidator,
-      GcsClientFactory gcsClientFactory) {
+      ConfigValidator configValidator) {
     super(nodeId, jobContext, configParser, configValidator);
-    this.gcsClientFactory = gcsClientFactory;
   }
 
   @Override
   public String commandName() {
-    return COMMAND_NAME_GCS_SINK;
+    return COMMAND_NAME_ELASTICSEARCH_SINK;
   }
 
   @Override
@@ -52,10 +47,24 @@ public class GcsSinkCommand extends SimpleSinkCommand<GcsOutboundMessage> {
     SinkCounters counters =
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
-    GcsSinkDto.Config config = (GcsSinkDto.Config) commandConfig;
-    SimpleSinkCommand.Flusher<GcsOutboundMessage> flusher = createFlusher(config, jobContext);
-    SimpleSinkCommand.SinkMessagePreProcessor<GcsOutboundMessage> messagePreProcessor =
-        new GcsSinkMessageProcessor();
+    ElasticsearchSinkDto.Config config = (ElasticsearchSinkDto.Config) commandConfig;
+
+    String username = null;
+    String password = null;
+    if (StringUtils.isNotBlank(config.getCredentialId())) {
+      Optional<UsernamePasswordCredential> credOpt =
+          lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
+      if (credOpt.isPresent()) {
+        username = credOpt.get().getUsername();
+        password = credOpt.get().getPassword();
+      }
+    }
+
+    SimpleSinkCommand.Flusher<ElasticsearchOutboundDoc> flusher =
+        new ElasticsearchSinkFlusher(config.getHost(), config.getIndex(), username, password);
+
+    SimpleSinkCommand.SinkMessagePreProcessor<ElasticsearchOutboundDoc> messagePreProcessor =
+        new ElasticsearchSinkMessageProcessor();
 
     return new SinkExecutionContext<>(
         flusher,
@@ -67,26 +76,11 @@ public class GcsSinkCommand extends SimpleSinkCommand<GcsOutboundMessage> {
         counters.sinkErrorCounter());
   }
 
-  private SimpleSinkCommand.Flusher<GcsOutboundMessage> createFlusher(
-      GcsSinkDto.Config config, JobContext jobContext) {
-    Storage storage;
-    if (StringUtils.isNotBlank(config.getCredentialId())) {
-      GcpCredential credential = lookupGcpCredential(jobContext, config.getCredentialId());
-      storage = gcsClientFactory.createStorageClient(credential);
-    } else {
-      storage = gcsClientFactory.createStorageClient();
-    }
-
-    String prefix =
-        StringUtils.isNotBlank(config.getObjectPrefix())
-            ? config.getObjectPrefix()
-            : GcsSinkDto.DEFAULT_OBJECT_PREFIX;
-    return new GcsSinkFlusher(storage, config.getBucketName(), prefix);
-  }
-
   @Override
   protected int batchSize() {
-    GcsSinkDto.Config config = (GcsSinkDto.Config) commandConfig;
-    return config.getBatchSize() != null ? config.getBatchSize() : GcsSinkDto.DEFAULT_BATCH_SIZE;
+    ElasticsearchSinkDto.Config config = (ElasticsearchSinkDto.Config) commandConfig;
+    return config.getBatchSize() != null
+        ? config.getBatchSize()
+        : ElasticsearchSinkDto.DEFAULT_BATCH_SIZE;
   }
 }

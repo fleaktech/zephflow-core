@@ -25,10 +25,12 @@ public interface GcsSourceDto {
   @AllArgsConstructor
   class Config implements CommandConfig {
     @NonNull private String bucketName;
+
     /** Optional prefix to filter GCS objects (e.g. "logs/2024/"). */
     private String objectPrefix;
 
     @NonNull private EncodingType encodingType;
+
     /**
      * Optional ID of a stored GcpCredential. If absent, Application Default Credentials are used.
      */

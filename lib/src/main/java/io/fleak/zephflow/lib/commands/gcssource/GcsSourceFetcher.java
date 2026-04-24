@@ -70,8 +70,7 @@ public class GcsSourceFetcher implements Fetcher<GcsObjectData> {
       String objectName = blob.getName();
       try {
         byte[] content = storage.readAllBytes(BlobId.of(bucketName, objectName));
-        Map<String, String> metadata =
-            blob.getMetadata() != null ? blob.getMetadata() : Map.of();
+        Map<String, String> metadata = blob.getMetadata() != null ? blob.getMetadata() : Map.of();
         results.add(new GcsObjectData(content, objectName, metadata));
         count++;
       } catch (Exception e) {
