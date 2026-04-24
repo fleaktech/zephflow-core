@@ -19,7 +19,8 @@ import com.azure.storage.blob.BlobContainerClient;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -52,14 +53,12 @@ public class AzureBlobSinkFlusher implements SimpleSinkCommand.Flusher<AzureBlob
     }
 
     String combined =
-        messages.stream()
-            .map(AzureBlobOutboundMessage::content)
-            .collect(Collectors.joining("\n"));
+        messages.stream().map(AzureBlobOutboundMessage::content).collect(Collectors.joining("\n"));
     byte[] bytes = combined.getBytes(StandardCharsets.UTF_8);
 
     String blobName =
         blobNamePrefix
-            + LocalDateTime.now().format(BLOB_NAME_FORMATTER)
+            + ZonedDateTime.now(ZoneOffset.UTC).format(BLOB_NAME_FORMATTER)
             + "-"
             + UUID.randomUUID()
             + ".jsonl";
@@ -68,8 +67,7 @@ public class AzureBlobSinkFlusher implements SimpleSinkCommand.Flusher<AzureBlob
       BlobClient blobClient = containerClient.getBlobClient(blobName);
       blobClient.upload(BinaryData.fromBytes(bytes), true);
 
-      log.debug(
-          "Uploaded {} events to Azure Blob Storage as: {}", messages.size(), blobName);
+      log.debug("Uploaded {} events to Azure Blob Storage as: {}", messages.size(), blobName);
       return new SimpleSinkCommand.FlushResult(messages.size(), bytes.length, List.of());
     } catch (Exception e) {
       log.error("Failed to upload blob: {}", blobName, e);

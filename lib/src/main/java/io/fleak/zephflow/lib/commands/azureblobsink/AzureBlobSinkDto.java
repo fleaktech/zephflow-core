@@ -19,6 +19,7 @@ import lombok.*;
 public interface AzureBlobSinkDto {
 
   int DEFAULT_BATCH_SIZE = 100;
+  String DEFAULT_BLOB_NAME_PREFIX = "events/";
 
   @Data
   @Builder
@@ -26,15 +27,18 @@ public interface AzureBlobSinkDto {
   @AllArgsConstructor
   class Config implements CommandConfig {
     @NonNull private String containerName;
+
     /** Azure Storage connection string. If provided, takes priority over credentialId. */
     private String connectionString;
+
     /**
      * ID of a stored UsernamePasswordCredential where username=storageAccountName and
      * password=storageAccountKey.
      */
     private String credentialId;
-    /** Prefix for generated blob names. Defaults to "events/". */
-    @Builder.Default private String blobNamePrefix = "events/";
+
+    /** Prefix for generated blob names. Defaults to {@link #DEFAULT_BLOB_NAME_PREFIX}. */
+    private String blobNamePrefix;
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
   }

@@ -45,16 +45,12 @@ public class AzureBlobRawDataConverter implements RawDataConverter<AzureBlobData
       Map<String, String> eventTags =
           getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
 
-      sourceInitializedConfig
-          .dataSizeCounter()
-          .increase(sourceRecord.content().length, eventTags);
+      sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.content().length, eventTags);
       sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
 
       return ConvertedResult.success(events, sourceRecord);
     } catch (Exception e) {
-      sourceInitializedConfig
-          .dataSizeCounter()
-          .increase(sourceRecord.content().length, Map.of());
+      sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.content().length, Map.of());
       sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
       log.error(
           "Failed to deserialize Azure Blob content for blob: {}", sourceRecord.blobName(), e);

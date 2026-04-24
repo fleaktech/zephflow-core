@@ -87,12 +87,17 @@ public class AzureBlobSinkCommand extends SimpleSinkCommand<AzureBlobOutboundMes
     BlobContainerClient containerClient =
         serviceClient.getBlobContainerClient(config.getContainerName());
     String prefix =
-        StringUtils.isNotBlank(config.getBlobNamePrefix()) ? config.getBlobNamePrefix() : "events/";
+        StringUtils.isNotBlank(config.getBlobNamePrefix())
+            ? config.getBlobNamePrefix()
+            : AzureBlobSinkDto.DEFAULT_BLOB_NAME_PREFIX;
     return new AzureBlobSinkFlusher(containerClient, prefix);
   }
 
   @Override
   protected int batchSize() {
-    return AzureBlobSinkDto.DEFAULT_BATCH_SIZE;
+    AzureBlobSinkDto.Config config = (AzureBlobSinkDto.Config) commandConfig;
+    return config.getBatchSize() != null
+        ? config.getBatchSize()
+        : AzureBlobSinkDto.DEFAULT_BATCH_SIZE;
   }
 }

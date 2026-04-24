@@ -53,7 +53,9 @@ public class AzureBlobSourceFetcher implements Fetcher<AzureBlobData> {
       }
       blobIterator = containerClient.listBlobs(options, null).iterator();
       initialized = true;
-      log.info("Initialized Azure Blob fetcher for container: {}", containerClient.getBlobContainerName());
+      log.info(
+          "Initialized Azure Blob fetcher for container: {}",
+          containerClient.getBlobContainerName());
     }
 
     if (exhausted || !blobIterator.hasNext()) {

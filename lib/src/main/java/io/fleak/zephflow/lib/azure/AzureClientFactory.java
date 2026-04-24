@@ -16,11 +16,10 @@ package io.fleak.zephflow.lib.azure;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.common.StorageSharedKeyCredential;
-import java.io.Serializable;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class AzureClientFactory implements Serializable {
+public class AzureClientFactory {
 
   public BlobServiceClient createBlobServiceClientFromConnectionString(String connectionString) {
     log.info("Creating Azure BlobServiceClient using connection string");
@@ -30,8 +29,7 @@ public class AzureClientFactory implements Serializable {
   public BlobServiceClient createBlobServiceClientFromAccountKey(
       String accountName, String accountKey) {
     log.info("Creating Azure BlobServiceClient for account: {}", accountName);
-    StorageSharedKeyCredential credential =
-        new StorageSharedKeyCredential(accountName, accountKey);
+    StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
     return new BlobServiceClientBuilder()
         .endpoint("https://" + accountName + ".blob.core.windows.net")
         .credential(credential)

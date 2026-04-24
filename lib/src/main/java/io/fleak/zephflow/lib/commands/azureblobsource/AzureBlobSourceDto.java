@@ -25,13 +25,16 @@ public interface AzureBlobSourceDto {
   @AllArgsConstructor
   class Config implements CommandConfig {
     @NonNull private String containerName;
+
     /** Azure Storage connection string. If provided, takes priority over credentialId. */
     private String connectionString;
+
     /**
      * ID of a stored UsernamePasswordCredential where username=storageAccountName and
      * password=storageAccountKey.
      */
     private String credentialId;
+
     /** Optional prefix to filter blobs (e.g. "logs/2024/"). */
     private String blobPrefix;
 
