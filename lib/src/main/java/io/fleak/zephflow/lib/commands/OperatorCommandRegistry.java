@@ -19,11 +19,17 @@ import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.activemqsource.ActiveMqSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
+import io.fleak.zephflow.lib.commands.azuremonitorsink.AzureMonitorSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.azuremonitorsource.AzureMonitorSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.elasticsearchsink.ElasticsearchSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.gcssource.GcsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
@@ -80,6 +86,12 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
           .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
           .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
+          .put(COMMAND_NAME_AZURE_MONITOR_SINK, new AzureMonitorSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
+          .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
+          .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
+          .put(COMMAND_NAME_GCS_SOURCE, new GcsSourceCommandFactory())
+          .put(COMMAND_NAME_GCS_SINK, new GcsSinkCommandFactory())
           .put(COMMAND_NAME_AZURE_BLOB_SOURCE, new AzureBlobSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())
           .build();
