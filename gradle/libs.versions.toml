@@ -46,6 +46,8 @@ ojdbc = "23.7.0.25.01"
 mssqlJdbc = "12.10.0.jre11"
 angusMail = "2.0.3"
 unboundidLdapsdk = "7.0.1"
+azureStorageBlob = "12.28.0"
+azureCoreHttpOkHttp = "1.12.6"
 
 nebulaDependencyLock = "16.1.0"
 nebulaMavenPublish = "23.0.0"
@@ -181,6 +183,8 @@ ojdbc-driver = { module = "com.oracle.database.jdbc:ojdbc11", version.ref = "ojd
 mssql-jdbc-driver = { module = "com.microsoft.sqlserver:mssql-jdbc", version.ref = "mssqlJdbc" }
 angus-mail = { module = "org.eclipse.angus:angus-mail", version.ref = "angusMail" }
 unboundid-ldapsdk = { module = "com.unboundid:unboundid-ldapsdk", version.ref = "unboundidLdapsdk" }
+azure-storage-blob = { module = "com.azure:azure-storage-blob", version.ref = "azureStorageBlob" }
+azure-core-http-okhttp = { module = "com.azure:azure-core-http-okhttp", version.ref = "azureCoreHttpOkHttp" }
 
 [plugins]
 nebula-dependency-lock = { id = "com.netflix.nebula.dependency-lock", version.ref = "nebulaDependencyLock" }

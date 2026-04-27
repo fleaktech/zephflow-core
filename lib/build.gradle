@@ -55,6 +55,10 @@ dependencies {
 
   testImplementation libs.h2.database
   implementation libs.angus.mail
+  implementation(libs.azure.storage.blob) {
+    exclude group: 'com.azure', module: 'azure-core-http-netty'
+  }
+  implementation libs.azure.core.http.okhttp
 
   testImplementation libs.unboundid.ldapsdk
   testImplementation libs.jackson.dataformat.yaml
