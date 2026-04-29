@@ -60,6 +60,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_AZURE_MONITOR_SOURCE)
             .add(COMMAND_NAME_ELASTICSEARCH_SOURCE)
             .add(COMMAND_NAME_ELASTICSEARCH_SINK)
+            .add(COMMAND_NAME_SPLUNK_HEC_SINK)
             .add(COMMAND_NAME_AZURE_BLOB_SOURCE)
             .add(COMMAND_NAME_AZURE_BLOB_SINK)
             .build(),
