@@ -25,22 +25,16 @@ public interface SplunkHecSinkDto {
   @NoArgsConstructor
   @AllArgsConstructor
   class Config implements CommandConfig {
-    /** Full HEC endpoint URL, e.g. https://splunk:8088/services/collector/event */
     @NonNull private String hecUrl;
 
-    /** ID of an ApiKeyCredential whose `key` is the HEC token. */
     @NonNull private String credentialId;
 
-    /** Optional. If null, HEC token's default index is used. */
     private String index;
 
-    /** Optional. If null, HEC token's default sourcetype is used. */
     private String sourcetype;
 
-    /** Optional pipeline-level source tag. */
     private String source;
 
-    /** Defaults to true. Set false for self-signed Splunk deployments. */
     @Builder.Default private Boolean verifySsl = true;
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
