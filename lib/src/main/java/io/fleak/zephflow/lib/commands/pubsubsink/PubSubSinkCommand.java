@@ -105,8 +105,6 @@ public class PubSubSinkCommand extends SimpleSinkCommand<PubSubOutboundMessage> 
   @Override
   protected int batchSize() {
     PubSubSinkDto.Config config = (PubSubSinkDto.Config) commandConfig;
-    return config.getBatchSize() != null
-        ? config.getBatchSize()
-        : PubSubSinkDto.DEFAULT_BATCH_SIZE;
+    return config.getBatchSize() != null ? config.getBatchSize() : PubSubSinkDto.DEFAULT_BATCH_SIZE;
   }
 }

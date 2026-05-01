@@ -151,7 +151,6 @@ class PubSubSinkFlusherTest {
 
     assertEquals(0, result.successCount());
     assertEquals(2, result.errorOutputList().size());
-    assertTrue(
-        result.errorOutputList().get(0).errorMessage().contains("Pub/Sub publish failed"));
+    assertTrue(result.errorOutputList().get(0).errorMessage().contains("Pub/Sub publish failed"));
   }
 }

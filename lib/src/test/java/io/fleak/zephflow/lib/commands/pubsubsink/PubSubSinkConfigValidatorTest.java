@@ -137,7 +137,6 @@ class PubSubSinkConfigValidatorTest {
             .orderingKeyExpression("not a valid expression")
             .build();
     assertThrows(
-        Exception.class,
-        () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+        Exception.class, () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
   }
 }

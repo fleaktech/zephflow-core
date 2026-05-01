@@ -99,7 +99,8 @@ public class PubSubSourceCommand extends SimpleSourceCommand<PubSubReceivedMessa
       throw new IllegalArgumentException(
           "projectId required: set Config.projectId or GcpCredential.projectId");
     }
-    String subscriptionPath = "projects/" + projectId + "/subscriptions/" + config.getSubscription();
+    String subscriptionPath =
+        "projects/" + projectId + "/subscriptions/" + config.getSubscription();
 
     SubscriberStub stub =
         credentialOpt
