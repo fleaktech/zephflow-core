@@ -42,6 +42,7 @@ dependencies {
   implementation libs.splunk
 
   implementation libs.gcs.storage
+  implementation libs.gcs.pubsub
 
   implementation libs.jakarta.jms.api
   implementation libs.activemq.client.jakarta
