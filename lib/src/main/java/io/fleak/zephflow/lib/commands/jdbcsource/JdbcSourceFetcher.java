@@ -158,8 +158,6 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
 
   private static boolean isConnectionLive(Connection conn) {
     try {
-      // isClosed() only reflects a local close() call — it does NOT detect dead network
-      // connections, server-side timeouts, or DB restarts. isValid() actively probes.
       return !conn.isClosed() && conn.isValid(CONNECTION_VALIDATION_TIMEOUT_SECONDS);
     } catch (SQLException e) {
       log.debug("Connection liveness check threw — treating as dead", e);
@@ -174,17 +172,12 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
       return new PreparedQuery(queryTemplate.replace(":watermark", "NULL"), List.of());
     }
     if (lastWatermarkValue == null) {
-      // Initial streaming fetch: strip "column op :watermark" predicates to a no-op so all
-      // rows are returned. Any remaining :watermark occurrences (e.g. IS NULL patterns) become
-      // literal NULL since there is no value to bind yet.
       String sql =
           queryTemplate
               .replaceAll("\\S+\\s*(?:>=|<=|!=|>|<|=)\\s*:watermark", "1=1")
               .replace(":watermark", "NULL");
       return new PreparedQuery(sql, List.of());
     }
-    // Bind the watermark as a real PreparedStatement parameter — type-safe across drivers
-    // (Timestamp, UUID, BigDecimal, ...) and immune to SQL injection from the value column.
     int placeholderCount = countOccurrences(queryTemplate, ":watermark");
     String sql = queryTemplate.replace(":watermark", "?");
     List<Object> params = new ArrayList<>(placeholderCount);
@@ -208,9 +201,6 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     List<Map<String, Object>> results = new ArrayList<>();
     try (PreparedStatement stmt = connection.prepareStatement(query.sql())) {
       stmt.setFetchSize(fetchSize);
-      // setMaxRows truncates total returned rows; in streaming mode that risks silent
-      // data loss as the watermark advances past unseen rows. Keep it only for batch
-      // mode, where it acts as a soft "read up to N rows" cap.
       if (!streaming) {
         stmt.setMaxRows(fetchSize);
       }
@@ -242,12 +232,6 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     return results;
   }
 
-  /**
-   * Resolves the configured {@code watermarkColumn} against the result-set metadata using a
-   * case-insensitive match, returning the actual column label as it appears in the row map. Throws
-   * if streaming is enabled but the column is not in the SELECT list — a silent absence would cause
-   * the watermark to never advance and the source to re-read the same rows forever.
-   */
   private String resolveWatermarkColumn(ResultSetMetaData metaData, int columnCount)
       throws SQLException {
     if (!streaming || watermarkColumn == null) {
