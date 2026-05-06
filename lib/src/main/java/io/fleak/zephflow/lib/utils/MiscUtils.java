@@ -102,6 +102,7 @@ public interface MiscUtils {
   String COMMAND_NAME_AZURE_MONITOR_SOURCE = "azuremonitorsource";
   String COMMAND_NAME_ELASTICSEARCH_SOURCE = "elasticsearchsource";
   String COMMAND_NAME_ELASTICSEARCH_SINK = "elasticsearchsink";
+  String COMMAND_NAME_SPLUNK_HEC_SINK = "splunkhecsink";
   String COMMAND_NAME_GCS_SOURCE = "gcssource";
   String COMMAND_NAME_GCS_SINK = "gcssink";
   String COMMAND_NAME_AZURE_BLOB_SOURCE = "azureblobsource";
