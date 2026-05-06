@@ -145,6 +145,198 @@ class JdbcSourceFetcherTest {
   }
 
   @Test
+  void testStreamingWatermarkColumnMatchesCaseInsensitively() throws Exception {
+    // User configures watermarkColumn lowercase 'id' but H2 returns 'ID' uppercase from
+    // the result-set metadata. The watermark must still advance after the first fetch.
+    JdbcSourceFetcher fetcher =
+        new JdbcSourceFetcher(
+            JDBC_URL,
+            null,
+            null,
+            "SELECT * FROM test_events WHERE id > :watermark ORDER BY id",
+            "id",
+            1000,
+            0);
+
+    List<Map<String, Object>> first = fetcher.fetch();
+    assertEquals(3, first.size());
+
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("INSERT INTO test_events (id, name, amount) VALUES (4, 'delta', 40.0)");
+    }
+
+    List<Map<String, Object>> second = fetcher.fetch();
+    assertEquals(1, second.size(), "watermark should have advanced past id=3");
+    assertEquals(4, second.get(0).get("ID"));
+    fetcher.close();
+  }
+
+  @Test
+  void testStreamingFailsFastWhenWatermarkColumnNotInSelect() throws Exception {
+    // watermarkColumn 'amount' exists in the table but is not in the SELECT list,
+    // so each fetched row has no amount value. The fetcher must fail loudly rather
+    // than silently leaving the watermark unset and re-reading the same rows forever.
+    JdbcSourceFetcher fetcher =
+        new JdbcSourceFetcher(
+            JDBC_URL,
+            null,
+            null,
+            "SELECT id, name FROM test_events WHERE id > :watermark ORDER BY id",
+            "amount",
+            1000,
+            0);
+
+    IllegalStateException ex = assertThrows(IllegalStateException.class, fetcher::fetch);
+    assertTrue(
+        ex.getMessage().toLowerCase().contains("amount"),
+        "Expected error message to mention the missing column, got: " + ex.getMessage());
+    fetcher.close();
+  }
+
+  @Test
+  void testStreamingExhaustsAfterMaxConsecutiveFailures() throws Exception {
+    // A permanently broken query (table does not exist) used to spin forever logging
+    // SQLException on every poll. After the failure budget is exhausted the source must
+    // mark itself exhausted so the runner can shut it down.
+    JdbcSourceFetcher fetcher =
+        new JdbcSourceFetcher(
+            JDBC_URL,
+            null,
+            null,
+            "SELECT * FROM nonexistent_table WHERE id > :watermark",
+            "id",
+            1000,
+            0,
+            3);
+
+    for (int i = 0; i < 3; i++) {
+      assertFalse(fetcher.isExhausted(), "should not be exhausted before failure budget");
+      assertTrue(fetcher.fetch().isEmpty());
+    }
+    assertTrue(
+        fetcher.isExhausted(),
+        "source must mark itself exhausted after maxConsecutiveFailures errors");
+    fetcher.close();
+  }
+
+  @Test
+  void testStreamingFailureCounterResetsOnSuccess() throws Exception {
+    // Drop and recreate to force a transient failure window.
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("DROP TABLE IF EXISTS flaky_events");
+    }
+
+    JdbcSourceFetcher fetcher =
+        new JdbcSourceFetcher(
+            JDBC_URL,
+            null,
+            null,
+            "SELECT * FROM flaky_events WHERE id > :watermark ORDER BY id",
+            "id",
+            1000,
+            0,
+            3);
+
+    // 2 failures (table missing), still under budget.
+    assertTrue(fetcher.fetch().isEmpty());
+    assertTrue(fetcher.fetch().isEmpty());
+    assertFalse(fetcher.isExhausted());
+
+    // Recover. Successful fetch must reset the failure counter so a later transient failure
+    // doesn't immediately exhaust the source.
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("CREATE TABLE flaky_events (id INT PRIMARY KEY)");
+      stmt.execute("INSERT INTO flaky_events (id) VALUES (1)");
+    }
+    assertEquals(1, fetcher.fetch().size());
+    assertFalse(fetcher.isExhausted());
+
+    // Drop again. Need 3 more failures to exhaust — proves counter was reset.
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("DROP TABLE flaky_events");
+    }
+    assertTrue(fetcher.fetch().isEmpty());
+    assertTrue(fetcher.fetch().isEmpty());
+    assertFalse(fetcher.isExhausted(), "counter should have reset on success");
+    assertTrue(fetcher.fetch().isEmpty());
+    assertTrue(fetcher.isExhausted());
+
+    fetcher.close();
+  }
+
+  @Test
+  void testStreamingWithTimestampWatermark() throws Exception {
+    // Timestamp watermark exercises the PreparedStatement.setObject binding path
+    // for non-Number types — the previous `Timestamp.toString()` interpolation
+    // happened to work in H2 but was driver-specific and fragile.
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("DROP TABLE IF EXISTS ts_events");
+      stmt.execute("CREATE TABLE ts_events (id INT PRIMARY KEY, updated_at TIMESTAMP)");
+      stmt.execute(
+          "INSERT INTO ts_events (id, updated_at) VALUES (1, TIMESTAMP '2024-01-01 10:00:00')");
+      stmt.execute(
+          "INSERT INTO ts_events (id, updated_at) VALUES (2, TIMESTAMP '2024-01-01 11:00:00')");
+    }
+
+    JdbcSourceFetcher fetcher =
+        new JdbcSourceFetcher(
+            JDBC_URL,
+            null,
+            null,
+            "SELECT * FROM ts_events WHERE updated_at > :watermark ORDER BY updated_at",
+            "updated_at",
+            1000,
+            0);
+
+    List<Map<String, Object>> first = fetcher.fetch();
+    assertEquals(2, first.size());
+
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute(
+          "INSERT INTO ts_events (id, updated_at) VALUES (3, TIMESTAMP '2024-01-01 12:00:00')");
+    }
+
+    List<Map<String, Object>> second = fetcher.fetch();
+    assertEquals(1, second.size(), "watermark should advance past the latest timestamp");
+    assertEquals(3, second.get(0).get("ID"));
+
+    fetcher.close();
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("DROP TABLE IF EXISTS ts_events");
+    }
+  }
+
+  @Test
+  void testStreamingReturnsAllRowsAboveWatermarkRegardlessOfFetchSize() throws Exception {
+    // In streaming mode, fetchSize is a JDBC cursor-prefetch hint, NOT a row limit.
+    // Capping with setMaxRows risks silent data loss: rows past the cap are skipped
+    // when the watermark advances to whatever ordering happened to land first.
+    JdbcSourceFetcher fetcher =
+        new JdbcSourceFetcher(
+            JDBC_URL,
+            null,
+            null,
+            "SELECT * FROM test_events WHERE id > :watermark ORDER BY id",
+            "id",
+            2,
+            0);
+
+    List<Map<String, Object>> results = fetcher.fetch();
+    assertEquals(
+        3,
+        results.size(),
+        "streaming must return all rows above watermark, not be capped by fetchSize");
+    fetcher.close();
+  }
+
+  @Test
   void testFetchWithFetchSizeLimit() throws Exception {
     JdbcSourceFetcher fetcher =
         new JdbcSourceFetcher(

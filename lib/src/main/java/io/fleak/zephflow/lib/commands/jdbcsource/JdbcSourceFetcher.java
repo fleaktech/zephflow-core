@@ -22,6 +22,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
 
+  static final int DEFAULT_MAX_CONSECUTIVE_FAILURES = 10;
+
   private final String jdbcUrl;
   private final String username;
   private final String password;
@@ -29,6 +31,7 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
   private final String watermarkColumn;
   private final int fetchSize;
   private final long pollIntervalMs;
+  private final int maxConsecutiveFailures;
   private final boolean streaming;
 
   private Connection connection;
@@ -36,6 +39,7 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
   private volatile boolean exhausted = false;
   private boolean batchFetchDone = false;
   private long lastQueryTime = 0;
+  private int consecutiveFailures = 0;
 
   public JdbcSourceFetcher(
       String jdbcUrl,
@@ -45,6 +49,26 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
       String watermarkColumn,
       int fetchSize,
       long pollIntervalMs) {
+    this(
+        jdbcUrl,
+        username,
+        password,
+        queryTemplate,
+        watermarkColumn,
+        fetchSize,
+        pollIntervalMs,
+        DEFAULT_MAX_CONSECUTIVE_FAILURES);
+  }
+
+  JdbcSourceFetcher(
+      String jdbcUrl,
+      String username,
+      String password,
+      String queryTemplate,
+      String watermarkColumn,
+      int fetchSize,
+      long pollIntervalMs,
+      int maxConsecutiveFailures) {
     this.jdbcUrl = jdbcUrl;
     this.username = username;
     this.password = password;
@@ -52,6 +76,7 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     this.watermarkColumn = watermarkColumn;
     this.fetchSize = fetchSize;
     this.pollIntervalMs = pollIntervalMs;
+    this.maxConsecutiveFailures = maxConsecutiveFailures;
     this.streaming = watermarkColumn != null && !watermarkColumn.isBlank();
   }
 
@@ -61,7 +86,7 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
       exhausted = true;
       return List.of();
     }
-    if (streaming && lastWatermarkValue != null && lastQueryTime > 0) {
+    if (streaming && lastQueryTime > 0) {
       long elapsed = System.currentTimeMillis() - lastQueryTime;
       long toWait = pollIntervalMs - elapsed;
       if (toWait > 0) {
@@ -76,8 +101,9 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     lastQueryTime = System.currentTimeMillis();
     try {
       ensureConnection();
-      String sql = buildQuery();
-      List<Map<String, Object>> results = executeQuery(sql);
+      PreparedQuery query = buildQuery();
+      List<Map<String, Object>> results = executeQuery(query);
+      consecutiveFailures = 0;
       if (!streaming) {
         if (results.isEmpty()) {
           exhausted = true;
@@ -87,8 +113,19 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
       }
       return results;
     } catch (SQLException e) {
-      log.error("Error fetching from JDBC source", e);
+      consecutiveFailures++;
+      log.error(
+          "Error fetching from JDBC source (consecutive failures: {}/{})",
+          consecutiveFailures,
+          maxConsecutiveFailures,
+          e);
       closeConnection();
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        log.error(
+            "JDBC source has failed {} times consecutively; marking as exhausted",
+            consecutiveFailures);
+        exhausted = true;
+      }
       return List.of();
     }
   }
@@ -103,8 +140,13 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     closeConnection();
   }
 
+  private static final int CONNECTION_VALIDATION_TIMEOUT_SECONDS = 5;
+
   private void ensureConnection() throws SQLException {
-    if (connection == null || connection.isClosed()) {
+    if (connection != null && !isConnectionLive(connection)) {
+      closeConnection();
+    }
+    if (connection == null) {
       JdbcDriverLoader.loadDriverForUrl(jdbcUrl);
       if (username != null) {
         connection = DriverManager.getConnection(jdbcUrl, username, password);
@@ -114,35 +156,71 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     }
   }
 
-  private String buildQuery() {
-    if (!streaming) {
-      return queryTemplate.replace(":watermark", "NULL");
+  private static boolean isConnectionLive(Connection conn) {
+    try {
+      // isClosed() only reflects a local close() call — it does NOT detect dead network
+      // connections, server-side timeouts, or DB restarts. isValid() actively probes.
+      return !conn.isClosed() && conn.isValid(CONNECTION_VALIDATION_TIMEOUT_SECONDS);
+    } catch (SQLException e) {
+      log.debug("Connection liveness check threw — treating as dead", e);
+      return false;
     }
-    if (lastWatermarkValue == null) {
-      // Initial streaming fetch: replace "column op :watermark" with "1=1" so all rows are
-      // returned.
-      // Then replace any remaining :watermark occurrences (e.g. from IS NULL patterns) with NULL.
-      return queryTemplate
-          .replaceAll("\\S+\\s*(?:>=|<=|!=|>|<|=)\\s*:watermark", "1=1")
-          .replace(":watermark", "NULL");
-    }
-    String watermarkStr;
-    if (lastWatermarkValue instanceof Number) {
-      watermarkStr = lastWatermarkValue.toString();
-    } else {
-      watermarkStr = "'" + lastWatermarkValue.toString().replace("'", "''") + "'";
-    }
-    return queryTemplate.replace(":watermark", watermarkStr);
   }
 
-  private List<Map<String, Object>> executeQuery(String sql) throws SQLException {
+  private record PreparedQuery(String sql, List<Object> params) {}
+
+  private PreparedQuery buildQuery() {
+    if (!streaming) {
+      return new PreparedQuery(queryTemplate.replace(":watermark", "NULL"), List.of());
+    }
+    if (lastWatermarkValue == null) {
+      // Initial streaming fetch: strip "column op :watermark" predicates to a no-op so all
+      // rows are returned. Any remaining :watermark occurrences (e.g. IS NULL patterns) become
+      // literal NULL since there is no value to bind yet.
+      String sql =
+          queryTemplate
+              .replaceAll("\\S+\\s*(?:>=|<=|!=|>|<|=)\\s*:watermark", "1=1")
+              .replace(":watermark", "NULL");
+      return new PreparedQuery(sql, List.of());
+    }
+    // Bind the watermark as a real PreparedStatement parameter — type-safe across drivers
+    // (Timestamp, UUID, BigDecimal, ...) and immune to SQL injection from the value column.
+    int placeholderCount = countOccurrences(queryTemplate, ":watermark");
+    String sql = queryTemplate.replace(":watermark", "?");
+    List<Object> params = new ArrayList<>(placeholderCount);
+    for (int i = 0; i < placeholderCount; i++) {
+      params.add(lastWatermarkValue);
+    }
+    return new PreparedQuery(sql, params);
+  }
+
+  private static int countOccurrences(String haystack, String needle) {
+    int count = 0;
+    int idx = 0;
+    while ((idx = haystack.indexOf(needle, idx)) != -1) {
+      count++;
+      idx += needle.length();
+    }
+    return count;
+  }
+
+  private List<Map<String, Object>> executeQuery(PreparedQuery query) throws SQLException {
     List<Map<String, Object>> results = new ArrayList<>();
-    try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+    try (PreparedStatement stmt = connection.prepareStatement(query.sql())) {
       stmt.setFetchSize(fetchSize);
-      stmt.setMaxRows(fetchSize);
+      // setMaxRows truncates total returned rows; in streaming mode that risks silent
+      // data loss as the watermark advances past unseen rows. Keep it only for batch
+      // mode, where it acts as a soft "read up to N rows" cap.
+      if (!streaming) {
+        stmt.setMaxRows(fetchSize);
+      }
+      for (int i = 0; i < query.params().size(); i++) {
+        stmt.setObject(i + 1, query.params().get(i));
+      }
       try (ResultSet rs = stmt.executeQuery()) {
         ResultSetMetaData metaData = rs.getMetaData();
         int columnCount = metaData.getColumnCount();
+        String resolvedWatermarkColumn = resolveWatermarkColumn(metaData, columnCount);
         while (rs.next()) {
           Map<String, Object> row = new LinkedHashMap<>();
           for (int i = 1; i <= columnCount; i++) {
@@ -150,8 +228,8 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
             Object value = rs.getObject(i);
             row.put(columnName, value);
           }
-          if (streaming && watermarkColumn != null) {
-            Object watermarkValue = row.get(watermarkColumn);
+          if (resolvedWatermarkColumn != null) {
+            Object watermarkValue = row.get(resolvedWatermarkColumn);
             if (watermarkValue != null) {
               lastWatermarkValue = watermarkValue;
             }
@@ -162,6 +240,30 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     }
     log.debug("Fetched {} rows from JDBC source", results.size());
     return results;
+  }
+
+  /**
+   * Resolves the configured {@code watermarkColumn} against the result-set metadata using a
+   * case-insensitive match, returning the actual column label as it appears in the row map. Throws
+   * if streaming is enabled but the column is not in the SELECT list — a silent absence would cause
+   * the watermark to never advance and the source to re-read the same rows forever.
+   */
+  private String resolveWatermarkColumn(ResultSetMetaData metaData, int columnCount)
+      throws SQLException {
+    if (!streaming || watermarkColumn == null) {
+      return null;
+    }
+    for (int i = 1; i <= columnCount; i++) {
+      String label = metaData.getColumnLabel(i);
+      if (label != null && label.equalsIgnoreCase(watermarkColumn)) {
+        return label;
+      }
+    }
+    throw new IllegalStateException(
+        "Watermark column '"
+            + watermarkColumn
+            + "' is not present in the query result set. The configured watermarkColumn must"
+            + " appear in the SELECT list (case-insensitive).");
   }
 
   private void closeConnection() {
