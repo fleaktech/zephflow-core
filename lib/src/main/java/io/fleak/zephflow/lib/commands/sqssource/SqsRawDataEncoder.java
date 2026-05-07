@@ -19,6 +19,6 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 public class SqsRawDataEncoder implements RawDataEncoder<SqsReceivedMessage> {
   @Override
   public SerializedEvent serialize(SqsReceivedMessage sourceRecord) {
-    return new SerializedEvent(null, sourceRecord.body(), sourceRecord.attributes());
+    return new SerializedEvent(null, sourceRecord.body(), null);
   }
 }

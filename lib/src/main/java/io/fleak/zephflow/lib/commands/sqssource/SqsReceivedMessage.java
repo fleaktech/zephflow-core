@@ -13,7 +13,4 @@
  */
 package io.fleak.zephflow.lib.commands.sqssource;
 
-import java.util.Map;
-
-public record SqsReceivedMessage(
-    byte[] body, String messageId, String receiptHandle, Map<String, String> attributes) {}
+public record SqsReceivedMessage(byte[] body, String messageId, String receiptHandle) {}

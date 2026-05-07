@@ -13,7 +13,4 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsource;
 
-import java.util.Map;
-
-public record PubSubReceivedMessage(
-    byte[] body, String messageId, String ackId, Map<String, String> attributes) {}
+public record PubSubReceivedMessage(byte[] body, String messageId, String ackId) {}

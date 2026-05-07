@@ -79,7 +79,6 @@ class PubSubSourceFetcherTest {
     assertEquals("m-1", result.get(0).messageId());
     assertEquals("a-1", result.get(0).ackId());
     assertArrayEquals("{\"k\":1}".getBytes(), result.get(0).body());
-    assertEquals("m-1", result.get(0).attributes().get("messageId"));
 
     verify(pullCallable)
         .call(
@@ -91,26 +90,6 @@ class PubSubSourceFetcherTest {
                   return true;
                 }));
     verify(modAckCallable, never()).call(any());
-  }
-
-  @Test
-  void testFetchPropagatesAttributes() {
-    PubSubSourceFetcher fetcher = new PubSubSourceFetcher(stub, SUBSCRIPTION_PATH, 10, false, 0);
-
-    PullResponse response =
-        PullResponse.newBuilder()
-            .addReceivedMessages(
-                receivedMessage("a-1", "m-1", "body", Map.of("attr1", "v1"), "ord-1"))
-            .build();
-    when(pullCallable.call(any(PullRequest.class))).thenReturn(response);
-
-    List<PubSubReceivedMessage> result = fetcher.fetch();
-
-    assertEquals(1, result.size());
-    Map<String, String> attrs = result.get(0).attributes();
-    assertEquals("v1", attrs.get("attr1"));
-    assertEquals("m-1", attrs.get("messageId"));
-    assertEquals("ord-1", attrs.get("orderingKey"));
   }
 
   @Test

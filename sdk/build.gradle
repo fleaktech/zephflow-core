@@ -4,8 +4,6 @@ plugins {
   id 'java-library'
 }
 
-import com.github.jengelman.gradle.plugins.shadow.transformers.ServiceFileTransformer
-
 dependencies {
   api project(":runner")
 
@@ -28,8 +26,8 @@ tasks.named('test') {
 shadowJar {
   zip64 true
   archiveClassifier = 'all'
-  transform(ServiceFileTransformer) {
-  }
+  duplicatesStrategy = DuplicatesStrategy.INCLUDE
+  mergeServiceFiles()
 
   // Exclude POM-only GraalVM artifacts (no JARs) while keeping actual implementation JARs
   dependencies {

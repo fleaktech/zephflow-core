@@ -19,6 +19,6 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 public class PubSubRawDataEncoder implements RawDataEncoder<PubSubReceivedMessage> {
   @Override
   public SerializedEvent serialize(PubSubReceivedMessage sourceRecord) {
-    return new SerializedEvent(null, sourceRecord.body(), sourceRecord.attributes());
+    return new SerializedEvent(null, sourceRecord.body(), null);
   }
 }

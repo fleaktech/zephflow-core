@@ -25,9 +25,7 @@ import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import lombok.extern.slf4j.Slf4j;
 
@@ -96,19 +94,9 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
     List<PubSubReceivedMessage> result = new ArrayList<>(received.size());
     for (ReceivedMessage rm : received) {
       PubsubMessage message = rm.getMessage();
-      Map<String, String> attributes = new HashMap<>(message.getAttributesMap());
-      attributes.put("messageId", message.getMessageId());
-      if (!message.getOrderingKey().isEmpty()) {
-        attributes.put("orderingKey", message.getOrderingKey());
-      }
-      if (message.hasPublishTime()) {
-        attributes.put(
-            "publishTime", com.google.protobuf.util.Timestamps.toString(message.getPublishTime()));
-      }
-
       result.add(
           new PubSubReceivedMessage(
-              message.getData().toByteArray(), message.getMessageId(), rm.getAckId(), attributes));
+              message.getData().toByteArray(), message.getMessageId(), rm.getAckId()));
       pendingAckIds.add(rm.getAckId());
     }
 

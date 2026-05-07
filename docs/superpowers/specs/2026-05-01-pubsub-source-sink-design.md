@@ -38,9 +38,9 @@ Wiring:
 ### Files
 
 - `PubSubSourceDto.java` — config interface and inner `Config` class with Lombok `@Data`/`@Builder` (parallel to `SqsSourceDto`).
-- `PubSubReceivedMessage.java` — `record (byte[] body, String messageId, String ackId, Map<String,String> attributes)`.
-- `PubSubRawDataConverter.java` — wraps `FleakDeserializer`, emits `SerializedEvent(null, body, attributes)`. Identical pattern to `SqsRawDataConverter` (counters, error path, DLQ-routable failure).
-- `PubSubRawDataEncoder.java` — emits `SerializedEvent(null, body, attributes)` (same shape as `SqsRawDataEncoder`).
+- `PubSubReceivedMessage.java` — `record (byte[] body, String messageId, String ackId)`. The Pub/Sub envelope (`messageId`, `publishTime`, `orderingKey`) and user attributes are intentionally **not** propagated to the deserialized payload — matching the `kafkasource` precedent. Only the body bytes flow downstream.
+- `PubSubRawDataConverter.java` — wraps `FleakDeserializer`, emits `SerializedEvent(null, body, null)`. Counters, error path, DLQ-routable failure are otherwise identical to `SqsRawDataConverter`.
+- `PubSubRawDataEncoder.java` — emits `SerializedEvent(null, body, null)`.
 - `PubSubSourceFetcher.java` — implements `Fetcher<PubSubReceivedMessage>`; see Behavior below.
 - `PubSubSourceConfigValidator.java` — validation rules, see below.
 - `PubSubSourceCommand.java` — extends `SimpleSourceCommand<PubSubReceivedMessage>`, returns `SourceType.STREAMING`, `commandName() = COMMAND_NAME_PUBSUB_SOURCE`. Resolves the subscription's full path from config + credential and builds the fetcher via `PubSubClientFactory.createSubscriberStub(credential)`.
@@ -90,13 +90,11 @@ State:
 3. If `response.getReceivedMessagesCount() == 0`, return `List.of()` (debug log).
 4. If `ackDeadlineExtensionSeconds > 0`, call `subscriberStub.modifyAckDeadlineCallable().call(ModifyAckDeadlineRequest)` once with all received ackIds and `ackDeadlineSeconds = ackDeadlineExtensionSeconds`. Failures here are logged at WARN; pull results are still returned.
 5. For each `ReceivedMessage`:
-   - Build `attributes` map starting from `message.getAttributesMap()`.
-   - Add `messageId` → `message.getMessageId()`.
-   - If `message.hasPublishTime()`, add `publishTime` → ISO-8601 string of `Timestamps.toMicros`.
-   - If `!message.getOrderingKey().isEmpty()`, add `orderingKey` → that value.
-   - Construct `PubSubReceivedMessage(message.getData().toByteArray(), message.getMessageId(), receivedMessage.getAckId(), attributes)`.
+   - Construct `PubSubReceivedMessage(message.getData().toByteArray(), message.getMessageId(), receivedMessage.getAckId())`.
    - Enqueue `ackId` into `pendingAckIds`.
 6. Return the result list.
+
+> Pub/Sub envelope fields (`messageId`, `publishTime`, `orderingKey`) and user attributes are **not** copied into the message or surfaced downstream. The shared `TypedEventConverter` would otherwise merge any `SerializedEvent.metadata` into the deserialized payload as top-level fields — that pattern (which `sqssource` originally followed) implicitly mutates user payloads and clashes on field-name collisions. `kafkasource` does not propagate envelope info, and Pub/Sub follows the same convention.
 
 `isExhausted()`: `false` (streaming source).
 

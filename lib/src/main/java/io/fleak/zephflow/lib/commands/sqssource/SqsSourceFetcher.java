@@ -58,8 +58,6 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
             .maxNumberOfMessages(maxNumberOfMessages)
             .waitTimeSeconds(waitTimeSeconds)
             .visibilityTimeout(visibilityTimeoutSeconds)
-            .attributeNamesWithStrings("All")
-            .messageAttributeNames("All")
             .build();
 
     ReceiveMessageResponse response = sqsClient.receiveMessage(request);
@@ -72,27 +70,11 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
 
     List<SqsReceivedMessage> result = new ArrayList<>(messages.size());
     for (Message message : messages) {
-      Map<String, String> attributes = new HashMap<>();
-      if (message.attributesAsStrings() != null) {
-        attributes.putAll(message.attributesAsStrings());
-      }
-      if (message.messageAttributes() != null) {
-        message
-            .messageAttributes()
-            .forEach(
-                (key, value) -> {
-                  if (value.stringValue() != null) {
-                    attributes.put(key, value.stringValue());
-                  }
-                });
-      }
-
       SqsReceivedMessage receivedMessage =
           new SqsReceivedMessage(
               message.body().getBytes(StandardCharsets.UTF_8),
               message.messageId(),
-              message.receiptHandle(),
-              attributes);
+              message.receiptHandle());
       pendingReceiptHandles.add(message.receiptHandle());
       result.add(receivedMessage);
     }

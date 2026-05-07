@@ -39,8 +39,7 @@ public class SqsRawDataConverter implements RawDataConverter<SqsReceivedMessage>
   public ConvertedResult<SqsReceivedMessage> convert(
       SqsReceivedMessage sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
-      SerializedEvent serializedEvent =
-          new SerializedEvent(null, sourceRecord.body(), sourceRecord.attributes());
+      SerializedEvent serializedEvent = new SerializedEvent(null, sourceRecord.body(), null);
       List<RecordFleakData> events = fleakDeserializer.deserialize(serializedEvent);
 
       Map<String, String> eventTags =
