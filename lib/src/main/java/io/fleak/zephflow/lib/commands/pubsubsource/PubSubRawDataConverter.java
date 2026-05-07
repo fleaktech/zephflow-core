@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sqssource;
+package io.fleak.zephflow.lib.commands.pubsubsource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
@@ -27,17 +27,17 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class SqsRawDataConverter implements RawDataConverter<SqsReceivedMessage> {
+public class PubSubRawDataConverter implements RawDataConverter<PubSubReceivedMessage> {
 
   private final FleakDeserializer<?> fleakDeserializer;
 
-  public SqsRawDataConverter(FleakDeserializer<?> fleakDeserializer) {
+  public PubSubRawDataConverter(FleakDeserializer<?> fleakDeserializer) {
     this.fleakDeserializer = fleakDeserializer;
   }
 
   @Override
-  public ConvertedResult<SqsReceivedMessage> convert(
-      SqsReceivedMessage sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
+  public ConvertedResult<PubSubReceivedMessage> convert(
+      PubSubReceivedMessage sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
       SerializedEvent serializedEvent = new SerializedEvent(null, sourceRecord.body(), null);
       List<RecordFleakData> events = fleakDeserializer.deserialize(serializedEvent);
@@ -54,7 +54,7 @@ public class SqsRawDataConverter implements RawDataConverter<SqsReceivedMessage>
     } catch (Exception e) {
       sourceInitializedConfig.dataSizeCounter().increase(sourceRecord.body().length, Map.of());
       sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
-      log.error("failed to deserialize SQS event for messageId: {}", sourceRecord.messageId());
+      log.error("failed to deserialize Pub/Sub message: {}", sourceRecord.messageId());
       return ConvertedResult.failure(e, sourceRecord);
     }
   }

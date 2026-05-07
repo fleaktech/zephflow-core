@@ -11,14 +11,14 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sqssource;
+package io.fleak.zephflow.lib.commands.pubsubsource;
 
 import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 
-public class SqsRawDataEncoder implements RawDataEncoder<SqsReceivedMessage> {
+public class PubSubRawDataEncoder implements RawDataEncoder<PubSubReceivedMessage> {
   @Override
-  public SerializedEvent serialize(SqsReceivedMessage sourceRecord) {
+  public SerializedEvent serialize(PubSubReceivedMessage sourceRecord) {
     return new SerializedEvent(null, sourceRecord.body(), null);
   }
 }

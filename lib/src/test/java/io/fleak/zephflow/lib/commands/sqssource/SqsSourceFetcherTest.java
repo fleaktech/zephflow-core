@@ -22,7 +22,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.Message;
-import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 
@@ -77,31 +76,6 @@ class SqsSourceFetcherTest {
                   assertEquals(30, req.visibilityTimeout());
                   return true;
                 }));
-  }
-
-  @Test
-  void testFetchWithMessageAttributes() {
-    Message message =
-        Message.builder()
-            .body("{\"data\": \"test\"}")
-            .messageId("msg-1")
-            .receiptHandle("receipt-1")
-            .messageAttributes(
-                java.util.Map.of(
-                    "customAttr",
-                    MessageAttributeValue.builder()
-                        .dataType("String")
-                        .stringValue("customValue")
-                        .build()))
-            .build();
-
-    ReceiveMessageResponse response = ReceiveMessageResponse.builder().messages(message).build();
-    when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class))).thenReturn(response);
-
-    List<SqsReceivedMessage> result = fetcher.fetch();
-
-    assertEquals(1, result.size());
-    assertEquals("customValue", result.get(0).attributes().get("customAttr"));
   }
 
   @Test

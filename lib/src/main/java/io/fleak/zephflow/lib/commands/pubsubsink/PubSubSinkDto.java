@@ -11,14 +11,26 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.sqssource;
+package io.fleak.zephflow.lib.commands.pubsubsink;
 
-import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.api.CommandConfig;
+import lombok.*;
 
-public class SqsRawDataEncoder implements RawDataEncoder<SqsReceivedMessage> {
-  @Override
-  public SerializedEvent serialize(SqsReceivedMessage sourceRecord) {
-    return new SerializedEvent(null, sourceRecord.body(), null);
+public interface PubSubSinkDto {
+
+  int DEFAULT_BATCH_SIZE = 100;
+  int MAX_BATCH_SIZE = 1000;
+
+  @Data
+  @Builder
+  @NoArgsConstructor
+  @AllArgsConstructor
+  class Config implements CommandConfig {
+    private String projectId;
+    @NonNull private String topic;
+    @NonNull private String encodingType;
+    private String credentialId;
+    private String orderingKeyExpression;
+    @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
   }
 }

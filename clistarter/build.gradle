@@ -11,6 +11,7 @@ application {
 shadowJar {
   zip64 true
   archiveClassifier.set('all')
+  duplicatesStrategy = DuplicatesStrategy.INCLUDE
   mergeServiceFiles()
 
   // Exclude POM-only GraalVM artifacts (no JARs) while keeping actual implementation JARs
