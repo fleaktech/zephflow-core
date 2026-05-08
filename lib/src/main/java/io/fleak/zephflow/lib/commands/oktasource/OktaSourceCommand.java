@@ -50,16 +50,20 @@ public class OktaSourceCommand extends SimpleSourceCommand<OktaLogEvent> {
         lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
     String apiToken = credential.getPassword();
 
-    int limit =
-        config.getLimit() != null ? config.getLimit() : OktaSourceDto.DEFAULT_LIMIT;
+    int limit = config.getLimit() != null ? config.getLimit() : OktaSourceDto.DEFAULT_LIMIT;
 
     Fetcher<OktaLogEvent> fetcher =
         new OktaSourceFetcher(
-            config.getOktaDomain(), apiToken, config.getSinceTimestamp(), config.getFilter(), limit);
+            config.getOktaDomain(),
+            apiToken,
+            config.getSinceTimestamp(),
+            config.getFilter(),
+            limit);
 
     // Okta events are JSON; always use JSON deserializer
     FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(EncodingType.JSON).createDeserializer();
+        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT)
+            .createDeserializer();
     RawDataConverter<OktaLogEvent> converter = new OktaRawDataConverter(deserializer);
     RawDataEncoder<OktaLogEvent> encoder = new OktaRawDataEncoder();
 

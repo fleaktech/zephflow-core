@@ -47,6 +47,7 @@ public class OktaSourceFetcher implements Fetcher<OktaLogEvent> {
 
   /** URL for the next page of results (from Link header). Null means use sinceTimestamp. */
   private String nextUrl;
+
   /** ISO 8601 timestamp for the since parameter when nextUrl is null. */
   private String sinceTimestamp;
 
@@ -60,8 +61,7 @@ public class OktaSourceFetcher implements Fetcher<OktaLogEvent> {
         StringUtils.isNotBlank(sinceTimestamp)
             ? sinceTimestamp
             : DateTimeFormatter.ISO_INSTANT.format(Instant.now());
-    this.httpClient =
-        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
+    this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
   }
 
   @Override
@@ -86,8 +86,7 @@ public class OktaSourceFetcher implements Fetcher<OktaLogEvent> {
         throw new RuntimeException("Okta authentication failed: invalid API token");
       }
       if (response.statusCode() != 200) {
-        log.warn(
-            "Okta API returned status {}: {}", response.statusCode(), response.body());
+        log.warn("Okta API returned status {}: {}", response.statusCode(), response.body());
         return List.of();
       }
 

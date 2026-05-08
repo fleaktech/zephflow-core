@@ -28,18 +28,22 @@ public interface OktaSourceDto {
   class Config implements CommandConfig {
     /** Okta organization domain, e.g. "mycompany.okta.com". */
     @NonNull private String oktaDomain;
+
     /**
      * ID of a stored UsernamePasswordCredential. The password field contains the Okta API token
      * (SSWS token). The username field is not used.
      */
     @NonNull private String credentialId;
+
     /**
      * ISO 8601 timestamp to start fetching events from. If not provided, events are fetched from
      * the current time.
      */
     private String sinceTimestamp;
+
     /** Optional SCIM filter expression, e.g. {@code eventType eq "user.session.start"}. */
     private String filter;
+
     /** Number of events to fetch per page. Defaults to 100, max 1000. */
     @Builder.Default private Integer limit = DEFAULT_LIMIT;
   }
