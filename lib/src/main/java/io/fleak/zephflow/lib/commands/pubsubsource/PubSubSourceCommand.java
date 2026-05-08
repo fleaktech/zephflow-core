@@ -24,7 +24,6 @@ import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.gcp.PubSubClientFactory;
-import io.fleak.zephflow.lib.gcp.PubSubResourceNames;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.Map;
@@ -96,16 +95,12 @@ public class PubSubSourceCommand extends SimpleSourceCommand<PubSubReceivedMessa
     String projectId =
         StringUtils.firstNonBlank(
             config.getProjectId(), credentialOpt.map(GcpCredential::getProjectId).orElse(null));
-    String subscriptionPath;
-    try {
-      subscriptionPath = PubSubResourceNames.subscriptionName(config.getSubscription(), projectId);
-    } catch (IllegalArgumentException e) {
+    if (StringUtils.isBlank(projectId)) {
       throw new IllegalArgumentException(
-          "projectId required: set Config.projectId or GcpCredential.projectId,"
-              + " or use a fully-qualified subscription name"
-              + " (projects/{project}/subscriptions/{sub})",
-          e);
+          "projectId required: set Config.projectId or GcpCredential.projectId");
     }
+    String subscriptionPath =
+        "projects/" + projectId + "/subscriptions/" + config.getSubscription();
 
     SubscriberStub stub =
         credentialOpt
