@@ -22,6 +22,7 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.gcp.PubSubClientFactory;
+import io.fleak.zephflow.lib.gcp.PubSubResourceNames;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -79,11 +80,15 @@ public class PubSubSinkCommand extends SimpleSinkCommand<PubSubOutboundMessage> 
     String projectId =
         StringUtils.firstNonBlank(
             config.getProjectId(), credentialOpt.map(GcpCredential::getProjectId).orElse(null));
-    if (StringUtils.isBlank(projectId)) {
+    String topicPath;
+    try {
+      topicPath = PubSubResourceNames.topicName(config.getTopic(), projectId);
+    } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException(
-          "projectId required: set Config.projectId or GcpCredential.projectId");
+          "projectId required: set Config.projectId or GcpCredential.projectId,"
+              + " or use a fully-qualified topic name (projects/{project}/topics/{topic})",
+          e);
     }
-    String topicPath = "projects/" + projectId + "/topics/" + config.getTopic();
 
     PublisherStub stub =
         credentialOpt
