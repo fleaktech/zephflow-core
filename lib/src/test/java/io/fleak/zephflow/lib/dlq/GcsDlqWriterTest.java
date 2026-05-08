@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.dlq;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.cloud.NoCredentials;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
@@ -67,6 +68,7 @@ public class GcsDlqWriterTest {
     return StorageOptions.newBuilder()
         .setHost(getGcsEndpoint())
         .setProjectId("test-project")
+        .setCredentials(NoCredentials.getInstance())
         .build()
         .getService();
   }
