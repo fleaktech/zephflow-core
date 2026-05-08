@@ -119,7 +119,9 @@ public class ImapSourceCommand extends SimpleSourceCommand<EmailMessage> {
           config.getSearchCriteria(),
           Boolean.TRUE.equals(config.getMarkAsRead()),
           Boolean.TRUE.equals(config.getIncludeAttachments()),
-          config.getMaxMessages());
+          config.getMaxMessages(),
+          Optional.ofNullable(config.getPollIntervalMs())
+              .orElse(ImapSourceDto.DEFAULT_POLL_INTERVAL_MS));
     } catch (Exception e) {
       throw new RuntimeException("Failed to create IMAP fetcher", e);
     }

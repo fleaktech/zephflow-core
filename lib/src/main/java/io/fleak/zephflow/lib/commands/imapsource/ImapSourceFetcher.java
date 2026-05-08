@@ -35,8 +35,10 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
   private final boolean markAsRead;
   private final boolean includeAttachments;
   private final int maxMessages;
+  private final long pollIntervalMs;
 
   private Folder folder;
+  private long lastFetchTime = 0;
 
   public ImapSourceFetcher(
       Store store,
@@ -45,24 +47,47 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
       boolean markAsRead,
       boolean includeAttachments,
       int maxMessages) {
+    this(
+        store,
+        folderName,
+        searchCriteria,
+        markAsRead,
+        includeAttachments,
+        maxMessages,
+        ImapSourceDto.DEFAULT_POLL_INTERVAL_MS);
+  }
+
+  public ImapSourceFetcher(
+      Store store,
+      String folderName,
+      String searchCriteria,
+      boolean markAsRead,
+      boolean includeAttachments,
+      int maxMessages,
+      long pollIntervalMs) {
     this.store = store;
     this.folderName = folderName;
     this.searchCriteria = searchCriteria;
     this.markAsRead = markAsRead;
     this.includeAttachments = includeAttachments;
     this.maxMessages = maxMessages;
+    this.pollIntervalMs = pollIntervalMs;
   }
 
   @Override
   public List<EmailMessage> fetch() {
     List<EmailMessage> emails = new ArrayList<>();
+    if (!waitForNextPoll()) {
+      return emails;
+    }
+    lastFetchTime = System.currentTimeMillis();
     try {
       if (folder == null || !folder.isOpen()) {
         folder = store.getFolder(folderName);
         folder.open(Folder.READ_WRITE);
       }
 
-      SearchTerm searchTerm = parseSearchCriteria(searchCriteria);
+      SearchTerm searchTerm = buildSearchTerm();
       Message[] messages = searchTerm != null ? folder.search(searchTerm) : folder.getMessages();
 
       int limit = Math.min(messages.length, maxMessages);
@@ -84,6 +109,38 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
     }
     log.debug("Fetched {} emails from IMAP folder {}", emails.size(), folderName);
     return emails;
+  }
+
+  private boolean waitForNextPoll() {
+    if (lastFetchTime <= 0) {
+      return true;
+    }
+
+    long elapsed = System.currentTimeMillis() - lastFetchTime;
+    long toWait = pollIntervalMs - elapsed;
+    if (toWait <= 0) {
+      return true;
+    }
+
+    try {
+      Thread.sleep(toWait);
+      return true;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
+  }
+
+  private SearchTerm buildSearchTerm() {
+    SearchTerm baseSearchTerm = parseSearchCriteria(searchCriteria);
+    if (!markAsRead) {
+      return baseSearchTerm;
+    }
+
+    SearchTerm unseenSearchTerm = new FlagTerm(new Flags(Flags.Flag.SEEN), false);
+    return baseSearchTerm == null
+        ? unseenSearchTerm
+        : new AndTerm(unseenSearchTerm, baseSearchTerm);
   }
 
   EmailMessage convertMessage(Message message) throws MessagingException, IOException {
