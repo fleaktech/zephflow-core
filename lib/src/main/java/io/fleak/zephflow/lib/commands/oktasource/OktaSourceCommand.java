@@ -22,9 +22,6 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.Map;
 import java.util.Optional;
 
@@ -60,11 +57,7 @@ public class OktaSourceCommand extends SimpleSourceCommand<OktaLogEvent> {
             config.getFilter(),
             limit);
 
-    // Okta events are JSON; always use JSON deserializer
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT)
-            .createDeserializer();
-    RawDataConverter<OktaLogEvent> converter = new OktaRawDataConverter(deserializer);
+    RawDataConverter<OktaLogEvent> converter = new OktaRawDataConverter();
     RawDataEncoder<OktaLogEvent> encoder = new OktaRawDataEncoder();
 
     Map<String, String> metricTags =

@@ -53,6 +53,22 @@ public class OktaSourceFetcher implements Fetcher<OktaLogEvent> {
 
   public OktaSourceFetcher(
       String oktaDomain, String apiToken, String sinceTimestamp, String filter, int limit) {
+    this(
+        oktaDomain,
+        apiToken,
+        sinceTimestamp,
+        filter,
+        limit,
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build());
+  }
+
+  OktaSourceFetcher(
+      String oktaDomain,
+      String apiToken,
+      String sinceTimestamp,
+      String filter,
+      int limit,
+      HttpClient httpClient) {
     this.oktaDomain = oktaDomain;
     this.apiToken = apiToken;
     this.filter = filter;
@@ -61,7 +77,7 @@ public class OktaSourceFetcher implements Fetcher<OktaLogEvent> {
         StringUtils.isNotBlank(sinceTimestamp)
             ? sinceTimestamp
             : DateTimeFormatter.ISO_INSTANT.format(Instant.now());
-    this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
+    this.httpClient = httpClient;
   }
 
   @Override

@@ -13,15 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.oktasource;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.RawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -29,25 +27,16 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class OktaRawDataConverter implements RawDataConverter<OktaLogEvent> {
 
-  private final FleakDeserializer<?> fleakDeserializer;
-
-  public OktaRawDataConverter(FleakDeserializer<?> fleakDeserializer) {
-    this.fleakDeserializer = fleakDeserializer;
-  }
-
   @Override
   public ConvertedResult<OktaLogEvent> convert(
       OktaLogEvent sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
-      byte[] jsonBytes = OBJECT_MAPPER.writeValueAsBytes(sourceRecord.payload());
-      SerializedEvent serializedEvent = new SerializedEvent(null, jsonBytes, Map.of());
-      List<RecordFleakData> events = fleakDeserializer.deserialize(serializedEvent);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(sourceRecord.payload());
+      List<RecordFleakData> events = List.of(record);
 
-      Map<String, String> eventTags =
-          getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
-
-      sourceInitializedConfig.dataSizeCounter().increase(jsonBytes.length, eventTags);
+      Map<String, String> eventTags = getCallingUserTagAndEventTags(null, record);
       sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
+      sourceInitializedConfig.dataSizeCounter().increase(1, eventTags);
 
       return ConvertedResult.success(events, sourceRecord);
     } catch (Exception e) {

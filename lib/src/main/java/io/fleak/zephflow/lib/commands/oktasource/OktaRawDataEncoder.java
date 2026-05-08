@@ -17,19 +17,15 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
 import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import java.util.Map;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class OktaRawDataEncoder implements RawDataEncoder<OktaLogEvent> {
   @Override
   public SerializedEvent serialize(OktaLogEvent sourceRecord) {
     try {
       byte[] bytes = OBJECT_MAPPER.writeValueAsBytes(sourceRecord.payload());
-      return new SerializedEvent(null, bytes, Map.of());
+      return new SerializedEvent(null, bytes, null);
     } catch (Exception e) {
-      log.error("Failed to serialize Okta event: {}", sourceRecord.eventId(), e);
-      return new SerializedEvent(null, new byte[0], Map.of());
+      throw new RuntimeException("Failed to serialize Okta event to JSON", e);
     }
   }
 }
