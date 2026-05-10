@@ -24,10 +24,18 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ImapSourceFetcher implements Fetcher<EmailMessage> {
+
+  private static final int FETCH_POLL_TIMEOUT_MS = 100;
+  private static final int QUEUE_CAPACITY_MULTIPLIER = 10;
+  private static final int SHUTDOWN_TIMEOUT_SECONDS = 5;
 
   private final Store store;
   private final String folderName;
@@ -36,9 +44,11 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
   private final boolean includeAttachments;
   private final int maxMessages;
   private final long pollIntervalMs;
+  private final LinkedBlockingQueue<EmailMessage> queue;
 
   private Folder folder;
-  private long lastFetchTime = 0;
+  private ScheduledExecutorService scheduler;
+  private volatile boolean running;
 
   public ImapSourceFetcher(
       Store store,
@@ -72,15 +82,27 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
     this.includeAttachments = includeAttachments;
     this.maxMessages = maxMessages;
     this.pollIntervalMs = pollIntervalMs;
+    this.queue = new LinkedBlockingQueue<>(maxMessages * QUEUE_CAPACITY_MULTIPLIER);
   }
 
-  @Override
-  public List<EmailMessage> fetch() {
-    List<EmailMessage> emails = new ArrayList<>();
-    if (!waitForNextPoll()) {
-      return emails;
+  public void start() {
+    if (running) {
+      return;
     }
-    lastFetchTime = System.currentTimeMillis();
+    running = true;
+    scheduler =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread t = new Thread(r, "imap-source-poller");
+              t.setDaemon(true);
+              return t;
+            });
+    scheduler.scheduleWithFixedDelay(this::poll, 0, pollIntervalMs, TimeUnit.MILLISECONDS);
+    log.info("IMAP source poller started for folder {} interval={}ms", folderName, pollIntervalMs);
+  }
+
+  // Package-private to allow unit tests to drive a single poll without spinning up the scheduler.
+  void poll() {
     try {
       if (folder == null || !folder.isOpen()) {
         folder = store.getFolder(folderName);
@@ -91,12 +113,21 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
       Message[] messages = searchTerm != null ? folder.search(searchTerm) : folder.getMessages();
 
       int limit = Math.min(messages.length, maxMessages);
+      int delivered = 0;
       for (int i = 0; i < limit; i++) {
         try {
-          emails.add(convertMessage(messages[i]));
+          EmailMessage email = convertMessage(messages[i]);
+          // Use put() so we apply backpressure if the consumer is slow;
+          // dropping is not safe because markAsRead may already have been set.
+          queue.put(email);
           if (markAsRead) {
             messages[i].setFlag(Flags.Flag.SEEN, true);
           }
+          delivered++;
+        } catch (InterruptedException e) {
+          // Honor thread interruption (e.g., scheduler.shutdownNow()) by bailing out.
+          Thread.currentThread().interrupt();
+          break;
         } catch (Exception e) {
           log.error("Error processing email message", e);
         }
@@ -104,31 +135,27 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
 
       folder.close(false);
       folder = null;
-    } catch (Exception e) {
-      log.error("Error fetching emails from IMAP", e);
+      log.debug("IMAP poll delivered {} messages from folder {}", delivered, folderName);
+    } catch (Throwable t) {
+      // scheduleWithFixedDelay stops on uncaught exceptions; swallow + log so polling continues.
+      log.error("Error during IMAP poll", t);
+      closeFolderQuietly();
     }
-    log.debug("Fetched {} emails from IMAP folder {}", emails.size(), folderName);
-    return emails;
   }
 
-  private boolean waitForNextPoll() {
-    if (lastFetchTime <= 0) {
-      return true;
-    }
-
-    long elapsed = System.currentTimeMillis() - lastFetchTime;
-    long toWait = pollIntervalMs - elapsed;
-    if (toWait <= 0) {
-      return true;
-    }
-
+  @Override
+  public List<EmailMessage> fetch() {
+    List<EmailMessage> batch = new ArrayList<>();
     try {
-      Thread.sleep(toWait);
-      return true;
+      EmailMessage first = queue.poll(FETCH_POLL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      if (first != null) {
+        batch.add(first);
+        queue.drainTo(batch, maxMessages - 1);
+      }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return false;
     }
+    return batch;
   }
 
   private SearchTerm buildSearchTerm() {
@@ -305,19 +332,38 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
 
   @Override
   public void close() throws IOException {
-    try {
-      if (folder != null && folder.isOpen()) {
-        folder.close(false);
+    running = false;
+    if (scheduler != null) {
+      scheduler.shutdown();
+      try {
+        if (!scheduler.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+          scheduler.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        scheduler.shutdownNow();
       }
-    } catch (MessagingException e) {
-      log.warn("Failed to close IMAP folder", e);
+      scheduler = null;
     }
+    closeFolderQuietly();
     try {
       if (store != null && store.isConnected()) {
         store.close();
       }
     } catch (MessagingException e) {
       log.warn("Failed to close IMAP store", e);
+    }
+  }
+
+  private void closeFolderQuietly() {
+    try {
+      if (folder != null && folder.isOpen()) {
+        folder.close(false);
+      }
+    } catch (MessagingException e) {
+      log.warn("Failed to close IMAP folder", e);
+    } finally {
+      folder = null;
     }
   }
 

@@ -29,6 +29,7 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.Vector;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +45,13 @@ class ImapSourceFetcherTest {
     when(mockStore.getFolder("INBOX")).thenReturn(mockFolder);
   }
 
+  // Drives a single poll cycle (push results into the internal queue) then drains via fetch().
+  // This bypasses the ScheduledExecutorService so tests stay deterministic.
+  private List<EmailMessage> pollAndDrain(ImapSourceFetcher fetcher) {
+    fetcher.poll();
+    return fetcher.fetch();
+  }
+
   @Test
   void testFetchWithNoMessages() throws Exception {
     when(mockFolder.isOpen()).thenReturn(false);
@@ -52,7 +60,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertNotNull(result);
     assertTrue(result.isEmpty());
@@ -79,7 +87,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(1, result.size());
     EmailMessage email = result.getFirst();
@@ -113,7 +121,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(1, result.size());
     assertNull(result.getFirst().bodyText());
@@ -144,7 +152,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 3);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(3, result.size());
   }
@@ -156,7 +164,7 @@ class ImapSourceFetcherTest {
 
     ImapSourceFetcher fetcher = new ImapSourceFetcher(mockStore, "INBOX", null, false, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertTrue(result.isEmpty());
     verify(mockFolder).getMessages();
@@ -164,18 +172,32 @@ class ImapSourceFetcherTest {
   }
 
   @Test
-  void testFetchHonorsPollIntervalBetweenPolls() throws Exception {
+  void testStartSchedulesPollerAtConfiguredInterval() throws Exception {
     when(mockFolder.isOpen()).thenReturn(false);
-    when(mockFolder.search(any())).thenReturn(new Message[0]);
+    AtomicInteger searchCalls = new AtomicInteger();
+    when(mockFolder.search(any()))
+        .thenAnswer(
+            invocation -> {
+              searchCalls.incrementAndGet();
+              return new Message[0];
+            });
 
     ImapSourceFetcher fetcher =
-        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100, 50L);
+        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100, 30L);
 
-    fetcher.fetch();
-    long start = System.currentTimeMillis();
-    fetcher.fetch();
-
-    assertTrue(System.currentTimeMillis() - start >= 35);
+    fetcher.start();
+    try {
+      // Three polls at 30ms interval take ~90ms; allow generous slack for CI scheduling jitter.
+      long deadline = System.currentTimeMillis() + 2000;
+      while (searchCalls.get() < 3 && System.currentTimeMillis() < deadline) {
+        Thread.sleep(20);
+      }
+      assertTrue(
+          searchCalls.get() >= 3,
+          "Expected scheduler to fire >= 3 polls, observed " + searchCalls.get());
+    } finally {
+      fetcher.close();
+    }
   }
 
   @Test
@@ -221,8 +243,8 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "SUBJECT FLE-1502", true, false, 100, 1L);
 
-    List<EmailMessage> firstPoll = fetcher.fetch();
-    List<EmailMessage> secondPoll = fetcher.fetch();
+    List<EmailMessage> firstPoll = pollAndDrain(fetcher);
+    List<EmailMessage> secondPoll = pollAndDrain(fetcher);
 
     assertEquals(1, firstPoll.size());
     assertEquals("<msg-unseen@test.com>", firstPoll.getFirst().messageId());
@@ -264,8 +286,8 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", null, true, false, 100, 1L);
 
-    List<EmailMessage> firstPoll = fetcher.fetch();
-    List<EmailMessage> secondPoll = fetcher.fetch();
+    List<EmailMessage> firstPoll = pollAndDrain(fetcher);
+    List<EmailMessage> secondPoll = pollAndDrain(fetcher);
 
     assertEquals(2, firstPoll.size());
     assertTrue(secondPoll.isEmpty());
@@ -293,7 +315,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(1, result.size());
     assertEquals(List.of("cc1@test.com", "cc2@test.com"), result.getFirst().cc());
@@ -351,12 +373,27 @@ class ImapSourceFetcherTest {
   }
 
   @Test
-  void testClose() throws Exception {
+  void testCloseWithoutStartIsSafe() throws Exception {
     when(mockStore.isConnected()).thenReturn(true);
 
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
 
+    fetcher.close();
+
+    verify(mockStore).close();
+  }
+
+  @Test
+  void testCloseAfterStartShutsDownScheduler() throws Exception {
+    when(mockFolder.isOpen()).thenReturn(false);
+    when(mockFolder.search(any())).thenReturn(new Message[0]);
+    when(mockStore.isConnected()).thenReturn(true);
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100, 50L);
+
+    fetcher.start();
     fetcher.close();
 
     verify(mockStore).close();
