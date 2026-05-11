@@ -96,7 +96,12 @@ Enforced by `PiiMaskConfigParser` and `PiiMaskConfigValidator` at DAG compile
 time. Misconfiguration must fail before execution begins.
 
 1. `targets` is required and must be a non-empty list of strings.
-2. Each target must parse as a valid `PathExpression`.
+2. Each target must be a simple dotted path:
+   `^\$(\.[A-Za-z_][A-Za-z0-9_]*)+$`. Wildcards, array indexing (`[0]`),
+   and bracket-quoted keys are out of scope for v1. This subset is what
+   the writer can walk safely and is the only shape the operator-facing
+   docs need to describe. The validator parses each target into a list
+   of field-name segments at DAG compile time.
 3. `detectors` is optional. A built-in is "active" iff its sub-block is present
    in the parsed map. A present block with `replacement == null` falls back to
    the built-in default token.
@@ -162,12 +167,22 @@ performed. After a replacement, the masked token (`[EMAIL]`, etc.) is opaque
 to later detectors — the bracketed literals don't match any built-in pattern
 and operators can pick custom replacements that don't either.
 
-### Path write-back
+### Path resolution & write-back
 
-Existing `pathselect` package supports reads but not in-place writes. We
-add `PiiPathWriter` inside the `piimask` package: walks the record by path
-segments and replaces the leaf string (or array elements). Scoped to this
-node; not added to any public API.
+Since targets are constrained to simple dotted paths, we sidestep the
+ANTLR-backed `PathExpression` for the hot path and implement both read
+and write as direct walks over `RecordFleakData.payload`:
+
+- `PiiPathWriter` (internal to the `piimask` package) accepts a parsed
+  list of field-name segments and the working `RecordFleakData`. It
+  walks segments, dereferencing nested `RecordFleakData` payloads. If a
+  segment is missing or the value isn't a `RecordFleakData` at an
+  intermediate step, it returns without changes.
+- At the leaf segment, if the value is a `StringPrimitiveFleakData` it
+  is replaced. If the value is an `ArrayFleakData`, string elements are
+  replaced in place; non-string elements are left untouched.
+- The validator still parses each target via the dotted-path regex and
+  rejects malformed input at DAG compile time.
 
 ## Error handling
 
