@@ -139,17 +139,24 @@ built-ins. Stored with their `name` and `replacement`.
 
 For each event:
 
-1. Call `event.copy()` to get a mutable working copy (matches the existing
-   `copyAndMerge` pattern; protects upstream references from rewrite).
-2. For each path in `targets`:
-   1. Resolve the path against the copy via `PathExpression`.
+1. For each path in `targets`:
+   1. Resolve the path against the event's payload by direct walk.
    2. If unresolved → skip silently.
-   3. If resolved value is `StringPrimitiveFleakData` → mask the string; write
-      the masked string back to the same path via `PiiPathWriter`.
+   3. If resolved value is `StringPrimitiveFleakData` → mask the string;
+      `setStringValue` on the same leaf instance.
    4. If resolved value is `ArrayFleakData` → iterate elements; for each
-      string element, mask and replace in place. Non-string elements skipped.
+      string element, mask and `setStringValue` on the element in place.
+      Non-string elements skipped.
    5. Any other type (record, number, boolean) → skip silently.
-3. Return the (possibly mutated) copy as a single-element output list.
+2. Return the (possibly mutated) event as a single-element output list.
+
+The node mutates the input record in place rather than producing a fresh
+copy. `RecordFleakData.copy()` is shallow and would not isolate nested
+leaves anyway, and the DAG model passes each event through one downstream
+chain at a time — so in-place mutation is consistent with how the runner
+already handles events. Operators who need both a raw and a masked branch
+should split with `eval`/`parser` upstream, which is a constraint the
+broader framework already imposes for any node-level transform.
 
 ### Masking a single string
 
@@ -202,11 +209,13 @@ Wrapped by the `ScalarCommand.process()` try/catch already in place:
 - Credit-card false positives on long digit runs → Luhn filter handles.
   Matches that fail Luhn are left in place.
 
-`RecordFleakData` is mutable (HashMap-backed payload) but the runner passes
-the same record reference between nodes. We call `event.copy()` once at the
-start of `processOneEvent` and rewrite into that copy, matching the
-`copyAndMerge` convention. This protects upstream and parallel branches from
-seeing redacted values they did not request.
+`RecordFleakData` is mutable (HashMap-backed payload). The node rewrites in
+place and emits the same record reference. `RecordFleakData.copy()` is
+shallow (it duplicates the top-level map but shares the same child FleakData
+instances), so it would not protect nested leaves from rewrite — the only
+way to fully isolate would be recursive deep copy, which is more machinery
+than the probe should carry. Operators who want a raw branch alongside a
+masked branch must fork upstream of this node.
 
 ## Telemetry
 
