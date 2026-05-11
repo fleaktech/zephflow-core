@@ -82,6 +82,7 @@ public interface MiscUtils {
   String COMMAND_NAME_STDIN = "stdin";
   String COMMAND_NAME_STDOUT = "stdout";
   String COMMAND_NAME_PARSER = "parser";
+  String COMMAND_NAME_PII_MASK = "piimask";
   String COMMAND_NAME_FILE_SOURCE = "filesource";
   String COMMAND_NAME_READER_SOURCE = "reader";
   String COMMAND_NAME_SPLUNK_SOURCE = "splunksource";
