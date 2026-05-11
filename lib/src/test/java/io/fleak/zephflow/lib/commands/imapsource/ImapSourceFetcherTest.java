@@ -400,6 +400,21 @@ class ImapSourceFetcherTest {
   }
 
   @Test
+  void testCloseIsIdempotent() throws Exception {
+    when(mockStore.isConnected()).thenReturn(true).thenReturn(false);
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
+
+    fetcher.close();
+    // A second close (e.g. from an init-failure rollback path that already called close once)
+    // must not throw or double-close the store.
+    fetcher.close();
+
+    verify(mockStore, times(1)).close();
+  }
+
+  @Test
   void testIsExhaustedReturnsFalse() {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);

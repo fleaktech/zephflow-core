@@ -173,6 +173,38 @@ class ImapSourceConfigValidatorTest {
   }
 
   @Test
+  void testSeenSearchCriteriaWithMarkAsReadIsRejected() {
+    ImapSourceDto.Config config =
+        ImapSourceDto.Config.builder()
+            .host("imap.gmail.com")
+            .credentialId("my-cred")
+            .authType(ImapSourceDto.AuthType.PASSWORD)
+            .searchCriteria("SEEN")
+            .markAsRead(true)
+            .build();
+
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", mockJobContext));
+    assertTrue(ex.getMessage().contains("searchCriteria=SEEN is incompatible with markAsRead"));
+  }
+
+  @Test
+  void testSeenSearchCriteriaWithoutMarkAsReadIsAllowed() {
+    ImapSourceDto.Config config =
+        ImapSourceDto.Config.builder()
+            .host("imap.gmail.com")
+            .credentialId("my-cred")
+            .authType(ImapSourceDto.AuthType.PASSWORD)
+            .searchCriteria("SEEN")
+            .markAsRead(false)
+            .build();
+
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
+  }
+
+  @Test
   void testDefaultValues() {
     ImapSourceDto.Config config =
         ImapSourceDto.Config.builder().host("imap.gmail.com").credentialId("my-cred").build();
