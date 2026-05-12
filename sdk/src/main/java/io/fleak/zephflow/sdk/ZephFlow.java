@@ -36,6 +36,7 @@ import io.fleak.zephflow.lib.commands.eval.EvalCommandDto;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceDto;
+import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto;
 import io.fleak.zephflow.lib.commands.s3.S3SinkDto;
 import io.fleak.zephflow.lib.commands.sql.SqlCommandDto;
 import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
@@ -398,6 +399,16 @@ public class ZephFlow {
    */
   public ZephFlow sql(String sql) {
     return appendNode(COMMAND_NAME_SQL_EVAL, new SqlCommandDto.SqlCommandConfig(sql));
+  }
+
+  /**
+   * Appends a PII masking node to the flow.
+   *
+   * @param config The PII mask configuration.
+   * @return A new ZephFlow instance representing the flow with the node appended.
+   */
+  public ZephFlow piiMask(PiiMaskCommandDto.Config config) {
+    return appendNode(COMMAND_NAME_PII_MASK, config);
   }
 
   /**
