@@ -21,11 +21,15 @@ import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.search.FlagTerm;
 import jakarta.mail.search.FromStringTerm;
 import jakarta.mail.search.ReceivedDateTerm;
+import jakarta.mail.search.SearchTerm;
 import jakarta.mail.search.SubjectTerm;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Vector;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -41,6 +45,13 @@ class ImapSourceFetcherTest {
     when(mockStore.getFolder("INBOX")).thenReturn(mockFolder);
   }
 
+  // Drives a single poll cycle (push results into the internal queue) then drains via fetch().
+  // This bypasses the ScheduledExecutorService so tests stay deterministic.
+  private List<EmailMessage> pollAndDrain(ImapSourceFetcher fetcher) {
+    fetcher.poll();
+    return fetcher.fetch();
+  }
+
   @Test
   void testFetchWithNoMessages() throws Exception {
     when(mockFolder.isOpen()).thenReturn(false);
@@ -49,7 +60,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertNotNull(result);
     assertTrue(result.isEmpty());
@@ -76,7 +87,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(1, result.size());
     EmailMessage email = result.getFirst();
@@ -110,7 +121,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(1, result.size());
     assertNull(result.getFirst().bodyText());
@@ -141,7 +152,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 3);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(3, result.size());
   }
@@ -153,11 +164,135 @@ class ImapSourceFetcherTest {
 
     ImapSourceFetcher fetcher = new ImapSourceFetcher(mockStore, "INBOX", null, false, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertTrue(result.isEmpty());
     verify(mockFolder).getMessages();
     verify(mockFolder, never()).search(any());
+  }
+
+  @Test
+  void testStartSchedulesPollerAtConfiguredInterval() throws Exception {
+    when(mockFolder.isOpen()).thenReturn(false);
+    AtomicInteger searchCalls = new AtomicInteger();
+    when(mockFolder.search(any()))
+        .thenAnswer(
+            invocation -> {
+              searchCalls.incrementAndGet();
+              return new Message[0];
+            });
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100, 30L);
+
+    fetcher.start();
+    try {
+      // Three polls at 30ms interval take ~90ms; allow generous slack for CI scheduling jitter.
+      long deadline = System.currentTimeMillis() + 2000;
+      while (searchCalls.get() < 3 && System.currentTimeMillis() < deadline) {
+        Thread.sleep(20);
+      }
+      assertTrue(
+          searchCalls.get() >= 3,
+          "Expected scheduler to fire >= 3 polls, observed " + searchCalls.get());
+    } finally {
+      fetcher.close();
+    }
+  }
+
+  @Test
+  void testSearchCriteriaWithMarkAsReadFiltersOutAlreadySeenMessages() throws Exception {
+    when(mockFolder.isOpen()).thenReturn(false);
+
+    Message unseenMessage =
+        createMockTextMessage(
+            "<msg-unseen@test.com>",
+            "sender@test.com",
+            new String[] {"to@test.com"},
+            null,
+            "FLE-1502 alert",
+            "Body",
+            "text/plain",
+            new Date());
+    Message seenMessage1 =
+        createMockTextMessage(
+            "<msg-seen-1@test.com>",
+            "sender@test.com",
+            new String[] {"to@test.com"},
+            null,
+            "FLE-1502 alert",
+            "Body",
+            "text/plain",
+            new Date());
+    Message seenMessage2 =
+        createMockTextMessage(
+            "<msg-seen-2@test.com>",
+            "sender@test.com",
+            new String[] {"to@test.com"},
+            null,
+            "FLE-1502 alert",
+            "Body",
+            "text/plain",
+            new Date());
+
+    stubSeenFlag(unseenMessage, false);
+    stubSeenFlag(seenMessage1, true);
+    stubSeenFlag(seenMessage2, true);
+    whenFolderSearchFilters(unseenMessage, seenMessage1, seenMessage2);
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", "SUBJECT FLE-1502", true, false, 100, 1L);
+
+    List<EmailMessage> firstPoll = pollAndDrain(fetcher);
+    List<EmailMessage> secondPoll = pollAndDrain(fetcher);
+
+    assertEquals(1, firstPoll.size());
+    assertEquals("<msg-unseen@test.com>", firstPoll.getFirst().messageId());
+    assertTrue(secondPoll.isEmpty());
+    verify(unseenMessage).setFlag(Flags.Flag.SEEN, true);
+    verify(seenMessage1, never()).setFlag(any(), anyBoolean());
+    verify(seenMessage2, never()).setFlag(any(), anyBoolean());
+  }
+
+  @Test
+  void testEmptySearchCriteriaWithMarkAsReadDoesNotRefetchProcessedMessages() throws Exception {
+    when(mockFolder.isOpen()).thenReturn(false);
+
+    Message message1 =
+        createMockTextMessage(
+            "<msg1@test.com>",
+            "sender@test.com",
+            new String[] {"to@test.com"},
+            null,
+            "Subject 1",
+            "Body 1",
+            "text/plain",
+            new Date());
+    Message message2 =
+        createMockTextMessage(
+            "<msg2@test.com>",
+            "sender@test.com",
+            new String[] {"to@test.com"},
+            null,
+            "Subject 2",
+            "Body 2",
+            "text/plain",
+            new Date());
+
+    stubSeenFlag(message1, false);
+    stubSeenFlag(message2, false);
+    whenFolderSearchFilters(message1, message2);
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", null, true, false, 100, 1L);
+
+    List<EmailMessage> firstPoll = pollAndDrain(fetcher);
+    List<EmailMessage> secondPoll = pollAndDrain(fetcher);
+
+    assertEquals(2, firstPoll.size());
+    assertTrue(secondPoll.isEmpty());
+    verify(mockFolder, times(2)).search(any());
+    verify(mockFolder, never()).getMessages();
   }
 
   @Test
@@ -180,7 +315,7 @@ class ImapSourceFetcherTest {
     ImapSourceFetcher fetcher =
         new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100);
 
-    List<EmailMessage> result = fetcher.fetch();
+    List<EmailMessage> result = pollAndDrain(fetcher);
 
     assertEquals(1, result.size());
     assertEquals(List.of("cc1@test.com", "cc2@test.com"), result.getFirst().cc());
@@ -238,7 +373,7 @@ class ImapSourceFetcherTest {
   }
 
   @Test
-  void testClose() throws Exception {
+  void testCloseWithoutStartIsSafe() throws Exception {
     when(mockStore.isConnected()).thenReturn(true);
 
     ImapSourceFetcher fetcher =
@@ -247,6 +382,36 @@ class ImapSourceFetcherTest {
     fetcher.close();
 
     verify(mockStore).close();
+  }
+
+  @Test
+  void testCloseAfterStartShutsDownScheduler() throws Exception {
+    when(mockFolder.isOpen()).thenReturn(false);
+    when(mockFolder.search(any())).thenReturn(new Message[0]);
+    when(mockStore.isConnected()).thenReturn(true);
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", false, false, 100, 50L);
+
+    fetcher.start();
+    fetcher.close();
+
+    verify(mockStore).close();
+  }
+
+  @Test
+  void testCloseIsIdempotent() throws Exception {
+    when(mockStore.isConnected()).thenReturn(true).thenReturn(false);
+
+    ImapSourceFetcher fetcher =
+        new ImapSourceFetcher(mockStore, "INBOX", "UNSEEN", true, false, 100);
+
+    fetcher.close();
+    // A second close (e.g. from an init-failure rollback path that already called close once)
+    // must not throw or double-close the store.
+    fetcher.close();
+
+    verify(mockStore, times(1)).close();
   }
 
   @Test
@@ -299,5 +464,28 @@ class ImapSourceFetcherTest {
     when(message.getAllHeaders()).thenReturn(headerEnum);
 
     return message;
+  }
+
+  private void whenFolderSearchFilters(Message... messages) throws Exception {
+    when(mockFolder.search(any(SearchTerm.class)))
+        .thenAnswer(
+            invocation -> {
+              SearchTerm term = invocation.getArgument(0);
+              return Arrays.stream(messages).filter(term::match).toArray(Message[]::new);
+            });
+  }
+
+  private void stubSeenFlag(Message message, boolean seen) throws Exception {
+    AtomicBoolean isSeen = new AtomicBoolean(seen);
+    when(message.getFlags())
+        .thenAnswer(invocation -> isSeen.get() ? new Flags(Flags.Flag.SEEN) : new Flags());
+    when(message.isSet(Flags.Flag.SEEN)).thenAnswer(invocation -> isSeen.get());
+    doAnswer(
+            invocation -> {
+              isSeen.set(invocation.getArgument(1));
+              return null;
+            })
+        .when(message)
+        .setFlag(eq(Flags.Flag.SEEN), anyBoolean());
   }
 }

@@ -49,41 +49,61 @@ public class ImapSourceCommand extends SimpleSourceCommand<EmailMessage> {
       String nodeId) {
     ImapSourceDto.Config config = (ImapSourceDto.Config) commandConfig;
 
-    Fetcher<EmailMessage> fetcher = createImapFetcher(config, jobContext);
-    RawDataEncoder<EmailMessage> encoder = new EmailRawDataEncoder();
-    RawDataConverter<EmailMessage> converter = new EmailRawDataConverter();
+    ImapSourceFetcher fetcher = createImapFetcher(config, jobContext);
+    try {
+      RawDataEncoder<EmailMessage> encoder = new EmailRawDataEncoder();
+      RawDataConverter<EmailMessage> converter = new EmailRawDataConverter();
 
-    Map<String, String> metricTags =
-        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
-    FleakCounter dataSizeCounter =
-        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, metricTags);
-    FleakCounter inputEventCounter =
-        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
-    FleakCounter deserializeFailureCounter =
-        metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
+      Map<String, String> metricTags =
+          basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+      FleakCounter dataSizeCounter =
+          metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, metricTags);
+      FleakCounter inputEventCounter =
+          metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+      FleakCounter deserializeFailureCounter =
+          metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
 
-    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-    DlqWriter dlqWriter =
-        Optional.of(jobContext)
-            .map(JobContext::getDlqConfig)
-            .map(c -> DlqWriterFactory.createDlqWriter(c, keyPrefix))
-            .orElse(null);
-    if (dlqWriter != null) {
-      dlqWriter.open();
+      String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+      DlqWriter dlqWriter =
+          Optional.of(jobContext)
+              .map(JobContext::getDlqConfig)
+              .map(c -> DlqWriterFactory.createDlqWriter(c, keyPrefix))
+              .orElse(null);
+      if (dlqWriter != null) {
+        dlqWriter.open();
+      }
+
+      // Start the poller only after every dependency (metrics, DLQ, ...) is in place so we don't
+      // mark messages as read before the pipeline can consume them.
+      fetcher.start();
+
+      return new SourceExecutionContext<>(
+          fetcher,
+          converter,
+          encoder,
+          dataSizeCounter,
+          inputEventCounter,
+          deserializeFailureCounter,
+          dlqWriter);
+    } catch (RuntimeException e) {
+      closeFetcherQuietly(fetcher);
+      throw e;
+    } catch (Exception e) {
+      closeFetcherQuietly(fetcher);
+      throw new RuntimeException("Failed to initialize IMAP source", e);
     }
-
-    return new SourceExecutionContext<>(
-        fetcher,
-        converter,
-        encoder,
-        dataSizeCounter,
-        inputEventCounter,
-        deserializeFailureCounter,
-        dlqWriter);
   }
 
-  private Fetcher<EmailMessage> createImapFetcher(
-      ImapSourceDto.Config config, JobContext jobContext) {
+  private void closeFetcherQuietly(ImapSourceFetcher fetcher) {
+    try {
+      fetcher.close();
+    } catch (Exception ex) {
+      log.warn("Failed to close IMAP fetcher during initialization rollback", ex);
+    }
+  }
+
+  private ImapSourceFetcher createImapFetcher(ImapSourceDto.Config config, JobContext jobContext) {
+    Store store = null;
     try {
       Properties props = new Properties();
       String protocol = Boolean.TRUE.equals(config.getUseSsl()) ? "imaps" : "imap";
@@ -101,7 +121,7 @@ public class ImapSourceCommand extends SimpleSourceCommand<EmailMessage> {
       }
 
       Session session = Session.getInstance(props);
-      Store store = session.getStore(protocol);
+      store = session.getStore(protocol);
 
       if (config.getAuthType() == ImapSourceDto.AuthType.PASSWORD) {
         UsernamePasswordCredential credential =
@@ -119,8 +139,17 @@ public class ImapSourceCommand extends SimpleSourceCommand<EmailMessage> {
           config.getSearchCriteria(),
           Boolean.TRUE.equals(config.getMarkAsRead()),
           Boolean.TRUE.equals(config.getIncludeAttachments()),
-          config.getMaxMessages());
+          config.getMaxMessages(),
+          Optional.ofNullable(config.getPollIntervalMs())
+              .orElse(ImapSourceDto.DEFAULT_POLL_INTERVAL_MS));
     } catch (Exception e) {
+      if (store != null) {
+        try {
+          store.close();
+        } catch (Exception closeEx) {
+          log.warn("Failed to close IMAP store after init error", closeEx);
+        }
+      }
       throw new RuntimeException("Failed to create IMAP fetcher", e);
     }
   }
