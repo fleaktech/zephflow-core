@@ -31,6 +31,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.Config;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.CustomPattern;
+import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.DetectorConfig;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.Detectors;
 import java.util.ArrayList;
 import java.util.List;
@@ -77,18 +78,10 @@ public class PiiMaskCommand extends ScalarCommand {
     }
     Detectors d = config.detectors();
     if (d != null) {
-      if (d.email() != null)
-        specs.add(PiiMasker.builtIn(BuiltInDetectors.EMAIL, d.email().replacement()));
-      if (d.phone() != null)
-        specs.add(PiiMasker.builtIn(BuiltInDetectors.PHONE, d.phone().replacement()));
-      if (d.ssn() != null)
-        specs.add(PiiMasker.builtIn(BuiltInDetectors.SSN, d.ssn().replacement()));
-      if (d.creditCard() != null)
-        specs.add(PiiMasker.builtIn(BuiltInDetectors.CREDIT_CARD, d.creditCard().replacement()));
-      if (d.ipv4() != null)
-        specs.add(PiiMasker.builtIn(BuiltInDetectors.IPV4, d.ipv4().replacement()));
-      if (d.ipv6() != null)
-        specs.add(PiiMasker.builtIn(BuiltInDetectors.IPV6, d.ipv6().replacement()));
+      for (BuiltInDetectors bd : BuiltInDetectors.values()) {
+        DetectorConfig dc = d.get(bd);
+        if (dc != null) specs.add(PiiMasker.builtIn(bd, dc.replacement()));
+      }
     }
 
     return new PiiMaskExecutionContext(input, output, error, paths, specs, piiMatch);
@@ -101,16 +94,21 @@ public class PiiMaskCommand extends ScalarCommand {
     Map<String, String> tags = getCallingUserTagAndEventTags(callingUser, event);
     ctx.getInputMessageCounter().increase(tags);
 
-    int totalReplacements = 0;
-    for (DottedPath path : ctx.getTargets()) {
-      totalReplacements +=
-          PiiPathWriter.rewrite(event, path, s -> PiiMasker.mask(s, ctx.getSpecs()));
+    try {
+      int totalReplacements = 0;
+      for (DottedPath path : ctx.getTargets()) {
+        totalReplacements +=
+            PiiPathWriter.rewrite(event, path, s -> PiiMasker.mask(s, ctx.getSpecs()));
+      }
+      if (totalReplacements > 0) {
+        ctx.getPiiMatchCounter().increase(totalReplacements, tags);
+      }
+      ctx.getOutputMessageCounter().increase(tags);
+      return List.of(event);
+    } catch (Exception e) {
+      ctx.getErrorCounter().increase(tags);
+      throw e;
     }
-    if (totalReplacements > 0) {
-      ctx.getPiiMatchCounter().increase(totalReplacements, tags);
-    }
-    ctx.getOutputMessageCounter().increase(tags);
-    return List.of(event);
   }
 
   @Override

@@ -65,6 +65,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_AZURE_BLOB_SINK)
             .add(COMMAND_NAME_PUBSUB_SOURCE)
             .add(COMMAND_NAME_PUBSUB_SINK)
+            .add(COMMAND_NAME_PII_MASK)
             .build(),
         OPERATOR_COMMANDS.keySet());
   }

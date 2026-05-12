@@ -14,13 +14,13 @@
 package io.fleak.zephflow.lib.commands.piimask;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.Config;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.CustomPattern;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.Detectors;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -54,14 +54,14 @@ public class PiiMaskConfigValidator implements ConfigValidator {
       Set<String> seenNames = new HashSet<>();
       for (CustomPattern cp : c.customPatterns()) {
         Preconditions.checkArgument(
-            !Strings.isNullOrEmpty(cp.name()) && !cp.name().isBlank(),
+            cp.name() != null && !cp.name().isBlank(),
             "piimask: customPatterns entries must have a non-blank 'name'");
         Preconditions.checkArgument(
-            !Strings.isNullOrEmpty(cp.pattern()) && !cp.pattern().isBlank(),
+            cp.pattern() != null && !cp.pattern().isBlank(),
             "piimask: customPatterns entry '%s' must have a non-blank 'pattern'",
             cp.name());
         Preconditions.checkArgument(
-            !Strings.isNullOrEmpty(cp.replacement()) && !cp.replacement().isBlank(),
+            cp.replacement() != null && !cp.replacement().isBlank(),
             "piimask: customPatterns entry '%s' must have a non-blank 'replacement'",
             cp.name());
         Preconditions.checkArgument(
@@ -82,11 +82,6 @@ public class PiiMaskConfigValidator implements ConfigValidator {
 
   private static boolean hasActiveBuiltIn(Detectors d) {
     if (d == null) return false;
-    return d.email() != null
-        || d.phone() != null
-        || d.ssn() != null
-        || d.creditCard() != null
-        || d.ipv4() != null
-        || d.ipv6() != null;
+    return Arrays.stream(BuiltInDetectors.values()).anyMatch(bd -> d.get(bd) != null);
   }
 }

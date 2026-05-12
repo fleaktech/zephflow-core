@@ -21,6 +21,7 @@ import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.CustomPattern;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.DetectorConfig;
 import io.fleak.zephflow.lib.commands.piimask.PiiMaskCommandDto.Detectors;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,14 +41,19 @@ public class PiiMaskConfigParser implements ConfigParser {
     Detectors detectors = null;
     Object rawDetectors = config.get("detectors");
     if (rawDetectors instanceof Map<?, ?> dm) {
+      EnumMap<BuiltInDetectors, DetectorConfig> dcm = new EnumMap<>(BuiltInDetectors.class);
+      for (BuiltInDetectors d : BuiltInDetectors.values()) {
+        DetectorConfig dc = parseDetector(dm, d.configKey());
+        if (dc != null) dcm.put(d, dc);
+      }
       detectors =
           new Detectors(
-              parseDetector(dm, "email"),
-              parseDetector(dm, "phone"),
-              parseDetector(dm, "ssn"),
-              parseDetector(dm, "creditCard"),
-              parseDetector(dm, "ipv4"),
-              parseDetector(dm, "ipv6"));
+              dcm.get(BuiltInDetectors.EMAIL),
+              dcm.get(BuiltInDetectors.PHONE),
+              dcm.get(BuiltInDetectors.SSN),
+              dcm.get(BuiltInDetectors.CREDIT_CARD),
+              dcm.get(BuiltInDetectors.IPV4),
+              dcm.get(BuiltInDetectors.IPV6));
     }
 
     List<CustomPattern> customPatterns = null;

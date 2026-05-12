@@ -106,6 +106,51 @@ class PiiMaskerTest {
   }
 
   @Test
+  void specNameStoredByCustomFactory() {
+    PiiMasker.Spec spec = PiiMasker.custom("my-pattern", Pattern.compile("test"), "[X]");
+    assertEquals("my-pattern", spec.name());
+  }
+
+  @Test
+  void specNameStoredByBuiltInFactory() {
+    PiiMasker.Spec spec = PiiMasker.builtIn(BuiltInDetectors.EMAIL, null);
+    assertEquals(BuiltInDetectors.EMAIL.configKey(), spec.name());
+  }
+
+  @Test
+  void phoneFormattedUkMaskedInFull() {
+    PiiMasker.Spec phone = PiiMasker.builtIn(BuiltInDetectors.PHONE, null);
+    PiiPathWriter.RewriteResult r = PiiMasker.mask("call +44 207 183 8750 now", List.of(phone));
+    assertEquals("call [PHONE] now", r.output());
+    assertEquals(1, r.replacementCount());
+  }
+
+  @Test
+  void phoneFormattedGermanMaskedInFull() {
+    PiiMasker.Spec phone = PiiMasker.builtIn(BuiltInDetectors.PHONE, null);
+    PiiPathWriter.RewriteResult r = PiiMasker.mask("reach +49 89 1234567 ok", List.of(phone));
+    assertEquals("reach [PHONE] ok", r.output());
+    assertEquals(1, r.replacementCount());
+  }
+
+  @Test
+  void phoneIddPrefixMaskedInFull() {
+    PiiMasker.Spec phone = PiiMasker.builtIn(BuiltInDetectors.PHONE, null);
+    PiiPathWriter.RewriteResult r = PiiMasker.mask("call 0044207183875 done", List.of(phone));
+    assertEquals("call [PHONE] done", r.output());
+    assertEquals(1, r.replacementCount());
+  }
+
+  @Test
+  void phoneE164Plus1LongNumberMaskedInFull() {
+    PiiMasker.Spec phone = PiiMasker.builtIn(BuiltInDetectors.PHONE, null);
+    // +1 followed by 13 local digits — valid E.164, beyond NANP 10-digit format
+    PiiPathWriter.RewriteResult r = PiiMasker.mask("num +12345678901234 here", List.of(phone));
+    assertEquals("num [PHONE] here", r.output());
+    assertEquals(1, r.replacementCount());
+  }
+
+  @Test
   void luhnHelperRejectsAllZeros() {
     assertFalse(PiiMasker.luhnValid("0000000000000000"));
   }

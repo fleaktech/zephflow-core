@@ -41,7 +41,5 @@ public class PiiMaskExecutionContext extends DefaultExecutionContext {
   }
 
   @Override
-  public void close() {
-    // No resources to release
-  }
+  public void close() {}
 }

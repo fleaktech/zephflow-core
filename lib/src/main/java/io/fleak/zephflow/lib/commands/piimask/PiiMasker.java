@@ -22,7 +22,8 @@ public final class PiiMasker {
 
   private PiiMasker() {}
 
-  public record Spec(Pattern pattern, String replacement, Predicate<String> postFilter) {
+  public record Spec(
+      String name, Pattern pattern, String replacement, Predicate<String> postFilter) {
     public boolean accept(String matchText) {
       return postFilter == null || postFilter.test(matchText);
     }
@@ -36,11 +37,11 @@ public final class PiiMasker {
           case IPV4 -> PiiMasker::ipv4OctetsValid;
           default -> null;
         };
-    return new Spec(d.pattern(), replacement, postFilter);
+    return new Spec(d.configKey(), d.pattern(), replacement, postFilter);
   }
 
   public static Spec custom(String name, Pattern pattern, String replacement) {
-    return new Spec(pattern, replacement, null);
+    return new Spec(name, pattern, replacement, null);
   }
 
   public static PiiPathWriter.RewriteResult mask(String input, List<Spec> specs) {

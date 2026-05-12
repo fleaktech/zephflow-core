@@ -27,7 +27,19 @@ public interface PiiMaskCommandDto {
       DetectorConfig ssn,
       DetectorConfig creditCard,
       DetectorConfig ipv4,
-      DetectorConfig ipv6) {}
+      DetectorConfig ipv6) {
+
+    DetectorConfig get(BuiltInDetectors type) {
+      return switch (type) {
+        case EMAIL -> email;
+        case PHONE -> phone;
+        case SSN -> ssn;
+        case CREDIT_CARD -> creditCard;
+        case IPV4 -> ipv4;
+        case IPV6 -> ipv6;
+      };
+    }
+  }
 
   // null replacement -> fall back to the built-in default token
   record DetectorConfig(String replacement) {}

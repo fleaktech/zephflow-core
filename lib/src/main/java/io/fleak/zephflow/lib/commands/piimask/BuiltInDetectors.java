@@ -21,11 +21,16 @@ public enum BuiltInDetectors {
   PHONE(
       "phone",
       "[PHONE]",
-      // E.164 international first (so a leading + is consumed as a whole), then US.
-      // Order matters: regex alternation is left-to-right; without the E.164-first
-      // ordering, the US alternative would match the trailing digits of an E.164
-      // number and leave a stray "+" in the output.
-      "\\+[2-9]\\d{1,14}" + "|(?:\\+?1[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}"),
+      // Branches are ordered most-specific first so that a leading '+' or '00' is consumed whole
+      // rather than partially matched by a later, less-specific alternative.
+      // 1. E.164 compact (no spaces): +CC local — 7 to 15 digits after '+'
+      "\\+[1-9]\\d{6,14}"
+          // 2. Formatted international: +CC(1-3) separator local (covers +1 xxx, +44 xx, +353 x …)
+          + "|\\+[1-9]\\d{0,2}[\\s\\-.][\\d(][\\d\\s\\-.()]{4,18}\\d"
+          // 3. IDD prefix (00 + CC + local), with or without separator
+          + "|00[1-9]\\d{0,2}[\\s\\-.]?\\(?\\d[\\d\\s\\-.()]{4,16}\\d"
+          // 4. NANP without explicit country code: (NPA) NXX-XXXX or NPA-NXX-XXXX
+          + "|\\(?[2-9]\\d{2}\\)?[\\s\\-.]?[2-9]\\d{2}[\\s\\-.]?\\d{4}"),
 
   SSN(
       "ssn",

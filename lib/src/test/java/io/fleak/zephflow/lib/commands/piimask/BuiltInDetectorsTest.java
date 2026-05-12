@@ -38,6 +38,12 @@ class BuiltInDetectorsTest {
   }
 
   @Test
+  void phoneMatchesIddPrefix() {
+    assertTrue(matches(BuiltInDetectors.PHONE, "0044207183875"));
+    assertTrue(matches(BuiltInDetectors.PHONE, "00353123456789"));
+  }
+
+  @Test
   void ssnMatchesDashedAndPlain() {
     assertTrue(matches(BuiltInDetectors.SSN, "123-45-6789"));
     assertTrue(matches(BuiltInDetectors.SSN, "ssn 123456789"));
