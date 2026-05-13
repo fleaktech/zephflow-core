@@ -45,5 +45,16 @@ public class ImapSourceConfigValidator implements ConfigValidator {
           "pollIntervalMs must be positive, got: %s",
           config.getPollIntervalMs());
     }
+
+    // markAsRead=true makes the fetcher AND the user criteria with `\Seen=false` to keep
+    // de-duplication closed across polls; combining that with searchCriteria=SEEN would always
+    // produce an empty result set, which is almost certainly a misconfiguration.
+    if (Boolean.TRUE.equals(config.getMarkAsRead())
+        && "SEEN".equalsIgnoreCase(StringUtils.trimToEmpty(config.getSearchCriteria()))) {
+      throw new IllegalArgumentException(
+          "searchCriteria=SEEN is incompatible with markAsRead=true (the effective filter becomes"
+              + " SEEN AND UNSEEN, which matches nothing). Set markAsRead=false or pick a"
+              + " different searchCriteria.");
+    }
   }
 }
