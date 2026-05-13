@@ -42,20 +42,30 @@ public class SmtpSinkMessageProcessor
 
   @Override
   public PreparedEmail preprocess(RecordFleakData event, long ts) {
-    String toResolved = toResolver.resolvePlaceholders(event);
+    String toResolved = resolveOrThrow(toResolver, event, "to");
     List<String> toList = splitAddresses(toResolved);
 
     List<String> ccList = List.of();
     if (ccResolver != null) {
-      String ccResolved = ccResolver.resolvePlaceholders(event);
+      String ccResolved = resolveOrThrow(ccResolver, event, "cc");
       ccList = splitAddresses(ccResolved);
     }
 
-    String subject = subjectResolver.resolvePlaceholders(event);
-    String body = bodyResolver.resolvePlaceholders(event);
+    String subject = resolveOrThrow(subjectResolver, event, "subject");
+    String body = resolveOrThrow(bodyResolver, event, "body");
 
     return new PreparedEmail(
         config.getFromAddress(), toList, ccList, subject, body, config.getBodyContentType());
+  }
+
+  private static String resolveOrThrow(
+      TemplatePlaceholderResolver resolver, RecordFleakData event, String fieldName) {
+    String resolved = resolver.resolvePlaceholders(event);
+    if (resolved == null) {
+      throw new IllegalStateException(
+          "smtp sink: '" + fieldName + "' template has unresolved placeholder on event");
+    }
+    return resolved;
   }
 
   private static List<String> splitAddresses(String addresses) {

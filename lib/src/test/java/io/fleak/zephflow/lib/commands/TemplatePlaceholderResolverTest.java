@@ -71,13 +71,19 @@ class TemplatePlaceholderResolverTest {
 
   @Test
   public void testResolveTemplate_withUnresolvedPlaceholder() {
-    // Create a template with a placeholder that returns null
     String template = "Hello, {{ $.user.name }}!";
-
-    // Spy on the StringTemplateResolver to inject mocked PathExpression
     TemplatePlaceholderResolver resolver = TemplatePlaceholderResolver.create(template);
 
     String result = resolver.resolvePlaceholders(FleakData.wrap(Map.of("k", 1)));
-    assertEquals("Hello, null!", result);
+    assertNull(result);
+  }
+
+  @Test
+  public void testResolveTemplate_oneOfMultiplePlaceholdersUnresolved() {
+    String template = "{{$.a}}-{{$.b}}";
+    TemplatePlaceholderResolver resolver = TemplatePlaceholderResolver.create(template);
+
+    String result = resolver.resolvePlaceholders(FleakData.wrap(Map.of("a", "x")));
+    assertNull(result);
   }
 }
