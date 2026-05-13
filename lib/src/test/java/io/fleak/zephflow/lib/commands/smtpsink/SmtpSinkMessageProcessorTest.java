@@ -143,6 +143,29 @@ class SmtpSinkMessageProcessorTest {
   }
 
   @Test
+  void testMissingFieldThrows() throws Exception {
+    SmtpSinkDto.Config config =
+        SmtpSinkDto.Config.builder()
+            .host("smtp.test.com")
+            .credentialId("cred")
+            .fromAddress("sender@test.com")
+            .toTemplate("{{$.email}}")
+            .subjectTemplate("Hello {{$.name}}")
+            .bodyTemplate("Body")
+            .build();
+
+    SmtpSinkMessageProcessor processor = new SmtpSinkMessageProcessor(config);
+
+    RecordFleakData event = (RecordFleakData) FleakData.wrap(Map.of("email", "user@example.com"));
+
+    IllegalStateException ex =
+        assertThrows(
+            IllegalStateException.class,
+            () -> processor.preprocess(event, System.currentTimeMillis()));
+    assertTrue(ex.getMessage().contains("subject"));
+  }
+
+  @Test
   void testHtmlBodyContentType() throws Exception {
     SmtpSinkDto.Config config =
         SmtpSinkDto.Config.builder()

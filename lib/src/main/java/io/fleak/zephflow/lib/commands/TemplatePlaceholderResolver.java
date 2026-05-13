@@ -47,18 +47,25 @@ public class TemplatePlaceholderResolver {
     return new TemplatePlaceholderResolver(template, placeholders);
   }
 
+  /**
+   * Resolves placeholders against the given event.
+   *
+   * @return the rendered string, or {@code null} if any placeholder's path expression resolves to
+   *     null on the event. Callers can use a null return to detect missing input fields rather than
+   *     silently rendering them as the literal string "null".
+   */
   public String resolvePlaceholders(FleakData event) {
     StringBuilder result = new StringBuilder();
     int lastPos = 0;
 
     for (Placeholder placeholder : placeholders) {
-      // Append the part of the template before the current placeholder
       result.append(template, lastPos, placeholder.start);
       FleakData fleakData = placeholder.pathExpression.calculateValue(event);
-      String replacement;
       if (fleakData == null) {
-        replacement = null;
-      } else if (fleakData instanceof RecordFleakData || fleakData instanceof ArrayFleakData) {
+        return null;
+      }
+      String replacement;
+      if (fleakData instanceof RecordFleakData || fleakData instanceof ArrayFleakData) {
         replacement = toJsonString(fleakData.unwrap());
       } else {
         replacement = Objects.toString(fleakData.unwrap());
@@ -68,7 +75,6 @@ public class TemplatePlaceholderResolver {
       lastPos = placeholder.end;
     }
 
-    // Append the remaining part of the template after the last placeholder
     result.append(template, lastPos, template.length());
 
     return result.toString();
