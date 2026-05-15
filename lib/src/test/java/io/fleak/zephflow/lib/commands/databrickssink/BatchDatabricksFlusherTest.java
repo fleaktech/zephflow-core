@@ -28,6 +28,7 @@ import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyI
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -279,7 +280,73 @@ class BatchDatabricksFlusherTest {
 
       assertEquals(0, result.successCount());
       assertEquals(1, result.errorOutputList().size());
-      assertTrue(result.errorOutputList().get(0).errorMessage().contains("Partial upload failure"));
+      String errorMessage = result.errorOutputList().get(0).errorMessage();
+      assertTrue(errorMessage.startsWith("Databricks upload failed: "));
+      assertTrue(errorMessage.contains("Upload failed"));
+
+      verifyNoInteractions(sqlExecutor);
+    }
+  }
+
+  @Test
+  void testFlushHandlesUploadFailureWithPermissionDenied() throws Exception {
+    DatabricksSinkDto.Config smallBatchConfig =
+        DatabricksSinkDto.Config.builder()
+            .volumePath("/Volumes/test/catalog/vol")
+            .tableName("test.catalog.vol_table")
+            .warehouseId("test-warehouse-id")
+            .batchSize(1)
+            .flushIntervalMillis(60000)
+            .cleanupAfterCopy(true)
+            .build();
+
+    try (BatchDatabricksFlusher flusher =
+        new BatchDatabricksFlusher(
+            smallBatchConfig,
+            parquetWriter,
+            volumeUploader,
+            sqlExecutor,
+            tempDir,
+            dlqWriter,
+            schema,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter,
+            null)) {
+
+      File mockFile = createMockFile("test.parquet");
+
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+          .thenReturn(List.of(mockFile));
+
+      // Mimics what DatabricksVolumeUploader.uploadFile throws when the
+      // Databricks SDK reports a PERMISSION_DENIED on the target volume.
+      doThrow(
+              new IOException(
+                  "Upload failed: User does not have WRITE VOLUME privilege on VOLUME 'test.catalog.vol'."))
+          .when(volumeUploader)
+          .uploadFile(any(File.class), anyString());
+
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(
+          (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "test")),
+          Map.of("id", 1, "name", "test"));
+
+      SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+      assertEquals(0, result.successCount());
+      assertEquals(1, result.errorOutputList().size());
+      String errorMessage = result.errorOutputList().get(0).errorMessage();
+      assertTrue(
+          errorMessage.startsWith("Databricks upload failed: "),
+          "expected prefix 'Databricks upload failed: ' but got: " + errorMessage);
+      assertTrue(
+          errorMessage.contains("WRITE VOLUME"),
+          "expected 'WRITE VOLUME' in message but got: " + errorMessage);
+      assertTrue(
+          errorMessage.contains("test.catalog.vol"),
+          "expected volume name in message but got: " + errorMessage);
 
       verifyNoInteractions(sqlExecutor);
     }

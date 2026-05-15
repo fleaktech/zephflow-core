@@ -218,7 +218,11 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
             parquetResult.generatedFiles.size());
         cleanupTempFiles(parquetResult.generatedFiles);
         cleanupRemoteBatchDirectory(batchId);
-        return createCompleteFailureResult(batch, "Partial upload failure - aborting batch");
+        String uploadFailMsg =
+            uploadResult.lastErrorMessage() != null
+                ? "Databricks upload failed: " + uploadResult.lastErrorMessage()
+                : "Databricks upload failed";
+        return createCompleteFailureResult(batch, uploadFailMsg);
       }
 
       log.info(
@@ -355,6 +359,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   private UploadResult uploadFilesWithRetry(List<File> files, String batchId) {
     List<String> uploadedPaths = new ArrayList<>();
     List<File> failedFiles = new ArrayList<>();
+    String lastErrorMessage = null;
 
     for (File file : files) {
       boolean uploaded = false;
@@ -400,10 +405,11 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
             MAX_UPLOAD_RETRIES,
             lastException.getMessage());
         failedFiles.add(file);
+        lastErrorMessage = lastException.getMessage();
       }
     }
 
-    return new UploadResult(uploadedPaths, failedFiles);
+    return new UploadResult(uploadedPaths, failedFiles, lastErrorMessage);
   }
 
   private String buildRemotePath(File file, String batchId) {
@@ -546,7 +552,8 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   private record ParquetGenerationResult(
       List<File> generatedFiles, List<ErrorOutput> errors, int successfulRecordCount) {}
 
-  private record UploadResult(List<String> uploadedPaths, List<File> failedFiles) {}
+  private record UploadResult(
+      List<String> uploadedPaths, List<File> failedFiles, String lastErrorMessage) {}
 
   private record CopyIntoResult(boolean success, long recordsLoaded, String errorMessage) {}
 }
