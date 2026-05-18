@@ -163,7 +163,8 @@ public abstract class JsonUtils {
     NumberPrimitiveFleakData.NumberType numberType =
         switch (numericNode.numberType()) {
           case INT, LONG -> NumberPrimitiveFleakData.NumberType.LONG;
-          case FLOAT, DOUBLE -> NumberPrimitiveFleakData.NumberType.DOUBLE;
+          case FLOAT, DOUBLE, BIG_INTEGER, BIG_DECIMAL ->
+              NumberPrimitiveFleakData.NumberType.DOUBLE;
           default ->
               throw new RuntimeException(
                   String.format(

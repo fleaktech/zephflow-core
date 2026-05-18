@@ -178,6 +178,18 @@ class JsonUtilsTest {
   }
 
   @Test
+  public void testFromJsonNumberBigInteger() throws IOException {
+    // Suricata flow_id can exceed Long.MAX_VALUE (~9.22e18); Jackson parses these as BIG_INTEGER
+    String json = "{\"flow_id\": 12150687540965278123}";
+    ObjectNode node = (ObjectNode) JsonUtils.OBJECT_MAPPER.readTree(json);
+    RecordFleakData result = fromJsonPayload(node);
+    FleakData flowId = result.getPayload().get("flow_id");
+    assertNotNull(flowId);
+    assertEquals(NumberPrimitiveFleakData.NumberType.DOUBLE, flowId.getNumberType());
+    assertTrue(flowId.getNumberValue() > 0);
+  }
+
+  @Test
   public void testNullValues() {
     Map<String, Object> payload = new HashMap<>();
     payload.put("k1", 1);
