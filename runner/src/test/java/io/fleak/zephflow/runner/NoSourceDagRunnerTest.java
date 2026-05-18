@@ -1037,4 +1037,77 @@ class NoSourceDagRunnerTest {
         JsonUtils.OBJECT_MAPPER.readTree(expectedErrorByStep),
         JsonUtils.OBJECT_MAPPER.readTree(toJsonString(dagResult.errorByStep)));
   }
+
+  // FLE-1765: regression for surfacing root cause messages when wrapping into
+  // NodeExecutionException. Configuration failures (e.g. KafkaProducer constructor wrapping a
+  // ConfigException) hide the actionable detail in the cause chain; the wrapping must propagate
+  // the deepest cause message so downstream layers can show it to the user.
+  @Nested
+  @DisplayName("Cause Chain Propagation (FLE-1765)")
+  class CauseChainPropagation {
+
+    @Test
+    @DisplayName(
+        "initializeAllCommands wraps with NodeExecutionException carrying root cause message")
+    void initializeFailure_surfacesRootCauseMessage() {
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Dag<OperatorCommand> compiledDag = new Dag<>(List.of(node1), Collections.emptyList());
+
+      // Mimic KafkaProducer ctor failure: KafkaException wraps ConfigException with the detail.
+      RuntimeException rootCause =
+          new RuntimeException("Invalid value SCRAM-SHA-OOPS for sasl.mechanism");
+      RuntimeException topException =
+          new RuntimeException("Failed to construct kafka producer", rootCause);
+      doThrow(topException).when(mockScalarCmd1).initialize(any());
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      NodeExecutionException thrown =
+          assertThrows(
+              NodeExecutionException.class,
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll));
+
+      assertNotNull(thrown.getMessage(), "Wrapped message must not be null");
+      assertTrue(
+          thrown.getMessage().contains("Invalid value SCRAM-SHA-OOPS for sasl.mechanism"),
+          "Wrapped message should contain root cause detail but was: " + thrown.getMessage());
+      assertSame(
+          topException, thrown.getCause(), "Original throwable should be preserved as cause");
+      assertEquals(NODE_ID_1, thrown.getNodeId());
+      assertEquals(CMD_NAME_1, thrown.getCommandName());
+    }
+
+    @Test
+    @DisplayName("processEvent wraps with NodeExecutionException carrying root cause message")
+    void processFailure_surfacesRootCauseMessage() {
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Dag<OperatorCommand> compiledDag = new Dag<>(List.of(node1), Collections.emptyList());
+
+      RuntimeException rootCause = new RuntimeException("SQL parser: unexpected token near 'FORM'");
+      RuntimeException topException = new RuntimeException("Failed to evaluate node", rootCause);
+      when(mockScalarCmd1.process(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenThrow(topException);
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      NodeExecutionException thrown =
+          assertThrows(
+              NodeExecutionException.class,
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll));
+
+      assertNotNull(thrown.getMessage());
+      assertTrue(
+          thrown.getMessage().contains("SQL parser: unexpected token near 'FORM'"),
+          "Wrapped message should contain root cause detail but was: " + thrown.getMessage());
+      assertSame(topException, thrown.getCause());
+      assertEquals(NODE_ID_1, thrown.getNodeId());
+      assertEquals(CMD_NAME_1, thrown.getCommandName());
+    }
+  }
 }

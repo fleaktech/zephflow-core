@@ -29,6 +29,7 @@ import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.core.config.Configurator;
@@ -135,7 +136,8 @@ public record DagExecutor(
               } catch (NodeExecutionException e) {
                 throw e;
               } catch (Exception e) {
-                throw new NodeExecutionException(sourceNodeId, "unknown", e.getMessage(), e);
+                throw new NodeExecutionException(
+                    sourceNodeId, "unknown", ExceptionUtils.getRootCauseMessage(e), e);
               }
             }
           });

@@ -34,6 +34,7 @@ import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.MDC;
 
 /** Created by bolei on 3/4/25 */
@@ -169,7 +170,8 @@ public record NoSourceDagRunner(
     } catch (NodeExecutionException e) {
       throw e;
     } catch (Exception e) {
-      throw new NodeExecutionException(currentNodeId, command.commandName(), e.getMessage(), e);
+      throw new NodeExecutionException(
+          currentNodeId, command.commandName(), ExceptionUtils.getRootCauseMessage(e), e);
     }
     throw new IllegalStateException(
         String.format(
@@ -190,7 +192,8 @@ public record NoSourceDagRunner(
       } catch (NodeExecutionException e) {
         throw e;
       } catch (Exception e) {
-        throw new NodeExecutionException(node.getId(), command.commandName(), e.getMessage(), e);
+        throw new NodeExecutionException(
+            node.getId(), command.commandName(), ExceptionUtils.getRootCauseMessage(e), e);
       }
     }
   }
