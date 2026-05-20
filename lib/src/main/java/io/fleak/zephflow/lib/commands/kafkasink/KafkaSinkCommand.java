@@ -27,11 +27,14 @@ import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.jetbrains.annotations.NotNull;
 
@@ -115,6 +118,10 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
     KafkaProducer<byte[], byte[]> producer = kafkaProducerClientFactory.createKafkaProducer(props);
 
+    if (isTestMode) {
+      verifyConnectivity(producer, config);
+    }
+
     return new KafkaSinkFlusher(
         producer,
         config.getTopic(),
@@ -140,6 +147,29 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     props.put(ProducerConfig.RETRIES_CONFIG, "3");
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
     return props;
+  }
+
+  /**
+   * Fails the test run immediately if the broker is unreachable or misconfigured, instead of
+   * blocking {@code max.block.ms} for every event and then silently reporting success (FLE-840).
+   * One bounded metadata lookup (capped by {@code max.block.ms}, set to 10s in test mode) surfaces
+   * the real connection/auth failure.
+   */
+  private static void verifyConnectivity(
+      KafkaProducer<byte[], byte[]> producer, KafkaSinkDto.Config config) {
+    try {
+      List<PartitionInfo> partitions = producer.partitionsFor(config.getTopic());
+      if (partitions == null || partitions.isEmpty()) {
+        throw new IllegalStateException(
+            "topic '%s' not found or has no partitions".formatted(config.getTopic()));
+      }
+    } catch (Exception e) {
+      producer.close(Duration.ZERO);
+      throw new IllegalArgumentException(
+          "Failed to reach Kafka broker '%s' for topic '%s'. Check the broker address, credentials, and security/SASL settings."
+              .formatted(config.getBroker(), config.getTopic()),
+          e);
+    }
   }
 
   @Override
