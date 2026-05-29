@@ -42,4 +42,9 @@ class FileKeyTest {
   void of_rejectsMissingScheme() {
     assertThrows(IllegalArgumentException.class, () -> FileKey.of("/abs/path"));
   }
+
+  @Test
+  void of_rejectsNull() {
+    assertThrows(NullPointerException.class, () -> FileKey.of(null));
+  }
 }

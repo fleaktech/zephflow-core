@@ -28,6 +28,7 @@ public record FileKey(String backend, String urn) {
 
   /** Parse a URN like {@code s3://bucket/key} or {@code file:///abs/path}. */
   public static FileKey of(String urn) {
+    Objects.requireNonNull(urn, "urn");
     int idx = urn.indexOf("://");
     if (idx <= 0) {
       throw new IllegalArgumentException("URN missing scheme: " + urn);
