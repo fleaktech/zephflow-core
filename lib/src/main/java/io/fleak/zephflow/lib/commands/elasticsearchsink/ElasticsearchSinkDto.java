@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.elasticsearchsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.Map;
 import lombok.*;
 
 public interface ElasticsearchSinkDto {
@@ -35,5 +36,7 @@ public interface ElasticsearchSinkDto {
     @NonNull private String index;
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
+
+    private Map<String, String> extraQueryParams;
   }
 }

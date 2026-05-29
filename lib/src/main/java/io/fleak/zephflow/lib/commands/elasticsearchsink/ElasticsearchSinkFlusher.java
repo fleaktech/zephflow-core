@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -39,10 +40,17 @@ public class ElasticsearchSinkFlusher
   private final String index;
   private final String authHeader;
   private final HttpClient httpClient;
+  private final Map<String, String> extraQueryParams;
 
-  public ElasticsearchSinkFlusher(String host, String index, String username, String password) {
+  public ElasticsearchSinkFlusher(
+      String host,
+      String index,
+      String username,
+      String password,
+      Map<String, String> extraQueryParams) {
     this.host = host.endsWith("/") ? host.substring(0, host.length() - 1) : host;
     this.index = index;
+    this.extraQueryParams = extraQueryParams;
     this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
 
     if (StringUtils.isNotBlank(username) && StringUtils.isNotBlank(password)) {
@@ -75,7 +83,7 @@ public class ElasticsearchSinkFlusher
     }
 
     byte[] bodyBytes = ndjson.toString().getBytes(StandardCharsets.UTF_8);
-    String url = host + "/_bulk";
+    String url = host + "/_bulk" + buildQueryString(extraQueryParams);
 
     HttpRequest.Builder builder =
         HttpRequest.newBuilder()
@@ -141,4 +149,16 @@ public class ElasticsearchSinkFlusher
 
   @Override
   public void close() {}
+
+  static String buildQueryString(Map<String, String> params) {
+    if (params == null || params.isEmpty()) return "";
+    return "?"
+        + params.entrySet().stream()
+            .map(
+                e ->
+                    URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8)
+                        + "="
+                        + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
+            .collect(java.util.stream.Collectors.joining("&"));
+  }
 }

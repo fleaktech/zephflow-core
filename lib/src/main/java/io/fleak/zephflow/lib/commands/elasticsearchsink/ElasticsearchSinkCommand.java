@@ -61,7 +61,8 @@ public class ElasticsearchSinkCommand extends SimpleSinkCommand<ElasticsearchOut
     }
 
     SimpleSinkCommand.Flusher<ElasticsearchOutboundDoc> flusher =
-        new ElasticsearchSinkFlusher(config.getHost(), config.getIndex(), username, password);
+        new ElasticsearchSinkFlusher(
+            config.getHost(), config.getIndex(), username, password, config.getExtraQueryParams());
 
     SimpleSinkCommand.SinkMessagePreProcessor<ElasticsearchOutboundDoc> messagePreProcessor =
         new ElasticsearchSinkMessageProcessor();
