@@ -13,9 +13,5 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
-public interface PostAction {
-
-  void run(FileEntry file, FsBackend backend) throws Exception;
-
-  PostAction NO_OP = (file, backend) -> {};
-}
+/** Typed per-backend config (e.g. S3BackendConfig, GcsBackendConfig, LocalFsBackendConfig). */
+public interface FsBackendConfig {}

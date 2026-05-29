@@ -13,9 +13,21 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
-public interface PostAction {
+import java.util.Set;
 
-  void run(FileEntry file, FsBackend backend) throws Exception;
+public interface FsBackend {
 
-  PostAction NO_OP = (file, backend) -> {};
+  String scheme();
+
+  FileLister createLister(FsBackendConfig cfg);
+
+  FileReader createReader(FsBackendConfig cfg);
+
+  Set<Capability> capabilities();
+
+  enum Capability {
+    DELETE,
+    MOVE,
+    RANGE_READ
+  }
 }
