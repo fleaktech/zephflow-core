@@ -32,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class FsSourceCommand extends SourceCommand {
 
+  private volatile boolean terminated = false;
   private FsCheckpoint checkpoint = FsCheckpoint.empty();
   private String checkpointKey;
 
@@ -103,7 +104,7 @@ public final class FsSourceCommand extends SourceCommand {
     long backoffMs = 100;
     long backoffCapMs = 30_000;
 
-    while (true) {
+    while (!terminated) {
       ListRequest req = new ListRequest(c.getRoot(), regex);
       List<FileEntry> todo = new ArrayList<>();
       try (var stream = ec.lister.list(req)) {
@@ -150,6 +151,14 @@ public final class FsSourceCommand extends SourceCommand {
       // Unbounded: respect listing interval before re-listing.
       Thread.sleep(c.getListingIntervalMs());
     }
+    // Loop exited via terminate flag (unbounded mode).
+    out.terminate();
+  }
+
+  @Override
+  public void terminate() throws java.io.IOException {
+    terminated = true;
+    super.terminate();
   }
 
   private static Instant tsFromName(FileEntry f, Pattern regex) {
