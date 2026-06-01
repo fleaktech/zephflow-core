@@ -62,7 +62,7 @@ public final class FsSourceCommand extends SourceCommand {
     FsBackendConfig bc = buildBackendConfig(c);
     ec.lister = ec.backend.createLister(bc);
     ec.reader = ec.backend.createReader(bc);
-    ec.checkpointStore = new InMemoryCheckpointStore(); // Object-store impl wired in Task 19
+    ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc);
     return ec;
   }
 
@@ -76,6 +76,36 @@ public final class FsSourceCommand extends SourceCommand {
     };
   }
 
+  private static CheckpointStore buildCheckpointStore(
+      FsSourceDto.Config c, FsBackend sourceBackend, FsBackendConfig sourceBackendCfg) {
+    FsBackend cpBackend;
+    FsBackendConfig cpCfg;
+    String prefixRoot;
+    if (c.getCheckpoint() != null) {
+      cpBackend = FsBackendRegistry.get(c.getCheckpoint().getBackend());
+      cpCfg =
+          buildBackendConfigForCheckpoint(
+              c.getCheckpoint().getBackend(), c.getCheckpoint().getRoot());
+      prefixRoot = c.getCheckpoint().getRoot();
+    } else {
+      cpBackend = sourceBackend;
+      cpCfg = sourceBackendCfg;
+      prefixRoot = c.getRoot();
+    }
+    String prefix =
+        (prefixRoot.endsWith("/") ? prefixRoot : prefixRoot + "/") + "_zephflow_checkpoints/";
+    return new ObjectStoreCheckpointStore(cpBackend, cpCfg, prefix);
+  }
+
+  private static FsBackendConfig buildBackendConfigForCheckpoint(String backend, String root) {
+    return switch (backend) {
+      case "file" -> new LocalFsBackendConfig(root);
+      default ->
+          throw new IllegalStateException(
+              "Checkpoint backend " + backend + " not wired in v1; see Tasks 22-23");
+    };
+  }
+
   @Override
   public void execute(String user, SourceEventAcceptor out) throws Exception {
     FsSourceExecutionContext ec = (FsSourceExecutionContext) getExecutionContext();
@@ -85,7 +115,9 @@ public final class FsSourceCommand extends SourceCommand {
     int jobIndex = resolveJobIndex(c);
     String sourceId = SourceIdHasher.compute(c.getBackend(), c.getRoot(), c.getFileNameRegex());
     checkpointKey = sourceId + "/" + parallelism + "/" + jobIndex + ".json";
-    checkpoint = ec.checkpointStore.load(checkpointKey).orElse(FsCheckpoint.empty());
+    FsCheckpoint seeded =
+        GenerationMigrator.maybeSeed(ec.checkpointStore, sourceId, parallelism, jobIndex);
+    checkpoint = seeded != null ? seeded : FsCheckpoint.empty();
     log.info(
         "fs_source open: sourceId={} key={} watermark={}",
         sourceId,
