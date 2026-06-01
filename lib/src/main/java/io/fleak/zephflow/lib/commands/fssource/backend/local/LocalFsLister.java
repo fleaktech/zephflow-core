@@ -31,7 +31,7 @@ public final class LocalFsLister implements FileLister {
 
   @Override
   public Stream<FileEntry> list(ListRequest req) {
-    Path root = Paths.get(req.root());
+    Path root = toPath(req.root());
     Pattern regex = req.fileNameRegex();
     try {
       return Files.walk(root)
@@ -47,6 +47,14 @@ public final class LocalFsLister implements FileLister {
   public FileEntry stat(FileKey key) {
     Path p = Paths.get(java.net.URI.create(key.urn()));
     return toEntry(p);
+  }
+
+  /** Accept both plain paths (/abs/path) and file:// URIs (file:///abs/path). */
+  private static Path toPath(String root) {
+    if (root.startsWith("file:")) {
+      return Paths.get(java.net.URI.create(root));
+    }
+    return Paths.get(root);
   }
 
   private static FileEntry toEntry(Path p) {

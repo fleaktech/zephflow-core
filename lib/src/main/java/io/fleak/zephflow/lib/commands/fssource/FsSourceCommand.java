@@ -15,8 +15,25 @@ package io.fleak.zephflow.lib.commands.fssource;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.fssource.api.*;
+import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.*;
+import io.fleak.zephflow.lib.commands.fssource.emission.*;
+import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
+import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
+import java.nio.charset.Charset;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public final class FsSourceCommand extends SourceCommand {
+
+  private FsCheckpoint checkpoint = FsCheckpoint.empty();
+  private String checkpointKey;
 
   public FsSourceCommand(String nodeId, JobContext jobContext) {
     super(nodeId, jobContext, new FsSourceConfigParser(), new FsSourceConfigValidator());
@@ -28,18 +45,152 @@ public final class FsSourceCommand extends SourceCommand {
   }
 
   @Override
-  public void execute(String callingUser, SourceEventAcceptor acceptor) {
-    throw new UnsupportedOperationException("filled in Task 17");
-  }
-
-  @Override
   public SourceType sourceType() {
-    return SourceType.STREAMING;
+    FsSourceDto.Config c = (FsSourceDto.Config) commandConfig;
+    return c != null && c.getMode() == FsSourceDto.Mode.UNBOUNDED
+        ? SourceType.STREAMING
+        : SourceType.BATCH;
   }
 
   @Override
   protected ExecutionContext createExecutionContext(
       MetricClientProvider mp, JobContext jc, CommandConfig cfg, String nodeId) {
-    return new FsSourceExecutionContext();
+    FsSourceDto.Config c = (FsSourceDto.Config) cfg;
+    FsSourceExecutionContext ec = new FsSourceExecutionContext();
+    ec.backend = FsBackendRegistry.get(c.getBackend());
+    FsBackendConfig bc = buildBackendConfig(c);
+    ec.lister = ec.backend.createLister(bc);
+    ec.reader = ec.backend.createReader(bc);
+    ec.checkpointStore = new InMemoryCheckpointStore(); // Object-store impl wired in Task 19
+    return ec;
+  }
+
+  private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c) {
+    // v1: only local FS is wired here; cloud backends extend this switch in their tasks.
+    return switch (c.getBackend()) {
+      case "file" -> new LocalFsBackendConfig(c.getRoot());
+      default ->
+          throw new IllegalStateException(
+              "Backend " + c.getBackend() + " not wired in FsSourceCommand v1; see Tasks 22-23");
+    };
+  }
+
+  @Override
+  public void execute(String user, SourceEventAcceptor out) throws Exception {
+    FsSourceExecutionContext ec = (FsSourceExecutionContext) getExecutionContext();
+    FsSourceDto.Config c = (FsSourceDto.Config) commandConfig;
+
+    int parallelism = resolveParallelism(c);
+    int jobIndex = resolveJobIndex(c);
+    String sourceId = SourceIdHasher.compute(c.getBackend(), c.getRoot(), c.getFileNameRegex());
+    checkpointKey = sourceId + "/" + parallelism + "/" + jobIndex + ".json";
+    checkpoint = ec.checkpointStore.load(checkpointKey).orElse(FsCheckpoint.empty());
+    log.info(
+        "fs_source open: sourceId={} key={} watermark={}",
+        sourceId,
+        checkpointKey,
+        checkpoint.watermark());
+
+    Pattern regex = c.getFileNameRegex() == null ? null : Pattern.compile(c.getFileNameRegex());
+    EmissionStrategy emission = buildEmission(c.getEmission());
+    StabilityProbe probe =
+        c.getStability().isEnabled()
+            ? new SizeStableProbe(Duration.ofMillis(c.getStability().getProbeDelayMs()))
+            : StabilityProbe.ALWAYS_STABLE;
+    PostAction postAction = buildPostAction(c.getPostAction());
+
+    boolean bounded = c.getMode() == FsSourceDto.Mode.BOUNDED;
+    long backoffMs = 100;
+    long backoffCapMs = 30_000;
+
+    while (true) {
+      ListRequest req = new ListRequest(c.getRoot(), regex);
+      List<FileEntry> todo = new ArrayList<>();
+      try (var stream = ec.lister.list(req)) {
+        stream
+            .filter(f -> Partitioner.assignedJob(f.key().urn(), parallelism) == jobIndex)
+            .filter(f -> tsFromName(f, regex).compareTo(checkpoint.watermark()) >= 0)
+            .filter(f -> !checkpoint.completedSinceWatermark().contains(f.key().urn()))
+            .sorted(
+                Comparator.comparing((FileEntry f) -> tsFromName(f, regex))
+                    .thenComparing(f -> f.key().urn()))
+            .forEach(todo::add);
+      }
+
+      int emittedThisPass = 0;
+      for (FileEntry f : todo) {
+        if (!probe.isStable(f, ec.lister)) continue;
+        emission.emit(f, ec.reader, out, jobContext);
+        Instant t = tsFromName(f, regex);
+        checkpoint = checkpoint.withCompleted(f.key().urn());
+        if (t.isAfter(checkpoint.watermark())) {
+          Set<String> retained = new HashSet<>();
+          for (String urn : checkpoint.completedSinceWatermark()) {
+            if (!urn.equals(f.key().urn())) retained.add(urn);
+          }
+          retained.add(f.key().urn());
+          checkpoint = checkpoint.withWatermark(t, retained);
+        }
+        ec.checkpointStore.save(checkpointKey, checkpoint);
+        postAction.run(f, ec.backend);
+        emittedThisPass++;
+      }
+
+      if (bounded && emittedThisPass == 0 && todo.isEmpty()) {
+        out.terminate();
+        return;
+      }
+      if (!bounded && emittedThisPass == 0) {
+        Thread.sleep(Math.min(backoffMs, backoffCapMs));
+        backoffMs = Math.min(backoffMs * 2, backoffCapMs);
+      } else {
+        backoffMs = 100;
+      }
+      if (bounded) continue; // next pass will see no new files and exit above
+      // Unbounded: respect listing interval before re-listing.
+      Thread.sleep(c.getListingIntervalMs());
+    }
+  }
+
+  private static Instant tsFromName(FileEntry f, Pattern regex) {
+    if (regex == null) return f.lastModified();
+    String name = new java.io.File(f.displayPath()).getName();
+    Matcher m = regex.matcher(name);
+    if (!m.matches()) return f.lastModified();
+    try {
+      String ts = m.group("ts");
+      return Instant.ofEpochSecond(Long.parseLong(ts));
+    } catch (Exception e) {
+      return f.lastModified();
+    }
+  }
+
+  private static EmissionStrategy buildEmission(FsSourceDto.Emission e) {
+    return switch (e.getType()) {
+      case LINE -> new LineEmissionStrategy(Charset.forName(e.getEncoding()), e.getLineBatchSize());
+      case WHOLE_FILE -> new WholeFileEmissionStrategy(Charset.forName(e.getEncoding()));
+      case FILE_REFERENCE -> new FileReferenceEmissionStrategy();
+    };
+  }
+
+  private static PostAction buildPostAction(FsSourceDto.PostActionConfig pa) {
+    if (pa == null || pa.getType() == FsSourceDto.PostActionType.NONE) return PostAction.NO_OP;
+    return switch (pa.getType()) {
+      case DELETE -> PostActions.delete();
+      case ARCHIVE -> PostActions.moveTo(pa.getDestinationPrefix());
+      default -> PostAction.NO_OP;
+    };
+  }
+
+  private int resolveParallelism(FsSourceDto.Config c) {
+    if (c.getPartition() != null) return c.getPartition().getParallelism();
+    Object v = jobContext.getOtherProperties().get("zephflow.job.parallelism");
+    return v instanceof Number n ? n.intValue() : 1;
+  }
+
+  private int resolveJobIndex(FsSourceDto.Config c) {
+    if (c.getPartition() != null) return c.getPartition().getIndex();
+    Object v = jobContext.getOtherProperties().get("zephflow.job.index");
+    return v instanceof Number n ? n.intValue() : 0;
   }
 }
