@@ -17,12 +17,14 @@ import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.lib.commands.fssource.api.FileLister;
 import io.fleak.zephflow.lib.commands.fssource.api.FileReader;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackend;
+import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointStore;
 import java.io.IOException;
 
 public final class FsSourceExecutionContext implements ExecutionContext {
 
   FsBackend backend;
+  FsBackendConfig backendConfig;
   FileLister lister;
   FileReader reader;
   CheckpointStore checkpointStore;

@@ -65,6 +65,7 @@ dependencies {
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.gcloud
+  testImplementation libs.testcontainers.localstack
 
   antlr libs.antlr4
 }

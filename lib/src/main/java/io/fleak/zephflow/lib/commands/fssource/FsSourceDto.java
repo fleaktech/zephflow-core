@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -69,6 +70,13 @@ public interface FsSourceDto {
 
     private PartitionConfig partition;
     private CheckpointOverride checkpoint;
+
+    /**
+     * Optional. Backend-specific configuration map (e.g. region, s3EndpointOverride, credentialId
+     * for S3; serviceAccountJson for GCS). Deserialized per-backend in
+     * FsSourceCommand.buildBackendConfig.
+     */
+    private Map<String, Object> backendConfig;
 
     @Builder.Default private long commitBatchSize = 100;
     @Builder.Default private long commitIntervalMs = 5_000;

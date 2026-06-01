@@ -11,12 +11,9 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.fssource.api;
+package io.fleak.zephflow.lib.commands.fssource.backend.s3;
 
-/** Runs after a file is fully emitted AND committed. May throw to fail the loop. */
-public interface PostAction {
+import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 
-  void run(FileEntry file, FsBackend backend, FsBackendConfig backendConfig) throws Exception;
-
-  PostAction NO_OP = (file, backend, cfg) -> {};
-}
+public record S3BackendConfig(String region, String credentialId, String s3EndpointOverride)
+    implements FsBackendConfig {}

@@ -17,6 +17,7 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
+import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.*;
 import io.fleak.zephflow.lib.commands.fssource.emission.*;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
@@ -60,6 +61,7 @@ public final class FsSourceCommand extends SourceCommand {
     FsSourceExecutionContext ec = new FsSourceExecutionContext();
     ec.backend = FsBackendRegistry.get(c.getBackend());
     FsBackendConfig bc = buildBackendConfig(c);
+    ec.backendConfig = bc;
     ec.lister = ec.backend.createLister(bc);
     ec.reader = ec.backend.createReader(bc);
     ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc);
@@ -67,13 +69,21 @@ public final class FsSourceCommand extends SourceCommand {
   }
 
   private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c) {
-    // v1: only local FS is wired here; cloud backends extend this switch in their tasks.
     return switch (c.getBackend()) {
       case "file" -> new LocalFsBackendConfig(c.getRoot());
+      case "s3" -> s3BackendConfig(c.getBackendConfig());
       default ->
           throw new IllegalStateException(
               "Backend " + c.getBackend() + " not wired in FsSourceCommand v1; see Tasks 22-23");
     };
+  }
+
+  private static S3BackendConfig s3BackendConfig(java.util.Map<String, Object> map) {
+    if (map == null) map = java.util.Map.of();
+    String region = (String) map.getOrDefault("region", "us-east-1");
+    String credentialId = (String) map.get("credentialId");
+    String endpoint = (String) map.get("s3EndpointOverride");
+    return new S3BackendConfig(region, credentialId, endpoint);
   }
 
   private static CheckpointStore buildCheckpointStore(
@@ -100,6 +110,7 @@ public final class FsSourceCommand extends SourceCommand {
   private static FsBackendConfig buildBackendConfigForCheckpoint(String backend, String root) {
     return switch (backend) {
       case "file" -> new LocalFsBackendConfig(root);
+      case "s3" -> new S3BackendConfig("us-east-1", null, null);
       default ->
           throw new IllegalStateException(
               "Checkpoint backend " + backend + " not wired in v1; see Tasks 22-23");
@@ -165,7 +176,7 @@ public final class FsSourceCommand extends SourceCommand {
           checkpoint = checkpoint.withWatermark(t, retained);
         }
         ec.checkpointStore.save(checkpointKey, checkpoint);
-        postAction.run(f, ec.backend);
+        postAction.run(f, ec.backend, ec.backendConfig);
         emittedThisPass++;
       }
 
