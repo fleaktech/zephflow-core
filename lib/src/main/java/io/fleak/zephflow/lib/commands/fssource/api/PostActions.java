@@ -13,6 +13,11 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
+import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
+import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import java.nio.file.Files;
@@ -50,6 +55,15 @@ public final class PostActions {
           try (S3Client c = S3Backend.client(sc)) {
             c.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(objectKey).build());
           }
+        }
+        case "gs" -> {
+          GcsBackendConfig gc = (GcsBackendConfig) cfg;
+          String stripped = file.key().urn().substring("gs://".length());
+          int slash = stripped.indexOf('/');
+          String bucket = stripped.substring(0, slash);
+          String objectKey = stripped.substring(slash + 1);
+          Storage gcsClient = GcsBackend.client(gc);
+          gcsClient.delete(BlobId.of(bucket, objectKey));
         }
         default ->
             throw new UnsupportedOperationException(
@@ -102,6 +116,33 @@ public final class PostActions {
                     .build());
             c.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(srcKey).build());
           }
+        }
+        case "gs" -> {
+          GcsBackendConfig gc = (GcsBackendConfig) cfg;
+          String stripped = file.key().urn().substring("gs://".length());
+          int slash = stripped.indexOf('/');
+          String bucket = stripped.substring(0, slash);
+          String srcKey = stripped.substring(slash + 1);
+          String filename =
+              srcKey.contains("/") ? srcKey.substring(srcKey.lastIndexOf('/') + 1) : srcKey;
+          // destinationPrefix is expected as "gs://bucket/prefix"
+          String destStripped =
+              destinationPrefix.startsWith("gs://")
+                  ? destinationPrefix.substring("gs://".length())
+                  : destinationPrefix;
+          int destSlash = destStripped.indexOf('/');
+          String destBucket = destSlash < 0 ? destStripped : destStripped.substring(0, destSlash);
+          String destPrefix = destSlash < 0 ? "" : destStripped.substring(destSlash + 1);
+          String destKey =
+              destPrefix.endsWith("/") ? destPrefix + filename : destPrefix + "/" + filename;
+          Storage gcsClient = GcsBackend.client(gc);
+          Storage.CopyRequest copyReq =
+              Storage.CopyRequest.newBuilder()
+                  .setSource(BlobId.of(bucket, srcKey))
+                  .setTarget(BlobInfo.newBuilder(BlobId.of(destBucket, destKey)).build())
+                  .build();
+          gcsClient.copy(copyReq);
+          gcsClient.delete(BlobId.of(bucket, srcKey));
         }
         default ->
             throw new UnsupportedOperationException(

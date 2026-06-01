@@ -32,6 +32,7 @@ import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.fssource.FsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
+import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
@@ -68,6 +69,7 @@ public interface OperatorCommandRegistry {
   static Map<String, CommandFactory> _initBackends() {
     FsBackendRegistry.register(new LocalFsBackend());
     FsBackendRegistry.register(new S3Backend());
+    FsBackendRegistry.register(new GcsBackend());
     return ImmutableMap.<String, CommandFactory>builder()
         .put(COMMAND_NAME_NOOP, new NoopCommandFactory())
         .put(COMMAND_NAME_SQL_EVAL, new SqlCommandFactory())

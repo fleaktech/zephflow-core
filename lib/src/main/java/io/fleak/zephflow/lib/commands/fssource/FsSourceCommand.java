@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
+import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.*;
@@ -72,9 +73,10 @@ public final class FsSourceCommand extends SourceCommand {
     return switch (c.getBackend()) {
       case "file" -> new LocalFsBackendConfig(c.getRoot());
       case "s3" -> s3BackendConfig(c.getBackendConfig());
+      case "gs" -> gcsBackendConfig(c.getBackendConfig());
       default ->
           throw new IllegalStateException(
-              "Backend " + c.getBackend() + " not wired in FsSourceCommand v1; see Tasks 22-23");
+              "Backend " + c.getBackend() + " not wired in FsSourceCommand v1; see Tasks 22-24");
     };
   }
 
@@ -84,6 +86,12 @@ public final class FsSourceCommand extends SourceCommand {
     String credentialId = (String) map.get("credentialId");
     String endpoint = (String) map.get("s3EndpointOverride");
     return new S3BackendConfig(region, credentialId, endpoint);
+  }
+
+  private static GcsBackendConfig gcsBackendConfig(java.util.Map<String, Object> map) {
+    if (map == null) map = java.util.Map.of();
+    String serviceAccountJson = (String) map.get("serviceAccountJson");
+    return new GcsBackendConfig(serviceAccountJson);
   }
 
   private static CheckpointStore buildCheckpointStore(
@@ -111,9 +119,10 @@ public final class FsSourceCommand extends SourceCommand {
     return switch (backend) {
       case "file" -> new LocalFsBackendConfig(root);
       case "s3" -> new S3BackendConfig("us-east-1", null, null);
+      case "gs" -> new GcsBackendConfig(null);
       default ->
           throw new IllegalStateException(
-              "Checkpoint backend " + backend + " not wired in v1; see Tasks 22-23");
+              "Checkpoint backend " + backend + " not wired in v1; see Tasks 22-24");
     };
   }
 

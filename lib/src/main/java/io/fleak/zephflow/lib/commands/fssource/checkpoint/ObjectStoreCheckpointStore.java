@@ -13,7 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
+import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
+import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
@@ -85,6 +90,16 @@ public final class ObjectStoreCheckpointStore implements CheckpointStore {
             PutObjectRequest.builder().bucket(bucket).key(key).build(),
             RequestBody.fromBytes(bytes));
       }
+      return;
+    }
+    if ("gs".equals(backend.scheme())) {
+      GcsBackendConfig gc = (GcsBackendConfig) cfg;
+      String stripped = urn.substring("gs://".length());
+      int slash = stripped.indexOf('/');
+      String bucket = stripped.substring(0, slash);
+      String key = stripped.substring(slash + 1);
+      Storage gcsClient = GcsBackend.client(gc);
+      gcsClient.create(BlobInfo.newBuilder(BlobId.of(bucket, key)).build(), bytes);
       return;
     }
     if (!"file".equals(backend.scheme())) {
