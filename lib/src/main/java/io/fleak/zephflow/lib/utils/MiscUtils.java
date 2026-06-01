@@ -109,6 +109,7 @@ public interface MiscUtils {
   String COMMAND_NAME_AZURE_BLOB_SINK = "azureblobsink";
   String COMMAND_NAME_PUBSUB_SOURCE = "pubsubsource";
   String COMMAND_NAME_PUBSUB_SINK = "pubsubsink";
+  String COMMAND_NAME_OKTA_SOURCE = "oktasource";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";

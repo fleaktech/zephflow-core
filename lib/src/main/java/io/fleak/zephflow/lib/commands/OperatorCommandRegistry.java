@@ -41,6 +41,7 @@ import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesissource.KinesisSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.ldapsource.LdapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
+import io.fleak.zephflow.lib.commands.oktasource.OktaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsink.PubSubSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsource.PubSubSourceCommandFactory;
@@ -100,5 +101,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())
           .put(COMMAND_NAME_PUBSUB_SOURCE, new PubSubSourceCommandFactory())
           .put(COMMAND_NAME_PUBSUB_SINK, new PubSubSinkCommandFactory())
+          .put(COMMAND_NAME_OKTA_SOURCE, new OktaSourceCommandFactory())
           .build();
 }
