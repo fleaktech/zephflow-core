@@ -14,31 +14,32 @@
 package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 
-public record FsCheckpoint(int version, Instant watermark, Set<String> completedSinceWatermark) {
+public record FsCheckpoint(
+    int version, Instant watermark, Map<String, Instant> completedSinceWatermark) {
 
   public FsCheckpoint {
-    completedSinceWatermark = Set.copyOf(completedSinceWatermark);
+    completedSinceWatermark = Map.copyOf(completedSinceWatermark);
   }
 
   public static FsCheckpoint empty() {
-    return new FsCheckpoint(1, Instant.EPOCH, Collections.emptySet());
+    return new FsCheckpoint(1, Instant.EPOCH, Map.of());
   }
 
-  public FsCheckpoint withCompleted(String urn) {
-    Set<String> next = new HashSet<>(completedSinceWatermark);
-    next.add(urn);
-    return new FsCheckpoint(version, watermark, next);
+  public boolean isCompleted(String urn) {
+    return completedSinceWatermark.containsKey(urn);
   }
 
-  /**
-   * Advance watermark to {@code newWatermark} and drop any completed entries strictly below it. The
-   * pruning by-timestamp is performed by the caller, which holds the ts->urn mapping.
-   */
-  public FsCheckpoint withWatermark(Instant newWatermark, Set<String> retainedCompleted) {
-    return new FsCheckpoint(version, newWatermark, retainedCompleted);
+  public FsCheckpoint withEmitted(String urn, Instant ts) {
+    Instant newWatermark = ts.isAfter(watermark) ? ts : watermark;
+    Map<String, Instant> next = new HashMap<>();
+    completedSinceWatermark.forEach(
+        (u, t) -> {
+          if (!t.isBefore(newWatermark)) next.put(u, t);
+        });
+    next.put(urn, ts);
+    return new FsCheckpoint(version, newWatermark, next);
   }
 }

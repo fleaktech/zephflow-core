@@ -71,7 +71,9 @@ public final class GcsLister implements FileLister {
     return new FileEntry(
         key,
         b.getSize() == null ? 0 : b.getSize(),
-        b.getUpdateTimeOffsetDateTime().toInstant(),
+        b.getUpdateTimeOffsetDateTime() == null
+            ? Instant.EPOCH
+            : b.getUpdateTimeOffsetDateTime().toInstant(),
         key.urn());
   }
 }

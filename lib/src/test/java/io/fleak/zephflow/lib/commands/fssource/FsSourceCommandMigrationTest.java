@@ -61,7 +61,6 @@ class FsSourceCommandMigrationTest {
     List<RecordFleakData> firstRun = run(rawCfg);
     assertEquals(5, firstRun.size());
 
-    // Add no new files; rerun. Expect zero emissions.
     List<RecordFleakData> secondRun = run(rawCfg);
     assertEquals(0, secondRun.size(), "should not re-emit on restart");
   }

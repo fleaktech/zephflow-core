@@ -15,16 +15,10 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 
 import java.util.stream.Stream;
 
-/**
- * Per-backend listing + stat. Implementations MUST return a lazy stream that paginates under the
- * hood — the framework relies on this to avoid materializing entire buckets/directories.
- */
 public interface FileLister extends AutoCloseable {
 
-  /** Lazy, paginated iteration over all matching files under the given root. */
   Stream<FileEntry> list(ListRequest req);
 
-  /** Re-stat a single file. Used by StabilityProbe. */
   FileEntry stat(FileKey key);
 
   @Override

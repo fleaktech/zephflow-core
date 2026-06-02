@@ -16,7 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Instant;
-import java.util.Set;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GenerationMigratorTest {
@@ -24,28 +24,18 @@ class GenerationMigratorTest {
   @Test
   void seedsFromPriorGenerationFilteredToOwnSlice() {
     InMemoryCheckpointStore store = new InMemoryCheckpointStore();
-    // Old N=3 shards: completed = {urn-0, urn-1, urn-2, urn-3, urn-4, urn-5}.
-    // (Distribution among 3 shards doesn't matter for migration — we union them.)
-    store.save(
-        "src/3/0.json",
-        new FsCheckpoint(1, Instant.parse("2026-01-01T00:00:00Z"), Set.of("urn-0", "urn-3")));
-    store.save(
-        "src/3/1.json",
-        new FsCheckpoint(1, Instant.parse("2026-01-01T00:00:00Z"), Set.of("urn-1", "urn-4")));
-    store.save(
-        "src/3/2.json",
-        new FsCheckpoint(1, Instant.parse("2026-01-02T00:00:00Z"), Set.of("urn-2", "urn-5")));
+    Instant t1 = Instant.parse("2026-01-01T00:00:00Z");
+    Instant t2 = Instant.parse("2026-01-02T00:00:00Z");
+    store.save("src/3/0.json", new FsCheckpoint(1, t1, Map.of("urn-0", t1, "urn-3", t1)));
+    store.save("src/3/1.json", new FsCheckpoint(1, t1, Map.of("urn-1", t1, "urn-4", t1)));
+    store.save("src/3/2.json", new FsCheckpoint(1, t2, Map.of("urn-2", t2, "urn-5", t2)));
 
-    // Migrate to N=2, jobIndex=0.
     FsCheckpoint seeded = GenerationMigrator.maybeSeed(store, "src", 2, 0);
     assertNotNull(seeded);
-    // min watermark across shards:
     assertEquals(Instant.parse("2026-01-01T00:00:00Z"), seeded.watermark());
-    // completed set: only entries where Partitioner.assignedJob(urn, 2) == 0
-    for (String urn : seeded.completedSinceWatermark()) {
+    for (String urn : seeded.completedSinceWatermark().keySet()) {
       assertEquals(0, io.fleak.zephflow.lib.commands.fssource.util.Partitioner.assignedJob(urn, 2));
     }
-    // Seeded key persisted.
     assertTrue(store.load("src/2/0.json").isPresent());
   }
 
@@ -58,7 +48,11 @@ class GenerationMigratorTest {
   @Test
   void noopIfSameGenerationAlreadyExists() {
     InMemoryCheckpointStore store = new InMemoryCheckpointStore();
-    FsCheckpoint existing = new FsCheckpoint(1, Instant.parse("2026-02-01T00:00:00Z"), Set.of("x"));
+    FsCheckpoint existing =
+        new FsCheckpoint(
+            1,
+            Instant.parse("2026-02-01T00:00:00Z"),
+            Map.of("x", Instant.parse("2026-02-01T00:00:00Z")));
     store.save("src/2/0.json", existing);
     FsCheckpoint result = GenerationMigrator.maybeSeed(store, "src", 2, 0);
     assertEquals(existing, result);

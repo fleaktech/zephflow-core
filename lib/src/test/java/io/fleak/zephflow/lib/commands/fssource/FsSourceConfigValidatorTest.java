@@ -65,7 +65,6 @@ class FsSourceConfigValidatorTest {
     FsSourceDto.Config c = cfg();
     c.setMode(FsSourceDto.Mode.BOUNDED);
     c.setListingIntervalMs(1000);
-    // bounded + listingInterval is allowed (ignored), so this should NOT throw
     new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build());
   }
 }

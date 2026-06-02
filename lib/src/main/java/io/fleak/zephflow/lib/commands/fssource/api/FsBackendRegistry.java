@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Static, mutable registry. v1 backends register themselves via a static initializer. */
 public final class FsBackendRegistry {
 
   private static final ConcurrentMap<String, FsBackend> BACKENDS = new ConcurrentHashMap<>();
@@ -38,7 +37,6 @@ public final class FsBackendRegistry {
     return b;
   }
 
-  /** Test-only. */
   public static void unregister(String scheme) {
     BACKENDS.remove(scheme);
   }

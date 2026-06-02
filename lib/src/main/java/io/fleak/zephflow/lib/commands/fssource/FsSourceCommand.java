@@ -74,9 +74,7 @@ public final class FsSourceCommand extends SourceCommand {
       case "file" -> new LocalFsBackendConfig(c.getRoot());
       case "s3" -> s3BackendConfig(c.getBackendConfig());
       case "gs" -> gcsBackendConfig(c.getBackendConfig());
-      default ->
-          throw new IllegalStateException(
-              "Backend " + c.getBackend() + " not wired in FsSourceCommand v1; see Tasks 22-24");
+      default -> throw new IllegalArgumentException("Unsupported backend: " + c.getBackend());
     };
   }
 
@@ -103,7 +101,7 @@ public final class FsSourceCommand extends SourceCommand {
       cpBackend = FsBackendRegistry.get(c.getCheckpoint().getBackend());
       cpCfg =
           buildBackendConfigForCheckpoint(
-              c.getCheckpoint().getBackend(), c.getCheckpoint().getRoot());
+              c.getCheckpoint().getBackend(), c.getCheckpoint().getRoot(), c.getBackendConfig());
       prefixRoot = c.getCheckpoint().getRoot();
     } else {
       cpBackend = sourceBackend;
@@ -115,14 +113,13 @@ public final class FsSourceCommand extends SourceCommand {
     return new ObjectStoreCheckpointStore(cpBackend, cpCfg, prefix);
   }
 
-  private static FsBackendConfig buildBackendConfigForCheckpoint(String backend, String root) {
+  private static FsBackendConfig buildBackendConfigForCheckpoint(
+      String backend, String root, java.util.Map<String, Object> sourceBackendConfig) {
     return switch (backend) {
       case "file" -> new LocalFsBackendConfig(root);
-      case "s3" -> new S3BackendConfig("us-east-1", null, null);
-      case "gs" -> new GcsBackendConfig(null);
-      default ->
-          throw new IllegalStateException(
-              "Checkpoint backend " + backend + " not wired in v1; see Tasks 22-24");
+      case "s3" -> s3BackendConfig(sourceBackendConfig);
+      case "gs" -> gcsBackendConfig(sourceBackendConfig);
+      default -> throw new IllegalArgumentException("Unsupported checkpoint backend: " + backend);
     };
   }
 
@@ -154,58 +151,52 @@ public final class FsSourceCommand extends SourceCommand {
 
     boolean bounded = c.getMode() == FsSourceDto.Mode.BOUNDED;
     long backoffMs = 100;
-    long backoffCapMs = 30_000;
+    long backoffCapMs = Math.max(100, c.getListingIntervalMs());
 
     while (!terminated) {
       ListRequest req = new ListRequest(c.getRoot(), regex);
-      List<FileEntry> todo = new ArrayList<>();
+      List<Pending> todo = new ArrayList<>();
       try (var stream = ec.lister.list(req)) {
         stream
             .filter(f -> Partitioner.assignedJob(f.key().urn(), parallelism) == jobIndex)
-            .filter(f -> tsFromName(f, regex).compareTo(checkpoint.watermark()) >= 0)
-            .filter(f -> !checkpoint.completedSinceWatermark().contains(f.key().urn()))
-            .sorted(
-                Comparator.comparing((FileEntry f) -> tsFromName(f, regex))
-                    .thenComparing(f -> f.key().urn()))
+            .map(f -> new Pending(f, tsFromName(f, regex)))
+            .filter(p -> p.ts().compareTo(checkpoint.watermark()) >= 0)
+            .filter(p -> !checkpoint.isCompleted(p.entry().key().urn()))
+            .sorted(Comparator.comparing(Pending::ts).thenComparing(p -> p.entry().key().urn()))
             .forEach(todo::add);
       }
 
       int emittedThisPass = 0;
-      for (FileEntry f : todo) {
+      for (Pending p : todo) {
+        FileEntry f = p.entry();
         if (!probe.isStable(f, ec.lister)) continue;
         emission.emit(f, ec.reader, out, jobContext);
-        Instant t = tsFromName(f, regex);
-        checkpoint = checkpoint.withCompleted(f.key().urn());
-        if (t.isAfter(checkpoint.watermark())) {
-          Set<String> retained = new HashSet<>();
-          for (String urn : checkpoint.completedSinceWatermark()) {
-            if (!urn.equals(f.key().urn())) retained.add(urn);
-          }
-          retained.add(f.key().urn());
-          checkpoint = checkpoint.withWatermark(t, retained);
-        }
+        checkpoint = checkpoint.withEmitted(f.key().urn(), p.ts());
         ec.checkpointStore.save(checkpointKey, checkpoint);
         postAction.run(f, ec.backend, ec.backendConfig);
         emittedThisPass++;
       }
 
-      if (bounded && emittedThisPass == 0 && todo.isEmpty()) {
-        out.terminate();
-        return;
+      if (bounded) {
+        if (emittedThisPass == 0 && todo.isEmpty()) {
+          out.terminate();
+          return;
+        }
+        Thread.sleep(c.getListingIntervalMs());
+        continue;
       }
-      if (!bounded && emittedThisPass == 0) {
+      if (emittedThisPass == 0) {
         Thread.sleep(Math.min(backoffMs, backoffCapMs));
         backoffMs = Math.min(backoffMs * 2, backoffCapMs);
       } else {
         backoffMs = 100;
+        Thread.sleep(c.getListingIntervalMs());
       }
-      if (bounded) continue; // next pass will see no new files and exit above
-      // Unbounded: respect listing interval before re-listing.
-      Thread.sleep(c.getListingIntervalMs());
     }
-    // Loop exited via terminate flag (unbounded mode).
     out.terminate();
   }
+
+  private record Pending(FileEntry entry, Instant ts) {}
 
   @Override
   public void terminate() throws java.io.IOException {

@@ -30,7 +30,6 @@ public final class S3Lister implements FileLister {
 
   @Override
   public Stream<FileEntry> list(ListRequest req) {
-    // Parse "s3://bucket/prefix/" from req.root().
     String urn = req.root();
     String stripped = urn.substring("s3://".length());
     int slash = stripped.indexOf('/');
@@ -64,7 +63,6 @@ public final class S3Lister implements FileLister {
 
   @Override
   public FileEntry stat(FileKey key) {
-    // s3://bucket/key
     String stripped = key.urn().substring("s3://".length());
     int slash = stripped.indexOf('/');
     String bucket = stripped.substring(0, slash);

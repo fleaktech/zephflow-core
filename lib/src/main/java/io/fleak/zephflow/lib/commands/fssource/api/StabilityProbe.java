@@ -13,14 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
-/**
- * Returns true if a file is safe to emit. Default behavior (SizeStableProbe) compares (size,
- * lastModified) across two probes separated by {@code probeDelay}.
- */
 public interface StabilityProbe {
 
   boolean isStable(FileEntry file, FileLister lister);
 
-  /** Always-stable probe used when stability is disabled. */
   StabilityProbe ALWAYS_STABLE = (file, lister) -> true;
 }

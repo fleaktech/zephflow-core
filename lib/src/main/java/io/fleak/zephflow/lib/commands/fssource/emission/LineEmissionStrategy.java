@@ -28,7 +28,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Emits one {@code RecordFleakData} per line. Bounded memory: O(batchSize × maxLineLen). */
 public final class LineEmissionStrategy implements EmissionStrategy {
 
   private final Charset charset;

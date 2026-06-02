@@ -13,5 +13,4 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
-/** Typed per-backend config (e.g. S3BackendConfig, GcsBackendConfig, LocalFsBackendConfig). */
 public interface FsBackendConfig {}

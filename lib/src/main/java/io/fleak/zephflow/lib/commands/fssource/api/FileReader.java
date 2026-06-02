@@ -15,11 +15,6 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 
 import java.io.InputStream;
 
-/**
- * Per-backend streaming reader. The returned InputStream is the caller's responsibility to close.
- * {@code offset > 0} means range-read starting at that byte; backends MAY ignore it if they do not
- * advertise FsBackend.Capability#RANGE_READ.
- */
 public interface FileReader extends AutoCloseable {
 
   InputStream open(FileKey key, long offset);

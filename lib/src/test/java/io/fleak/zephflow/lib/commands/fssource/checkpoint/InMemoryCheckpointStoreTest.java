@@ -16,7 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Instant;
-import java.util.Set;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class InMemoryCheckpointStoreTest {
@@ -30,7 +30,11 @@ class InMemoryCheckpointStoreTest {
   @Test
   void saveThenLoad() {
     InMemoryCheckpointStore s = new InMemoryCheckpointStore();
-    FsCheckpoint cp = new FsCheckpoint(1, Instant.parse("2026-01-01T00:00:00Z"), Set.of("u1"));
+    FsCheckpoint cp =
+        new FsCheckpoint(
+            1,
+            Instant.parse("2026-01-01T00:00:00Z"),
+            Map.of("u1", Instant.parse("2026-01-01T00:00:00Z")));
     s.save("abc/3/0.json", cp);
     assertEquals(cp, s.load("abc/3/0.json").orElseThrow());
   }

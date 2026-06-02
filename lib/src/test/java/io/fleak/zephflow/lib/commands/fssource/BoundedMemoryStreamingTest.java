@@ -46,8 +46,8 @@ class BoundedMemoryStreamingTest {
   @Test
   void streams2GbFileWithoutOom(@TempDir Path tmp) throws Exception {
     Path file = tmp.resolve("evt_1.log");
-    long targetBytes = 2L * 1024 * 1024 * 1024; // 2 GB
-    String line = "x".repeat(1000); // ~1000 bytes per line
+    long targetBytes = 2L * 1024 * 1024 * 1024;
+    String line = "x".repeat(1000);
     long expectedLines = targetBytes / (line.length() + 1);
     try (BufferedWriter w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
       for (long i = 0; i < expectedLines; i++) {

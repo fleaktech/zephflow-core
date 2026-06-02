@@ -20,7 +20,7 @@ import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Set;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,7 +33,8 @@ class ObjectStoreCheckpointStoreTest {
     String prefix = tmp.toUri() + "_cp/";
     ObjectStoreCheckpointStore store = new ObjectStoreCheckpointStore(backend, cfg, prefix);
 
-    FsCheckpoint cp = new FsCheckpoint(1, Instant.parse("2026-01-01T00:00:00Z"), Set.of("a", "b"));
+    Instant ts = Instant.parse("2026-01-01T00:00:00Z");
+    FsCheckpoint cp = new FsCheckpoint(1, ts, Map.of("a", ts, "b", ts));
     store.save("abc/3/0.json", cp);
 
     FsCheckpoint loaded = store.load("abc/3/0.json").orElseThrow();

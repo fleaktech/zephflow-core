@@ -13,21 +13,19 @@
  */
 package io.fleak.zephflow.lib.commands.fssource;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
 public final class FsSourceConfigParser implements ConfigParser {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
-
   @Override
   public CommandConfig parseConfig(Map<String, Object> rawConfig) {
     Map<String, Object> filtered = new HashMap<>(rawConfig);
     filtered.values().removeIf(Objects::isNull);
-    return MAPPER.convertValue(filtered, FsSourceDto.Config.class);
+    return JsonUtils.OBJECT_MAPPER.convertValue(filtered, FsSourceDto.Config.class);
   }
 }

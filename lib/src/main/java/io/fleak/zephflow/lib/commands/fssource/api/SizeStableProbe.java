@@ -18,10 +18,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Default stability probe. Sees a file twice — if size and lastModified are unchanged, it is
- * stable.
- */
 public final class SizeStableProbe implements StabilityProbe {
 
   private final Duration probeDelay;

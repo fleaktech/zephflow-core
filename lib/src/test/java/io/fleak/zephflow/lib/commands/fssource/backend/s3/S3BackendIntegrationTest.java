@@ -79,7 +79,6 @@ class S3BackendIntegrationTest {
   @AfterEach
   void teardownBucket() {
     try (S3Client c = s3()) {
-      // Delete all objects first
       try {
         var objects = c.listObjectsV2(ListObjectsV2Request.builder().bucket("test-bkt").build());
         for (var obj : objects.contents()) {

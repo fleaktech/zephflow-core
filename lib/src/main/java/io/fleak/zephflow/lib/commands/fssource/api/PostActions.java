@@ -28,7 +28,6 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 
-/** Built-in {@link PostAction} factories. */
 public final class PostActions {
 
   private PostActions() {}
@@ -37,7 +36,6 @@ public final class PostActions {
     return PostAction.NO_OP;
   }
 
-  /** Delete via the backend. Throws if the backend does not advertise DELETE. */
   public static PostAction delete() {
     return (file, backend, cfg) -> {
       if (!backend.capabilities().contains(FsBackend.Capability.DELETE)) {
@@ -67,12 +65,11 @@ public final class PostActions {
         }
         default ->
             throw new UnsupportedOperationException(
-                "Delete not implemented for backend " + file.key().backend() + " in v1");
+                "Delete not implemented for backend " + file.key().backend());
       }
     };
   }
 
-  /** Move to a sibling prefix. Behavior depends on backend; local FS and S3 are implemented. */
   public static PostAction moveTo(String destinationPrefix) {
     return (file, backend, cfg) -> {
       if (!backend.capabilities().contains(FsBackend.Capability.MOVE)) {
@@ -96,7 +93,6 @@ public final class PostActions {
           String srcKey = stripped.substring(slash + 1);
           String filename =
               srcKey.contains("/") ? srcKey.substring(srcKey.lastIndexOf('/') + 1) : srcKey;
-          // destinationPrefix is expected as "s3://bucket/prefix"
           String destStripped =
               destinationPrefix.startsWith("s3://")
                   ? destinationPrefix.substring("s3://".length())
@@ -125,7 +121,6 @@ public final class PostActions {
           String srcKey = stripped.substring(slash + 1);
           String filename =
               srcKey.contains("/") ? srcKey.substring(srcKey.lastIndexOf('/') + 1) : srcKey;
-          // destinationPrefix is expected as "gs://bucket/prefix"
           String destStripped =
               destinationPrefix.startsWith("gs://")
                   ? destinationPrefix.substring("gs://".length())
@@ -146,7 +141,7 @@ public final class PostActions {
         }
         default ->
             throw new UnsupportedOperationException(
-                "MoveTo not implemented for backend " + file.key().backend() + " in v1");
+                "MoveTo not implemented for backend " + file.key().backend());
       }
     };
   }

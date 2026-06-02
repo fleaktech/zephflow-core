@@ -50,9 +50,6 @@ public final class S3Backend implements FsBackend {
       b.endpointOverride(URI.create(cfg.s3EndpointOverride()));
       b.forcePathStyle(true);
     }
-    // Credentials resolved via credentialId here; v1 uses default provider chain. Wire
-    // existing credentials infrastructure (see io.fleak.zephflow.lib.credentials) for
-    // accessKeyId/secretAccessKey lookup. Fall back to the SDK default chain otherwise.
     return b.build();
   }
 }

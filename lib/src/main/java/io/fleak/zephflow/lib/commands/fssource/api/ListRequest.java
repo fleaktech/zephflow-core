@@ -15,8 +15,4 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 
 import java.util.regex.Pattern;
 
-/**
- * Inputs to {@link FileLister#list}. {@code regex}, if non-null, is applied client-side to
- * filenames.
- */
 public record ListRequest(String root, Pattern fileNameRegex) {}

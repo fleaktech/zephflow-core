@@ -32,7 +32,6 @@ public final class FsSourceConfigValidator implements ConfigValidator {
     if (c.getRoot() == null || c.getRoot().isBlank()) {
       throw new IllegalArgumentException("root is required");
     }
-    // Don't require the backend to be registered at validate time (helps testing).
     if (c.getFileNameRegex() != null && !c.getFileNameRegex().isBlank()) {
       try {
         Pattern.compile(c.getFileNameRegex());

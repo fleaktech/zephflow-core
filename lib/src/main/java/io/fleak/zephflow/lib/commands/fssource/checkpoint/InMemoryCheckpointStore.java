@@ -22,7 +22,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/** Test/dev checkpoint store. Not durable. Thread-safe via concurrent map. */
 public final class InMemoryCheckpointStore implements CheckpointStore {
 
   private final ConcurrentMap<String, FsCheckpoint> store = new ConcurrentHashMap<>();

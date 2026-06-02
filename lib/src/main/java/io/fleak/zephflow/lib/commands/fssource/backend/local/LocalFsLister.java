@@ -49,7 +49,6 @@ public final class LocalFsLister implements FileLister {
     return toEntry(p);
   }
 
-  /** Accept both plain paths (/abs/path) and file:// URIs (file:///abs/path). */
   private static Path toPath(String root) {
     if (root.startsWith("file:")) {
       return Paths.get(java.net.URI.create(root));

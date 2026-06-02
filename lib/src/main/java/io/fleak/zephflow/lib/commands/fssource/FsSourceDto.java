@@ -46,16 +46,10 @@ public interface FsSourceDto {
   @AllArgsConstructor
   @JsonIgnoreProperties(ignoreUnknown = true)
   class Config implements CommandConfig {
-    /** Required. "file" | "s3" | "gs". */
     private String backend;
 
-    /** Required. Root URN ("file:///abs/path/", "s3://bucket/prefix/", "gs://bucket/prefix/"). */
     private String root;
 
-    /**
-     * Optional. Regex applied to filename. Named group {@code (?<ts>\d+)} enables timestamp
-     * ordering.
-     */
     private String fileNameRegex;
 
     @Builder.Default private Emission emission = Emission.builder().type(EmissionType.LINE).build();
@@ -71,15 +65,7 @@ public interface FsSourceDto {
     private PartitionConfig partition;
     private CheckpointOverride checkpoint;
 
-    /**
-     * Optional. Backend-specific configuration map (e.g. region, s3EndpointOverride, credentialId
-     * for S3; serviceAccountJson for GCS). Deserialized per-backend in
-     * FsSourceCommand.buildBackendConfig.
-     */
     private Map<String, Object> backendConfig;
-
-    @Builder.Default private long commitBatchSize = 100;
-    @Builder.Default private long commitIntervalMs = 5_000;
   }
 
   @Data
@@ -108,7 +94,6 @@ public interface FsSourceDto {
   class PostActionConfig {
     private PostActionType type;
 
-    /** For ARCHIVE: destination URN prefix. */
     private String destinationPrefix;
   }
 

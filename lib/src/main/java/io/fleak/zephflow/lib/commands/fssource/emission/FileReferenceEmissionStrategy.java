@@ -24,9 +24,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Emits one event per file containing only metadata. Reader stream is NEVER opened. O(1) per file.
- */
 public final class FileReferenceEmissionStrategy implements EmissionStrategy {
 
   @Override

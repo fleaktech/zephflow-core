@@ -15,5 +15,4 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 
 import java.time.Instant;
 
-/** Metadata about a single file produced by {@link FileLister}. */
 public record FileEntry(FileKey key, long size, Instant lastModified, String displayPath) {}

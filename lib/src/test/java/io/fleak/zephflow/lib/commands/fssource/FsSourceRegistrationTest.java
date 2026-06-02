@@ -24,9 +24,7 @@ class FsSourceRegistrationTest {
 
   @BeforeEach
   void ensureLocalBackendRegistered() {
-    // First ensure OperatorCommandRegistry is initialized (idempotent - only happens once)
     OperatorCommandRegistry.OPERATOR_COMMANDS.size();
-    // Re-register LocalFsBackend if it was unregistered by another test
     try {
       FsBackendRegistry.get("file");
     } catch (IllegalArgumentException ignored) {
@@ -37,13 +35,11 @@ class FsSourceRegistrationTest {
 
   @Test
   void fsSourceIsRegistered() {
-    // Access OPERATOR_COMMANDS to verify it's registered
     assertNotNull(OperatorCommandRegistry.OPERATOR_COMMANDS.get("fssource"));
   }
 
   @Test
   void localFsBackendIsRegistered() {
-    // Verify the backend is registered (ensured by @BeforeEach)
     assertNotNull(FsBackendRegistry.get("file"));
   }
 }

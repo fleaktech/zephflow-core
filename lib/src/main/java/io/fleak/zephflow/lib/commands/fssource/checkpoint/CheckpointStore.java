@@ -20,17 +20,10 @@ public interface CheckpointStore extends AutoCloseable {
 
   Optional<FsCheckpoint> load(String checkpointKey);
 
-  /** Atomic single-writer PUT. Implementations MUST ensure readers never see a torn write. */
   void save(String checkpointKey, FsCheckpoint cp);
 
-  /**
-   * List the generations (parallelism values) for which any shard exists under {@code sourceId}.
-   */
   List<Integer> listGenerations(String sourceId);
 
-  /**
-   * List the shard keys ({@code <sourceId>/<generation>/<jobIndex>.json}) for a given generation.
-   */
   List<String> listShards(String sourceId, int generation);
 
   @Override

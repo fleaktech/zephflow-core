@@ -20,11 +20,6 @@ public final class SourceIdHasher {
 
   private SourceIdHasher() {}
 
-  /**
-   * Stable 16-hex-char id derived from the source-identity fields. Two configs with the same {@code
-   * (backend, root, fileNameRegex)} share a sourceId — and therefore share checkpoints. Other
-   * fields (mode, partition, emission, listingInterval, checkpoint override) do NOT participate.
-   */
   public static String compute(String backend, String root, String fileNameRegex) {
     String canonical = backend + "\n" + root + "\n" + (fileNameRegex == null ? "" : fileNameRegex);
     return Hashing.sha256()

@@ -20,7 +20,6 @@ public final class Partitioner {
 
   private Partitioner() {}
 
-  /** Deterministic, uniform partition assignment. Returns slot in [0, parallelism). */
   public static int assignedJob(String urn, int parallelism) {
     if (parallelism <= 0) {
       throw new IllegalArgumentException("parallelism must be > 0, got " + parallelism);

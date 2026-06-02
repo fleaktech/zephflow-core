@@ -15,10 +15,6 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 
 import java.util.Objects;
 
-/**
- * Stable identifier for a file across listings. {@code backend} matches the {@code
- * FsBackend.scheme()}.
- */
 public record FileKey(String backend, String urn) {
 
   public FileKey {
@@ -26,7 +22,6 @@ public record FileKey(String backend, String urn) {
     Objects.requireNonNull(urn, "urn");
   }
 
-  /** Parse a URN like {@code s3://bucket/key} or {@code file:///abs/path}. */
   public static FileKey of(String urn) {
     Objects.requireNonNull(urn, "urn");
     int idx = urn.indexOf("://");

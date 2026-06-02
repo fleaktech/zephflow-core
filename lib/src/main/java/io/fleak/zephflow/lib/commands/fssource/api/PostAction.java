@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
-/** Runs after a file is fully emitted AND committed. May throw to fail the loop. */
 public interface PostAction {
 
   void run(FileEntry file, FsBackend backend, FsBackendConfig backendConfig) throws Exception;

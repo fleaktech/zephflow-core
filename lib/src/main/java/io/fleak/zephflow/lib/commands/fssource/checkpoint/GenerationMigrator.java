@@ -16,23 +16,11 @@ package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public final class GenerationMigrator {
 
   private GenerationMigrator() {}
 
-  /**
-   * Returns the seeded checkpoint for this (sourceId, N, jobIndex), persisting it to {@code store}.
-   * Behavior:
-   *
-   * <ul>
-   *   <li>If the current shard already exists, returns it unchanged.
-   *   <li>Else, picks the newest prior generation, unions its shards' completed sets, takes
-   *       min(watermark), filters completed to this job's slice, persists, returns.
-   *   <li>Returns {@code null} if no prior generations exist.
-   * </ul>
-   */
   public static FsCheckpoint maybeSeed(
       CheckpointStore store, String sourceId, int n, int jobIndex) {
     String currentKey = sourceId + "/" + n + "/" + jobIndex + ".json";
@@ -49,18 +37,19 @@ public final class GenerationMigrator {
       List<String> shardKeys = store.listShards(sourceId, prevN);
       if (shardKeys.isEmpty()) continue;
       Instant minWatermark = Instant.MAX;
-      Set<String> mergedCompleted = new HashSet<>();
+      Map<String, Instant> mergedCompleted = new HashMap<>();
       for (String sk : shardKeys) {
         Optional<FsCheckpoint> cp = store.load(sk);
         if (cp.isEmpty()) continue;
         if (cp.get().watermark().isBefore(minWatermark)) minWatermark = cp.get().watermark();
-        mergedCompleted.addAll(cp.get().completedSinceWatermark());
+        mergedCompleted.putAll(cp.get().completedSinceWatermark());
       }
       if (minWatermark.equals(Instant.MAX)) minWatermark = Instant.EPOCH;
-      Set<String> sliceCompleted =
-          mergedCompleted.stream()
-              .filter(urn -> Partitioner.assignedJob(urn, n) == jobIndex)
-              .collect(Collectors.toSet());
+      Map<String, Instant> sliceCompleted = new HashMap<>();
+      mergedCompleted.forEach(
+          (urn, ts) -> {
+            if (Partitioner.assignedJob(urn, n) == jobIndex) sliceCompleted.put(urn, ts);
+          });
       FsCheckpoint seeded = new FsCheckpoint(1, minWatermark, sliceCompleted);
       store.save(currentKey, seeded);
       return seeded;

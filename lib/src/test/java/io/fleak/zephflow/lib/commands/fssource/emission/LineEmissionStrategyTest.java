@@ -86,6 +86,6 @@ class LineEmissionStrategyTest {
             acc,
             JobContext.builder().build());
 
-    assertEquals(3, batchCount[0]); // 100 + 100 + 50
+    assertEquals(3, batchCount[0]);
   }
 }

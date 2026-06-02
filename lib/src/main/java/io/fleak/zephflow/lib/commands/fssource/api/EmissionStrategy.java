@@ -16,11 +16,6 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 
-/**
- * Converts a file into one or more {@code RecordFleakData} events on {@code out}. MUST be
- * bounded-memory for the line and file-reference strategies — never load the entire file into heap.
- * WholeFileEmissionStrategy is the documented exception.
- */
 public interface EmissionStrategy {
   void emit(FileEntry file, FileReader reader, SourceEventAcceptor out, JobContext ctx)
       throws Exception;

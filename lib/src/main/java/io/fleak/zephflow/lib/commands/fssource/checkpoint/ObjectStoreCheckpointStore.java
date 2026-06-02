@@ -16,12 +16,14 @@ package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -31,24 +33,21 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
-/**
- * Persists FsCheckpoint blobs as JSON via an FsBackend. Each shard has a single writer (the owning
- * job) so single-PUT atomicity at the object level is sufficient.
- *
- * <p>For local FS, writes go via tmp-file + ATOMIC_MOVE. For S3, a plain PUT is atomic at the
- * object level.
- */
 public final class ObjectStoreCheckpointStore implements CheckpointStore {
 
   private static final Pattern GEN_SHARD = Pattern.compile("([0-9]+)/([0-9]+)\\.json$");
 
   private final FsBackend backend;
   private final FsBackendConfig cfg;
-  private final String prefix; // e.g. "file:///tmp/_cp/" or "s3://bkt/_cp/"
+  private final String prefix;
   private final FileLister lister;
   private final FileReader reader;
+  private final S3Client s3Client;
+  private final Storage gcsClient;
 
   public ObjectStoreCheckpointStore(FsBackend backend, FsBackendConfig cfg, String prefix) {
     this.backend = backend;
@@ -56,6 +55,9 @@ public final class ObjectStoreCheckpointStore implements CheckpointStore {
     this.prefix = prefix.endsWith("/") ? prefix : prefix + "/";
     this.lister = backend.createLister(cfg);
     this.reader = backend.createReader(cfg);
+    this.s3Client = "s3".equals(backend.scheme()) ? S3Backend.client((S3BackendConfig) cfg) : null;
+    this.gcsClient =
+        "gs".equals(backend.scheme()) ? GcsBackend.client((GcsBackendConfig) cfg) : null;
   }
 
   @Override
@@ -63,9 +65,36 @@ public final class ObjectStoreCheckpointStore implements CheckpointStore {
     FileKey fk = new FileKey(backend.scheme(), prefix + key);
     try (InputStream in = reader.open(fk, 0)) {
       return Optional.of(JsonUtils.OBJECT_MAPPER.readValue(in.readAllBytes(), FsCheckpoint.class));
-    } catch (UncheckedIOException | IOException e) {
-      return Optional.empty();
+    } catch (Exception e) {
+      if (isNotFound(e)) {
+        return Optional.empty();
+      }
+      if (e instanceof IOException io) {
+        throw new UncheckedIOException(io);
+      }
+      if (e instanceof RuntimeException re) {
+        throw re;
+      }
+      throw new RuntimeException(e);
     }
+  }
+
+  private static boolean isNotFound(Throwable e) {
+    for (Throwable cur = e; cur != null; cur = cur.getCause()) {
+      if (cur instanceof NoSuchFileException || cur instanceof FileNotFoundException) {
+        return true;
+      }
+      if (cur instanceof NoSuchKeyException) {
+        return true;
+      }
+      if (cur instanceof S3Exception s3 && s3.statusCode() == 404) {
+        return true;
+      }
+      if (cur instanceof StorageException ge && ge.getCode() == 404) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override
@@ -80,31 +109,25 @@ public final class ObjectStoreCheckpointStore implements CheckpointStore {
 
   private void writeBytes(String urn, byte[] bytes) throws IOException {
     if ("s3".equals(backend.scheme())) {
-      S3BackendConfig sc = (S3BackendConfig) cfg;
       String stripped = urn.substring("s3://".length());
       int slash = stripped.indexOf('/');
       String bucket = stripped.substring(0, slash);
       String key = stripped.substring(slash + 1);
-      try (S3Client c = S3Backend.client(sc)) {
-        c.putObject(
-            PutObjectRequest.builder().bucket(bucket).key(key).build(),
-            RequestBody.fromBytes(bytes));
-      }
+      s3Client.putObject(
+          PutObjectRequest.builder().bucket(bucket).key(key).build(), RequestBody.fromBytes(bytes));
       return;
     }
     if ("gs".equals(backend.scheme())) {
-      GcsBackendConfig gc = (GcsBackendConfig) cfg;
       String stripped = urn.substring("gs://".length());
       int slash = stripped.indexOf('/');
       String bucket = stripped.substring(0, slash);
       String key = stripped.substring(slash + 1);
-      Storage gcsClient = GcsBackend.client(gc);
       gcsClient.create(BlobInfo.newBuilder(BlobId.of(bucket, key)).build(), bytes);
       return;
     }
     if (!"file".equals(backend.scheme())) {
       throw new UnsupportedOperationException(
-          "ObjectStoreCheckpointStore.writeBytes for " + backend.scheme() + " is wired in Phase 5");
+          "Unsupported checkpoint backend scheme: " + backend.scheme());
     }
     Path target = Paths.get(java.net.URI.create(urn));
     Files.createDirectories(target.getParent());
@@ -138,7 +161,6 @@ public final class ObjectStoreCheckpointStore implements CheckpointStore {
           f -> {
             int i = f.key().urn().lastIndexOf(sourceId + "/");
             if (i >= 0) {
-              // tail is "<gen>/<idx>.json"; prepend sourceId to get "<sourceId>/<gen>/<idx>.json"
               String tail = f.key().urn().substring(i + sourceId.length() + 1);
               normalized.add(sourceId + "/" + tail);
             }
@@ -150,12 +172,16 @@ public final class ObjectStoreCheckpointStore implements CheckpointStore {
 
   @Override
   public void close() {
+    closeQuietly(lister);
+    closeQuietly(reader);
+    closeQuietly(s3Client);
+    closeQuietly(gcsClient);
+  }
+
+  private static void closeQuietly(AutoCloseable c) {
+    if (c == null) return;
     try {
-      lister.close();
-    } catch (Exception ignored) {
-    }
-    try {
-      reader.close();
+      c.close();
     } catch (Exception ignored) {
     }
   }

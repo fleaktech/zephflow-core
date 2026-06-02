@@ -31,10 +31,6 @@ import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchSourceCom
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.fssource.FsSourceCommandFactory;
-import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
-import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
-import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
-import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
@@ -63,52 +59,46 @@ import java.util.Map;
 
 public interface OperatorCommandRegistry {
 
-  Map<String, CommandFactory> OPERATOR_COMMANDS = OperatorCommandRegistry._initBackends();
-
-  static Map<String, CommandFactory> _initBackends() {
-    FsBackendRegistry.register(new LocalFsBackend());
-    FsBackendRegistry.register(new S3Backend());
-    FsBackendRegistry.register(new GcsBackend());
-    return ImmutableMap.<String, CommandFactory>builder()
-        .put(COMMAND_NAME_NOOP, new NoopCommandFactory())
-        .put(COMMAND_NAME_SQL_EVAL, new SqlCommandFactory())
-        .put(COMMAND_NAME_S3_SINK, new S3SinkCommandFactory())
-        .put(COMMAND_NAME_KINESIS_SOURCE, new KinesisSourceCommandFactory())
-        .put(COMMAND_NAME_KINESIS_SINK, new KinesisSinkCommandFactory())
-        .put(COMMAND_NAME_KAFKA_SOURCE, new KafkaSourceCommandFactory())
-        .put(COMMAND_NAME_KAFKA_SINK, new KafkaSinkCommandFactory())
-        .put(COMMAND_NAME_EVAL, new EvalCommandFactory())
-        .put(COMMAND_NAME_ASSERTION, new AssertionCommandFactory(true))
-        .put(COMMAND_NAME_FILTER, new AssertionCommandFactory(false))
-        .put(COMMAND_NAME_STDIN, new StdInCommandFactory())
-        .put(COMMAND_NAME_STDOUT, new StdOutSinkCommandFactory())
-        .put(COMMAND_NAME_PARSER, new ParserCommandFactory())
-        .put(COMMAND_NAME_FILE_SOURCE, new FileSourceCommandFactory())
-        .put(COMMAND_NAME_FS_SOURCE, new FsSourceCommandFactory())
-        .put(COMMAND_NAME_SPLUNK_SOURCE, new SplunkSourceCommandFactory())
-        .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
-        .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
-        .put(COMMAND_NAME_READER_SOURCE, new ReaderCommandFactory())
-        .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
-        .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
-        .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
-        .put(COMMAND_NAME_JDBC_SOURCE, new JdbcSourceCommandFactory())
-        .put(COMMAND_NAME_JDBC_SINK, new JdbcSinkCommandFactory())
-        .put(COMMAND_NAME_SQS_SOURCE, new SqsSourceCommandFactory())
-        .put(COMMAND_NAME_SQS_SINK, new SqsSinkCommandFactory())
-        .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
-        .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
-        .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
-        .put(COMMAND_NAME_AZURE_MONITOR_SINK, new AzureMonitorSinkCommandFactory())
-        .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
-        .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
-        .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
-        .put(COMMAND_NAME_SPLUNK_HEC_SINK, new SplunkHecSinkCommandFactory())
-        .put(COMMAND_NAME_GCS_SINK, new GcsSinkCommandFactory())
-        .put(COMMAND_NAME_AZURE_BLOB_SOURCE, new AzureBlobSourceCommandFactory())
-        .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())
-        .put(COMMAND_NAME_PUBSUB_SOURCE, new PubSubSourceCommandFactory())
-        .put(COMMAND_NAME_PUBSUB_SINK, new PubSubSinkCommandFactory())
-        .build();
-  }
+  Map<String, CommandFactory> OPERATOR_COMMANDS =
+      ImmutableMap.<String, CommandFactory>builder()
+          .put(COMMAND_NAME_NOOP, new NoopCommandFactory())
+          .put(COMMAND_NAME_SQL_EVAL, new SqlCommandFactory())
+          .put(COMMAND_NAME_S3_SINK, new S3SinkCommandFactory())
+          .put(COMMAND_NAME_KINESIS_SOURCE, new KinesisSourceCommandFactory())
+          .put(COMMAND_NAME_KINESIS_SINK, new KinesisSinkCommandFactory())
+          .put(COMMAND_NAME_KAFKA_SOURCE, new KafkaSourceCommandFactory())
+          .put(COMMAND_NAME_KAFKA_SINK, new KafkaSinkCommandFactory())
+          .put(COMMAND_NAME_EVAL, new EvalCommandFactory())
+          .put(COMMAND_NAME_ASSERTION, new AssertionCommandFactory(true))
+          .put(COMMAND_NAME_FILTER, new AssertionCommandFactory(false))
+          .put(COMMAND_NAME_STDIN, new StdInCommandFactory())
+          .put(COMMAND_NAME_STDOUT, new StdOutSinkCommandFactory())
+          .put(COMMAND_NAME_PARSER, new ParserCommandFactory())
+          .put(COMMAND_NAME_FILE_SOURCE, new FileSourceCommandFactory())
+          .put(COMMAND_NAME_FS_SOURCE, new FsSourceCommandFactory())
+          .put(COMMAND_NAME_SPLUNK_SOURCE, new SplunkSourceCommandFactory())
+          .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
+          .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
+          .put(COMMAND_NAME_READER_SOURCE, new ReaderCommandFactory())
+          .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
+          .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
+          .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
+          .put(COMMAND_NAME_JDBC_SOURCE, new JdbcSourceCommandFactory())
+          .put(COMMAND_NAME_JDBC_SINK, new JdbcSinkCommandFactory())
+          .put(COMMAND_NAME_SQS_SOURCE, new SqsSourceCommandFactory())
+          .put(COMMAND_NAME_SQS_SINK, new SqsSinkCommandFactory())
+          .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
+          .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
+          .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
+          .put(COMMAND_NAME_AZURE_MONITOR_SINK, new AzureMonitorSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_MONITOR_SOURCE, new AzureMonitorSourceCommandFactory())
+          .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
+          .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
+          .put(COMMAND_NAME_SPLUNK_HEC_SINK, new SplunkHecSinkCommandFactory())
+          .put(COMMAND_NAME_GCS_SINK, new GcsSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_BLOB_SOURCE, new AzureBlobSourceCommandFactory())
+          .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())
+          .put(COMMAND_NAME_PUBSUB_SOURCE, new PubSubSourceCommandFactory())
+          .put(COMMAND_NAME_PUBSUB_SINK, new PubSubSinkCommandFactory())
+          .build();
 }

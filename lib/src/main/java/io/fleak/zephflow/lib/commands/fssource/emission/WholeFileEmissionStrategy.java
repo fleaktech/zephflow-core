@@ -25,7 +25,6 @@ import java.nio.charset.Charset;
 import java.util.List;
 import java.util.Map;
 
-/** Emits one record per file with the full decoded content. O(fileSize) heap — use carefully. */
 public final class WholeFileEmissionStrategy implements EmissionStrategy {
 
   private final Charset charset;
