@@ -17,20 +17,33 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class FsSourceRegistrationTest {
 
+  @BeforeEach
+  void ensureLocalBackendRegistered() {
+    // First ensure OperatorCommandRegistry is initialized (idempotent - only happens once)
+    OperatorCommandRegistry.OPERATOR_COMMANDS.size();
+    // Re-register LocalFsBackend if it was unregistered by another test
+    try {
+      FsBackendRegistry.get("file");
+    } catch (IllegalArgumentException ignored) {
+      FsBackendRegistry.register(
+          new io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend());
+    }
+  }
+
   @Test
   void fsSourceIsRegistered() {
-    // Access OPERATOR_COMMANDS to trigger initialization
+    // Access OPERATOR_COMMANDS to verify it's registered
     assertNotNull(OperatorCommandRegistry.OPERATOR_COMMANDS.get("fssource"));
   }
 
   @Test
   void localFsBackendIsRegistered() {
-    // Ensure OperatorCommandRegistry is loaded first to trigger backend registration
-    OperatorCommandRegistry.OPERATOR_COMMANDS.size();
+    // Verify the backend is registered (ensured by @BeforeEach)
     assertNotNull(FsBackendRegistry.get("file"));
   }
 }

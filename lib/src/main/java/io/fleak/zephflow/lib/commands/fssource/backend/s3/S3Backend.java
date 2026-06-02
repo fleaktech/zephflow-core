@@ -44,7 +44,7 @@ public final class S3Backend implements FsBackend {
     return Set.of(Capability.DELETE, Capability.MOVE, Capability.RANGE_READ);
   }
 
-  static S3Client client(S3BackendConfig cfg) {
+  public static S3Client client(S3BackendConfig cfg) {
     S3ClientBuilder b = S3Client.builder().region(Region.of(cfg.region()));
     if (cfg.s3EndpointOverride() != null && !cfg.s3EndpointOverride().isBlank()) {
       b.endpointOverride(URI.create(cfg.s3EndpointOverride()));
