@@ -11,25 +11,21 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssource;
+package io.fleak.zephflow.lib.commands.fssource.checkpoint;
 
-import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import lombok.*;
+import java.util.List;
+import java.util.Optional;
 
-public interface GcsSourceDto {
+public interface CheckpointStore extends AutoCloseable {
 
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Config implements CommandConfig {
-    @NonNull private String bucketName;
+  Optional<FsCheckpoint> load(String checkpointKey);
 
-    private String objectPrefix;
+  void save(String checkpointKey, FsCheckpoint cp);
 
-    @NonNull private EncodingType encodingType;
+  List<Integer> listGenerations(String sourceId);
 
-    private String credentialId;
-  }
+  List<String> listShards(String sourceId, int generation);
+
+  @Override
+  default void close() {}
 }

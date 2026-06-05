@@ -30,8 +30,8 @@ import io.fleak.zephflow.lib.commands.elasticsearchsink.ElasticsearchSinkCommand
 import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.fssource.FsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
-import io.fleak.zephflow.lib.commands.gcssource.GcsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
@@ -75,6 +75,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_STDOUT, new StdOutSinkCommandFactory())
           .put(COMMAND_NAME_PARSER, new ParserCommandFactory())
           .put(COMMAND_NAME_FILE_SOURCE, new FileSourceCommandFactory())
+          .put(COMMAND_NAME_FS_SOURCE, new FsSourceCommandFactory())
           .put(COMMAND_NAME_SPLUNK_SOURCE, new SplunkSourceCommandFactory())
           .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
           .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
@@ -94,7 +95,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_ELASTICSEARCH_SOURCE, new ElasticsearchSourceCommandFactory())
           .put(COMMAND_NAME_ELASTICSEARCH_SINK, new ElasticsearchSinkCommandFactory())
           .put(COMMAND_NAME_SPLUNK_HEC_SINK, new SplunkHecSinkCommandFactory())
-          .put(COMMAND_NAME_GCS_SOURCE, new GcsSourceCommandFactory())
           .put(COMMAND_NAME_GCS_SINK, new GcsSinkCommandFactory())
           .put(COMMAND_NAME_AZURE_BLOB_SOURCE, new AzureBlobSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())

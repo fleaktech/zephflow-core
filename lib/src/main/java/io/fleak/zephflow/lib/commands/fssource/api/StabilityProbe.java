@@ -11,14 +11,11 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssource;
+package io.fleak.zephflow.lib.commands.fssource.api;
 
-import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
+public interface StabilityProbe {
 
-public class GcsRawDataEncoder implements RawDataEncoder<GcsObjectData> {
-  @Override
-  public SerializedEvent serialize(GcsObjectData sourceRecord) {
-    return new SerializedEvent(null, sourceRecord.content(), sourceRecord.metadata());
-  }
+  boolean isStable(FileEntry file, FileLister lister);
+
+  StabilityProbe ALWAYS_STABLE = (file, lister) -> true;
 }

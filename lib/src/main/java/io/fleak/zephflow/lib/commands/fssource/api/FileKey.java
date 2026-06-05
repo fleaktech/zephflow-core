@@ -11,8 +11,23 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssource;
+package io.fleak.zephflow.lib.commands.fssource.api;
 
-import java.util.Map;
+import java.util.Objects;
 
-public record GcsObjectData(byte[] content, String objectName, Map<String, String> metadata) {}
+public record FileKey(String backend, String urn) {
+
+  public FileKey {
+    Objects.requireNonNull(backend, "backend");
+    Objects.requireNonNull(urn, "urn");
+  }
+
+  public static FileKey of(String urn) {
+    Objects.requireNonNull(urn, "urn");
+    int idx = urn.indexOf("://");
+    if (idx <= 0) {
+      throw new IllegalArgumentException("URN missing scheme: " + urn);
+    }
+    return new FileKey(urn.substring(0, idx), urn);
+  }
+}

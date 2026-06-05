@@ -11,21 +11,21 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.gcssource;
+package io.fleak.zephflow.lib.commands.fssource;
 
-import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.commands.JsonConfigParser;
-import io.fleak.zephflow.lib.commands.source.SourceCommandFactory;
-import io.fleak.zephflow.lib.gcp.GcsClientFactory;
+import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.api.ConfigParser;
+import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
-public class GcsSourceCommandFactory extends SourceCommandFactory {
+public final class FsSourceConfigParser implements ConfigParser {
+
   @Override
-  public GcsSourceCommand createCommand(String nodeId, JobContext jobContext) {
-    return new GcsSourceCommand(
-        nodeId,
-        jobContext,
-        new JsonConfigParser<>(GcsSourceDto.Config.class),
-        new GcsSourceConfigValidator(),
-        new GcsClientFactory());
+  public CommandConfig parseConfig(Map<String, Object> rawConfig) {
+    Map<String, Object> filtered = new HashMap<>(rawConfig);
+    filtered.values().removeIf(Objects::isNull);
+    return JsonUtils.OBJECT_MAPPER.convertValue(filtered, FsSourceDto.Config.class);
   }
 }

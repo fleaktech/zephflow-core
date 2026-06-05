@@ -83,6 +83,7 @@ public interface MiscUtils {
   String COMMAND_NAME_STDOUT = "stdout";
   String COMMAND_NAME_PARSER = "parser";
   String COMMAND_NAME_FILE_SOURCE = "filesource";
+  String COMMAND_NAME_FS_SOURCE = "fssource";
   String COMMAND_NAME_READER_SOURCE = "reader";
   String COMMAND_NAME_SPLUNK_SOURCE = "splunksource";
 
@@ -103,7 +104,6 @@ public interface MiscUtils {
   String COMMAND_NAME_ELASTICSEARCH_SOURCE = "elasticsearchsource";
   String COMMAND_NAME_ELASTICSEARCH_SINK = "elasticsearchsink";
   String COMMAND_NAME_SPLUNK_HEC_SINK = "splunkhecsink";
-  String COMMAND_NAME_GCS_SOURCE = "gcssource";
   String COMMAND_NAME_GCS_SINK = "gcssink";
   String COMMAND_NAME_AZURE_BLOB_SOURCE = "azureblobsource";
   String COMMAND_NAME_AZURE_BLOB_SINK = "azureblobsink";
