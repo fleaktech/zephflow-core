@@ -13,13 +13,18 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.api;
 
+import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.BlobServiceClient;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
+import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackend;
+import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -62,6 +67,18 @@ public final class PostActions {
           String objectKey = stripped.substring(slash + 1);
           Storage gcsClient = GcsBackend.client(gc);
           gcsClient.delete(BlobId.of(bucket, objectKey));
+        }
+        case "azblob" -> {
+          AzureBackendConfig ac = (AzureBackendConfig) cfg;
+          URI blobUri = URI.create(file.key().urn());
+          String blobPath = blobUri.getPath().substring(1);
+          int blobSlash = blobPath.indexOf('/');
+          String delContainer = blobPath.substring(0, blobSlash);
+          String delBlobName = blobPath.substring(blobSlash + 1);
+          AzureBackend.client(ac)
+              .getBlobContainerClient(delContainer)
+              .getBlobClient(delBlobName)
+              .delete();
         }
         default ->
             throw new UnsupportedOperationException(
@@ -138,6 +155,30 @@ public final class PostActions {
                   .build();
           gcsClient.copy(copyReq);
           gcsClient.delete(BlobId.of(bucket, srcKey));
+        }
+        case "azblob" -> {
+          AzureBackendConfig ac = (AzureBackendConfig) cfg;
+          BlobServiceClient bsc = AzureBackend.client(ac);
+
+          URI srcUri = URI.create(file.key().urn());
+          String srcPath = srcUri.getPath().substring(1);
+          int srcSlash = srcPath.indexOf('/');
+          String srcContainer = srcPath.substring(0, srcSlash);
+          String srcBlob = srcPath.substring(srcSlash + 1);
+
+          URI dstUri = URI.create(destinationPrefix);
+          String dstPath = dstUri.getPath().substring(1);
+          int dstSlash = dstPath.indexOf('/');
+          String dstContainer = dstPath.substring(0, dstSlash);
+          String dstPrefix = dstPath.substring(dstSlash + 1);
+          String filename =
+              srcBlob.contains("/") ? srcBlob.substring(srcBlob.lastIndexOf('/') + 1) : srcBlob;
+          String dstBlob =
+              dstPrefix.endsWith("/") ? dstPrefix + filename : dstPrefix + "/" + filename;
+
+          BlobClient dstClient = bsc.getBlobContainerClient(dstContainer).getBlobClient(dstBlob);
+          dstClient.beginCopy(file.key().urn(), null).waitForCompletion();
+          bsc.getBlobContainerClient(srcContainer).getBlobClient(srcBlob).delete();
         }
         default ->
             throw new UnsupportedOperationException(
