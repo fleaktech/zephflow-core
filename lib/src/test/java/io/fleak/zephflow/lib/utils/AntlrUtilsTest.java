@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
-import io.fleak.zephflow.lib.commands.eval.FeelFunction;
+import io.fleak.zephflow.lib.commands.eval.FunctionSignature;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -69,7 +69,7 @@ abc def
   @Test
   public void testUnifiedFunctionSignatures() {
     // Test that function signatures are automatically synchronized with implementations
-    Map<String, FeelFunction.FunctionSignature> signatures = AntlrUtils.FEEL_FUNCTION_SIGNATURES;
+    Map<String, FunctionSignature> signatures = AntlrUtils.FEEL_FUNCTION_SIGNATURES;
 
     assertNotNull(signatures);
     assertFalse(signatures.isEmpty());
@@ -82,12 +82,12 @@ abc def
     assertTrue(signatures.containsKey("python")); // Should be included now
 
     // Verify signature details are correct
-    FeelFunction.FunctionSignature tsStrToEpoch = signatures.get("ts_str_to_epoch");
+    FunctionSignature tsStrToEpoch = signatures.get("ts_str_to_epoch");
     assertEquals(2, tsStrToEpoch.minArgs());
     assertEquals(2, tsStrToEpoch.maxArgs());
     assertTrue(tsStrToEpoch.description().contains("timestamp"));
 
-    FeelFunction.FunctionSignature python = signatures.get("python");
+    FunctionSignature python = signatures.get("python");
     assertEquals(1, python.minArgs());
     assertEquals(-1, python.maxArgs()); // Variable arguments
     assertTrue(python.description().contains("script"));
