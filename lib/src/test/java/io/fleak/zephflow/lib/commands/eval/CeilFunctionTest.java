@@ -1,0 +1,41 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.fleak.zephflow.lib.commands.eval;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import io.fleak.zephflow.api.structure.*;
+import org.junit.jupiter.api.Test;
+
+class CeilFunctionTest extends FeelFunctionTestBase {
+
+  @Test
+  public void testCeil() {
+    FleakData testData = new StringPrimitiveFleakData("test");
+
+    testFunctionExecution(testData, "ceil(123.45)", 124L);
+    testFunctionExecution(testData, "ceil(-123.45)", -123L);
+    testFunctionExecution(testData, "ceil(123)", 123L);
+    testFunctionExecution(testData, "ceil(0.1)", 1L);
+    testFunctionExecution(testData, "ceil(-0.1)", 0L);
+  }
+
+  @Test
+  public void testCeilArgumentValidation() {
+    FleakData testData = new StringPrimitiveFleakData("test");
+
+    assertThrows(IllegalArgumentException.class, () -> evaluateExpression("ceil()", testData));
+    assertThrows(Exception.class, () -> evaluateExpression("ceil(\"123\")", testData));
+  }
+}
