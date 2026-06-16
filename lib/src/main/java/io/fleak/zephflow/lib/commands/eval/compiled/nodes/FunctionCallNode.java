@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.eval.compiled.nodes;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.FeelFunction;
+import io.fleak.zephflow.lib.commands.eval.FunctionSignature;
 import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
 import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionNode;
 import java.util.List;
@@ -42,7 +43,7 @@ public record FunctionCallNode(
   }
 
   private void validateArgumentCount() {
-    FeelFunction.FunctionSignature sig = function.getSignature();
+    FunctionSignature sig = function.getSignature();
     int argCount = argNodes.size();
 
     if (argCount < sig.minArgs()) {
@@ -60,7 +61,7 @@ public record FunctionCallNode(
     }
   }
 
-  private String formatExpectedArgs(FeelFunction.FunctionSignature sig) {
+  private String formatExpectedArgs(FunctionSignature sig) {
     if (sig.maxArgs() < 0) {
       return "at least " + sig.minArgs();
     } else if (sig.minArgs() == sig.maxArgs()) {
