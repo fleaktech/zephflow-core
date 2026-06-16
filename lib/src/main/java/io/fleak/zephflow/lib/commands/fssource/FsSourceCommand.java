@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
+import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
@@ -61,19 +62,20 @@ public final class FsSourceCommand extends SourceCommand {
     FsSourceDto.Config c = (FsSourceDto.Config) cfg;
     FsSourceExecutionContext ec = new FsSourceExecutionContext();
     ec.backend = FsBackendRegistry.get(c.getBackend());
-    FsBackendConfig bc = buildBackendConfig(c);
+    FsBackendConfig bc = buildBackendConfig(c, jc);
     ec.backendConfig = bc;
     ec.lister = ec.backend.createLister(bc);
     ec.reader = ec.backend.createReader(bc);
-    ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc);
+    ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc, jc);
     return ec;
   }
 
-  private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c) {
+  private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c, JobContext jobContext) {
     return switch (c.getBackend()) {
       case "file" -> new LocalFsBackendConfig(c.getRoot());
       case "s3" -> s3BackendConfig(c.getBackendConfig());
       case "gs" -> gcsBackendConfig(c.getBackendConfig());
+      case "azblob" -> azureBackendConfig(c.getBackendConfig(), jobContext);
       default -> throw new IllegalArgumentException("Unsupported backend: " + c.getBackend());
     };
   }
@@ -92,8 +94,29 @@ public final class FsSourceCommand extends SourceCommand {
     return new GcsBackendConfig(serviceAccountJson);
   }
 
+  private static AzureBackendConfig azureBackendConfig(
+      java.util.Map<String, Object> map, JobContext jobContext) {
+    if (map == null) map = java.util.Map.of();
+    String connectionString = (String) map.get("connectionString");
+    if (connectionString != null && !connectionString.isBlank()) {
+      return new AzureBackendConfig(connectionString, null, null);
+    }
+    String credentialId = (String) map.get("credentialId");
+    if (credentialId != null && !credentialId.isBlank()) {
+      io.fleak.zephflow.lib.credentials.UsernamePasswordCredential cred =
+          io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential(
+              jobContext, credentialId);
+      return new AzureBackendConfig(null, cred.getUsername(), cred.getPassword());
+    }
+    throw new IllegalArgumentException(
+        "azblob backend requires either 'connectionString' or 'credentialId' in backendConfig");
+  }
+
   private static CheckpointStore buildCheckpointStore(
-      FsSourceDto.Config c, FsBackend sourceBackend, FsBackendConfig sourceBackendCfg) {
+      FsSourceDto.Config c,
+      FsBackend sourceBackend,
+      FsBackendConfig sourceBackendCfg,
+      JobContext jobContext) {
     FsBackend cpBackend;
     FsBackendConfig cpCfg;
     String prefixRoot;
@@ -101,7 +124,10 @@ public final class FsSourceCommand extends SourceCommand {
       cpBackend = FsBackendRegistry.get(c.getCheckpoint().getBackend());
       cpCfg =
           buildBackendConfigForCheckpoint(
-              c.getCheckpoint().getBackend(), c.getCheckpoint().getRoot(), c.getBackendConfig());
+              c.getCheckpoint().getBackend(),
+              c.getCheckpoint().getRoot(),
+              c.getBackendConfig(),
+              jobContext);
       prefixRoot = c.getCheckpoint().getRoot();
     } else {
       cpBackend = sourceBackend;
@@ -114,11 +140,15 @@ public final class FsSourceCommand extends SourceCommand {
   }
 
   private static FsBackendConfig buildBackendConfigForCheckpoint(
-      String backend, String root, java.util.Map<String, Object> sourceBackendConfig) {
+      String backend,
+      String root,
+      java.util.Map<String, Object> sourceBackendConfig,
+      JobContext jobContext) {
     return switch (backend) {
       case "file" -> new LocalFsBackendConfig(root);
       case "s3" -> s3BackendConfig(sourceBackendConfig);
       case "gs" -> gcsBackendConfig(sourceBackendConfig);
+      case "azblob" -> azureBackendConfig(sourceBackendConfig, jobContext);
       default -> throw new IllegalArgumentException("Unsupported checkpoint backend: " + backend);
     };
   }

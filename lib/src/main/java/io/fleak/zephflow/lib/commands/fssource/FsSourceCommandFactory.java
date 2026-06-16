@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
+import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
@@ -27,6 +28,7 @@ public final class FsSourceCommandFactory extends SourceCommandFactory {
     FsBackendRegistry.register(new LocalFsBackend());
     FsBackendRegistry.register(new S3Backend());
     FsBackendRegistry.register(new GcsBackend());
+    FsBackendRegistry.register(new AzureBackend());
   }
 
   @Override

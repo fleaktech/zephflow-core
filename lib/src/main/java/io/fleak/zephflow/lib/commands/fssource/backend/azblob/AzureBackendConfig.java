@@ -11,14 +11,9 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.azureblobsource;
+package io.fleak.zephflow.lib.commands.fssource.backend.azblob;
 
-import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 
-public class AzureBlobRawDataEncoder implements RawDataEncoder<AzureBlobData> {
-  @Override
-  public SerializedEvent serialize(AzureBlobData sourceRecord) {
-    return new SerializedEvent(null, sourceRecord.content(), sourceRecord.metadata());
-  }
-}
+public record AzureBackendConfig(String connectionString, String accountName, String accountKey)
+    implements FsBackendConfig {}
