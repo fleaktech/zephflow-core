@@ -21,6 +21,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
+import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -35,11 +36,14 @@ class FsSourceCommandBoundedTest {
   void registerBackend() {
     FsBackendRegistry.unregister("file");
     FsBackendRegistry.register(new LocalFsBackend());
+    FsBackendRegistry.unregister("s3");
+    FsBackendRegistry.register(new S3Backend());
   }
 
   @AfterEach
   void cleanup() {
     FsBackendRegistry.unregister("file");
+    FsBackendRegistry.unregister("s3");
   }
 
   @Test
@@ -83,5 +87,34 @@ class FsSourceCommandBoundedTest {
 
     List<Object> lines = emitted.stream().map(r -> r.unwrap().get("line")).toList();
     assertEquals(List.of("z1a", "z1b", "z2a", "z3a", "z3b"), lines);
+  }
+
+  @Test
+  void s3WithConfiguredButUnresolvableCredentialIdThrowsIllegalStateException() {
+    Map<String, Object> rawCfg =
+        Map.of(
+            "backend",
+            "s3",
+            "root",
+            "s3://my-bucket/data/",
+            "emission",
+            Map.of("type", "LINE", "encoding", "utf-8", "lineBatchSize", 10),
+            "mode",
+            "BOUNDED",
+            "partition",
+            Map.of("index", 0, "parallelism", 1),
+            "backendConfig",
+            Map.of("credentialId", "nonexistent-credential-id", "region", "us-east-1"));
+
+    FsSourceCommand cmd = new FsSourceCommand("node-s3", JobContext.builder().build());
+    cmd.parseAndValidateArg(rawCfg);
+
+    IllegalStateException ex =
+        assertThrows(
+            IllegalStateException.class,
+            () -> cmd.initialize(new MetricClientProvider.NoopMetricClientProvider()));
+    assertTrue(
+        ex.getMessage().contains("nonexistent-credential-id"),
+        "Exception message should name the unresolvable credentialId");
   }
 }

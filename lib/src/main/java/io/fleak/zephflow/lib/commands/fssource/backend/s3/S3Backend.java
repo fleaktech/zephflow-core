@@ -13,9 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.fssource.backend.s3;
 
-import io.fleak.zephflow.lib.commands.fssource.api.*;
+import io.fleak.zephflow.lib.commands.fssource.api.FileLister;
+import io.fleak.zephflow.lib.commands.fssource.api.FileReader;
+import io.fleak.zephflow.lib.commands.fssource.api.FsBackend;
+import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 import java.net.URI;
 import java.util.Set;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -44,12 +49,23 @@ public final class S3Backend implements FsBackend {
     return Set.of(Capability.DELETE, Capability.MOVE, Capability.RANGE_READ);
   }
 
-  public static S3Client client(S3BackendConfig cfg) {
-    S3ClientBuilder b = S3Client.builder().region(Region.of(cfg.region()));
-    if (cfg.s3EndpointOverride() != null && !cfg.s3EndpointOverride().isBlank()) {
-      b.endpointOverride(URI.create(cfg.s3EndpointOverride()));
-      b.forcePathStyle(true);
+  public static S3Client client(S3BackendConfig s3BackendConfig) {
+    S3ClientBuilder s3ClientBuilder =
+        S3Client.builder().region(Region.of(s3BackendConfig.region()));
+    if (s3BackendConfig.accessKeyId() != null
+        && !s3BackendConfig.accessKeyId().isBlank()
+        && s3BackendConfig.secretAccessKey() != null
+        && !s3BackendConfig.secretAccessKey().isBlank()) {
+      s3ClientBuilder.credentialsProvider(
+          StaticCredentialsProvider.create(
+              AwsBasicCredentials.create(
+                  s3BackendConfig.accessKeyId(), s3BackendConfig.secretAccessKey())));
     }
-    return b.build();
+    if (s3BackendConfig.s3EndpointOverride() != null
+        && !s3BackendConfig.s3EndpointOverride().isBlank()) {
+      s3ClientBuilder.endpointOverride(URI.create(s3BackendConfig.s3EndpointOverride()));
+      s3ClientBuilder.forcePathStyle(true);
+    }
+    return s3ClientBuilder.build();
   }
 }

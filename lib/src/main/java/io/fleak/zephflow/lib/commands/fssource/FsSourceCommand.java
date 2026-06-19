@@ -13,6 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.fssource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
+
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
@@ -20,14 +23,22 @@ import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
-import io.fleak.zephflow.lib.commands.fssource.checkpoint.*;
-import io.fleak.zephflow.lib.commands.fssource.emission.*;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointStore;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.GenerationMigrator;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.ObjectStoreCheckpointStore;
+import io.fleak.zephflow.lib.commands.fssource.emission.FileReferenceEmissionStrategy;
+import io.fleak.zephflow.lib.commands.fssource.emission.LineEmissionStrategy;
+import io.fleak.zephflow.lib.commands.fssource.emission.WholeFileEmissionStrategy;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.nio.charset.Charset;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -73,19 +84,30 @@ public final class FsSourceCommand extends SourceCommand {
   private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c, JobContext jobContext) {
     return switch (c.getBackend()) {
       case "file" -> new LocalFsBackendConfig(c.getRoot());
-      case "s3" -> s3BackendConfig(c.getBackendConfig());
+      case "s3" -> s3BackendConfig(c.getBackendConfig(), jobContext);
       case "gs" -> gcsBackendConfig(c.getBackendConfig());
       case "azblob" -> azureBackendConfig(c.getBackendConfig(), jobContext);
       default -> throw new IllegalArgumentException("Unsupported backend: " + c.getBackend());
     };
   }
 
-  private static S3BackendConfig s3BackendConfig(java.util.Map<String, Object> map) {
+  private static S3BackendConfig s3BackendConfig(
+      java.util.Map<String, Object> map, JobContext jobContext) {
     if (map == null) map = java.util.Map.of();
     String region = (String) map.getOrDefault("region", "us-east-1");
     String credentialId = (String) map.get("credentialId");
     String endpoint = (String) map.get("s3EndpointOverride");
-    return new S3BackendConfig(region, credentialId, endpoint);
+    UsernamePasswordCredential cred =
+        lookupUsernamePasswordCredentialOpt(jobContext, credentialId).orElse(null);
+    if (credentialId != null && !credentialId.isBlank() && cred == null) {
+      throw new IllegalStateException(
+          "S3 credentialId '"
+              + credentialId
+              + "' was configured but could not be resolved in JobContext");
+    }
+    String accessKeyId = cred != null ? cred.getUsername() : null;
+    String secretAccessKey = cred != null ? cred.getPassword() : null;
+    return new S3BackendConfig(region, accessKeyId, secretAccessKey, endpoint);
   }
 
   private static GcsBackendConfig gcsBackendConfig(java.util.Map<String, Object> map) {
@@ -103,9 +125,7 @@ public final class FsSourceCommand extends SourceCommand {
     }
     String credentialId = (String) map.get("credentialId");
     if (credentialId != null && !credentialId.isBlank()) {
-      io.fleak.zephflow.lib.credentials.UsernamePasswordCredential cred =
-          io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential(
-              jobContext, credentialId);
+      UsernamePasswordCredential cred = lookupUsernamePasswordCredential(jobContext, credentialId);
       return new AzureBackendConfig(null, cred.getUsername(), cred.getPassword());
     }
     throw new IllegalArgumentException(
@@ -146,7 +166,7 @@ public final class FsSourceCommand extends SourceCommand {
       JobContext jobContext) {
     return switch (backend) {
       case "file" -> new LocalFsBackendConfig(root);
-      case "s3" -> s3BackendConfig(sourceBackendConfig);
+      case "s3" -> s3BackendConfig(sourceBackendConfig, jobContext);
       case "gs" -> gcsBackendConfig(sourceBackendConfig);
       case "azblob" -> azureBackendConfig(sourceBackendConfig, jobContext);
       default -> throw new IllegalArgumentException("Unsupported checkpoint backend: " + backend);
