@@ -16,6 +16,8 @@ package io.fleak.zephflow.lib.commands.fssource.backend.s3;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import java.net.URI;
 import java.util.Set;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -46,6 +48,14 @@ public final class S3Backend implements FsBackend {
 
   public static S3Client client(S3BackendConfig cfg) {
     S3ClientBuilder b = S3Client.builder().region(Region.of(cfg.region()));
+    if (cfg.accessKeyId() != null
+        && !cfg.accessKeyId().isBlank()
+        && cfg.secretAccessKey() != null
+        && !cfg.secretAccessKey().isBlank()) {
+      b.credentialsProvider(
+          StaticCredentialsProvider.create(
+              AwsBasicCredentials.create(cfg.accessKeyId(), cfg.secretAccessKey())));
+    }
     if (cfg.s3EndpointOverride() != null && !cfg.s3EndpointOverride().isBlank()) {
       b.endpointOverride(URI.create(cfg.s3EndpointOverride()));
       b.forcePathStyle(true);
