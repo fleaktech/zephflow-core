@@ -77,7 +77,7 @@ public final class FsSourceCommand extends SourceCommand {
     ec.backendConfig = bc;
     ec.lister = ec.backend.createLister(bc);
     ec.reader = ec.backend.createReader(bc);
-    ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc, jc);
+    ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc);
     return ec;
   }
 
@@ -133,44 +133,14 @@ public final class FsSourceCommand extends SourceCommand {
   }
 
   private static CheckpointStore buildCheckpointStore(
-      FsSourceDto.Config c,
-      FsBackend sourceBackend,
-      FsBackendConfig sourceBackendCfg,
-      JobContext jobContext) {
-    FsBackend cpBackend;
-    FsBackendConfig cpCfg;
-    String prefixRoot;
-    if (c.getCheckpoint() != null) {
-      cpBackend = FsBackendRegistry.get(c.getCheckpoint().getBackend());
-      cpCfg =
-          buildBackendConfigForCheckpoint(
-              c.getCheckpoint().getBackend(),
-              c.getCheckpoint().getRoot(),
-              c.getBackendConfig(),
-              jobContext);
-      prefixRoot = c.getCheckpoint().getRoot();
-    } else {
-      cpBackend = sourceBackend;
-      cpCfg = sourceBackendCfg;
-      prefixRoot = c.getRoot();
-    }
+      FsSourceDto.Config c, FsBackend sourceBackend, FsBackendConfig sourceBackendCfg) {
+    // Checkpoints are always written alongside the source data: same backend, same bucket/root
+    // the source reads from (under a _zephflow_checkpoints/ prefix). Redirecting checkpoints to a
+    // different location is intentionally not supported.
+    String prefixRoot = c.getRoot();
     String prefix =
         (prefixRoot.endsWith("/") ? prefixRoot : prefixRoot + "/") + "_zephflow_checkpoints/";
-    return new ObjectStoreCheckpointStore(cpBackend, cpCfg, prefix);
-  }
-
-  private static FsBackendConfig buildBackendConfigForCheckpoint(
-      String backend,
-      String root,
-      java.util.Map<String, Object> sourceBackendConfig,
-      JobContext jobContext) {
-    return switch (backend) {
-      case "file" -> new LocalFsBackendConfig(root);
-      case "s3" -> s3BackendConfig(sourceBackendConfig, jobContext);
-      case "gs" -> gcsBackendConfig(sourceBackendConfig);
-      case "azblob" -> azureBackendConfig(sourceBackendConfig, jobContext);
-      default -> throw new IllegalArgumentException("Unsupported checkpoint backend: " + backend);
-    };
+    return new ObjectStoreCheckpointStore(sourceBackend, sourceBackendCfg, prefix);
   }
 
   @Override

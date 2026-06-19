@@ -63,7 +63,6 @@ public interface FsSourceDto {
         PostActionConfig.builder().type(PostActionType.NONE).build();
 
     private PartitionConfig partition;
-    private CheckpointOverride checkpoint;
 
     private Map<String, Object> backendConfig;
   }
@@ -104,14 +103,5 @@ public interface FsSourceDto {
   class PartitionConfig {
     private int index;
     private int parallelism;
-  }
-
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class CheckpointOverride {
-    private String backend;
-    private String root;
   }
 }
