@@ -13,6 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.fssource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
+
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
@@ -20,14 +23,22 @@ import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
-import io.fleak.zephflow.lib.commands.fssource.checkpoint.*;
-import io.fleak.zephflow.lib.commands.fssource.emission.*;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointStore;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.GenerationMigrator;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.ObjectStoreCheckpointStore;
+import io.fleak.zephflow.lib.commands.fssource.emission.FileReferenceEmissionStrategy;
+import io.fleak.zephflow.lib.commands.fssource.emission.LineEmissionStrategy;
+import io.fleak.zephflow.lib.commands.fssource.emission.WholeFileEmissionStrategy;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.nio.charset.Charset;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -86,10 +97,8 @@ public final class FsSourceCommand extends SourceCommand {
     String region = (String) map.getOrDefault("region", "us-east-1");
     String credentialId = (String) map.get("credentialId");
     String endpoint = (String) map.get("s3EndpointOverride");
-    io.fleak.zephflow.lib.credentials.UsernamePasswordCredential cred =
-        io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt(
-                jobContext, credentialId)
-            .orElse(null);
+    UsernamePasswordCredential cred =
+        lookupUsernamePasswordCredentialOpt(jobContext, credentialId).orElse(null);
     if (credentialId != null && !credentialId.isBlank() && cred == null) {
       throw new IllegalStateException(
           "S3 credentialId '"
@@ -116,9 +125,7 @@ public final class FsSourceCommand extends SourceCommand {
     }
     String credentialId = (String) map.get("credentialId");
     if (credentialId != null && !credentialId.isBlank()) {
-      io.fleak.zephflow.lib.credentials.UsernamePasswordCredential cred =
-          io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential(
-              jobContext, credentialId);
+      UsernamePasswordCredential cred = lookupUsernamePasswordCredential(jobContext, credentialId);
       return new AzureBackendConfig(null, cred.getUsername(), cred.getPassword());
     }
     throw new IllegalArgumentException(
