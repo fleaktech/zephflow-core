@@ -41,6 +41,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_PARSER)
             .add(COMMAND_NAME_FILE_SOURCE)
             .add(COMMAND_NAME_FS_SOURCE)
+            .add(COMMAND_NAME_S3_FILE_READER)
             .add(COMMAND_NAME_SPLUNK_SOURCE)
             .add(COMMAND_NAME_CLICK_HOUSE_SINK)
             .add(COMMAND_NAME_DELTA_LAKE_SINK)
