@@ -90,6 +90,12 @@ public final class FsSourceCommand extends SourceCommand {
         io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt(
                 jobContext, credentialId)
             .orElse(null);
+    if (credentialId != null && !credentialId.isBlank() && cred == null) {
+      throw new IllegalStateException(
+          "S3 credentialId '"
+              + credentialId
+              + "' was configured but could not be resolved in JobContext");
+    }
     String accessKeyId = cred != null ? cred.getUsername() : null;
     String secretAccessKey = cred != null ? cred.getPassword() : null;
     return new S3BackendConfig(region, accessKeyId, secretAccessKey, endpoint);
