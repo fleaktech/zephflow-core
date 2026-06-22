@@ -15,19 +15,25 @@ package io.fleak.zephflow.lib.commands.fssource;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
-import io.fleak.zephflow.lib.commands.fssource.checkpoint.*;
-import io.fleak.zephflow.lib.commands.fssource.emission.*;
-import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
-import java.nio.charset.Charset;
-import java.time.Duration;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.utils.CompressionUtils;
+import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.io.InputStream;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -36,8 +42,6 @@ import lombok.extern.slf4j.Slf4j;
 public final class FsSourceCommand extends SourceCommand {
 
   private volatile boolean terminated = false;
-  private FsCheckpoint checkpoint = FsCheckpoint.empty();
-  private String checkpointKey;
 
   public FsSourceCommand(String nodeId, JobContext jobContext) {
     super(nodeId, jobContext, new FsSourceConfigParser(), new FsSourceConfigValidator());
@@ -50,10 +54,7 @@ public final class FsSourceCommand extends SourceCommand {
 
   @Override
   public SourceType sourceType() {
-    FsSourceDto.Config c = (FsSourceDto.Config) commandConfig;
-    return c != null && c.getMode() == FsSourceDto.Mode.UNBOUNDED
-        ? SourceType.STREAMING
-        : SourceType.BATCH;
+    return SourceType.BATCH;
   }
 
   @Override
@@ -66,8 +67,17 @@ public final class FsSourceCommand extends SourceCommand {
     ec.backendConfig = bc;
     ec.lister = ec.backend.createLister(bc);
     ec.reader = ec.backend.createReader(bc);
-    ec.checkpointStore = buildCheckpointStore(c, ec.backend, bc, jc);
+    ec.checkpointClient = buildCheckpointClient(jc);
     return ec;
+  }
+
+  private static CheckpointClient buildCheckpointClient(JobContext jc) {
+    Object url = jc.getOtherProperties().get(JobContext.JOB_MASTER_URL);
+    String s = url == null ? null : url.toString().trim();
+    if (s == null || s.isEmpty()) {
+      return new CheckpointClient.InMemCheckpointClient();
+    }
+    return new CheckpointClient.HttpCheckpointClient(s);
   }
 
   private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c, JobContext jobContext) {
@@ -112,118 +122,64 @@ public final class FsSourceCommand extends SourceCommand {
         "azblob backend requires either 'connectionString' or 'credentialId' in backendConfig");
   }
 
-  private static CheckpointStore buildCheckpointStore(
-      FsSourceDto.Config c,
-      FsBackend sourceBackend,
-      FsBackendConfig sourceBackendCfg,
-      JobContext jobContext) {
-    FsBackend cpBackend;
-    FsBackendConfig cpCfg;
-    String prefixRoot;
-    if (c.getCheckpoint() != null) {
-      cpBackend = FsBackendRegistry.get(c.getCheckpoint().getBackend());
-      cpCfg =
-          buildBackendConfigForCheckpoint(
-              c.getCheckpoint().getBackend(),
-              c.getCheckpoint().getRoot(),
-              c.getBackendConfig(),
-              jobContext);
-      prefixRoot = c.getCheckpoint().getRoot();
-    } else {
-      cpBackend = sourceBackend;
-      cpCfg = sourceBackendCfg;
-      prefixRoot = c.getRoot();
-    }
-    String prefix =
-        (prefixRoot.endsWith("/") ? prefixRoot : prefixRoot + "/") + "_zephflow_checkpoints/";
-    return new ObjectStoreCheckpointStore(cpBackend, cpCfg, prefix);
-  }
-
-  private static FsBackendConfig buildBackendConfigForCheckpoint(
-      String backend,
-      String root,
-      java.util.Map<String, Object> sourceBackendConfig,
-      JobContext jobContext) {
-    return switch (backend) {
-      case "file" -> new LocalFsBackendConfig(root);
-      case "s3" -> s3BackendConfig(sourceBackendConfig);
-      case "gs" -> gcsBackendConfig(sourceBackendConfig);
-      case "azblob" -> azureBackendConfig(sourceBackendConfig, jobContext);
-      default -> throw new IllegalArgumentException("Unsupported checkpoint backend: " + backend);
-    };
-  }
-
   @Override
   public void execute(String user, SourceEventAcceptor out) throws Exception {
     FsSourceExecutionContext ec = (FsSourceExecutionContext) getExecutionContext();
     FsSourceDto.Config c = (FsSourceDto.Config) commandConfig;
 
-    int parallelism = resolveParallelism(c);
-    int jobIndex = resolveJobIndex(c);
     String sourceId = SourceIdHasher.compute(c.getBackend(), c.getRoot(), c.getFileNameRegex());
-    checkpointKey = sourceId + "/" + parallelism + "/" + jobIndex + ".json";
-    FsCheckpoint seeded =
-        GenerationMigrator.maybeSeed(ec.checkpointStore, sourceId, parallelism, jobIndex);
-    checkpoint = seeded != null ? seeded : FsCheckpoint.empty();
-    log.info(
-        "fs_source open: sourceId={} key={} watermark={}",
-        sourceId,
-        checkpointKey,
-        checkpoint.watermark());
+    FsCheckpoint checkpoint = loadCheckpoint(ec.checkpointClient, sourceId);
+    log.info("fs_source open: sourceId={} watermark={}", sourceId, checkpoint.watermark());
 
     Pattern regex = c.getFileNameRegex() == null ? null : Pattern.compile(c.getFileNameRegex());
-    EmissionStrategy emission = buildEmission(c.getEmission());
-    StabilityProbe probe =
-        c.getStability().isEnabled()
-            ? new SizeStableProbe(Duration.ofMillis(c.getStability().getProbeDelayMs()))
-            : StabilityProbe.ALWAYS_STABLE;
-    PostAction postAction = buildPostAction(c.getPostAction());
+    FleakDeserializer<?> deserializer =
+        DeserializerFactory.createDeserializerFactory(c.getEncodingType()).createDeserializer();
 
-    boolean bounded = c.getMode() == FsSourceDto.Mode.BOUNDED;
-    long backoffMs = 100;
-    long backoffCapMs = Math.max(100, c.getListingIntervalMs());
+    ListRequest req = new ListRequest(c.getRoot(), regex);
+    List<Pending> todo = new ArrayList<>();
+    try (var stream = ec.lister.list(req)) {
+      stream
+          .map(f -> new Pending(f, tsFromName(f, regex)))
+          .filter(p -> p.ts().compareTo(checkpoint.watermark()) >= 0)
+          .filter(p -> !checkpoint.isCompleted(p.entry().key().urn()))
+          .sorted(Comparator.comparing(Pending::ts).thenComparing(p -> p.entry().key().urn()))
+          .forEach(todo::add);
+    }
 
-    while (!terminated) {
-      ListRequest req = new ListRequest(c.getRoot(), regex);
-      List<Pending> todo = new ArrayList<>();
-      try (var stream = ec.lister.list(req)) {
-        stream
-            .filter(f -> Partitioner.assignedJob(f.key().urn(), parallelism) == jobIndex)
-            .map(f -> new Pending(f, tsFromName(f, regex)))
-            .filter(p -> p.ts().compareTo(checkpoint.watermark()) >= 0)
-            .filter(p -> !checkpoint.isCompleted(p.entry().key().urn()))
-            .sorted(Comparator.comparing(Pending::ts).thenComparing(p -> p.entry().key().urn()))
-            .forEach(todo::add);
+    FsCheckpoint current = checkpoint;
+    for (Pending p : todo) {
+      if (terminated) break;
+      FileEntry f = p.entry();
+      byte[] bytes;
+      try (InputStream in = ec.reader.open(f.key(), 0)) {
+        bytes = maybeGunzip(in.readAllBytes());
       }
-
-      int emittedThisPass = 0;
-      for (Pending p : todo) {
-        FileEntry f = p.entry();
-        if (!probe.isStable(f, ec.lister)) continue;
-        emission.emit(f, ec.reader, out, jobContext);
-        checkpoint = checkpoint.withEmitted(f.key().urn(), p.ts());
-        ec.checkpointStore.save(checkpointKey, checkpoint);
-        postAction.run(f, ec.backend, ec.backendConfig);
-        emittedThisPass++;
-      }
-
-      if (bounded) {
-        if (emittedThisPass == 0 && todo.isEmpty()) {
-          out.terminate();
-          return;
-        }
-        Thread.sleep(c.getListingIntervalMs());
-        continue;
-      }
-      if (emittedThisPass == 0) {
-        Thread.sleep(Math.min(backoffMs, backoffCapMs));
-        backoffMs = Math.min(backoffMs * 2, backoffCapMs);
-      } else {
-        backoffMs = 100;
-        Thread.sleep(c.getListingIntervalMs());
-      }
+      List<RecordFleakData> records =
+          deserializer.deserialize(new SerializedEvent(null, bytes, null));
+      out.accept(records);
+      current = current.withEmitted(f.key().urn(), p.ts());
+      saveCheckpoint(ec.checkpointClient, sourceId, current);
     }
     out.terminate();
+  }
+
+  private static FsCheckpoint loadCheckpoint(CheckpointClient client, String sourceId) {
+    return client
+        .loadCheckpoint(sourceId)
+        .map(d -> JsonUtils.fromJsonString(d.data(), FsCheckpoint.class))
+        .orElse(FsCheckpoint.empty());
+  }
+
+  private static void saveCheckpoint(CheckpointClient client, String sourceId, FsCheckpoint cp) {
+    client.checkpoint(sourceId, JsonUtils.toJsonString(cp));
+  }
+
+  /** Auto-detect gzip by magic bytes (0x1f 0x8b) and decompress; otherwise pass through. */
+  static byte[] maybeGunzip(byte[] data) {
+    if (data.length >= 2 && (data[0] & 0xff) == 0x1f && (data[1] & 0xff) == 0x8b) {
+      return CompressionUtils.gunzip(data);
+    }
+    return data;
   }
 
   private record Pending(FileEntry entry, Instant ts) {}
@@ -245,34 +201,5 @@ public final class FsSourceCommand extends SourceCommand {
     } catch (Exception e) {
       return f.lastModified();
     }
-  }
-
-  private static EmissionStrategy buildEmission(FsSourceDto.Emission e) {
-    return switch (e.getType()) {
-      case LINE -> new LineEmissionStrategy(Charset.forName(e.getEncoding()), e.getLineBatchSize());
-      case WHOLE_FILE -> new WholeFileEmissionStrategy(Charset.forName(e.getEncoding()));
-      case FILE_REFERENCE -> new FileReferenceEmissionStrategy();
-    };
-  }
-
-  private static PostAction buildPostAction(FsSourceDto.PostActionConfig pa) {
-    if (pa == null || pa.getType() == FsSourceDto.PostActionType.NONE) return PostAction.NO_OP;
-    return switch (pa.getType()) {
-      case DELETE -> PostActions.delete();
-      case ARCHIVE -> PostActions.moveTo(pa.getDestinationPrefix());
-      default -> PostAction.NO_OP;
-    };
-  }
-
-  private int resolveParallelism(FsSourceDto.Config c) {
-    if (c.getPartition() != null) return c.getPartition().getParallelism();
-    Object v = jobContext.getOtherProperties().get("zephflow.job.parallelism");
-    return v instanceof Number n ? n.intValue() : 1;
-  }
-
-  private int resolveJobIndex(FsSourceDto.Config c) {
-    if (c.getPartition() != null) return c.getPartition().getIndex();
-    Object v = jobContext.getOtherProperties().get("zephflow.job.index");
-    return v instanceof Number n ? n.intValue() : 0;
   }
 }

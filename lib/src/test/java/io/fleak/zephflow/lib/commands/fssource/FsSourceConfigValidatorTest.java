@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import org.junit.jupiter.api.Test;
 
 class FsSourceConfigValidatorTest {
@@ -25,6 +26,7 @@ class FsSourceConfigValidatorTest {
         .backend("file")
         .root("file:///tmp/data")
         .fileNameRegex("invoice_(?<ts>\\d+)\\.json")
+        .encodingType(EncodingType.JSON_OBJECT_LINE)
         .build();
   }
 
@@ -61,10 +63,11 @@ class FsSourceConfigValidatorTest {
   }
 
   @Test
-  void boundedWithListingIntervalAllowed() {
+  void rejectsMissingEncodingType() {
     FsSourceDto.Config c = cfg();
-    c.setMode(FsSourceDto.Mode.BOUNDED);
-    c.setListingIntervalMs(1000);
-    new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build());
+    c.setEncodingType(null);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
   }
 }
