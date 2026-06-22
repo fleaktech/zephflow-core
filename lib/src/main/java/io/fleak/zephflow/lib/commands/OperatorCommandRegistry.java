@@ -45,6 +45,7 @@ import io.fleak.zephflow.lib.commands.pubsubsink.PubSubSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsource.PubSubSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
+import io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.smtpsink.SmtpSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunksource.SplunkSourceCommandFactory;
@@ -86,6 +87,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_JDBC_SINK, new JdbcSinkCommandFactory())
           .put(COMMAND_NAME_SQS_SOURCE, new SqsSourceCommandFactory())
           .put(COMMAND_NAME_SQS_SINK, new SqsSinkCommandFactory())
+          .put(COMMAND_NAME_S3_REALTIME_SOURCE, new S3RealtimeSourceCommandFactory())
           .put(COMMAND_NAME_IMAP_SOURCE, new ImapSourceCommandFactory())
           .put(COMMAND_NAME_SMTP_SINK, new SmtpSinkCommandFactory())
           .put(COMMAND_NAME_LDAP_SOURCE, new LdapSourceCommandFactory())
