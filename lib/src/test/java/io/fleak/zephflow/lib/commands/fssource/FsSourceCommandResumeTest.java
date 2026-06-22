@@ -40,6 +40,7 @@ class FsSourceCommandResumeTest {
 
   @BeforeEach
   void setUp() throws Exception {
+    store.clear();
     FsBackendRegistry.unregister("file");
     FsBackendRegistry.register(new LocalFsBackend());
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -55,7 +56,9 @@ class FsSourceCommandResumeTest {
           } else {
             byte[] body = store.getOrDefault(id, "").getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(200, body.length);
-            ex.getResponseBody().write(body);
+            try (java.io.OutputStream os = ex.getResponseBody()) {
+              os.write(body);
+            }
           }
           ex.close();
         });
@@ -105,7 +108,7 @@ class FsSourceCommandResumeTest {
 
     List<RecordFleakData> first = runOnce(tmp);
     assertEquals(List.of("a", "b"), first.stream().map(r -> r.unwrap().get("v")).toList());
-    assertFalse(store.isEmpty(), "checkpoint should have been POSTed");
+    assertEquals(1, store.size(), "exactly one checkpoint entry should have been POSTed");
 
     // No new files; resume from the same HTTP-backed checkpoint store.
     List<RecordFleakData> second = runOnce(tmp);
