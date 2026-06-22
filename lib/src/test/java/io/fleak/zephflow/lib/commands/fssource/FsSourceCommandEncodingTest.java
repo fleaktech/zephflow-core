@@ -93,7 +93,8 @@ class FsSourceCommandEncodingTest {
   void text_emitsRecordPerFile(@TempDir Path tmp) throws Exception {
     Files.writeString(tmp.resolve("evt_1.txt"), "hello\nworld");
     List<RecordFleakData> out = run(tmp, "STRING_LINE");
-    assertFalse(out.isEmpty());
+    assertEquals(2, out.size());
+    assertEquals("hello", out.get(0).unwrap().get("__raw__"));
   }
 
   @Test
