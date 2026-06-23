@@ -153,6 +153,14 @@ class S3RealtimeSourceFetcherTest {
     assertFalse(fetcher.isExhausted());
   }
 
+  @Test
+  void close_closesClientsAndDlqWriter() throws Exception {
+    fetcher.close();
+    verify(sqsClient).close();
+    verify(s3Client).close();
+    verify(dlqWriter).close();
+  }
+
   private static DeleteMessageRequest deleteFor(String receiptHandle) {
     return argThat(
         (DeleteMessageRequest r) ->

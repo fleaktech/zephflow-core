@@ -133,9 +133,12 @@ class S3RealtimeSourceCommandIntegrationTest {
 
     assertTrue(
         acceptor.records.isEmpty(), "no records should be emitted for an unparseable object");
+    assertFalse(dlq.captured.isEmpty(), "poison message should be dead-lettered at the retry cap");
+    // No per-attempt duplicates: every DLQ entry is the single retry-cap entry, not a framework
+    // write from each failed convert attempt.
     assertTrue(
-        dlq.captured.stream().anyMatch(d -> d.getErrorMessage().contains("exceeded maxRetries")),
-        "DLQ should contain the retry-cap dead-letter entry");
+        dlq.captured.stream().allMatch(d -> d.getErrorMessage().contains("exceeded maxRetries")),
+        "DLQ should only contain retry-cap entries, not per-attempt convert-failure entries");
   }
 
   // ---- helpers ----
@@ -200,6 +203,8 @@ class S3RealtimeSourceCommandIntegrationTest {
             dlq,
             "node",
             confirmed);
+    // Mirror production: the DLQ is owned by the fetcher (single dead-letter at the retry cap), not
+    // the execution context, so the framework does not write a DLQ entry per failed attempt.
     SourceExecutionContext<S3EventMessage> ctx =
         new SourceExecutionContext<>(
             fetcher,
@@ -208,7 +213,7 @@ class S3RealtimeSourceCommandIntegrationTest {
             mock(FleakCounter.class),
             mock(FleakCounter.class),
             mock(FleakCounter.class),
-            dlq);
+            null);
 
     TestS3RealtimeSourceCommand command = new TestS3RealtimeSourceCommand(ctx);
     command.initialize(mock(MetricClientProvider.class));

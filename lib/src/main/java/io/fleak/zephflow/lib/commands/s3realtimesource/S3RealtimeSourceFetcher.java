@@ -157,6 +157,13 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
     if (s3Client != null) {
       s3Client.close();
     }
+    if (dlqWriter != null) {
+      try {
+        dlqWriter.close();
+      } catch (Exception e) {
+        log.warn("failed to close DLQ writer", e);
+      }
+    }
   }
 
   private int receiveCount(Message message) {

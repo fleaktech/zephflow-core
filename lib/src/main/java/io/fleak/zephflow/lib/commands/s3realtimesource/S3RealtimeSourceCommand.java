@@ -123,6 +123,10 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
             nodeId,
             confirmedReceiptHandles);
 
+    // The DLQ is owned by the fetcher (it writes the single dead-letter entry when the retry cap is
+    // hit, and closes the writer). We pass null here so SimpleSourceCommand does NOT also write to
+    // the DLQ on every failed convert attempt — otherwise a message that fails and is redelivered
+    // until the cap would produce one DLQ entry per attempt.
     return new SourceExecutionContext<>(
         fetcher,
         converter,
@@ -130,7 +134,7 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
         dataSizeCounter,
         inputEventCounter,
         deserializeFailureCounter,
-        dlqWriter);
+        null);
   }
 
   private UsernamePasswordCredential resolveCredential(JobContext jobContext, String credentialId) {
