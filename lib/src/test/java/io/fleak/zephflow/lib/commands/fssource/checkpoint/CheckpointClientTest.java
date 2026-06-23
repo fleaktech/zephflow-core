@@ -48,19 +48,19 @@ class CheckpointClientTest {
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/state",
-        ex -> {
-          String id = ex.getRequestURI().getPath().substring("/state/".length());
-          if ("POST".equals(ex.getRequestMethod())) {
-            try (InputStream in = ex.getRequestBody()) {
-              store.put(id, new String(in.readAllBytes(), StandardCharsets.UTF_8));
+        exchange -> {
+          String id = exchange.getRequestURI().getPath().substring("/state/".length());
+          if ("POST".equals(exchange.getRequestMethod())) {
+            try (InputStream inputStream = exchange.getRequestBody()) {
+              store.put(id, new String(inputStream.readAllBytes(), StandardCharsets.UTF_8));
             }
-            ex.sendResponseHeaders(200, -1);
+            exchange.sendResponseHeaders(200, -1);
           } else {
             byte[] body = store.getOrDefault(id, "").getBytes(StandardCharsets.UTF_8);
-            ex.sendResponseHeaders(200, body.length);
-            ex.getResponseBody().write(body);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
           }
-          ex.close();
+          exchange.close();
         });
     server.start();
     try {

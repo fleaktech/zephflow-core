@@ -35,7 +35,7 @@ import org.junit.jupiter.api.io.TempDir;
 class FsSourceCommandEncodingTest {
 
   @BeforeEach
-  void reg() {
+  void registerBackend() {
     FsBackendRegistry.unregister("file");
     FsBackendRegistry.register(new LocalFsBackend());
   }
@@ -45,13 +45,13 @@ class FsSourceCommandEncodingTest {
     FsBackendRegistry.unregister("file");
   }
 
-  private List<RecordFleakData> run(Path tmp, String encodingType) throws Exception {
-    Map<String, Object> rawCfg =
+  private List<RecordFleakData> run(Path tempDir, String encodingType) throws Exception {
+    Map<String, Object> rawConfig =
         Map.of(
             "backend",
             "file",
             "root",
-            tmp.toUri().toString(),
+            tempDir.toUri().toString(),
             "fileNameRegex",
             "evt_(?<ts>\\d+)\\..*",
             "encodingType",
@@ -60,60 +60,60 @@ class FsSourceCommandEncodingTest {
     SourceEventAcceptor out =
         new SourceEventAcceptor() {
           @Override
-          public void accept(List<RecordFleakData> r) {
-            emitted.addAll(r);
+          public void accept(List<RecordFleakData> record) {
+            emitted.addAll(record);
           }
 
           @Override
           public void terminate() {}
         };
-    FsSourceCommand cmd = new FsSourceCommand("n", JobContext.builder().build());
-    cmd.parseAndValidateArg(rawCfg);
-    cmd.initialize(new MetricClientProvider.NoopMetricClientProvider());
-    cmd.execute("u", out);
+    FsSourceCommand command = new FsSourceCommand("n", JobContext.builder().build());
+    command.parseAndValidateArg(rawConfig);
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.execute("u", out);
     return emitted;
   }
 
   @Test
-  void jsonObject_singleRecord(@TempDir Path tmp) throws Exception {
-    Files.writeString(tmp.resolve("evt_1.json"), "{\"k\":\"v\"}");
-    List<RecordFleakData> out = run(tmp, "JSON_OBJECT");
+  void jsonObject_singleRecord(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.json"), "{\"k\":\"v\"}");
+    List<RecordFleakData> out = run(tempDir, "JSON_OBJECT");
     assertEquals(1, out.size());
     assertEquals("v", out.get(0).unwrap().get("k"));
   }
 
   @Test
-  void jsonArray_fansOut(@TempDir Path tmp) throws Exception {
-    Files.writeString(tmp.resolve("evt_1.json"), "[{\"k\":1},{\"k\":2}]");
-    List<RecordFleakData> out = run(tmp, "JSON_ARRAY");
+  void jsonArray_fansOut(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.json"), "[{\"k\":1},{\"k\":2}]");
+    List<RecordFleakData> out = run(tempDir, "JSON_ARRAY");
     assertEquals(2, out.size());
   }
 
   @Test
-  void text_emitsRecordPerFile(@TempDir Path tmp) throws Exception {
-    Files.writeString(tmp.resolve("evt_1.txt"), "hello\nworld");
-    List<RecordFleakData> out = run(tmp, "STRING_LINE");
+  void text_emitsRecordPerFile(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.txt"), "hello\nworld");
+    List<RecordFleakData> out = run(tempDir, "STRING_LINE");
     assertEquals(2, out.size());
     assertEquals("hello", out.get(0).unwrap().get("__raw__"));
   }
 
   @Test
-  void csv_parses(@TempDir Path tmp) throws Exception {
-    Files.writeString(tmp.resolve("evt_1.csv"), "a,b\n1,2\n3,4");
-    List<RecordFleakData> out = run(tmp, "CSV");
+  void csv_parses(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.csv"), "a,b\n1,2\n3,4");
+    List<RecordFleakData> out = run(tempDir, "CSV");
     assertEquals(2, out.size());
     assertEquals("1", String.valueOf(out.get(0).unwrap().get("a")));
   }
 
   @Test
-  void gzip_isAutoDetectedAndDecompressed(@TempDir Path tmp) throws Exception {
-    ByteArrayOutputStream bos = new ByteArrayOutputStream();
-    try (GZIPOutputStream gz = new GZIPOutputStream(bos)) {
-      gz.write("{\"v\":\"a\"}\n{\"v\":\"b\"}".getBytes(StandardCharsets.UTF_8));
+  void gzip_isAutoDetectedAndDecompressed(@TempDir Path tempDir) throws Exception {
+    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+    try (GZIPOutputStream gzipOutputStream = new GZIPOutputStream(byteArrayOutputStream)) {
+      gzipOutputStream.write("{\"v\":\"a\"}\n{\"v\":\"b\"}".getBytes(StandardCharsets.UTF_8));
     }
-    Files.write(tmp.resolve("evt_1.jsonl.gz"), bos.toByteArray());
-    List<RecordFleakData> out = run(tmp, "JSON_OBJECT_LINE");
-    assertEquals(List.of("a", "b"), out.stream().map(r -> r.unwrap().get("v")).toList());
+    Files.write(tempDir.resolve("evt_1.jsonl.gz"), byteArrayOutputStream.toByteArray());
+    List<RecordFleakData> out = run(tempDir, "JSON_OBJECT_LINE");
+    assertEquals(List.of("a", "b"), out.stream().map(record -> record.unwrap().get("v")).toList());
   }
 
   @Test
@@ -127,19 +127,19 @@ class FsSourceCommandEncodingTest {
    * still be emitted and out.terminate() must be called.
    */
   @Test
-  void corruptFile_isSkipped_validFileStillEmitted(@TempDir Path tmp) throws Exception {
+  void corruptFile_isSkipped_validFileStillEmitted(@TempDir Path tempDir) throws Exception {
     // valid file — will be processed
-    Files.writeString(tmp.resolve("evt_1.json"), "{\"k\":\"good\"}");
+    Files.writeString(tempDir.resolve("evt_1.json"), "{\"k\":\"good\"}");
     // corrupt file — malformed JSON causes deserializer to throw
-    Files.writeString(tmp.resolve("evt_2.json"), "{not valid");
+    Files.writeString(tempDir.resolve("evt_2.json"), "{not valid");
 
     List<RecordFleakData> emitted = new ArrayList<>();
     boolean[] terminateCalled = {false};
     SourceEventAcceptor out =
         new SourceEventAcceptor() {
           @Override
-          public void accept(List<RecordFleakData> r) {
-            emitted.addAll(r);
+          public void accept(List<RecordFleakData> record) {
+            emitted.addAll(record);
           }
 
           @Override
@@ -148,22 +148,22 @@ class FsSourceCommandEncodingTest {
           }
         };
 
-    FsSourceCommand cmd = new FsSourceCommand("n", JobContext.builder().build());
-    Map<String, Object> rawCfg =
+    FsSourceCommand command = new FsSourceCommand("n", JobContext.builder().build());
+    Map<String, Object> rawConfig =
         Map.of(
             "backend",
             "file",
             "root",
-            tmp.toUri().toString(),
+            tempDir.toUri().toString(),
             "fileNameRegex",
             "evt_(?<ts>\\d+)\\..*",
             "encodingType",
             "JSON_OBJECT");
-    cmd.parseAndValidateArg(rawCfg);
-    cmd.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.parseAndValidateArg(rawConfig);
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
 
     // must not throw
-    assertDoesNotThrow(() -> cmd.execute("u", out));
+    assertDoesNotThrow(() -> command.execute("u", out));
 
     // valid record must be emitted
     assertEquals(1, emitted.size());

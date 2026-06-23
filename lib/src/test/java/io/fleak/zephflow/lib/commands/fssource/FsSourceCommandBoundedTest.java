@@ -47,14 +47,15 @@ class FsSourceCommandBoundedTest {
     FsBackendRegistry.unregister("s3");
   }
 
-  static List<RecordFleakData> run(Map<String, Object> rawCfg, JobContext jc) throws Exception {
+  static List<RecordFleakData> run(Map<String, Object> rawConfig, JobContext jobContext)
+      throws Exception {
     List<RecordFleakData> emitted = new ArrayList<>();
     boolean[] terminated = {false};
     SourceEventAcceptor out =
         new SourceEventAcceptor() {
           @Override
-          public void accept(List<RecordFleakData> r) {
-            emitted.addAll(r);
+          public void accept(List<RecordFleakData> record) {
+            emitted.addAll(record);
           }
 
           @Override
@@ -62,20 +63,20 @@ class FsSourceCommandBoundedTest {
             terminated[0] = true;
           }
         };
-    FsSourceCommand cmd = new FsSourceCommand("node-1", jc);
-    cmd.parseAndValidateArg(rawCfg);
-    cmd.initialize(new MetricClientProvider.NoopMetricClientProvider());
-    cmd.execute("test-user", out);
+    FsSourceCommand command = new FsSourceCommand("node-1", jobContext);
+    command.parseAndValidateArg(rawConfig);
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.execute("test-user", out);
     assertTrue(terminated[0], "execute must call out.terminate()");
     return emitted;
   }
 
-  static Map<String, Object> cfg(Path tmp, String encodingType) {
+  static Map<String, Object> rawConfig(Path tempDir, String encodingType) {
     return Map.of(
         "backend",
         "file",
         "root",
-        tmp.toUri().toString(),
+        tempDir.toUri().toString(),
         "fileNameRegex",
         "evt_(?<ts>\\d+)\\.log",
         "encodingType",
@@ -84,21 +85,22 @@ class FsSourceCommandBoundedTest {
 
   @Test
   void sourceTypeIsBatch() {
-    FsSourceCommand cmd = new FsSourceCommand("n", JobContext.builder().build());
-    assertEquals(SourceType.BATCH, cmd.sourceType());
+    FsSourceCommand command = new FsSourceCommand("n", JobContext.builder().build());
+    assertEquals(SourceType.BATCH, command.sourceType());
   }
 
   @Test
-  void jsonObjectLine_emitsBareRecordsInTimestampOrder(@TempDir Path tmp) throws Exception {
-    Files.writeString(tmp.resolve("evt_3.log"), "{\"v\":\"c\"}\n{\"v\":\"d\"}");
-    Files.writeString(tmp.resolve("evt_1.log"), "{\"v\":\"a\"}");
-    Files.writeString(tmp.resolve("evt_2.log"), "{\"v\":\"b\"}");
-    Files.writeString(tmp.resolve("ignored.txt"), "{\"v\":\"x\"}");
+  void jsonObjectLine_emitsBareRecordsInTimestampOrder(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_3.log"), "{\"v\":\"c\"}\n{\"v\":\"d\"}");
+    Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
+    Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");
+    Files.writeString(tempDir.resolve("ignored.txt"), "{\"v\":\"x\"}");
 
-    List<RecordFleakData> emitted = run(cfg(tmp, "JSON_OBJECT_LINE"), JobContext.builder().build());
+    List<RecordFleakData> emitted =
+        run(rawConfig(tempDir, "JSON_OBJECT_LINE"), JobContext.builder().build());
 
-    List<Object> vs = emitted.stream().map(r -> r.unwrap().get("v")).toList();
-    assertEquals(List.of("a", "b", "c", "d"), vs);
+    List<Object> values = emitted.stream().map(record -> record.unwrap().get("v")).toList();
+    assertEquals(List.of("a", "b", "c", "d"), values);
     // bare records: no provenance fields added
     assertFalse(emitted.get(0).unwrap().containsKey("file"));
     assertFalse(emitted.get(0).unwrap().containsKey("line"));
