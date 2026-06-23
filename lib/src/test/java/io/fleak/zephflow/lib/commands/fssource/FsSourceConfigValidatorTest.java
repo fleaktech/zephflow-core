@@ -70,4 +70,31 @@ class FsSourceConfigValidatorTest {
         IllegalArgumentException.class,
         () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
   }
+
+  @Test
+  void rejectsParquetEncodingType() {
+    FsSourceDto.Config c = cfg();
+    c.setEncodingType(EncodingType.PARQUET);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsBlankBackend() {
+    FsSourceDto.Config c = cfg();
+    c.setBackend("");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsBlankRoot() {
+    FsSourceDto.Config c = cfg();
+    c.setRoot("");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
+  }
 }
