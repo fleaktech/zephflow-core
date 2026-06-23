@@ -75,6 +75,13 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
   public ConvertedResult<S3EventMessage> convert(
       S3EventMessage sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
+      // A message is the atomic unit: a single SQS receipt handle covers all of its objects, so we
+      // emit every object's records together (on success) or none (on failure) -- there is no
+      // per-object ack. A partial failure therefore emits nothing and the whole message is retried;
+      // the already-deserialized objects are reprocessed but not double-emitted. At-least-once
+      // still
+      // holds: if the process dies after emit() but before the delete, redelivery re-emits every
+      // object in the message, so a multi-object message duplicates more records than a single one.
       List<RecordFleakData> events = new ArrayList<>();
       long totalBytes = 0;
       for (S3ObjectRef ref : sourceRecord.objectRefs()) {
