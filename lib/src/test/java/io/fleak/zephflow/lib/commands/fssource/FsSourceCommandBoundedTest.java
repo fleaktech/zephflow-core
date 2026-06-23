@@ -105,4 +105,29 @@ class FsSourceCommandBoundedTest {
     assertFalse(emitted.get(0).unwrap().containsKey("file"));
     assertFalse(emitted.get(0).unwrap().containsKey("line"));
   }
+
+  @Test
+  void s3WithConfiguredButUnresolvableCredentialIdThrowsIllegalStateException() {
+    Map<String, Object> rawConfig =
+        Map.of(
+            "backend",
+            "s3",
+            "root",
+            "s3://my-bucket/data/",
+            "encodingType",
+            "STRING_LINE",
+            "backendConfig",
+            Map.of("credentialId", "nonexistent-credential-id", "region", "us-east-1"));
+
+    FsSourceCommand command = new FsSourceCommand("node-s3", JobContext.builder().build());
+    command.parseAndValidateArg(rawConfig);
+
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class,
+            () -> command.initialize(new MetricClientProvider.NoopMetricClientProvider()));
+    assertTrue(
+        exception.getMessage().contains("nonexistent-credential-id"),
+        "Exception message should name the unresolvable credentialId");
+  }
 }

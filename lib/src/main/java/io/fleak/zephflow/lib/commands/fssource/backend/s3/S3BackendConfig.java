@@ -15,5 +15,6 @@ package io.fleak.zephflow.lib.commands.fssource.backend.s3;
 
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 
-public record S3BackendConfig(String region, String credentialId, String s3EndpointOverride)
+public record S3BackendConfig(
+    String region, String accessKeyId, String secretAccessKey, String s3EndpointOverride)
     implements FsBackendConfig {}

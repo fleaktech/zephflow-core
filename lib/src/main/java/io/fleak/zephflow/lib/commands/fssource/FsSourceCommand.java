@@ -87,19 +87,32 @@ public final class FsSourceCommand extends SourceCommand {
       FsSourceDto.Config config, JobContext jobContext) {
     return switch (config.getBackend()) {
       case "file" -> new LocalFsBackendConfig(config.getRoot());
-      case "s3" -> s3BackendConfig(config.getBackendConfig());
+      case "s3" -> s3BackendConfig(config.getBackendConfig(), jobContext);
       case "gs" -> gcsBackendConfig(config.getBackendConfig());
       case "azblob" -> azureBackendConfig(config.getBackendConfig(), jobContext);
       default -> throw new IllegalArgumentException("Unsupported backend: " + config.getBackend());
     };
   }
 
-  private static S3BackendConfig s3BackendConfig(java.util.Map<String, Object> backendConfigMap) {
+  private static S3BackendConfig s3BackendConfig(
+      java.util.Map<String, Object> backendConfigMap, JobContext jobContext) {
     if (backendConfigMap == null) backendConfigMap = java.util.Map.of();
     String region = (String) backendConfigMap.getOrDefault("region", "us-east-1");
     String credentialId = (String) backendConfigMap.get("credentialId");
     String endpoint = (String) backendConfigMap.get("s3EndpointOverride");
-    return new S3BackendConfig(region, credentialId, endpoint);
+    io.fleak.zephflow.lib.credentials.UsernamePasswordCredential credential =
+        io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt(
+                jobContext, credentialId)
+            .orElse(null);
+    if (credentialId != null && !credentialId.isBlank() && credential == null) {
+      throw new IllegalStateException(
+          "S3 credentialId '"
+              + credentialId
+              + "' was configured but could not be resolved in JobContext");
+    }
+    String accessKeyId = credential != null ? credential.getUsername() : null;
+    String secretAccessKey = credential != null ? credential.getPassword() : null;
+    return new S3BackendConfig(region, accessKeyId, secretAccessKey, endpoint);
   }
 
   private static GcsBackendConfig gcsBackendConfig(java.util.Map<String, Object> backendConfigMap) {
