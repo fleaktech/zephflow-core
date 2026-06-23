@@ -28,10 +28,13 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 /** HTTP-backed (or in-memory) checkpoint state store. Ported from zephflow-plus. */
-public interface CheckpointClient {
+public interface CheckpointClient extends AutoCloseable {
   void checkpoint(String id, String data);
 
   Optional<CheckpointData> loadCheckpoint(String id);
+
+  /** No-op by default; implementations with closeable resources should override. */
+  default void close() {}
 
   record CheckpointData(long ts, String data) {}
 
@@ -116,6 +119,11 @@ public interface CheckpointClient {
       } catch (Exception e) {
         throw new CheckpointException("Failed to load checkpoint for id=" + id, e);
       }
+    }
+
+    @Override
+    public void close() {
+      client.close();
     }
   }
 

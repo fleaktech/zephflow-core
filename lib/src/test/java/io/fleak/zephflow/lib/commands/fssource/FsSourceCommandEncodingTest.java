@@ -121,4 +121,55 @@ class FsSourceCommandEncodingTest {
     byte[] plain = "{\"v\":1}".getBytes(StandardCharsets.UTF_8);
     assertArrayEquals(plain, FsSourceCommand.maybeGunzip(plain));
   }
+
+  /**
+   * A corrupt file (malformed JSON) must NOT abort the whole scan. The valid file's records must
+   * still be emitted and out.terminate() must be called.
+   */
+  @Test
+  void corruptFile_isSkipped_validFileStillEmitted(@TempDir Path tmp) throws Exception {
+    // valid file — will be processed
+    Files.writeString(tmp.resolve("evt_1.json"), "{\"k\":\"good\"}");
+    // corrupt file — malformed JSON causes deserializer to throw
+    Files.writeString(tmp.resolve("evt_2.json"), "{not valid");
+
+    List<RecordFleakData> emitted = new ArrayList<>();
+    boolean[] terminateCalled = {false};
+    SourceEventAcceptor out =
+        new SourceEventAcceptor() {
+          @Override
+          public void accept(List<RecordFleakData> r) {
+            emitted.addAll(r);
+          }
+
+          @Override
+          public void terminate() {
+            terminateCalled[0] = true;
+          }
+        };
+
+    FsSourceCommand cmd = new FsSourceCommand("n", JobContext.builder().build());
+    Map<String, Object> rawCfg =
+        Map.of(
+            "backend",
+            "file",
+            "root",
+            tmp.toUri().toString(),
+            "fileNameRegex",
+            "evt_(?<ts>\\d+)\\..*",
+            "encodingType",
+            "JSON_OBJECT");
+    cmd.parseAndValidateArg(rawCfg);
+    cmd.initialize(new MetricClientProvider.NoopMetricClientProvider());
+
+    // must not throw
+    assertDoesNotThrow(() -> cmd.execute("u", out));
+
+    // valid record must be emitted
+    assertEquals(1, emitted.size());
+    assertEquals("good", emitted.get(0).unwrap().get("k"));
+
+    // terminate must always be called
+    assertTrue(terminateCalled[0], "out.terminate() must be called even when a file is corrupt");
+  }
 }

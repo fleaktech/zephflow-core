@@ -41,5 +41,10 @@ public final class FsSourceExecutionContext implements ExecutionContext {
         reader.close();
       } catch (Exception ignored) {
       }
+    if (checkpointClient != null)
+      try {
+        checkpointClient.close();
+      } catch (Exception ignored) {
+      }
   }
 }

@@ -140,6 +140,7 @@ public final class FsSourceCommand extends SourceCommand {
     try (var stream = ec.lister.list(req)) {
       stream
           .map(f -> new Pending(f, tsFromName(f, regex)))
+          // Files older than the resume watermark are intentionally skipped on later runs.
           .filter(p -> p.ts().compareTo(checkpoint.watermark()) >= 0)
           .filter(p -> !checkpoint.isCompleted(p.entry().key().urn()))
           .sorted(Comparator.comparing(Pending::ts).thenComparing(p -> p.entry().key().urn()))
@@ -150,15 +151,19 @@ public final class FsSourceCommand extends SourceCommand {
     for (Pending p : todo) {
       if (terminated) break;
       FileEntry f = p.entry();
-      byte[] bytes;
-      try (InputStream in = ec.reader.open(f.key(), 0)) {
-        bytes = maybeGunzip(in.readAllBytes());
+      try {
+        byte[] bytes;
+        try (InputStream in = ec.reader.open(f.key(), 0)) {
+          bytes = maybeGunzip(in.readAllBytes());
+        }
+        List<RecordFleakData> records =
+            deserializer.deserialize(new SerializedEvent(null, bytes, null));
+        out.accept(records);
+        current = current.withEmitted(f.key().urn(), p.ts());
+        saveCheckpoint(ec.checkpointClient, sourceId, current);
+      } catch (Exception e) {
+        log.error("fs_source skip file urn={} due to read/deserialize error", f.key().urn(), e);
       }
-      List<RecordFleakData> records =
-          deserializer.deserialize(new SerializedEvent(null, bytes, null));
-      out.accept(records);
-      current = current.withEmitted(f.key().urn(), p.ts());
-      saveCheckpoint(ec.checkpointClient, sourceId, current);
     }
     out.terminate();
   }
