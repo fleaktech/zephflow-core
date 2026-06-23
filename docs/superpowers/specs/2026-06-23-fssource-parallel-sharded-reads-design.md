@@ -69,32 +69,66 @@ for (var i = 0; i < replicas; i++) {
 `i` and `replicas` are both in scope, and each task persists its own DAG copy
 (`Task.dag`, jsonb). This is the injection site.
 
+### Shared injector (no schema/DTO changes)
+
+`injectMetricTags` and `injectCheckpointUrl` in `TaskSupervisor` currently each
+duplicate the same logic: locate-or-create `jobContext`, locate-or-create
+`otherProperties` (or `metricTags`), then `put`. Replica injection would be a third
+copy. Instead, extract one shared helper and route all three through it.
+
+**`DagJobContextInjector`** — a new utility in the shared `:lib` module
+(`io.fleak.grid.lib`), which both `jobmaster` and `workeragent` already depend on
+(`implementation project(':lib')`). It owns the `ObjectNode`-walking:
+
+```java
+public final class DagJobContextInjector {
+  private DagJobContextInjector() {}
+
+  /** Locate-or-create jobContext.otherProperties on the DAG and put key=value. */
+  public static void putOtherProperty(JsonNode dag, String key, String value) { ... }
+
+  /** Locate-or-create jobContext.metricTags on the DAG and put key=value. */
+  public static void putMetricTag(JsonNode dag, String key, String value) { ... }
+}
+```
+
+Each method does the locate-or-create walk once; `TaskSupervisor` and `JobService`
+call it instead of carrying their own copies.
+
+### Two principled call sites
+
+The two remaining injection sites are kept, but justified by a real distinction
+rather than convenience:
+
+- **Intrinsic task identity** — `REPLICA_INDEX` / `REPLICA_COUNT`. Injected into the
+  *persisted* DAG at **fan-out** (`JobService`), because the replica index exists
+  only there and is part of what the task *is*. The stored `Task.dag` then records
+  which shard the task represents.
+- **Runtime environment** — `worker_id` (metric tag) and `CHECKPOINT_URL`
+  (`masterUrl`). Late-bound at the **worker** (`TaskSupervisor`) at launch, because
+  those values exist only in the worker's runtime (`workerConfig`).
+
+This is the persisted-identity vs. late-bound-runtime boundary, not an arbitrary
+split.
+
 ### Changes
 
-- Add `injectReplicaInfo(dag, replicaIndex, replicaCount)` using the same
-  `ObjectNode`-walking pattern as `TaskSupervisor.injectMetricTags` /
-  `injectCheckpointUrl`: locate-or-create `jobContext`, locate-or-create
-  `otherProperties`, then `put` the two keys.
-- Call it inside the fan-out loop, on the per-task DAG, **before**
-  `createAndInitiateTask` persists it.
-- **Inject only when `replicas > 1`.** Single-replica jobs get neither key and
-  behave exactly as today.
+- `JobService` fan-out loop: call
+  `DagJobContextInjector.putOtherProperty(dag, REPLICA_INDEX, ...)` and
+  `putOtherProperty(dag, REPLICA_COUNT, ...)` on each per-task DAG, **before**
+  `createAndInitiateTask` persists it. **Only when `replicas > 1`** — single-replica
+  jobs get neither key and behave exactly as today.
+- `TaskSupervisor.injectMetricTags` / `injectCheckpointUrl`: reimplemented to call
+  the shared `DagJobContextInjector` instead of their inline walks. Behavior
+  unchanged.
 
 ### What does NOT change
 
 - No new column on the `Task` entity.
 - No changes to `WorkerTaskSubmit` or any DTO.
-- No changes to the worker (`TaskSupervisor`). The worker keeps treating the DAG
-  as opaque and continues to apply `injectMetricTags` / `injectCheckpointUrl`.
-
-### Known seam
-
-DAG mutation is now split across two components: the worker's `TaskSupervisor`
-(metric tags, checkpoint URL) and jobmaster's `JobService` (replica info). Replica
-injection belongs in jobmaster because that is the only place the replica index
-exists — threading it to the worker would require persisting the index on the
-`Task` entity and routing it through `WorkerTaskSubmit` for no functional benefit.
-This split is intentional and documented here.
+- No DB migration.
+- Worker-side injection behavior (`worker_id`, `CHECKPOINT_URL`) is byte-for-byte
+  identical; only the implementation is refactored onto the shared helper.
 
 ## zephflow-core side
 
@@ -172,7 +206,7 @@ compute(backend, root, regex, replicaIndex, replicaCount)
 
 ```
 Job(replicas=3) ── JobService loop i = 0,1,2
-   └─ per-task DAG copy + injectReplicaInfo(dag, i, 3)   [REPLICA_INDEX=i, REPLICA_COUNT=3]
+   └─ per-task DAG copy + putOtherProperty(dag, REPLICA_INDEX=i, REPLICA_COUNT=3)
         └─ persisted (Task.dag) ── worker ── injectCheckpointUrl ── FsSourceCommand
              ├─ sourceId = hash(backend, root, regex, i, 3)        (isolated per replica)
              └─ list(root)
@@ -212,10 +246,15 @@ Job(replicas=3) ── JobService loop i = 0,1,2
 
 **grid**
 
+- `DagJobContextInjectorTest`:
+  - `putOtherProperty` / `putMetricTag` locate-or-create `jobContext` and the
+    target map when absent, and preserve existing entries when present.
 - `JobService` test:
-  - `replicas > 1` injects both keys into each task's DAG with correct
+  - `replicas > 1` injects both replica keys into each task's DAG with correct
     per-replica values.
   - `replicas == 1` injects neither key.
+- `TaskSupervisor` tests (existing): unchanged behavior for `worker_id` /
+  `CHECKPOINT_URL` after refactoring onto the shared injector.
 
 ## Out of scope
 
