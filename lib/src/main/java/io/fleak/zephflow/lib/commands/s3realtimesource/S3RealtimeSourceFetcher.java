@@ -122,7 +122,8 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
         continue;
       }
 
-      result.add(new S3EventMessage(message.messageId(), message.receiptHandle(), refs));
+      result.add(
+          new S3EventMessage(message.messageId(), message.receiptHandle(), message.body(), refs));
     }
 
     log.debug("fetched {} S3 event messages from queue {}", result.size(), queueUrl);

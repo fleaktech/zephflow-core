@@ -95,7 +95,8 @@ class S3RealtimeRawDataConverterTest {
   void convert_jsonObjectLineSuccess() {
     byte[] body = "{\"msg\":\"a\"}\n{\"msg\":\"b\"}".getBytes(StandardCharsets.UTF_8);
     stubGetObject("b", "k.jsonl", body);
-    S3EventMessage msg = new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("b", "k.jsonl")));
+    S3EventMessage msg =
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "k.jsonl")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -112,7 +113,7 @@ class S3RealtimeRawDataConverterTest {
     byte[] body = "{\"msg\":\"a\"}".getBytes(StandardCharsets.UTF_8);
     stubGetObject("my-bucket", "dir/k.json", body);
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("my-bucket", "dir/k.json")));
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("my-bucket", "dir/k.json")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, true).convert(msg, ctx);
@@ -132,6 +133,7 @@ class S3RealtimeRawDataConverterTest {
         new S3EventMessage(
             "m1",
             "r1",
+            null,
             List.of(new S3ObjectRef("b", "k1.jsonl"), new S3ObjectRef("b", "k2.jsonl")));
 
     ConvertedResult<S3EventMessage> result =
@@ -149,7 +151,8 @@ class S3RealtimeRawDataConverterTest {
             GetObjectResponse.builder().contentLength(MAX_OBJECT_SIZE + 1).build(),
             AbortableInputStream.create(new ByteArrayInputStream(new byte[0])));
     when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(stream);
-    S3EventMessage msg = new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("b", "big.json")));
+    S3EventMessage msg =
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "big.json")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -168,7 +171,7 @@ class S3RealtimeRawDataConverterTest {
                 .message("The specified key does not exist.")
                 .build());
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("b", "gone.jsonl")));
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "gone.jsonl")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -184,7 +187,8 @@ class S3RealtimeRawDataConverterTest {
   void convert_deserializeFailureNotConfirmed() {
     when(s3Client.getObject(any(GetObjectRequest.class)))
         .thenThrow(new RuntimeException("s3 down"));
-    S3EventMessage msg = new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("b", "k.json")));
+    S3EventMessage msg =
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "k.json")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -199,7 +203,7 @@ class S3RealtimeRawDataConverterTest {
   void convert_autoDetectsGzip() {
     stubGetObject("b", "data.jsonl.gz", gzip("{\"msg\":\"a\"}\n{\"msg\":\"b\"}"));
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("b", "data.jsonl.gz")));
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "data.jsonl.gz")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false, null).convert(msg, ctx);
@@ -212,7 +216,8 @@ class S3RealtimeRawDataConverterTest {
   @Test
   void convert_explicitGzip() {
     stubGetObject("b", "data", gzip("{\"msg\":\"a\"}"));
-    S3EventMessage msg = new S3EventMessage("m1", "r1", List.of(new S3ObjectRef("b", "data")));
+    S3EventMessage msg =
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "data")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false, CompressionType.GZIP).convert(msg, ctx);

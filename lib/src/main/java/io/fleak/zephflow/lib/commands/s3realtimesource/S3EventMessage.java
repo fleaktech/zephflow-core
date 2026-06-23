@@ -18,7 +18,8 @@ import java.util.List;
 /**
  * An SQS message carrying one or more S3 object references. Acts as the commit unit: its {@code
  * receiptHandle} is used to delete the message from SQS once all its referenced objects have been
- * processed.
+ * processed. {@code rawBody} is the original SQS message body (the S3 event notification) and is
+ * the canonical "raw data" representation used for the DLQ and raw-data sampling.
  */
 public record S3EventMessage(
-    String messageId, String receiptHandle, List<S3ObjectRef> objectRefs) {}
+    String messageId, String receiptHandle, String rawBody, List<S3ObjectRef> objectRefs) {}

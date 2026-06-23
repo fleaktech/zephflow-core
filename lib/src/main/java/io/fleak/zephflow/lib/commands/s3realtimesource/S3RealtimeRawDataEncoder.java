@@ -13,15 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
-
 import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Encodes a failed {@link S3EventMessage} for the DLQ. Object bytes are not retained on the
- * message, so the DLQ entry captures the referenced object(s) (bucket/key) keyed by message id.
+ * Serializes an {@link S3EventMessage} as the original SQS message body (the S3 event
+ * notification), keyed by message id — the same shape the fetcher writes to the DLQ, so the DLQ and
+ * raw-data sampling share one schema.
  */
 public class S3RealtimeRawDataEncoder implements RawDataEncoder<S3EventMessage> {
   @Override
@@ -30,7 +29,10 @@ public class S3RealtimeRawDataEncoder implements RawDataEncoder<S3EventMessage> 
         sourceRecord.messageId() == null
             ? null
             : sourceRecord.messageId().getBytes(StandardCharsets.UTF_8);
-    byte[] value = toJsonString(sourceRecord.objectRefs()).getBytes(StandardCharsets.UTF_8);
+    byte[] value =
+        sourceRecord.rawBody() == null
+            ? new byte[0]
+            : sourceRecord.rawBody().getBytes(StandardCharsets.UTF_8);
     return new SerializedEvent(key, value, null);
   }
 }

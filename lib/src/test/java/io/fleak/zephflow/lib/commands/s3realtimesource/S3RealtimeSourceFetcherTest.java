@@ -86,7 +86,12 @@ class S3RealtimeSourceFetcherTest {
     List<S3EventMessage> result = fetcher.fetch();
 
     assertEquals(
-        List.of(new S3EventMessage("msg-1", "receipt-1", List.of(new S3ObjectRef("b", "k.json")))),
+        List.of(
+            new S3EventMessage(
+                "msg-1",
+                "receipt-1",
+                objectCreated("b", "k.json"),
+                List.of(new S3ObjectRef("b", "k.json")))),
         result);
     verify(sqsClient, never()).deleteMessage(any(DeleteMessageRequest.class));
     verifyNoInteractions(dlqWriter);
