@@ -39,8 +39,8 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 /**
  * Downloads the S3 object(s) referenced by an {@link S3EventMessage} — one at a time, so at most a
  * single object is held in memory — and deserializes each into {@link RecordFleakData}. On success
- * the message's receipt handle is queued for commit (deletion); on failure the whole message is
- * routed to the DLQ and left undeleted for SQS redelivery.
+ * the message's receipt handle is queued for commit (deletion); on failure it is left undeleted for
+ * SQS redelivery, and the fetcher dead-letters it once the retry cap is reached.
  */
 @Slf4j
 public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessage> {
