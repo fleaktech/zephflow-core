@@ -59,124 +59,138 @@ public final class FsSourceCommand extends SourceCommand {
 
   @Override
   protected ExecutionContext createExecutionContext(
-      MetricClientProvider mp, JobContext jc, CommandConfig cfg, String nodeId) {
-    FsSourceDto.Config c = (FsSourceDto.Config) cfg;
-    FsSourceExecutionContext ec = new FsSourceExecutionContext();
-    ec.backend = FsBackendRegistry.get(c.getBackend());
-    FsBackendConfig bc = buildBackendConfig(c, jc);
-    ec.backendConfig = bc;
-    ec.lister = ec.backend.createLister(bc);
-    ec.reader = ec.backend.createReader(bc);
-    ec.checkpointClient = buildCheckpointClient(jc);
-    return ec;
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      CommandConfig commandConfig,
+      String nodeId) {
+    FsSourceDto.Config config = (FsSourceDto.Config) commandConfig;
+    FsSourceExecutionContext executionContext = new FsSourceExecutionContext();
+    executionContext.backend = FsBackendRegistry.get(config.getBackend());
+    FsBackendConfig backendConfig = buildBackendConfig(config, jobContext);
+    executionContext.backendConfig = backendConfig;
+    executionContext.lister = executionContext.backend.createLister(backendConfig);
+    executionContext.reader = executionContext.backend.createReader(backendConfig);
+    executionContext.checkpointClient = buildCheckpointClient(jobContext);
+    return executionContext;
   }
 
-  private static CheckpointClient buildCheckpointClient(JobContext jc) {
-    Object url = jc.getOtherProperties().get(JobContext.JOB_MASTER_URL);
-    String s = url == null ? null : url.toString().trim();
-    if (s == null || s.isEmpty()) {
+  private static CheckpointClient buildCheckpointClient(JobContext jobContext) {
+    Object url = jobContext.getOtherProperties().get(JobContext.CHECKPOINT_URL);
+    String trimmedUrl = url == null ? null : url.toString().trim();
+    if (trimmedUrl == null || trimmedUrl.isEmpty()) {
       return new CheckpointClient.InMemCheckpointClient();
     }
-    return new CheckpointClient.HttpCheckpointClient(s);
+    return new CheckpointClient.HttpCheckpointClient(trimmedUrl);
   }
 
-  private static FsBackendConfig buildBackendConfig(FsSourceDto.Config c, JobContext jobContext) {
-    return switch (c.getBackend()) {
-      case "file" -> new LocalFsBackendConfig(c.getRoot());
-      case "s3" -> s3BackendConfig(c.getBackendConfig());
-      case "gs" -> gcsBackendConfig(c.getBackendConfig());
-      case "azblob" -> azureBackendConfig(c.getBackendConfig(), jobContext);
-      default -> throw new IllegalArgumentException("Unsupported backend: " + c.getBackend());
+  private static FsBackendConfig buildBackendConfig(
+      FsSourceDto.Config config, JobContext jobContext) {
+    return switch (config.getBackend()) {
+      case "file" -> new LocalFsBackendConfig(config.getRoot());
+      case "s3" -> s3BackendConfig(config.getBackendConfig());
+      case "gs" -> gcsBackendConfig(config.getBackendConfig());
+      case "azblob" -> azureBackendConfig(config.getBackendConfig(), jobContext);
+      default -> throw new IllegalArgumentException("Unsupported backend: " + config.getBackend());
     };
   }
 
-  private static S3BackendConfig s3BackendConfig(java.util.Map<String, Object> map) {
-    if (map == null) map = java.util.Map.of();
-    String region = (String) map.getOrDefault("region", "us-east-1");
-    String credentialId = (String) map.get("credentialId");
-    String endpoint = (String) map.get("s3EndpointOverride");
+  private static S3BackendConfig s3BackendConfig(java.util.Map<String, Object> backendConfigMap) {
+    if (backendConfigMap == null) backendConfigMap = java.util.Map.of();
+    String region = (String) backendConfigMap.getOrDefault("region", "us-east-1");
+    String credentialId = (String) backendConfigMap.get("credentialId");
+    String endpoint = (String) backendConfigMap.get("s3EndpointOverride");
     return new S3BackendConfig(region, credentialId, endpoint);
   }
 
-  private static GcsBackendConfig gcsBackendConfig(java.util.Map<String, Object> map) {
-    if (map == null) map = java.util.Map.of();
-    String serviceAccountJson = (String) map.get("serviceAccountJson");
+  private static GcsBackendConfig gcsBackendConfig(java.util.Map<String, Object> backendConfigMap) {
+    if (backendConfigMap == null) backendConfigMap = java.util.Map.of();
+    String serviceAccountJson = (String) backendConfigMap.get("serviceAccountJson");
     return new GcsBackendConfig(serviceAccountJson);
   }
 
   private static AzureBackendConfig azureBackendConfig(
-      java.util.Map<String, Object> map, JobContext jobContext) {
-    if (map == null) map = java.util.Map.of();
-    String connectionString = (String) map.get("connectionString");
+      java.util.Map<String, Object> backendConfigMap, JobContext jobContext) {
+    if (backendConfigMap == null) backendConfigMap = java.util.Map.of();
+    String connectionString = (String) backendConfigMap.get("connectionString");
     if (connectionString != null && !connectionString.isBlank()) {
       return new AzureBackendConfig(connectionString, null, null);
     }
-    String credentialId = (String) map.get("credentialId");
+    String credentialId = (String) backendConfigMap.get("credentialId");
     if (credentialId != null && !credentialId.isBlank()) {
-      io.fleak.zephflow.lib.credentials.UsernamePasswordCredential cred =
+      io.fleak.zephflow.lib.credentials.UsernamePasswordCredential credential =
           io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential(
               jobContext, credentialId);
-      return new AzureBackendConfig(null, cred.getUsername(), cred.getPassword());
+      return new AzureBackendConfig(null, credential.getUsername(), credential.getPassword());
     }
     throw new IllegalArgumentException(
         "azblob backend requires either 'connectionString' or 'credentialId' in backendConfig");
   }
 
   @Override
-  public void execute(String user, SourceEventAcceptor out) throws Exception {
-    FsSourceExecutionContext ec = (FsSourceExecutionContext) getExecutionContext();
-    FsSourceDto.Config c = (FsSourceDto.Config) commandConfig;
+  public void execute(String user, SourceEventAcceptor eventAcceptor) throws Exception {
+    FsSourceExecutionContext executionContext = (FsSourceExecutionContext) getExecutionContext();
+    FsSourceDto.Config config = (FsSourceDto.Config) commandConfig;
 
-    String sourceId = SourceIdHasher.compute(c.getBackend(), c.getRoot(), c.getFileNameRegex());
-    FsCheckpoint checkpoint = loadCheckpoint(ec.checkpointClient, sourceId);
+    String sourceId =
+        SourceIdHasher.compute(config.getBackend(), config.getRoot(), config.getFileNameRegex());
+    FsCheckpoint checkpoint = loadCheckpoint(executionContext.checkpointClient, sourceId);
     log.info("fs_source open: sourceId={} watermark={}", sourceId, checkpoint.watermark());
 
-    Pattern regex = c.getFileNameRegex() == null ? null : Pattern.compile(c.getFileNameRegex());
+    Pattern fileNamePattern =
+        config.getFileNameRegex() == null ? null : Pattern.compile(config.getFileNameRegex());
     FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(c.getEncodingType()).createDeserializer();
+        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
+            .createDeserializer();
 
-    ListRequest req = new ListRequest(c.getRoot(), regex);
-    List<Pending> todo = new ArrayList<>();
-    try (var stream = ec.lister.list(req)) {
+    ListRequest listRequest = new ListRequest(config.getRoot(), fileNamePattern);
+    List<Pending> pendingFiles = new ArrayList<>();
+    try (var stream = executionContext.lister.list(listRequest)) {
       stream
-          .map(f -> new Pending(f, tsFromName(f, regex)))
+          .map(fileEntry -> new Pending(fileEntry, timestampFromName(fileEntry, fileNamePattern)))
           // Files older than the resume watermark are intentionally skipped on later runs.
-          .filter(p -> p.ts().compareTo(checkpoint.watermark()) >= 0)
-          .filter(p -> !checkpoint.isCompleted(p.entry().key().urn()))
-          .sorted(Comparator.comparing(Pending::ts).thenComparing(p -> p.entry().key().urn()))
-          .forEach(todo::add);
+          .filter(pending -> pending.timestamp().compareTo(checkpoint.watermark()) >= 0)
+          .filter(pending -> !checkpoint.isCompleted(pending.entry().key().urn()))
+          .sorted(
+              Comparator.comparing(Pending::timestamp)
+                  .thenComparing(pending -> pending.entry().key().urn()))
+          .forEach(pendingFiles::add);
     }
 
-    FsCheckpoint current = checkpoint;
-    for (Pending p : todo) {
+    FsCheckpoint currentCheckpoint = checkpoint;
+    for (Pending pending : pendingFiles) {
       if (terminated) break;
-      FileEntry f = p.entry();
+      FileEntry fileEntry = pending.entry();
       try {
         byte[] bytes;
-        try (InputStream in = ec.reader.open(f.key(), 0)) {
-          bytes = maybeGunzip(in.readAllBytes());
+        try (InputStream inputStream = executionContext.reader.open(fileEntry.key(), 0)) {
+          bytes = maybeGunzip(inputStream.readAllBytes());
         }
         List<RecordFleakData> records =
             deserializer.deserialize(new SerializedEvent(null, bytes, null));
-        out.accept(records);
-        current = current.withEmitted(f.key().urn(), p.ts());
-        saveCheckpoint(ec.checkpointClient, sourceId, current);
-      } catch (Exception e) {
-        log.error("fs_source skip file urn={} due to read/deserialize error", f.key().urn(), e);
+        eventAcceptor.accept(records);
+        currentCheckpoint =
+            currentCheckpoint.withEmitted(fileEntry.key().urn(), pending.timestamp());
+        saveCheckpoint(executionContext.checkpointClient, sourceId, currentCheckpoint);
+      } catch (Exception exception) {
+        log.error(
+            "fs_source skip file urn={} due to read/deserialize error",
+            fileEntry.key().urn(),
+            exception);
       }
     }
-    out.terminate();
+    eventAcceptor.terminate();
   }
 
-  private static FsCheckpoint loadCheckpoint(CheckpointClient client, String sourceId) {
-    return client
+  private static FsCheckpoint loadCheckpoint(CheckpointClient checkpointClient, String sourceId) {
+    return checkpointClient
         .loadCheckpoint(sourceId)
-        .map(d -> JsonUtils.fromJsonString(d.data(), FsCheckpoint.class))
+        .map(checkpointData -> JsonUtils.fromJsonString(checkpointData.data(), FsCheckpoint.class))
         .orElse(FsCheckpoint.empty());
   }
 
-  private static void saveCheckpoint(CheckpointClient client, String sourceId, FsCheckpoint cp) {
-    client.checkpoint(sourceId, JsonUtils.toJsonString(cp));
+  private static void saveCheckpoint(
+      CheckpointClient checkpointClient, String sourceId, FsCheckpoint checkpoint) {
+    checkpointClient.checkpoint(sourceId, JsonUtils.toJsonString(checkpoint));
   }
 
   /** Auto-detect gzip by magic bytes (0x1f 0x8b) and decompress; otherwise pass through. */
@@ -187,7 +201,7 @@ public final class FsSourceCommand extends SourceCommand {
     return data;
   }
 
-  private record Pending(FileEntry entry, Instant ts) {}
+  private record Pending(FileEntry entry, Instant timestamp) {}
 
   @Override
   public void terminate() throws java.io.IOException {
@@ -195,16 +209,16 @@ public final class FsSourceCommand extends SourceCommand {
     super.terminate();
   }
 
-  private static Instant tsFromName(FileEntry f, Pattern regex) {
-    if (regex == null) return f.lastModified();
-    String name = new java.io.File(f.displayPath()).getName();
-    Matcher m = regex.matcher(name);
-    if (!m.matches()) return f.lastModified();
+  private static Instant timestampFromName(FileEntry fileEntry, Pattern fileNamePattern) {
+    if (fileNamePattern == null) return fileEntry.lastModified();
+    String name = new java.io.File(fileEntry.displayPath()).getName();
+    Matcher matcher = fileNamePattern.matcher(name);
+    if (!matcher.matches()) return fileEntry.lastModified();
     try {
-      String ts = m.group("ts");
-      return Instant.ofEpochSecond(Long.parseLong(ts));
-    } catch (Exception e) {
-      return f.lastModified();
+      String timestamp = matcher.group("ts");
+      return Instant.ofEpochSecond(Long.parseLong(timestamp));
+    } catch (Exception exception) {
+      return fileEntry.lastModified();
     }
   }
 }

@@ -171,7 +171,7 @@ the completed-set against the watermark, keeping the payload bounded across resu
 `parallelism`/`jobIndex` component.
 
 **URL source.** Read the base URL from `JobContext.getOtherProperties()` under a new core constant
-`JobContext.JOB_MASTER_URL` (`"JOB_MASTER_URL"`). The grid populates it. When blank/absent →
+`JobContext.CHECKPOINT_URL` (`"checkpoint_url"`). The grid populates it. When blank/absent →
 `InMemCheckpointClient` (checkpointing is process-local and non-durable; a fresh process re-emits everything).
 Build the client once in `createExecutionContext`.
 
@@ -192,7 +192,7 @@ applicable (InMem is a no-op). Keep `backend`, `backendConfig`, `lister`, `reade
 | `commands/fssource/FsSourceConfigValidator.java` | Drop emission/partition/postAction checks; add `encodingType` required + `validateEncodingType`. |
 | `commands/fssource/FsSourceCommand.java` | `sourceType()`→`BATCH`; rewrite `execute()` to the §3.4 single-pass loop; build deserializer + checkpoint client; remove `resolveParallelism`/`resolveJobIndex`, emission/stability/postAction builders, bounded/unbounded branching. Keep `tsFromName`. |
 | `commands/fssource/FsSourceExecutionContext.java` | Replace `checkpointStore` with `checkpointClient`. |
-| `api/src/main/java/io/fleak/zephflow/api/JobContext.java` | Add `public static final String JOB_MASTER_URL = "JOB_MASTER_URL";`. |
+| `api/src/main/java/io/fleak/zephflow/api/JobContext.java` | Add `public static final String CHECKPOINT_URL = "checkpoint_url";`. |
 
 ### Add
 | File | Responsibility |
@@ -236,7 +236,7 @@ applicable (InMem is a no-op). Keep `backend`, `backendConfig`, `lister`, `reade
    completed (and/or run twice) → completed files skipped, watermark honored.
 6. **HttpCheckpointClient** — stand up a lightweight in-process HTTP stub (e.g. `com.sun.net.httpserver` or the
    existing test HTTP utilities) at a base URL; assert `POST {url}/{id}` on save and `GET {url}/{id}` on load,
-   and that supplying the URL via `JobContext.JOB_MASTER_URL` selects the HTTP client (blank → InMem).
+   and that supplying the URL via `JobContext.CHECKPOINT_URL` selects the HTTP client (blank → InMem).
 7. **Validator** — blank `backend`, blank `root`, null `encodingType`, `PARQUET` encodingType, invalid
    `fileNameRegex` all rejected.
 8. **`sourceType()`** returns `BATCH`.
@@ -253,7 +253,7 @@ Run: `./gradlew :lib:compileJava :lib:test`; `spotlessApply` clean.
 - [ ] Files are read whole, auto-gunzipped when gzip-magic is present, and decoded via the configured
       `encodingType` into bare records matching the standard deserializers.
 - [ ] Resume works: a completed file (per loaded checkpoint) is not re-emitted; progress is saved per file.
-- [ ] With `JobContext.JOB_MASTER_URL` set, checkpoints `POST`/`GET` to `{url}/{sourceId}`; absent → in-memory.
+- [ ] With `JobContext.CHECKPOINT_URL` set, checkpoints `POST`/`GET` to `{url}/{sourceId}`; absent → in-memory.
 - [ ] All removed subsystems (unbounded loop, emission strategies, partitioner, stability probe, post-actions,
       object-store checkpoint store + migrator) and their tests are gone; no dangling references.
 - [ ] `:lib:compileJava` + `:lib:test` green; `spotlessApply` clean.

@@ -19,7 +19,7 @@
 
 ---
 
-### Task 1: Port `CheckpointClient` into core + add `JobContext.JOB_MASTER_URL`
+### Task 1: Port `CheckpointClient` into core + add `JobContext.CHECKPOINT_URL`
 
 **Files:**
 - Create: `lib/src/main/java/io/fleak/zephflow/lib/commands/fssource/checkpoint/CheckpointClient.java`
@@ -32,14 +32,14 @@
   - `class CheckpointClient.InMemCheckpointClient implements CheckpointClient`
   - `class CheckpointClient.HttpCheckpointClient implements CheckpointClient` — constructor `HttpCheckpointClient(String baseUrl)`; targets `baseUrl + "/" + id`.
   - `class CheckpointClient.CheckpointException extends RuntimeException`
-  - `JobContext.JOB_MASTER_URL` = `"JOB_MASTER_URL"` (String constant)
+  - `JobContext.CHECKPOINT_URL` = `"CHECKPOINT_URL"` (String constant)
 
-- [ ] **Step 1: Add the `JOB_MASTER_URL` constant to `JobContext`**
+- [ ] **Step 1: Add the `CHECKPOINT_URL` constant to `JobContext`**
 
 In `api/src/main/java/io/fleak/zephflow/api/JobContext.java`, after the existing `DATA_KEY_PREFIX` line (line 35), add:
 
 ```java
-  public static final String JOB_MASTER_URL = "JOB_MASTER_URL";
+  public static final String CHECKPOINT_URL = "CHECKPOINT_URL";
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -259,7 +259,7 @@ Expected: PASS (both tests).
 git add api/src/main/java/io/fleak/zephflow/api/JobContext.java \
         lib/src/main/java/io/fleak/zephflow/lib/commands/fssource/checkpoint/CheckpointClient.java \
         lib/src/test/java/io/fleak/zephflow/lib/commands/fssource/checkpoint/CheckpointClientTest.java
-git commit -m "feat(fssource): add CheckpointClient (in-mem + http) and JOB_MASTER_URL"
+git commit -m "feat(fssource): add CheckpointClient (in-mem + http) and CHECKPOINT_URL"
 ```
 
 ---
@@ -278,7 +278,7 @@ This is one atomic task — the DTO, validator, execution context, and command a
 - Delete (test): `FsSourceCommandUnboundedTest.java`, `BoundedMemoryStreamingTest.java`, `CrossJobDeterminismTest.java`, `FsSourceCommandMigrationTest.java` (all under `lib/.../commands/fssource/`)
 
 **Interfaces:**
-- Consumes: `CheckpointClient`, `JobContext.JOB_MASTER_URL` (Task 1); `SourceIdHasher.compute(String,String,String)`; `FsCheckpoint.empty()/.withEmitted(String,Instant)/.isCompleted(String)/.watermark()`; `DeserializerFactory.createDeserializerFactory(EncodingType)`; `FleakDeserializer.deserialize(SerializedEvent)`; `CompressionUtils.gunzip(byte[])`; `FileLister.list(ListRequest)`; `FileReader.open(FileKey,long)`.
+- Consumes: `CheckpointClient`, `JobContext.CHECKPOINT_URL` (Task 1); `SourceIdHasher.compute(String,String,String)`; `FsCheckpoint.empty()/.withEmitted(String,Instant)/.isCompleted(String)/.watermark()`; `DeserializerFactory.createDeserializerFactory(EncodingType)`; `FleakDeserializer.deserialize(SerializedEvent)`; `CompressionUtils.gunzip(byte[])`; `FileLister.list(ListRequest)`; `FileReader.open(FileKey,long)`.
 - Produces:
   - `FsSourceDto.Config` with getters `getBackend()/getRoot()/getFileNameRegex()/getEncodingType()/getBackendConfig()`.
   - `FsSourceCommand.sourceType()` → `SourceType.BATCH`.
@@ -478,7 +478,7 @@ public final class FsSourceCommand extends SourceCommand {
   }
 
   private static CheckpointClient buildCheckpointClient(JobContext jc) {
-    Object url = jc.getOtherProperties().get(JobContext.JOB_MASTER_URL);
+    Object url = jc.getOtherProperties().get(JobContext.CHECKPOINT_URL);
     String s = url == null ? null : url.toString().trim();
     if (s == null || s.isEmpty()) {
       return new CheckpointClient.InMemCheckpointClient();
@@ -830,7 +830,7 @@ git commit -m "test(fssource): per-encoding coverage and gzip auto-detection"
 - Test: `lib/src/test/java/io/fleak/zephflow/lib/commands/fssource/FsSourceCommandResumeTest.java`
 
 **Interfaces:**
-- Consumes: `JobContext.JOB_MASTER_URL`; a stateful in-process `com.sun.net.httpserver.HttpServer` acting as the checkpoint store across two command runs.
+- Consumes: `JobContext.CHECKPOINT_URL`; a stateful in-process `com.sun.net.httpserver.HttpServer` acting as the checkpoint store across two command runs.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -904,7 +904,7 @@ class FsSourceCommandResumeTest {
             "encodingType", "JSON_OBJECT_LINE");
     JobContext jc =
         JobContext.builder()
-            .otherProperties(new HashMap<>(Map.of(JobContext.JOB_MASTER_URL, baseUrl)))
+            .otherProperties(new HashMap<>(Map.of(JobContext.CHECKPOINT_URL, baseUrl)))
             .build();
     List<RecordFleakData> emitted = new ArrayList<>();
     SourceEventAcceptor out =
@@ -1058,10 +1058,10 @@ git commit -m "test(fssource): validator rejects bad backend/root/encodingType/r
 - Encoding via `EncodingType`/bare records → Task 2 (`execute`) + Task 3 coverage.
 - Auto gzip detection → Task 2 (`maybeGunzip`) + Task 3 gzip tests.
 - Parallelism/stability/post-action removal → Task 2 Step 7 deletions + Step 1 reference check.
-- Resume-capable HTTP checkpoint, `{url}/{id}`, `JOB_MASTER_URL`, in-mem fallback → Task 1 (client) + Task 2 (`buildCheckpointClient`, load/save) + Task 4 (resume integration).
+- Resume-capable HTTP checkpoint, `{url}/{id}`, `CHECKPOINT_URL`, in-mem fallback → Task 1 (client) + Task 2 (`buildCheckpointClient`, load/save) + Task 4 (resume integration).
 - Validator (required `encodingType`, reject `PARQUET`) → Task 5.
 - Removed tests → Task 2 Step 2.
 
 **Placeholder scan:** No TBD/TODO. The only conditional guidance is Task 3 Step 1's note to calibrate CSV/STRING_LINE assertions against the real deserializer output — this is explicit (inspect emitted map, adjust assertion, never change source) and the calibration happens at Step 2.
 
-**Type consistency:** `CheckpointClient`/`InMemCheckpointClient`/`HttpCheckpointClient`/`CheckpointData` names match across Tasks 1, 2, 4. `FsSourceExecutionContext.checkpointClient` defined in Task 2 Step 5, consumed in Task 2 Step 6. `maybeGunzip` defined in Task 2 Step 6, asserted in Task 3. `JobContext.JOB_MASTER_URL` defined in Task 1 Step 1, consumed in Tasks 2/4. Config getters (`getEncodingType`, etc.) match the DTO in Task 2 Step 3.
+**Type consistency:** `CheckpointClient`/`InMemCheckpointClient`/`HttpCheckpointClient`/`CheckpointData` names match across Tasks 1, 2, 4. `FsSourceExecutionContext.checkpointClient` defined in Task 2 Step 5, consumed in Task 2 Step 6. `maybeGunzip` defined in Task 2 Step 6, asserted in Task 3. `JobContext.CHECKPOINT_URL` defined in Task 1 Step 1, consumed in Tasks 2/4. Config getters (`getEncodingType`, etc.) match the DTO in Task 2 Step 3.

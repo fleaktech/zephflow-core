@@ -23,26 +23,27 @@ import java.util.regex.PatternSyntaxException;
 public final class FsSourceConfigValidator implements ConfigValidator {
 
   @Override
-  public void validateConfig(CommandConfig config, String nodeId, JobContext ctx) {
-    if (!(config instanceof FsSourceDto.Config c)) {
+  public void validateConfig(CommandConfig config, String nodeId, JobContext jobContext) {
+    if (!(config instanceof FsSourceDto.Config fsSourceConfig)) {
       throw new IllegalArgumentException("expected FsSourceDto.Config, got " + config.getClass());
     }
-    if (c.getBackend() == null || c.getBackend().isBlank()) {
+    if (fsSourceConfig.getBackend() == null || fsSourceConfig.getBackend().isBlank()) {
       throw new IllegalArgumentException("backend is required");
     }
-    if (c.getRoot() == null || c.getRoot().isBlank()) {
+    if (fsSourceConfig.getRoot() == null || fsSourceConfig.getRoot().isBlank()) {
       throw new IllegalArgumentException("root is required");
     }
-    if (c.getFileNameRegex() != null && !c.getFileNameRegex().isBlank()) {
+    if (fsSourceConfig.getFileNameRegex() != null && !fsSourceConfig.getFileNameRegex().isBlank()) {
       try {
-        Pattern.compile(c.getFileNameRegex());
-      } catch (PatternSyntaxException e) {
-        throw new IllegalArgumentException("invalid fileNameRegex: " + e.getMessage(), e);
+        Pattern.compile(fsSourceConfig.getFileNameRegex());
+      } catch (PatternSyntaxException exception) {
+        throw new IllegalArgumentException(
+            "invalid fileNameRegex: " + exception.getMessage(), exception);
       }
     }
-    if (c.getEncodingType() == null) {
+    if (fsSourceConfig.getEncodingType() == null) {
       throw new IllegalArgumentException("encodingType is required");
     }
-    DeserializerFactory.validateEncodingType(c.getEncodingType());
+    DeserializerFactory.validateEncodingType(fsSourceConfig.getEncodingType());
   }
 }

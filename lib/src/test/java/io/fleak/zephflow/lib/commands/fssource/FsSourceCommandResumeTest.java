@@ -73,16 +73,20 @@ class FsSourceCommandResumeTest {
   }
 
   private List<RecordFleakData> runOnce(Path tempDir) throws Exception {
+    JobContext jobContext =
+        JobContext.builder()
+            .otherProperties(new HashMap<>(Map.of(JobContext.CHECKPOINT_URL, baseUrl)))
+            .build();
+    return run(tempDir, jobContext);
+  }
+
+  private List<RecordFleakData> run(Path tempDir, JobContext jobContext) throws Exception {
     Map<String, Object> rawConfig =
         Map.of(
             "backend", "file",
             "root", tempDir.toUri().toString(),
             "fileNameRegex", "evt_(?<ts>\\d+)\\.log",
             "encodingType", "JSON_OBJECT_LINE");
-    JobContext jobContext =
-        JobContext.builder()
-            .otherProperties(new HashMap<>(Map.of(JobContext.CHECKPOINT_URL, baseUrl)))
-            .build();
     List<RecordFleakData> emitted = new ArrayList<>();
     SourceEventAcceptor out =
         new SourceEventAcceptor() {
@@ -114,5 +118,26 @@ class FsSourceCommandResumeTest {
     // No new files; resume from the same HTTP-backed checkpoint store.
     List<RecordFleakData> second = runOnce(tempDir);
     assertTrue(second.isEmpty(), "all files already checkpointed -> nothing re-emitted");
+  }
+
+  @Test
+  void withoutCheckpointUrl_emitsAllFilesAndDoesNotCheckpoint(@TempDir Path tempDir)
+      throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
+    Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");
+
+    // checkpoint_url is not provided: the source must work and emit every file.
+    JobContext withoutCheckpointUrl = JobContext.builder().build();
+    List<RecordFleakData> first = run(tempDir, withoutCheckpointUrl);
+    assertEquals(
+        List.of("a", "b"), first.stream().map(record -> record.unwrap().get("v")).toList());
+
+    // No checkpoint state is sent anywhere when checkpoint_url is absent.
+    assertTrue(store.isEmpty(), "no checkpoint_url -> nothing POSTed to the checkpoint server");
+
+    // Without durable checkpointing, a second run re-emits the same files.
+    List<RecordFleakData> second = run(tempDir, JobContext.builder().build());
+    assertEquals(
+        List.of("a", "b"), second.stream().map(record -> record.unwrap().get("v")).toList());
   }
 }

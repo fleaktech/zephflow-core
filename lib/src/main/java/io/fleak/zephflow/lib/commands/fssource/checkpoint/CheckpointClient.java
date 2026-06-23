@@ -84,10 +84,10 @@ public interface CheckpointClient extends AutoCloseable {
         if (response.statusCode() < 200 || response.statusCode() > 299) {
           throw new CheckpointException("Failed to checkpoint state for id=" + id);
         }
-      } catch (RuntimeException rte) {
-        throw rte;
-      } catch (Exception e) {
-        throw new CheckpointException("Failed to checkpoint state for id=" + id, e);
+      } catch (RuntimeException runtimeException) {
+        throw runtimeException;
+      } catch (Exception exception) {
+        throw new CheckpointException("Failed to checkpoint state for id=" + id, exception);
       }
     }
 
@@ -114,10 +114,10 @@ public interface CheckpointClient extends AutoCloseable {
           return Optional.empty();
         }
         return Optional.of(checkpoint);
-      } catch (RuntimeException rte) {
-        throw rte;
-      } catch (Exception e) {
-        throw new CheckpointException("Failed to load checkpoint for id=" + id, e);
+      } catch (RuntimeException runtimeException) {
+        throw runtimeException;
+      } catch (Exception exception) {
+        throw new CheckpointException("Failed to load checkpoint for id=" + id, exception);
       }
     }
 
