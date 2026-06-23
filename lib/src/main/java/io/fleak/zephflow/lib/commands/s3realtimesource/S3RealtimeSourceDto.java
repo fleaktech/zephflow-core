@@ -24,7 +24,10 @@ public interface S3RealtimeSourceDto {
   int MAX_MAX_NUMBER_OF_MESSAGES = 10;
   int DEFAULT_WAIT_TIME_SECONDS = 20;
   int MAX_WAIT_TIME_SECONDS = 20;
-  int DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 30;
+  // Generous default so a single large object's download + decompress + deserialize finishes before
+  // the message becomes visible again. Operators with large objects/slow processing should raise
+  // it.
+  int DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 300;
   long DEFAULT_MAX_OBJECT_SIZE_BYTES = 256L * 1024 * 1024;
   int DEFAULT_MAX_RETRIES = 5;
 
@@ -65,6 +68,14 @@ public interface S3RealtimeSourceDto {
 
     @Builder.Default private Integer maxNumberOfMessages = DEFAULT_MAX_NUMBER_OF_MESSAGES;
     @Builder.Default private Integer waitTimeSeconds = DEFAULT_WAIT_TIME_SECONDS;
+
+    /**
+     * SQS visibility timeout (seconds). A message is deleted only after its object is fully
+     * downloaded, decompressed, and deserialized; if that takes longer than this window the message
+     * becomes visible again and is reprocessed, causing duplicate emits. Size this above the
+     * expected worst-case processing time, which grows with {@code maxObjectSizeBytes} (and more so
+     * for compressed objects).
+     */
     @Builder.Default private Integer visibilityTimeoutSeconds = DEFAULT_VISIBILITY_TIMEOUT_SECONDS;
 
     /**
