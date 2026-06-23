@@ -67,7 +67,10 @@ public interface S3RealtimeSourceDto {
     @Builder.Default private Integer waitTimeSeconds = DEFAULT_WAIT_TIME_SECONDS;
     @Builder.Default private Integer visibilityTimeoutSeconds = DEFAULT_VISIBILITY_TIMEOUT_SECONDS;
 
-    /** Objects larger than this are sent to the DLQ instead of being downloaded. */
+    /**
+     * Objects whose size exceeds this are skipped (and logged) and the notification is
+     * acknowledged; the object's content is not downloaded.
+     */
     @Builder.Default private Long maxObjectSizeBytes = DEFAULT_MAX_OBJECT_SIZE_BYTES;
 
     /** In-app retry cap: messages whose ApproximateReceiveCount exceeds this are dead-lettered. */

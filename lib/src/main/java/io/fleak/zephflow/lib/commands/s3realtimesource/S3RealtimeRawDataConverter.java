@@ -90,6 +90,11 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
               ref.bucket(),
               ref.key());
           continue;
+        } catch (ObjectTooLargeException e) {
+          // Terminal condition (the object will always be too large), so skip + acknowledge instead
+          // of failing and retrying.
+          log.warn("{}; skipping the notification", e.getMessage());
+          continue;
         }
         byte[] body = maybeDecompress(raw);
         totalBytes += body.length;
@@ -121,11 +126,18 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
             GetObjectRequest.builder().bucket(ref.bucket()).key(ref.key()).build())) {
       long contentLength = in.response().contentLength();
       if (contentLength > maxObjectSizeBytes) {
-        throw new IOException(
+        // Read the size from the response headers and abort before transferring the body.
+        throw new ObjectTooLargeException(
             "S3 object s3://%s/%s size %d exceeds maxObjectSizeBytes %d"
                 .formatted(ref.bucket(), ref.key(), contentLength, maxObjectSizeBytes));
       }
       return in.readAllBytes();
+    }
+  }
+
+  private static final class ObjectTooLargeException extends RuntimeException {
+    ObjectTooLargeException(String message) {
+      super(message);
     }
   }
 

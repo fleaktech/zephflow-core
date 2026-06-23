@@ -143,7 +143,7 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void convert_oversizedObjectFails() {
+  void convert_oversizedObjectSkippedAndAcknowledged() {
     ResponseInputStream<GetObjectResponse> stream =
         new ResponseInputStream<>(
             GetObjectResponse.builder().contentLength(MAX_OBJECT_SIZE + 1).build(),
@@ -154,9 +154,10 @@ class S3RealtimeRawDataConverterTest {
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
 
-    assertNull(result.transformedData());
-    assertNotNull(result.error());
-    assertTrue(confirmed.isEmpty());
+    // Oversized is terminal: skip + acknowledge (no records), not a retryable failure.
+    assertNull(result.error());
+    assertEquals(List.of(), result.transformedData());
+    assertEquals(List.of("r1"), List.copyOf(confirmed));
   }
 
   @Test
