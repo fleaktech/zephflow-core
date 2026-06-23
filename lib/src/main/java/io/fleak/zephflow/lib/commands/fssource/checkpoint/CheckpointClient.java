@@ -27,7 +27,7 @@ import java.util.Optional;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-/** HTTP-backed (or in-memory) checkpoint state store. Ported from zephflow-plus. */
+/** HTTP-backed (or in-memory) checkpoint state store. */
 public interface CheckpointClient extends AutoCloseable {
   void checkpoint(String id, String data);
 
