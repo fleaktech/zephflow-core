@@ -19,7 +19,9 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.RawDataConverter;
+import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -38,9 +41,13 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
 /**
  * Downloads the S3 object(s) referenced by an {@link S3EventMessage} — one at a time, so at most a
- * single object is held in memory — and deserializes each into {@link RecordFleakData}. On success
- * the message's receipt handle is queued for commit (deletion); on failure it is left undeleted for
- * SQS redelivery, and the fetcher dead-letters it once the retry cap is reached.
+ * single object is held in memory — and deserializes each into {@link RecordFleakData}.
+ *
+ * <p>Each object is handled independently and a failure is <b>terminal</b>: an object that can't be
+ * downloaded or parsed is written (with its real error) to the DLQ and skipped, never retried. So
+ * {@code convert()} always succeeds and the message is always acknowledged; a multi-object message
+ * emits its good objects and DLQs the bad ones. ({@code NoSuchKey} / oversized are benign skips
+ * with no DLQ.) Downstream {@code accept()} failures are handled by the framework's DLQ path.
  */
 @Slf4j
 public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessage> {
@@ -55,6 +62,9 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
   private final long maxObjectSizeBytes;
   private final boolean addS3Metadata;
   private final Queue<String> confirmedReceiptHandles;
+  private final DlqWriter dlqWriter;
+  private final RawDataEncoder<S3EventMessage> encoder;
+  private final String nodeId;
 
   public S3RealtimeRawDataConverter(
       S3Client s3Client,
@@ -62,68 +72,94 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
       CompressionType compressionType,
       long maxObjectSizeBytes,
       boolean addS3Metadata,
-      Queue<String> confirmedReceiptHandles) {
+      Queue<String> confirmedReceiptHandles,
+      DlqWriter dlqWriter,
+      RawDataEncoder<S3EventMessage> encoder,
+      String nodeId) {
     this.s3Client = s3Client;
     this.fleakDeserializer = fleakDeserializer;
     this.compressionType = compressionType;
     this.maxObjectSizeBytes = maxObjectSizeBytes;
     this.addS3Metadata = addS3Metadata;
     this.confirmedReceiptHandles = confirmedReceiptHandles;
+    this.dlqWriter = dlqWriter;
+    this.encoder = encoder;
+    this.nodeId = nodeId;
   }
 
   @Override
   public ConvertedResult<S3EventMessage> convert(
       S3EventMessage sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
-    try {
-      // A message is the atomic unit: a single SQS receipt handle covers all of its objects, so we
-      // emit every object's records together (on success) or none (on failure) -- there is no
-      // per-object ack. A partial failure therefore emits nothing and the whole message is retried;
-      // the already-deserialized objects are reprocessed but not double-emitted. At-least-once
-      // still
-      // holds: if the process dies after emit() but before the delete, redelivery re-emits every
-      // object in the message, so a multi-object message duplicates more records than a single one.
-      List<RecordFleakData> events = new ArrayList<>();
-      long totalBytes = 0;
-      for (S3ObjectRef ref : sourceRecord.objectRefs()) {
-        byte[] raw;
-        try {
-          raw = downloadObject(ref);
-        } catch (NoSuchKeyException e) {
-          // The object was deleted (e.g. by an S3 lifecycle policy) between the notification being
-          // emitted and us reading it. It will never appear, so acknowledge and skip rather than
-          // retrying. Common with backlogged queues on log buckets that expire objects.
-          log.warn(
-              "S3 object s3://{}/{} no longer exists; skipping the notification",
-              ref.bucket(),
-              ref.key());
-          continue;
-        } catch (ObjectTooLargeException e) {
-          // Terminal condition (the object will always be too large), so skip + acknowledge instead
-          // of failing and retrying.
-          log.warn("{}; skipping the notification", e.getMessage());
-          continue;
-        }
-        byte[] body = maybeDecompress(raw);
-        totalBytes += body.length;
+    List<RecordFleakData> events = new ArrayList<>();
+    long totalBytes = 0;
+    for (S3ObjectRef ref : sourceRecord.objectRefs()) {
+      byte[] body;
+      try {
+        body = maybeDecompress(downloadObject(ref));
+      } catch (NoSuchKeyException e) {
+        // The object was deleted (e.g. by an S3 lifecycle policy) between the notification being
+        // emitted and us reading it. It will never appear, so acknowledge and skip (no DLQ).
+        // Common with backlogged queues on log buckets that expire objects.
+        log.warn(
+            "S3 object s3://{}/{} no longer exists; skipping the notification",
+            ref.bucket(),
+            ref.key());
+        continue;
+      } catch (ObjectTooLargeException e) {
+        // Terminal but benign (the object will always be too large): skip + acknowledge, no DLQ.
+        log.warn("{}; skipping the notification", e.getMessage());
+        continue;
+      } catch (Exception e) {
+        // Any other download problem is treated as terminal: dead-letter (with the real error) and
+        // skip, rather than failing the whole message and retrying.
+        deadLetter(sourceRecord, ref, e, sourceInitializedConfig);
+        continue;
+      }
+
+      try {
         List<RecordFleakData> objectEvents =
             fleakDeserializer.deserialize(new SerializedEvent(null, body, null));
         if (addS3Metadata) {
           objectEvents.forEach(e -> enrich(e, ref));
         }
         events.addAll(objectEvents);
+        totalBytes += body.length;
+      } catch (Exception e) {
+        // The object's content can't be parsed; retrying won't help -> dead-letter + skip.
+        deadLetter(sourceRecord, ref, e, sourceInitializedConfig);
       }
+    }
 
-      Map<String, String> eventTags =
-          getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
-      sourceInitializedConfig.dataSizeCounter().increase(totalBytes, eventTags);
-      sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
+    Map<String, String> eventTags =
+        getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
+    sourceInitializedConfig.dataSizeCounter().increase(totalBytes, eventTags);
+    sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
 
-      confirmedReceiptHandles.add(sourceRecord.receiptHandle());
-      return ConvertedResult.success(events, sourceRecord);
-    } catch (Exception e) {
-      sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
-      log.error("failed to process S3 event message {}", sourceRecord.messageId(), e);
-      return ConvertedResult.failure(e, sourceRecord);
+    confirmedReceiptHandles.add(sourceRecord.receiptHandle());
+    return ConvertedResult.success(events, sourceRecord);
+  }
+
+  private void deadLetter(
+      S3EventMessage message, S3ObjectRef ref, Exception e, SourceExecutionContext<?> ctx) {
+    ctx.deserializeFailureCounter().increase(Map.of());
+    log.error(
+        "failed to process s3://{}/{} from message {}",
+        ref.bucket(),
+        ref.key(),
+        message.messageId(),
+        e);
+    if (dlqWriter == null) {
+      log.warn("dropping failed object s3://{}/{} (no DLQ configured)", ref.bucket(), ref.key());
+      return;
+    }
+    String errorMsg =
+        "failed to process s3://%s/%s: %s"
+            .formatted(ref.bucket(), ref.key(), ExceptionUtils.getStackTrace(e));
+    try {
+      dlqWriter.writeToDlq(
+          System.currentTimeMillis(), encoder.serialize(message), errorMsg, nodeId);
+    } catch (Exception ex) {
+      log.error("failed to write failed object s3://{}/{} to DLQ", ref.bucket(), ref.key(), ex);
     }
   }
 

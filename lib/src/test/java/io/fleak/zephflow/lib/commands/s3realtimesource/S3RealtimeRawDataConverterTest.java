@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -49,12 +50,14 @@ class S3RealtimeRawDataConverterTest {
 
   private S3Client s3Client;
   private Queue<String> confirmed;
+  private DlqWriter dlqWriter;
   private SourceExecutionContext<S3EventMessage> ctx;
 
   @BeforeEach
   void setUp() {
     s3Client = mock(S3Client.class);
     confirmed = new ConcurrentLinkedQueue<>();
+    dlqWriter = mock(DlqWriter.class);
     ctx =
         new SourceExecutionContext<>(
             null,
@@ -75,7 +78,15 @@ class S3RealtimeRawDataConverterTest {
     FleakDeserializer<?> deserializer =
         DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
     return new S3RealtimeRawDataConverter(
-        s3Client, deserializer, compressionType, MAX_OBJECT_SIZE, addS3Metadata, confirmed);
+        s3Client,
+        deserializer,
+        compressionType,
+        MAX_OBJECT_SIZE,
+        addS3Metadata,
+        confirmed,
+        dlqWriter,
+        new S3RealtimeRawDataEncoder(),
+        "node");
   }
 
   private void stubGetObject(String bucket, String key, byte[] data) {
@@ -157,10 +168,11 @@ class S3RealtimeRawDataConverterTest {
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
 
-    // Oversized is terminal: skip + acknowledge (no records), not a retryable failure.
+    // Oversized is a benign skip: acknowledge (no records), no DLQ, not a retryable failure.
     assertNull(result.error());
     assertEquals(List.of(), result.transformedData());
     assertEquals(List.of("r1"), List.copyOf(confirmed));
+    verifyNoInteractions(dlqWriter);
   }
 
   @Test
@@ -176,27 +188,65 @@ class S3RealtimeRawDataConverterTest {
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
 
-    // A deleted object is acknowledged (success with no records), not failed -> message gets
-    // deleted.
+    // A deleted object is a benign skip: acknowledged (no records), no DLQ.
     assertNull(result.error());
     assertEquals(List.of(), result.transformedData());
     assertEquals(List.of("r1"), List.copyOf(confirmed));
+    verifyNoInteractions(dlqWriter);
   }
 
   @Test
-  void convert_deserializeFailureNotConfirmed() {
-    when(s3Client.getObject(any(GetObjectRequest.class)))
-        .thenThrow(new RuntimeException("s3 down"));
+  void convert_deserializeFailureDlqdAndAcknowledged() {
+    stubGetObject("b", "bad.jsonl", "not valid json".getBytes(StandardCharsets.UTF_8));
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "k.json")));
+        new S3EventMessage("m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "bad.jsonl")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
 
-    assertNull(result.transformedData());
-    assertNotNull(result.error());
-    assertEquals(msg, result.sourceRecord());
-    assertTrue(confirmed.isEmpty());
+    // Terminal: dead-lettered with the real error + acknowledged, not a retryable failure.
+    assertNull(result.error());
+    assertEquals(List.of(), result.transformedData());
+    assertEquals(List.of("r1"), List.copyOf(confirmed));
+    verify(dlqWriter)
+        .writeToDlq(anyLong(), any(), contains("failed to process s3://b/bad.jsonl"), eq("node"));
+  }
+
+  @Test
+  void convert_downloadFailureDlqdAndAcknowledged() {
+    when(s3Client.getObject(any(GetObjectRequest.class)))
+        .thenThrow(new RuntimeException("s3 unavailable"));
+    S3EventMessage msg =
+        new S3EventMessage("m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "k.json")));
+
+    ConvertedResult<S3EventMessage> result =
+        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
+
+    assertNull(result.error());
+    assertEquals(List.of(), result.transformedData());
+    assertEquals(List.of("r1"), List.copyOf(confirmed));
+    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("s3 unavailable"), eq("node"));
+  }
+
+  @Test
+  void convert_multiObjectPartialFailureEmitsGoodAndDlqsBad() {
+    stubGetObject("b", "good.jsonl", "{\"msg\":\"a\"}".getBytes(StandardCharsets.UTF_8));
+    stubGetObject("b", "bad.jsonl", "not valid json".getBytes(StandardCharsets.UTF_8));
+    S3EventMessage msg =
+        new S3EventMessage(
+            "m1",
+            "r1",
+            "raw-body",
+            List.of(new S3ObjectRef("b", "good.jsonl"), new S3ObjectRef("b", "bad.jsonl")));
+
+    ConvertedResult<S3EventMessage> result =
+        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
+
+    // Good object emitted, bad object dead-lettered, message acknowledged.
+    assertEquals(List.of(record(Map.of("msg", "a"))), result.transformedData());
+    assertEquals(List.of("r1"), List.copyOf(confirmed));
+    verify(dlqWriter)
+        .writeToDlq(anyLong(), any(), contains("failed to process s3://b/bad.jsonl"), eq("node"));
   }
 
   @Test

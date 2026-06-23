@@ -113,11 +113,10 @@ class S3RealtimeSourceCommandIntegrationTest {
   }
 
   @Test
-  void endToEnd_unparseableObjectIsRetryCappedAndDeadLettered() throws Exception {
-    // The object exists but cannot be parsed as JSON, so every attempt fails -> never
-    // committed/deleted by the converter. SQS redelivers it (real ApproximateReceiveCount
-    // increments) until the in-app cap fires, which dead-letters and deletes it. Verifies the cap
-    // works end to end. (A *missing* object is instead skipped gracefully, covered by a unit test.)
+  void endToEnd_unparseableObjectDlqdAndAcknowledged() throws Exception {
+    // The object exists but cannot be parsed as JSON. This is a terminal failure: the converter
+    // dead-letters it once (with the real error) and the message is acknowledged on the first
+    // attempt -- no retry storm, no generic "exceeded maxRetries" entry.
     s3.putObject(
         PutObjectRequest.builder().bucket(BUCKET).key("bad.jsonl").build(),
         RequestBody.fromString("this is definitely not json"));
@@ -125,20 +124,41 @@ class S3RealtimeSourceCommandIntegrationTest {
 
     CollectingAcceptor acceptor = new CollectingAcceptor();
     CapturingDlqWriter dlq = new CapturingDlqWriter();
-    // maxRetries=2, visibilityTimeout=0 so the poison message reappears immediately.
-    SourceCommand command = runCommand(EncodingType.JSON_OBJECT_LINE, 2, 0, dlq, acceptor);
+    SourceCommand command = runCommand(EncodingType.JSON_OBJECT_LINE, 5, dlq, acceptor);
 
     waitUntil(() -> approxMessages() == 0);
     command.terminate();
 
     assertTrue(
         acceptor.records.isEmpty(), "no records should be emitted for an unparseable object");
-    assertFalse(dlq.captured.isEmpty(), "poison message should be dead-lettered at the retry cap");
-    // No per-attempt duplicates: every DLQ entry is the single retry-cap entry, not a framework
-    // write from each failed convert attempt.
+    assertEquals(1, dlq.captured.size(), "the object should be dead-lettered exactly once");
     assertTrue(
-        dlq.captured.stream().allMatch(d -> d.getErrorMessage().contains("exceeded maxRetries")),
-        "DLQ should only contain retry-cap entries, not per-attempt convert-failure entries");
+        dlq.captured
+            .get(0)
+            .getErrorMessage()
+            .contains("failed to process s3://" + BUCKET + "/bad.jsonl"),
+        "DLQ entry should carry the real parse error, not a generic retry-cap message");
+  }
+
+  @Test
+  void endToEnd_downstreamFailureIsDlqd() throws Exception {
+    // The object parses fine, but the downstream consumer throws. The framework's DLQ (restored)
+    // must capture the record instead of silently dropping it.
+    s3.putObject(
+        PutObjectRequest.builder().bucket(BUCKET).key("good.jsonl").build(),
+        RequestBody.fromString("{\"msg\":\"a\"}"));
+    sendNotification(BUCKET, "good.jsonl");
+
+    ThrowingAcceptor acceptor = new ThrowingAcceptor();
+    CapturingDlqWriter dlq = new CapturingDlqWriter();
+    // maxRetries=2 / visibilityTimeout=0 so the cap drains the queue quickly while accept keeps
+    // failing.
+    SourceCommand command = runCommand(EncodingType.JSON_OBJECT_LINE, 2, 0, dlq, acceptor);
+
+    waitUntil(() -> !dlq.captured.isEmpty());
+    command.terminate();
+
+    assertFalse(dlq.captured.isEmpty(), "downstream accept() failure must be captured in the DLQ");
   }
 
   // ---- helpers ----
@@ -169,7 +189,7 @@ class S3RealtimeSourceCommandIntegrationTest {
       EncodingType encodingType,
       int maxRetries,
       CapturingDlqWriter dlq,
-      CollectingAcceptor acceptor)
+      SourceEventAcceptor acceptor)
       throws Exception {
     return runCommand(encodingType, maxRetries, 30, dlq, acceptor);
   }
@@ -179,7 +199,7 @@ class S3RealtimeSourceCommandIntegrationTest {
       int maxRetries,
       int visibilityTimeout,
       CapturingDlqWriter dlq,
-      CollectingAcceptor acceptor)
+      SourceEventAcceptor acceptor)
       throws Exception {
     Queue<String> confirmed = new ConcurrentLinkedQueue<>();
     FleakDeserializer<?> deserializer =
@@ -188,9 +208,18 @@ class S3RealtimeSourceCommandIntegrationTest {
     // control-plane clients (s3/sqs) untouched for setup and assertions.
     S3Client commandS3 = newS3Client();
     SqsClient commandSqs = newSqsClient();
+    S3RealtimeRawDataEncoder encoder = new S3RealtimeRawDataEncoder();
     RawDataConverter<S3EventMessage> converter =
         new S3RealtimeRawDataConverter(
-            commandS3, deserializer, null, 256L * 1024 * 1024, false, confirmed);
+            commandS3,
+            deserializer,
+            null,
+            256L * 1024 * 1024,
+            false,
+            confirmed,
+            dlq,
+            encoder,
+            "node");
     Fetcher<S3EventMessage> fetcher =
         new S3RealtimeSourceFetcher(
             commandSqs,
@@ -203,17 +232,17 @@ class S3RealtimeSourceCommandIntegrationTest {
             dlq,
             "node",
             confirmed);
-    // Mirror production: the DLQ is owned by the fetcher (single dead-letter at the retry cap), not
-    // the execution context, so the framework does not write a DLQ entry per failed attempt.
+    // Mirror production: the framework DLQ is restored (downstream accept() failures are captured),
+    // while convert failures are dead-lettered terminally by the converter itself.
     SourceExecutionContext<S3EventMessage> ctx =
         new SourceExecutionContext<>(
             fetcher,
             converter,
-            new S3RealtimeRawDataEncoder(),
+            encoder,
             mock(FleakCounter.class),
             mock(FleakCounter.class),
             mock(FleakCounter.class),
-            null);
+            dlq);
 
     TestS3RealtimeSourceCommand command = new TestS3RealtimeSourceCommand(ctx);
     command.initialize(mock(MetricClientProvider.class));
@@ -342,6 +371,16 @@ class S3RealtimeSourceCommandIntegrationTest {
     @Override
     public void accept(List<RecordFleakData> recordFleakData) {
       records.addAll(recordFleakData);
+    }
+
+    @Override
+    public void terminate() {}
+  }
+
+  private static class ThrowingAcceptor implements SourceEventAcceptor {
+    @Override
+    public void accept(List<RecordFleakData> recordFleakData) {
+      throw new RuntimeException("downstream boom");
     }
 
     @Override

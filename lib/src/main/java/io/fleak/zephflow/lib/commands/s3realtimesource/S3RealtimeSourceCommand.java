@@ -95,6 +95,7 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
     FleakDeserializer<?> deserializer =
         DeserializerFactory.createDeserializerFactory(config.getEncodingType())
             .createDeserializer();
+    RawDataEncoder<S3EventMessage> encoder = new S3RealtimeRawDataEncoder();
     RawDataConverter<S3EventMessage> converter =
         new S3RealtimeRawDataConverter(
             s3Client,
@@ -103,8 +104,10 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
             orDefault(
                 config.getMaxObjectSizeBytes(), S3RealtimeSourceDto.DEFAULT_MAX_OBJECT_SIZE_BYTES),
             config.isAddS3Metadata(),
-            confirmedReceiptHandles);
-    RawDataEncoder<S3EventMessage> encoder = new S3RealtimeRawDataEncoder();
+            confirmedReceiptHandles,
+            dlqWriter,
+            encoder,
+            nodeId);
 
     Fetcher<S3EventMessage> fetcher =
         new S3RealtimeSourceFetcher(
@@ -123,10 +126,9 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
             nodeId,
             confirmedReceiptHandles);
 
-    // The DLQ is owned by the fetcher (it writes the single dead-letter entry when the retry cap is
-    // hit, and closes the writer). We pass null here so SimpleSourceCommand does NOT also write to
-    // the DLQ on every failed convert attempt — otherwise a message that fails and is redelivered
-    // until the cap would produce one DLQ entry per attempt.
+    // Restore the framework DLQ so downstream accept() failures are captured (the converter itself
+    // dead-letters convert failures terminally, so there is no per-attempt duplicate). The context
+    // owns closing the writer.
     return new SourceExecutionContext<>(
         fetcher,
         converter,
@@ -134,7 +136,7 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
         dataSizeCounter,
         inputEventCounter,
         deserializeFailureCounter,
-        null);
+        dlqWriter);
   }
 
   private UsernamePasswordCredential resolveCredential(JobContext jobContext, String credentialId) {

@@ -159,11 +159,12 @@ class S3RealtimeSourceFetcherTest {
   }
 
   @Test
-  void close_closesClientsAndDlqWriter() throws Exception {
+  void close_closesClients() throws Exception {
     fetcher.close();
     verify(sqsClient).close();
     verify(s3Client).close();
-    verify(dlqWriter).close();
+    // The DLQ writer is owned/closed by the execution context, not the fetcher.
+    verify(dlqWriter, never()).close();
   }
 
   private static DeleteMessageRequest deleteFor(String receiptHandle) {
