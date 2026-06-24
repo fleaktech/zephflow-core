@@ -28,6 +28,8 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   FileLister lister;
   FileReader reader;
   CheckpointClient checkpointClient;
+  int replicaIndex;
+  int replicaCount = 1;
 
   @Override
   public void close() throws IOException {

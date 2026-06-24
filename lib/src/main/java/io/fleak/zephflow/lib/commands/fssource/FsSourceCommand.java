@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfi
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
+import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -71,7 +72,22 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.lister = executionContext.backend.createLister(backendConfig);
     executionContext.reader = executionContext.backend.createReader(backendConfig);
     executionContext.checkpointClient = buildCheckpointClient(jobContext);
+    executionContext.replicaIndex = parseIntProperty(jobContext, JobContext.REPLICA_INDEX, 0);
+    executionContext.replicaCount = parseIntProperty(jobContext, JobContext.REPLICA_COUNT, 1);
     return executionContext;
+  }
+
+  private static int parseIntProperty(JobContext jobContext, String key, int defaultValue) {
+    Object value = jobContext.getOtherProperties().get(key);
+    if (value == null) {
+      return defaultValue;
+    }
+    try {
+      return Integer.parseInt(value.toString().trim());
+    } catch (NumberFormatException numberFormatException) {
+      log.warn("fs_source: unparseable {}={}; using default {}", key, value, defaultValue);
+      return defaultValue;
+    }
   }
 
   private static CheckpointClient buildCheckpointClient(JobContext jobContext) {
@@ -145,7 +161,12 @@ public final class FsSourceCommand extends SourceCommand {
     FsSourceDto.Config config = (FsSourceDto.Config) commandConfig;
 
     String sourceId =
-        SourceIdHasher.compute(config.getBackend(), config.getRoot(), config.getFileNameRegex());
+        SourceIdHasher.compute(
+            config.getBackend(),
+            config.getRoot(),
+            config.getFileNameRegex(),
+            executionContext.replicaIndex,
+            executionContext.replicaCount);
     FsCheckpoint checkpoint = loadCheckpoint(executionContext.checkpointClient, sourceId);
     log.info("fs_source open: sourceId={} watermark={}", sourceId, checkpoint.watermark());
 
@@ -160,6 +181,13 @@ public final class FsSourceCommand extends SourceCommand {
     try (var stream = executionContext.lister.list(listRequest)) {
       stream
           .map(fileEntry -> new Pending(fileEntry, timestampFromName(fileEntry, fileNamePattern)))
+          // Each replica owns a disjoint subset of files via stable hash partitioning.
+          .filter(
+              pending ->
+                  Partitioner.owns(
+                      pending.entry().key().urn(),
+                      executionContext.replicaIndex,
+                      executionContext.replicaCount))
           // Files older than the resume watermark are intentionally skipped on later runs.
           .filter(pending -> pending.timestamp().compareTo(checkpoint.watermark()) >= 0)
           .filter(pending -> !checkpoint.isCompleted(pending.entry().key().urn()))
