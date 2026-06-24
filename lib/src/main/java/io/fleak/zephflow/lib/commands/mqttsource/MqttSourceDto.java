@@ -42,6 +42,7 @@ public interface MqttSourceDto {
     @Builder.Default private boolean cleanStart = true;
     private Long sessionExpiryIntervalSeconds;
     @Builder.Default private boolean useTls = false;
+    @Builder.Default private boolean automaticReconnect = true;
 
     @Builder.Default private Long receiveTimeoutMs = DEFAULT_RECEIVE_TIMEOUT_MS;
     @Builder.Default private Integer maxBatchSize = DEFAULT_MAX_BATCH_SIZE;

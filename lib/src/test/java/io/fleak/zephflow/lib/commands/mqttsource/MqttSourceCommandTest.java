@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.mqttsource;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_MQTT_SOURCE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.SourceCommand;
@@ -85,7 +86,9 @@ class MqttSourceCommandTest {
   @Test
   void testEnqueueingCallbackDropsWhenQueueFull() throws Exception {
     LinkedBlockingQueue<byte[]> queue = new LinkedBlockingQueue<>(1);
-    MqttSourceCommand.EnqueueingCallback callback = new MqttSourceCommand.EnqueueingCallback(queue);
+    MqttClient mockClient = mock(MqttClient.class);
+    MqttSourceCommand.EnqueueingCallback callback =
+        new MqttSourceCommand.EnqueueingCallback(queue, mockClient, "sensors/#", 1);
 
     MqttMessage msgA = new MqttMessage("a".getBytes());
     MqttMessage msgB = new MqttMessage("b".getBytes());
@@ -93,5 +96,29 @@ class MqttSourceCommandTest {
     callback.messageArrived("topic", msgA);
     assertDoesNotThrow(() -> callback.messageArrived("topic", msgB));
     assertEquals(1, queue.size());
+  }
+
+  @Test
+  void testConnectCompleteResubscribesOnReconnect() throws Exception {
+    MqttClient mockClient = mock(MqttClient.class);
+    LinkedBlockingQueue<byte[]> queue = new LinkedBlockingQueue<>(10);
+    MqttSourceCommand.EnqueueingCallback callback =
+        new MqttSourceCommand.EnqueueingCallback(queue, mockClient, "sensors/#", 1);
+
+    callback.connectComplete(true, "tcp://broker");
+
+    verify(mockClient).subscribe("sensors/#", 1);
+  }
+
+  @Test
+  void testConnectCompleteDoesNotResubscribeOnInitialConnect() throws Exception {
+    MqttClient mockClient = mock(MqttClient.class);
+    LinkedBlockingQueue<byte[]> queue = new LinkedBlockingQueue<>(10);
+    MqttSourceCommand.EnqueueingCallback callback =
+        new MqttSourceCommand.EnqueueingCallback(queue, mockClient, "sensors/#", 1);
+
+    callback.connectComplete(false, "tcp://broker");
+
+    verify(mockClient, never()).subscribe(anyString(), anyInt());
   }
 }

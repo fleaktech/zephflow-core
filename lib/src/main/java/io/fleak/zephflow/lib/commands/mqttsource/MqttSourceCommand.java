@@ -110,7 +110,9 @@ public class MqttSourceCommand extends SimpleSourceCommand<SerializedEvent> {
 
       BlockingQueue<byte[]> messageQueue =
           new LinkedBlockingQueue<>(config.getReceiveQueueCapacity());
-      mqttClient.setCallback(new EnqueueingCallback(messageQueue));
+      mqttClient.setCallback(
+          new EnqueueingCallback(
+              messageQueue, mqttClient, config.getTopicFilter(), config.getQos()));
       mqttClient.connect(connectionOptions);
       mqttClient.subscribe(config.getTopicFilter(), config.getQos());
 
@@ -139,7 +141,9 @@ public class MqttSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     return COMMAND_NAME_MQTT_SOURCE;
   }
 
-  record EnqueueingCallback(BlockingQueue<byte[]> messageQueue) implements MqttCallback {
+  record EnqueueingCallback(
+      BlockingQueue<byte[]> messageQueue, MqttClient mqttClient, String topicFilter, int qos)
+      implements MqttCallback {
 
     @Override
     public void messageArrived(String topic, MqttMessage message) {
@@ -162,7 +166,17 @@ public class MqttSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     public void deliveryComplete(org.eclipse.paho.mqttv5.client.IMqttToken token) {}
 
     @Override
-    public void connectComplete(boolean reconnect, String serverUri) {}
+    public void connectComplete(boolean reconnect, String serverUri) {
+      if (!reconnect) {
+        return;
+      }
+      try {
+        mqttClient.subscribe(topicFilter, qos);
+        log.info("Re-subscribed to MQTT topic {} after reconnect to {}", topicFilter, serverUri);
+      } catch (MqttException e) {
+        log.error("Failed to re-subscribe to MQTT topic {} after reconnect", topicFilter, e);
+      }
+    }
 
     @Override
     public void authPacketArrived(int reasonCode, MqttProperties properties) {}

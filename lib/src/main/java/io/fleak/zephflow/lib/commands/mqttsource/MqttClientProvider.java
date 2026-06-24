@@ -30,7 +30,9 @@ public class MqttClientProvider {
   public MqttConnectionOptions buildConnectionOptions(
       MqttSourceDto.Config config, UsernamePasswordCredential credential) {
     MqttConnectionOptionsBuilder optionsBuilder =
-        new MqttConnectionOptionsBuilder().cleanStart(config.isCleanStart());
+        new MqttConnectionOptionsBuilder()
+            .cleanStart(config.isCleanStart())
+            .automaticReconnect(config.isAutomaticReconnect());
 
     if (config.getSessionExpiryIntervalSeconds() != null) {
       optionsBuilder.sessionExpiryInterval(config.getSessionExpiryIntervalSeconds());
