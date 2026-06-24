@@ -23,8 +23,10 @@ import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import java.util.concurrent.LinkedBlockingQueue;
 import org.eclipse.paho.mqttv5.client.MqttClient;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
+import org.eclipse.paho.mqttv5.common.MqttMessage;
 import org.junit.jupiter.api.Test;
 
 class MqttSourceCommandTest {
@@ -78,5 +80,18 @@ class MqttSourceCommandTest {
     verify(mockClient).connect(any(MqttConnectionOptions.class));
     verify(mockClient).subscribe("sensors/#", 1);
     verify(mockClient).setCallback(any());
+  }
+
+  @Test
+  void testEnqueueingCallbackDropsWhenQueueFull() throws Exception {
+    LinkedBlockingQueue<byte[]> queue = new LinkedBlockingQueue<>(1);
+    MqttSourceCommand.EnqueueingCallback callback = new MqttSourceCommand.EnqueueingCallback(queue);
+
+    MqttMessage msgA = new MqttMessage("a".getBytes());
+    MqttMessage msgB = new MqttMessage("b".getBytes());
+
+    callback.messageArrived("topic", msgA);
+    assertDoesNotThrow(() -> callback.messageArrived("topic", msgB));
+    assertEquals(1, queue.size());
   }
 }

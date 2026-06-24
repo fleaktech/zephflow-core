@@ -146,4 +146,25 @@ class MqttSourceConfigValidatorTest {
                     validBuilder().receiveTimeoutMs(0L).build(), "test-node", mockJobContext));
     assertTrue(ex.getMessage().contains("receiveTimeoutMs must be positive"));
   }
+
+  @Test
+  void testUseTlsWithNonTlsBrokerUrlThrows() {
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                validator.validateConfig(
+                    validBuilder().useTls(true).build(), "test-node", mockJobContext));
+    assertTrue(ex.getMessage().contains("useTls is enabled but brokerUrl scheme"));
+  }
+
+  @Test
+  void testUseTlsWithTlsBrokerUrlPasses() {
+    assertDoesNotThrow(
+        () ->
+            validator.validateConfig(
+                validBuilder().useTls(true).brokerUrl("ssl://localhost:8883").build(),
+                "test-node",
+                mockJobContext));
+  }
 }

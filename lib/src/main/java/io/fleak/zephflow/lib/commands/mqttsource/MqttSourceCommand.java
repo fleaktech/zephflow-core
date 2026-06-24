@@ -139,7 +139,7 @@ public class MqttSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     return COMMAND_NAME_MQTT_SOURCE;
   }
 
-  private record EnqueueingCallback(BlockingQueue<byte[]> messageQueue) implements MqttCallback {
+  record EnqueueingCallback(BlockingQueue<byte[]> messageQueue) implements MqttCallback {
 
     @Override
     public void messageArrived(String topic, MqttMessage message) {

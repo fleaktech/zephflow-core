@@ -27,6 +27,13 @@ public class MqttSourceConfigValidator implements ConfigValidator {
 
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getBrokerUrl()), "no brokerUrl is provided");
+    if (config.isUseTls()) {
+      String lowerCaseBrokerUrl = config.getBrokerUrl().toLowerCase();
+      Preconditions.checkArgument(
+          lowerCaseBrokerUrl.startsWith("ssl://") || lowerCaseBrokerUrl.startsWith("wss://"),
+          "useTls is enabled but brokerUrl scheme is not ssl:// or wss://: %s",
+          config.getBrokerUrl());
+    }
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getTopicFilter()), "no topicFilter is provided");
     Preconditions.checkArgument(
