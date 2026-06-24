@@ -23,10 +23,10 @@ import org.junit.jupiter.api.Test;
 
 class PartitionerTest {
 
-  private static List<String> sampleUrns(int n) {
+  private static List<String> sampleUrns(int size) {
     List<String> urns = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
-      urns.add("s3://bucket/logs/2026/06/app-" + i + ".json");
+    for (int index = 0; index < size; index++) {
+      urns.add("s3://bucket/logs/2026/06/app-" + index + ".json");
     }
     return urns;
   }
@@ -51,12 +51,12 @@ class PartitionerTest {
 
   @Test
   void everyUrnOwnedByExactlyOneReplica_noGapsNoOverlap() {
-    int count = 4;
+    int replicaCount = 4;
     List<String> urns = sampleUrns(500);
     for (String urn : urns) {
       int owners = 0;
-      for (int idx = 0; idx < count; idx++) {
-        if (Partitioner.owns(urn, idx, count)) owners++;
+      for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
+        if (Partitioner.owns(urn, replicaIndex, replicaCount)) owners++;
       }
       assertEquals(1, owners, "urn must be owned by exactly one replica: " + urn);
     }
@@ -64,12 +64,12 @@ class PartitionerTest {
 
   @Test
   void unionOfReplicaSubsetsIsFullSet() {
-    int count = 3;
+    int replicaCount = 3;
     List<String> urns = sampleUrns(300);
     Set<String> covered = new HashSet<>();
-    for (int idx = 0; idx < count; idx++) {
+    for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
       for (String urn : urns) {
-        if (Partitioner.owns(urn, idx, count)) covered.add(urn);
+        if (Partitioner.owns(urn, replicaIndex, replicaCount)) covered.add(urn);
       }
     }
     assertEquals(new HashSet<>(urns), covered);
@@ -77,18 +77,19 @@ class PartitionerTest {
 
   @Test
   void distributionIsRoughlyEven() {
-    int count = 4;
-    int[] buckets = new int[count];
+    int replicaCount = 4;
+    int[] bucketSizes = new int[replicaCount];
     List<String> urns = sampleUrns(4000);
     for (String urn : urns) {
-      for (int idx = 0; idx < count; idx++) {
-        if (Partitioner.owns(urn, idx, count)) buckets[idx]++;
+      for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
+        if (Partitioner.owns(urn, replicaIndex, replicaCount)) bucketSizes[replicaIndex]++;
       }
     }
-    int expected = urns.size() / count;
-    for (int b : buckets) {
-      // Allow generous slack; we only guard against gross skew (e.g. all in one bucket).
-      assertTrue(b > expected * 0.6 && b < expected * 1.4, "bucket skew: " + b);
+    int expectedPerBucket = urns.size() / replicaCount;
+    for (int bucketSize : bucketSizes) {
+      assertTrue(
+          bucketSize > expectedPerBucket * 0.6 && bucketSize < expectedPerBucket * 1.4,
+          "bucket skew: " + bucketSize);
     }
   }
 }
