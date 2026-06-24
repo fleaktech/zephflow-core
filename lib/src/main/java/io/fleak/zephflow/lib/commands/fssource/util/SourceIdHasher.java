@@ -27,4 +27,31 @@ public final class SourceIdHasher {
         .toString()
         .substring(0, 16);
   }
+
+  /**
+   * Replica-aware source id. When {@code replicaCount <= 1} this returns exactly the same id as the
+   * three-argument overload, so existing single-replica checkpoints remain valid. When {@code
+   * replicaCount > 1}, the replica index and count are folded into the hash so each replica owns an
+   * isolated checkpoint.
+   */
+  public static String compute(
+      String backend, String root, String fileNameRegex, int replicaIndex, int replicaCount) {
+    if (replicaCount <= 1) {
+      return compute(backend, root, fileNameRegex);
+    }
+    String canonical =
+        backend
+            + "\n"
+            + root
+            + "\n"
+            + (fileNameRegex == null ? "" : fileNameRegex)
+            + "\n"
+            + replicaIndex
+            + "\n"
+            + replicaCount;
+    return Hashing.sha256()
+        .hashString(canonical, StandardCharsets.UTF_8)
+        .toString()
+        .substring(0, 16);
+  }
 }
