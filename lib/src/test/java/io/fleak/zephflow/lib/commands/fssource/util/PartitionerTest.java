@@ -15,56 +15,81 @@ package io.fleak.zephflow.lib.commands.fssource.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class PartitionerTest {
 
-  @Test
-  void deterministic() {
-    int a = Partitioner.assignedJob("s3://bucket/file-001.json", 4);
-    int b = Partitioner.assignedJob("s3://bucket/file-001.json", 4);
-    assertEquals(a, b);
+  private static List<String> sampleUrns(int size) {
+    List<String> urns = new ArrayList<>();
+    for (int index = 0; index < size; index++) {
+      urns.add("s3://bucket/logs/2026/06/app-" + index + ".json");
+    }
+    return urns;
   }
 
   @Test
-  void inRange() {
-    for (int i = 0; i < 1000; i++) {
-      int slot = Partitioner.assignedJob("s3://bucket/file-" + i, 8);
-      assertTrue(slot >= 0 && slot < 8, "slot=" + slot);
+  void singleReplicaOwnsEverything() {
+    for (String urn : sampleUrns(50)) {
+      assertTrue(Partitioner.owns(urn, 0, 1));
     }
   }
 
   @Test
-  void coversAllSlotsAndIsDisjoint() {
-    int n = 4;
-    Set<String> all = new HashSet<>();
-    Set<String>[] slots = new Set[n];
-    for (int i = 0; i < n; i++) slots[i] = new HashSet<>();
-    for (int i = 0; i < 1000; i++) {
-      String urn = "s3://bkt/f-" + i;
-      all.add(urn);
-      slots[Partitioner.assignedJob(urn, n)].add(urn);
+  void zeroOrNegativeCountOwnsEverything() {
+    assertTrue(Partitioner.owns("s3://bucket/x.json", 0, 0));
+  }
+
+  @Test
+  void deterministicForSameInput() {
+    String urn = "s3://bucket/logs/app-42.json";
+    assertEquals(Partitioner.owns(urn, 1, 3), Partitioner.owns(urn, 1, 3));
+  }
+
+  @Test
+  void everyUrnOwnedByExactlyOneReplica_noGapsNoOverlap() {
+    int replicaCount = 4;
+    List<String> urns = sampleUrns(500);
+    for (String urn : urns) {
+      int owners = 0;
+      for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
+        if (Partitioner.owns(urn, replicaIndex, replicaCount)) owners++;
+      }
+      assertEquals(1, owners, "urn must be owned by exactly one replica: " + urn);
     }
-    Set<String> union = new HashSet<>();
-    for (Set<String> s : slots) {
-      for (String u : s) {
-        assertTrue(union.add(u), "Duplicate across slots: " + u);
+  }
+
+  @Test
+  void unionOfReplicaSubsetsIsFullSet() {
+    int replicaCount = 3;
+    List<String> urns = sampleUrns(300);
+    Set<String> covered = new HashSet<>();
+    for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
+      for (String urn : urns) {
+        if (Partitioner.owns(urn, replicaIndex, replicaCount)) covered.add(urn);
       }
     }
-    assertEquals(all, union);
+    assertEquals(new HashSet<>(urns), covered);
   }
 
   @Test
-  void singleJobOwnsEverything() {
-    for (int i = 0; i < 100; i++) {
-      assertEquals(0, Partitioner.assignedJob("any-urn-" + i, 1));
+  void distributionIsRoughlyEven() {
+    int replicaCount = 4;
+    int[] bucketSizes = new int[replicaCount];
+    List<String> urns = sampleUrns(4000);
+    for (String urn : urns) {
+      for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
+        if (Partitioner.owns(urn, replicaIndex, replicaCount)) bucketSizes[replicaIndex]++;
+      }
     }
-  }
-
-  @Test
-  void rejectsZeroParallelism() {
-    assertThrows(IllegalArgumentException.class, () -> Partitioner.assignedJob("x", 0));
+    int expectedPerBucket = urns.size() / replicaCount;
+    for (int bucketSize : bucketSizes) {
+      assertTrue(
+          bucketSize > expectedPerBucket * 0.6 && bucketSize < expectedPerBucket * 1.4,
+          "bucket skew: " + bucketSize);
+    }
   }
 }

@@ -96,6 +96,7 @@ class S3BackendIntegrationTest {
         new S3BackendConfig(
             LOCALSTACK.getRegion(),
             null,
+            null,
             LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.S3).toString());
     S3Backend backend = new S3Backend();
     FileLister lister = backend.createLister(cfg);

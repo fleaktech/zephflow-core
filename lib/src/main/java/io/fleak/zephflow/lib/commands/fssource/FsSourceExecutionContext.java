@@ -18,7 +18,7 @@ import io.fleak.zephflow.lib.commands.fssource.api.FileLister;
 import io.fleak.zephflow.lib.commands.fssource.api.FileReader;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackend;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
-import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointStore;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import java.io.IOException;
 
 public final class FsSourceExecutionContext implements ExecutionContext {
@@ -27,7 +27,9 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   FsBackendConfig backendConfig;
   FileLister lister;
   FileReader reader;
-  CheckpointStore checkpointStore;
+  CheckpointClient checkpointClient;
+  int replicaIndex;
+  int replicaCount = 1;
 
   @Override
   public void close() throws IOException {
@@ -41,9 +43,9 @@ public final class FsSourceExecutionContext implements ExecutionContext {
         reader.close();
       } catch (Exception ignored) {
       }
-    if (checkpointStore != null)
+    if (checkpointClient != null)
       try {
-        checkpointStore.close();
+        checkpointClient.close();
       } catch (Exception ignored) {
       }
   }

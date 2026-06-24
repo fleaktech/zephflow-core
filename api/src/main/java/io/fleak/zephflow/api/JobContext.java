@@ -33,6 +33,9 @@ import lombok.NoArgsConstructor;
 public class JobContext implements Serializable {
   public static final String FLAG_TEST_MODE = "TEST_MODE";
   public static final String DATA_KEY_PREFIX = "DATA_KEY_PREFIX";
+  public static final String CHECKPOINT_URL = "CHECKPOINT_URL";
+  public static final String REPLICA_INDEX = "REPLICA_INDEX";
+  public static final String REPLICA_COUNT = "REPLICA_COUNT";
 
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();

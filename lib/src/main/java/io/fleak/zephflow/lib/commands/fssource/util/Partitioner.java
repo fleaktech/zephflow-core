@@ -20,11 +20,15 @@ public final class Partitioner {
 
   private Partitioner() {}
 
-  public static int assignedJob(String urn, int parallelism) {
-    if (parallelism <= 0) {
-      throw new IllegalArgumentException("parallelism must be > 0, got " + parallelism);
+  public static boolean owns(String urn, int replicaIndex, int replicaCount) {
+    if (replicaCount <= 1) {
+      return true;
     }
-    long h = Hashing.murmur3_128().hashString(urn, StandardCharsets.UTF_8).asLong();
-    return Math.floorMod(h, parallelism);
+    int bucket = Math.floorMod(hash(urn), replicaCount);
+    return bucket == replicaIndex;
+  }
+
+  private static int hash(String urn) {
+    return Hashing.sha256().hashString(urn, StandardCharsets.UTF_8).asInt();
   }
 }
