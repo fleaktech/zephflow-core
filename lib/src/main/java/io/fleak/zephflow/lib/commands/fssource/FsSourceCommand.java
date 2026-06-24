@@ -181,7 +181,6 @@ public final class FsSourceCommand extends SourceCommand {
     try (var stream = executionContext.lister.list(listRequest)) {
       stream
           .map(fileEntry -> new Pending(fileEntry, timestampFromName(fileEntry, fileNamePattern)))
-          // Each replica owns a disjoint subset of files via stable hash partitioning.
           .filter(
               pending ->
                   Partitioner.owns(

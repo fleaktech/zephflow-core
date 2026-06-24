@@ -60,12 +60,12 @@ class FsSourceCommandShardingTest {
             "root", tempDir.toUri().toString(),
             "fileNameRegex", "evt_(?<ts>\\d+)\\.log",
             "encodingType", "JSON_OBJECT_LINE");
-    List<String> emitted = new ArrayList<>();
-    SourceEventAcceptor out =
+    List<String> emittedValues = new ArrayList<>();
+    SourceEventAcceptor eventAcceptor =
         new SourceEventAcceptor() {
           @Override
-          public void accept(List<RecordFleakData> record) {
-            record.forEach(r -> emitted.add((String) r.unwrap().get("v")));
+          public void accept(List<RecordFleakData> records) {
+            records.forEach(record -> emittedValues.add((String) record.unwrap().get("v")));
           }
 
           @Override
@@ -74,45 +74,45 @@ class FsSourceCommandShardingTest {
     FsSourceCommand command = new FsSourceCommand("n", jobContext);
     command.parseAndValidateArg(rawConfig);
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
-    command.execute("u", out);
-    return emitted;
+    command.execute("u", eventAcceptor);
+    return emittedValues;
   }
 
   @Test
   void threeReplicasProcessDisjointUnionOfAllFiles(@TempDir Path tempDir) throws Exception {
-    Set<String> expected = new HashSet<>();
-    for (int i = 1; i <= 30; i++) {
-      Files.writeString(tempDir.resolve("evt_" + i + ".log"), "{\"v\":\"" + i + "\"}");
-      expected.add(String.valueOf(i));
+    Set<String> expectedValues = new HashSet<>();
+    for (int fileNumber = 1; fileNumber <= 30; fileNumber++) {
+      Files.writeString(
+          tempDir.resolve("evt_" + fileNumber + ".log"), "{\"v\":\"" + fileNumber + "\"}");
+      expectedValues.add(String.valueOf(fileNumber));
     }
 
-    List<String> r0 = runReplica(tempDir, 0, 3);
-    List<String> r1 = runReplica(tempDir, 1, 3);
-    List<String> r2 = runReplica(tempDir, 2, 3);
+    List<String> replica0 = runReplica(tempDir, 0, 3);
+    List<String> replica1 = runReplica(tempDir, 1, 3);
+    List<String> replica2 = runReplica(tempDir, 2, 3);
 
-    // Disjoint: no value emitted by more than one replica.
-    Set<String> all = new HashSet<>();
-    for (List<String> r : List.of(r0, r1, r2)) {
-      for (String v : r) {
-        assertTrue(all.add(v), "value processed by more than one replica: " + v);
+    Set<String> allProcessedValues = new HashSet<>();
+    for (List<String> replicaValues : List.of(replica0, replica1, replica2)) {
+      for (String value : replicaValues) {
+        assertTrue(
+            allProcessedValues.add(value), "value processed by more than one replica: " + value);
       }
     }
-    // Union: every file processed exactly once across replicas.
-    assertEquals(expected, all);
-    // Each replica did real work (guards against one replica grabbing everything).
-    assertFalse(r0.isEmpty());
-    assertFalse(r1.isEmpty());
-    assertFalse(r2.isEmpty());
+    assertEquals(expectedValues, allProcessedValues);
+    assertFalse(replica0.isEmpty());
+    assertFalse(replica1.isEmpty());
+    assertFalse(replica2.isEmpty());
   }
 
   @Test
   void noReplicaKeysOwnsAllFiles(@TempDir Path tempDir) throws Exception {
-    Set<String> expected = new HashSet<>();
-    for (int i = 1; i <= 10; i++) {
-      Files.writeString(tempDir.resolve("evt_" + i + ".log"), "{\"v\":\"" + i + "\"}");
-      expected.add(String.valueOf(i));
+    Set<String> expectedValues = new HashSet<>();
+    for (int fileNumber = 1; fileNumber <= 10; fileNumber++) {
+      Files.writeString(
+          tempDir.resolve("evt_" + fileNumber + ".log"), "{\"v\":\"" + fileNumber + "\"}");
+      expectedValues.add(String.valueOf(fileNumber));
     }
-    List<String> emitted = run(tempDir, JobContext.builder().build());
-    assertEquals(expected, new HashSet<>(emitted));
+    List<String> emittedValues = run(tempDir, JobContext.builder().build());
+    assertEquals(expectedValues, new HashSet<>(emittedValues));
   }
 }
