@@ -46,8 +46,10 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
  * <p>Each object is handled independently and a failure is <b>terminal</b>: an object that can't be
  * downloaded or parsed is written (with its real error) to the DLQ and skipped, never retried. So
  * {@code convert()} always succeeds and the message is always acknowledged; a multi-object message
- * emits its good objects and DLQs the bad ones. ({@code NoSuchKey} / oversized are benign skips
- * with no DLQ.) Downstream {@code accept()} failures are handled by the framework's DLQ path.
+ * emits its good objects and DLQs the bad ones (including oversized objects, which exist but exceed
+ * the size limit). A deleted object ({@code NoSuchKey}) is the one benign skip with no DLQ, since
+ * there is nothing to recover. Downstream {@code accept()} failures are handled by the framework's
+ * DLQ path.
  */
 @Slf4j
 public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessage> {
@@ -106,8 +108,10 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
             ref.key());
         continue;
       } catch (ObjectTooLargeException e) {
-        // Terminal but benign (the object will always be too large): skip + acknowledge, no DLQ.
-        log.warn("{}; skipping the notification", e.getMessage());
+        // The object exists but exceeds the size limit -- a real drop, not a benign skip (unlike a
+        // deleted object). Dead-letter the notification (with the reason) + ack so the skip is
+        // auditable/recoverable rather than silently lost.
+        deadLetter(sourceRecord, ref, e, sourceInitializedConfig);
         continue;
       } catch (Exception e) {
         // Any other download problem is treated as terminal: dead-letter (with the real error) and

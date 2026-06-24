@@ -156,23 +156,25 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void convert_oversizedObjectSkippedAndAcknowledged() {
+  void convert_oversizedObjectDlqdAndAcknowledged() {
     ResponseInputStream<GetObjectResponse> stream =
         new ResponseInputStream<>(
             GetObjectResponse.builder().contentLength(MAX_OBJECT_SIZE + 1).build(),
             AbortableInputStream.create(new ByteArrayInputStream(new byte[0])));
     when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(stream);
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "big.json")));
+        new S3EventMessage("m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "big.json")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
 
-    // Oversized is a benign skip: acknowledge (no records), no DLQ, not a retryable failure.
+    // Oversized is a real drop (the object exists): dead-lettered with the reason + acknowledged,
+    // not silently skipped.
     assertNull(result.error());
     assertEquals(List.of(), result.transformedData());
     assertEquals(List.of("r1"), List.copyOf(confirmed));
-    verifyNoInteractions(dlqWriter);
+    verify(dlqWriter)
+        .writeToDlq(anyLong(), any(), contains("exceeds maxObjectSizeBytes"), eq("node"));
   }
 
   @Test

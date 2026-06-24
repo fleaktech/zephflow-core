@@ -79,8 +79,8 @@ public interface S3RealtimeSourceDto {
     @Builder.Default private Integer visibilityTimeoutSeconds = DEFAULT_VISIBILITY_TIMEOUT_SECONDS;
 
     /**
-     * Objects whose size exceeds this are skipped (and logged) and the notification is
-     * acknowledged; the object's content is not downloaded.
+     * Objects whose size exceeds this are dead-lettered (the notification + reason) and the message
+     * is acknowledged; the object's content is not downloaded.
      */
     @Builder.Default private Long maxObjectSizeBytes = DEFAULT_MAX_OBJECT_SIZE_BYTES;
 
