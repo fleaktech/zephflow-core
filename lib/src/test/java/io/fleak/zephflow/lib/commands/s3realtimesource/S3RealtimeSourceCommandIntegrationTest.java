@@ -219,7 +219,8 @@ class S3RealtimeSourceCommandIntegrationTest {
             confirmed,
             dlq,
             encoder,
-            "node");
+            "node",
+            mock(FleakCounter.class));
     Fetcher<S3EventMessage> fetcher =
         new S3RealtimeSourceFetcher(
             commandSqs,

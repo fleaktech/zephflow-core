@@ -51,6 +51,7 @@ class S3RealtimeRawDataConverterTest {
   private S3Client s3Client;
   private Queue<String> confirmed;
   private DlqWriter dlqWriter;
+  private FleakCounter skippedObjectCounter;
   private SourceExecutionContext<S3EventMessage> ctx;
 
   @BeforeEach
@@ -58,6 +59,7 @@ class S3RealtimeRawDataConverterTest {
     s3Client = mock(S3Client.class);
     confirmed = new ConcurrentLinkedQueue<>();
     dlqWriter = mock(DlqWriter.class);
+    skippedObjectCounter = mock(FleakCounter.class);
     ctx =
         new SourceExecutionContext<>(
             null,
@@ -86,7 +88,8 @@ class S3RealtimeRawDataConverterTest {
         confirmed,
         dlqWriter,
         new S3RealtimeRawDataEncoder(),
-        "node");
+        "node",
+        skippedObjectCounter);
   }
 
   private void stubGetObject(String bucket, String key, byte[] data) {
@@ -175,6 +178,7 @@ class S3RealtimeRawDataConverterTest {
     assertEquals(List.of("r1"), List.copyOf(confirmed));
     verify(dlqWriter)
         .writeToDlq(anyLong(), any(), contains("exceeds maxObjectSizeBytes"), eq("node"));
+    verify(skippedObjectCounter).increase(Map.of("reason", "oversized"));
   }
 
   @Test
@@ -190,11 +194,12 @@ class S3RealtimeRawDataConverterTest {
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
 
-    // A deleted object is a benign skip: acknowledged (no records), no DLQ.
+    // A deleted object is a benign skip: acknowledged (no records), no DLQ, but counted.
     assertNull(result.error());
     assertEquals(List.of(), result.transformedData());
     assertEquals(List.of("r1"), List.copyOf(confirmed));
     verifyNoInteractions(dlqWriter);
+    verify(skippedObjectCounter).increase(Map.of("reason", "missing"));
   }
 
   @Test

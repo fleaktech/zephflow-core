@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
@@ -67,6 +68,8 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
   private final DlqWriter dlqWriter;
   private final RawDataEncoder<S3EventMessage> encoder;
   private final String nodeId;
+  // Counts objects deliberately not processed, tagged by reason (missing, oversized).
+  private final FleakCounter skippedObjectCounter;
 
   public S3RealtimeRawDataConverter(
       S3Client s3Client,
@@ -77,7 +80,8 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
       Queue<String> confirmedReceiptHandles,
       DlqWriter dlqWriter,
       RawDataEncoder<S3EventMessage> encoder,
-      String nodeId) {
+      String nodeId,
+      FleakCounter skippedObjectCounter) {
     this.s3Client = s3Client;
     this.fleakDeserializer = fleakDeserializer;
     this.compressionType = compressionType;
@@ -87,6 +91,7 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
     this.dlqWriter = dlqWriter;
     this.encoder = encoder;
     this.nodeId = nodeId;
+    this.skippedObjectCounter = skippedObjectCounter;
   }
 
   @Override
@@ -102,6 +107,7 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
         // The object was deleted (e.g. by an S3 lifecycle policy) between the notification being
         // emitted and us reading it. It will never appear, so acknowledge and skip (no DLQ).
         // Common with backlogged queues on log buckets that expire objects.
+        skippedObjectCounter.increase(Map.of("reason", "missing"));
         log.warn(
             "S3 object s3://{}/{} no longer exists; skipping the notification",
             ref.bucket(),
@@ -111,12 +117,14 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
         // The object exists but exceeds the size limit -- a real drop, not a benign skip (unlike a
         // deleted object). Dead-letter the notification (with the reason) + ack so the skip is
         // auditable/recoverable rather than silently lost.
-        deadLetter(sourceRecord, ref, e, sourceInitializedConfig);
+        skippedObjectCounter.increase(Map.of("reason", "oversized"));
+        deadLetter(sourceRecord, ref, e);
         continue;
       } catch (Exception e) {
         // Any other download problem is treated as terminal: dead-letter (with the real error) and
         // skip, rather than failing the whole message and retrying.
-        deadLetter(sourceRecord, ref, e, sourceInitializedConfig);
+        sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
+        deadLetter(sourceRecord, ref, e);
         continue;
       }
 
@@ -130,7 +138,8 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
         totalBytes += body.length;
       } catch (Exception e) {
         // The object's content can't be parsed; retrying won't help -> dead-letter + skip.
-        deadLetter(sourceRecord, ref, e, sourceInitializedConfig);
+        sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
+        deadLetter(sourceRecord, ref, e);
       }
     }
 
@@ -143,9 +152,7 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
     return ConvertedResult.success(events, sourceRecord);
   }
 
-  private void deadLetter(
-      S3EventMessage message, S3ObjectRef ref, Exception e, SourceExecutionContext<?> ctx) {
-    ctx.deserializeFailureCounter().increase(Map.of());
+  private void deadLetter(S3EventMessage message, S3ObjectRef ref, Exception e) {
     log.error(
         "failed to process s3://{}/{} from message {}",
         ref.bucket(),

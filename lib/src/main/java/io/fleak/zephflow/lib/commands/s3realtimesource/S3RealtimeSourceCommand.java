@@ -79,6 +79,8 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
         metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
     FleakCounter deserializeFailureCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
+    FleakCounter skippedObjectCounter =
+        metricClientProvider.counter(METRIC_NAME_SKIPPED_OBJECT_COUNT, metricTags);
 
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
     DlqWriter dlqWriter =
@@ -107,7 +109,8 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
             confirmedReceiptHandles,
             dlqWriter,
             encoder,
-            nodeId);
+            nodeId,
+            skippedObjectCounter);
 
     Fetcher<S3EventMessage> fetcher =
         new S3RealtimeSourceFetcher(

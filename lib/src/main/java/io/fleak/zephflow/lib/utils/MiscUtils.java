@@ -112,6 +112,7 @@ public interface MiscUtils {
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";
+  String METRIC_NAME_SKIPPED_OBJECT_COUNT = "input_skipped_object_count";
   String METRIC_NAME_OUTPUT_EVENT_COUNT = "output_event_count";
   String METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT = "output_event_size";
   String METRIC_NAME_ERROR_EVENT_COUNT = "error_event_count";
