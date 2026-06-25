@@ -30,6 +30,11 @@ influxdb = "2.23"
 influxdb2 = "8.0.0"
 hadoop = "3.4.0"
 databricksSdk = "0.122.0"
+# 1.0.1 ships the bundled native zerobus_jni libs for all platforms (linux/osx/windows,
+# x86_64 + aarch64). The later 1.2.0 repackage dropped the native libraries, so it fails to
+# load at runtime — do not bump without verifying natives are present in the jar.
+zerobusSdk = "1.0.1"
+protobuf = "4.33.0"
 deltaKernel = "4.0.0"
 netty = "4.1.122.Final"
 splunk = "1.9.5"
@@ -112,6 +117,8 @@ hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "had
 hadoop-aws = { module = "org.apache.hadoop:hadoop-aws", version.ref = "hadoop" }
 
 databricks-sdk = { module = "com.databricks:databricks-sdk-java", version.ref = "databricksSdk" }
+zerobus-ingest-sdk = { module = "com.databricks:zerobus-ingest-sdk", version.ref = "zerobusSdk" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
 
 delta-kernel-api = { module = "io.delta:delta-kernel-api", version.ref = "deltaKernel" }
 delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref = "deltaKernel" }
