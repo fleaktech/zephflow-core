@@ -122,6 +122,10 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     FlushResult flushResult;
     try {
       flushResult = sinkContext.flusher().flush(preparedInputEvents, callingUserTag);
+    } catch (UnknownSinkCommitStateException e) {
+      // Records may already be committed; we cannot honestly report them as failed (in the non-DLQ
+      // path failed records are silently dropped). Let it propagate as a fatal node/job error.
+      throw e;
     } catch (Exception e) {
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure

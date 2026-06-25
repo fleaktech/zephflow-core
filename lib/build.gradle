@@ -38,6 +38,8 @@ dependencies {
   implementation libs.delta.kernel.defaults
 
   implementation libs.databricks.sdk
+  implementation libs.zerobus.ingest.sdk
+  implementation libs.protobuf.java
 
   implementation libs.splunk
 
