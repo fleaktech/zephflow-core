@@ -17,9 +17,13 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
+import java.nio.file.Path;
 import java.util.Map;
 
 public class ZerobusSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
@@ -50,15 +54,68 @@ public class ZerobusSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
 
     SinkMessagePreProcessor<Map<String, Object>> preprocessor = new ZerobusMessageProcessor();
 
+    SinkStoreForward storeForward =
+        createStoreForward(metricClientProvider, jobContext, config, nodeId, flusher, preprocessor);
+
     return new SinkExecutionContext<>(
         flusher,
         preprocessor,
+        storeForward,
         counters.inputMessageCounter(),
         counters.errorCounter(),
         counters.sinkOutputCounter(),
         counters.outputSizeCounter(),
         counters.sinkErrorCounter());
   }
+
+  private SinkStoreForward createStoreForward(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      ZerobusSinkDto.Config config,
+      String nodeId,
+      Flusher<Map<String, Object>> flusher,
+      SinkMessagePreProcessor<Map<String, Object>> preprocessor) {
+    if (!config.isStoreAndForwardEnabled()) {
+      return SinkStoreForward.noop();
+    }
+
+    Path storePath =
+        (config.getLocalStorePath() != null && !config.getLocalStorePath().isBlank())
+            ? Path.of(config.getLocalStorePath(), nodeId)
+            : Path.of(System.getProperty("java.io.tmpdir"), "zephflow-store-forward", nodeId);
+
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+
+    ChronicleStoreForward storeForward =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(
+                storePath,
+                config.getLocalStoreMaxBytes(),
+                config.getForwardRetryIntervalMillis(),
+                batchSize(),
+                nodeId),
+            new ZerobusConnectionFailureClassifier(),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
+
+    // Replay re-runs the normal preprocess+flush; the flusher reconnects its stream as needed.
+    storeForward.start(
+        records -> {
+          PreparedInputEvents<Map<String, Object>> prepared = new PreparedInputEvents<>();
+          long ts = System.currentTimeMillis();
+          for (RecordFleakData record : records) {
+            prepared.add(record, preprocessor.preprocess(record, ts));
+          }
+          flusher.flush(prepared, Map.of());
+        });
+    return storeForward;
+  }
+
+  private static final String METRIC_NAME_STORE_FORWARD_BUFFERED = "store_forward_buffered_count";
+  private static final String METRIC_NAME_STORE_FORWARD_REPLAYED = "store_forward_replayed_count";
+  private static final String METRIC_NAME_STORE_FORWARD_DROPPED = "store_forward_dropped_count";
 
   @Override
   public String commandName() {

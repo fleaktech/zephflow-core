@@ -47,5 +47,20 @@ public class ZerobusSinkDto {
 
     /** Wire encoding: {@code protobuf} (default) or {@code json}. */
     @Builder.Default private String encodingType = ENCODING_PROTOBUF;
+
+    /**
+     * Store-and-forward: when enabled, a connectivity failure persists records to a local durable
+     * queue and replays them once the connection recovers, instead of dropping them.
+     */
+    @Builder.Default private boolean storeAndForwardEnabled = false;
+
+    /** Directory for the local store-and-forward queue. Defaults to a temp dir keyed by node id. */
+    private String localStorePath;
+
+    /** Hard cap on local store size; once reached, incoming records are dropped. */
+    @Builder.Default private long localStoreMaxBytes = 1_073_741_824L; // 1 GiB
+
+    /** How often the background forwarder retries draining the local queue during an outage. */
+    @Builder.Default private long forwardRetryIntervalMillis = 5_000L;
   }
 }
