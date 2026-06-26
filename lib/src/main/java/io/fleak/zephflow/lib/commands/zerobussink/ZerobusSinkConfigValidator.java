@@ -40,6 +40,7 @@ public class ZerobusSinkConfigValidator implements ConfigValidator {
     validateZerobusEndpoint(config.getZerobusEndpoint(), errors);
     validateTableName(config.getTableName(), errors);
     validateEncodingType(config.getEncodingType(), errors);
+    validateStoreAndForward(config, errors);
 
     // avroSchema is only used to build the protobuf descriptor. In JSON mode the stream is created
     // without a descriptor (sdk.createJsonStream), so a schema is neither required nor used.
@@ -118,6 +119,22 @@ public class ZerobusSinkConfigValidator implements ConfigValidator {
     String[] parts = tableName.split("\\.", -1);
     if (parts.length != 3 || Arrays.stream(parts).anyMatch(p -> p.trim().isEmpty())) {
       errors.add("tableName must match pattern: <catalog>.<schema>.<table>. Got: " + tableName);
+    }
+  }
+
+  private void validateStoreAndForward(Config config, List<String> errors) {
+    if (!config.isStoreAndForwardEnabled()) {
+      return;
+    }
+    if (config.getLocalStoreMaxBytes() <= 0) {
+      errors.add(
+          "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: "
+              + config.getLocalStoreMaxBytes());
+    }
+    if (config.getForwardRetryIntervalMillis() <= 0) {
+      errors.add(
+          "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: "
+              + config.getForwardRetryIntervalMillis());
     }
   }
 

@@ -63,6 +63,9 @@ dependencies {
   }
   implementation libs.azure.core.http.okhttp
 
+  implementation platform(libs.chronicle.bom)
+  implementation libs.chronicle.queue
+
   testImplementation libs.unboundid.ldapsdk
   testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
@@ -111,6 +114,17 @@ tasks.named('spotlessJava') {
 tasks.named('test') {
   useJUnitPlatform()
   testLogging.showStandardStreams = true
+  // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
+  jvmArgs += [
+    '--add-exports', 'java.base/jdk.internal.ref=ALL-UNNAMED',
+    '--add-exports', 'java.base/sun.nio.ch=ALL-UNNAMED',
+    '--add-exports', 'jdk.unsupported/sun.misc=ALL-UNNAMED',
+    '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+    '--add-opens', 'java.base/java.lang.reflect=ALL-UNNAMED',
+    '--add-opens', 'java.base/java.io=ALL-UNNAMED',
+    '--add-opens', 'java.base/java.util=ALL-UNNAMED',
+    '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+  ]
 }
 
 tasks.named('jar') {
