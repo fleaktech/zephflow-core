@@ -14,21 +14,26 @@
 package io.fleak.zephflow.lib.commands.kafkasink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_KAFKA_SINK;
+import static io.fleak.zephflow.lib.utils.MiscUtils.basicCommandMetricTags;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import org.apache.commons.lang3.StringUtils;
@@ -67,19 +72,34 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
+    KafkaConnectionFailureClassifier classifier =
+        config.isStoreAndForwardEnabled() ? new KafkaConnectionFailureClassifier() : null;
+
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
         createKafkaFlusher(
             config,
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
-            counters.sinkErrorCounter());
+            counters.sinkErrorCounter(),
+            classifier);
 
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
 
+    SinkStoreForward storeForward =
+        createStoreForward(
+            metricClientProvider,
+            jobContext,
+            config,
+            nodeId,
+            flusher,
+            messagePreProcessor,
+            classifier);
+
     return new SinkExecutionContext<>(
         flusher,
         messagePreProcessor,
+        storeForward,
         counters.inputMessageCounter(),
         counters.errorCounter(),
         new NoopFleakCounter(),
@@ -91,7 +111,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       KafkaSinkDto.Config config,
       FleakCounter asyncDeliveredCountCounter,
       FleakCounter asyncDeliveredSizeCounter,
-      FleakCounter asyncErrorCounter) {
+      FleakCounter asyncErrorCounter,
+      KafkaConnectionFailureClassifier classifier) {
     Properties props = getProperties(config);
 
     boolean isTestMode =
@@ -99,6 +120,14 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
             && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
     if (isTestMode) {
       props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000");
+    }
+
+    if (config.isStoreAndForwardEnabled()) {
+      // Bounded timeouts so an outage surfaces quickly as a thrown failure (-> buffer) instead of
+      // blocking. delivery.timeout.ms must be >= request.timeout.ms + linger.ms.
+      props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "5000");
+      props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "2000");
+      props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, "5000");
     }
 
     if (config.getProperties() != null) {
@@ -129,7 +158,60 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         partitionKeyExpression,
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
-        asyncErrorCounter);
+        asyncErrorCounter,
+        config.isStoreAndForwardEnabled(),
+        classifier);
+  }
+
+  private static final int STORE_FORWARD_DRAIN_CHUNK = 1000;
+  private static final String METRIC_NAME_STORE_FORWARD_BUFFERED = "store_forward_buffered_count";
+  private static final String METRIC_NAME_STORE_FORWARD_REPLAYED = "store_forward_replayed_count";
+  private static final String METRIC_NAME_STORE_FORWARD_DROPPED = "store_forward_dropped_count";
+
+  private SinkStoreForward createStoreForward(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      KafkaSinkDto.Config config,
+      String nodeId,
+      SimpleSinkCommand.Flusher<RecordFleakData> flusher,
+      SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> preprocessor,
+      KafkaConnectionFailureClassifier classifier) {
+    if (!config.isStoreAndForwardEnabled()) {
+      return SinkStoreForward.noop();
+    }
+
+    Path storePath =
+        (config.getLocalStorePath() != null && !config.getLocalStorePath().isBlank())
+            ? Path.of(config.getLocalStorePath(), nodeId)
+            : Path.of(System.getProperty("java.io.tmpdir"), "zephflow-store-forward", nodeId);
+
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+
+    ChronicleStoreForward storeForward =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(
+                storePath,
+                config.getLocalStoreMaxBytes(),
+                config.getForwardRetryIntervalMillis(),
+                STORE_FORWARD_DRAIN_CHUNK,
+                nodeId),
+            classifier,
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
+
+    storeForward.start(
+        records -> {
+          SimpleSinkCommand.PreparedInputEvents<RecordFleakData> prepared =
+              new SimpleSinkCommand.PreparedInputEvents<>();
+          long ts = System.currentTimeMillis();
+          for (RecordFleakData record : records) {
+            prepared.add(record, preprocessor.preprocess(record, ts));
+          }
+          flusher.flush(prepared, Map.of());
+        });
+    return storeForward;
   }
 
   private static @NotNull Properties getProperties(KafkaSinkDto.Config config) {
