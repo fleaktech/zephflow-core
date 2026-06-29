@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
@@ -63,12 +64,25 @@ class ChronicleStoreForwardTest {
     ChronicleStoreForward sf =
         new ChronicleStoreForward(
             config(dir, 1_000_000, 2), IO_IS_CONNECTION, buffered, replayed, null);
-    sf.start(delivered::addAll);
+    // Gate delivery so the worker can't drain (and flip buffering back to false) before we observe
+    // the buffering state; releasing the latch then lets it drain to completion.
+    CountDownLatch release = new CountDownLatch(1);
+    sf.start(
+        records -> {
+          try {
+            release.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+          delivered.addAll(records);
+        });
 
     List<RecordFleakData> input = List.of(record("a"), record("b"), record("c"));
     assertEquals(3, sf.offer(input));
     assertTrue(sf.isBuffering());
 
+    release.countDown();
     await(() -> !sf.isBuffering());
 
     assertEquals(List.of("a", "b", "c"), values(delivered));

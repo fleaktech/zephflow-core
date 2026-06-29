@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.zerobussink;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.databricks.zerobus.ZerobusException;
 import com.databricks.zerobus.ZerobusJsonStream;
 import com.databricks.zerobus.ZerobusSdk;
 import io.fleak.zephflow.api.CommandConfig;
@@ -28,7 +29,6 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -161,9 +161,11 @@ class ZerobusSinkBlackboxTest {
     private final AtomicBoolean connected = new AtomicBoolean(true);
     private final List<String> received = new ArrayList<>();
 
-    synchronized Optional<Long> ingest(Iterable<String> payloads) {
+    synchronized Optional<Long> ingest(Iterable<String> payloads) throws ZerobusException {
       if (!connected.get()) {
-        throw new RuntimeException("endpoint unreachable", new IOException("connection refused"));
+        // Faithful to the native client: an offline failure surfaces as a message-only
+        // ZerobusException with no IOException/gRPC cause.
+        throw new ZerobusException("server lack of ack timeout");
       }
       payloads.forEach(received::add);
       return Optional.of((long) received.size());

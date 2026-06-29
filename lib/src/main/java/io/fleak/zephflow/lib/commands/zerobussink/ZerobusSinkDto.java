@@ -62,5 +62,17 @@ public class ZerobusSinkDto {
 
     /** How often the background forwarder retries draining the local queue during an outage. */
     @Builder.Default private long forwardRetryIntervalMillis = 5_000L;
+
+    /**
+     * Max time to wait for a server ack before treating the connection as down. Lower than the SDK
+     * default (60s) so an outage is detected in seconds rather than minutes.
+     */
+    @Builder.Default private int ackTimeoutMillis = 20_000;
+
+    /**
+     * Max time a flush blocks waiting for queued records to be acknowledged. Lower than the SDK
+     * default (5min) to bound how long a flush parks the native thread when offline.
+     */
+    @Builder.Default private int flushTimeoutMillis = 60_000;
   }
 }
