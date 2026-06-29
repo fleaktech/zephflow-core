@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.zerobussink;
 
+import com.databricks.zerobus.NonRetriableException;
+import com.databricks.zerobus.ZerobusException;
 import io.fleak.zephflow.lib.commands.sink.ConnectionFailureClassifier;
 import io.fleak.zephflow.lib.commands.sink.RetriableConnectionException;
 import java.io.IOException;
@@ -26,7 +28,15 @@ import java.util.Set;
  * UnknownSinkCommitStateException} and reconnect failures into {@link
  * RetriableConnectionException}, so we walk the whole cause chain and look for the underlying
  * network signal: an {@link IOException}, a {@link RetriableConnectionException}, or a gRPC status
- * with a retryable code. Anything we don't recognize is treated as permanent.
+ * with a retryable code.
+ *
+ * <p>When offline, the SDK's native (JNI) {@code waitForOffset}/{@code ingestRecordsOffset} surface
+ * a {@link ZerobusException} carrying only a message — gRPC status objects never cross the JNI
+ * boundary, so none of the signals above are present. We therefore also treat any {@link
+ * ZerobusException} as transient, since that is the SDK's own contract: {@link
+ * NonRetriableException} is its "do not retry" marker (schema/auth/permanent), and the SDK
+ * auto-recovers from every other {@code ZerobusException}. Anything we don't recognize is treated
+ * as permanent.
  */
 public class ZerobusConnectionFailureClassifier implements ConnectionFailureClassifier {
 
@@ -40,6 +50,16 @@ public class ZerobusConnectionFailureClassifier implements ConnectionFailureClas
         cause != null && cause != cause.getCause();
         cause = cause.getCause()) {
       if (cause instanceof RetriableConnectionException || cause instanceof IOException) {
+        return true;
+      }
+      // The SDK's own retriability signal. NonRetriableException is authoritative "permanent" — a
+      // waitForOffset failure here means the batch may already be committed, but buffering+replay
+      // (at-least-once, downstream dedupes) beats dropping it. NonRetriableException is checked
+      // first since it IS-A ZerobusException.
+      if (cause instanceof NonRetriableException) {
+        return false;
+      }
+      if (cause instanceof ZerobusException) {
         return true;
       }
       if (isRetryableGrpcStatus(cause)) {

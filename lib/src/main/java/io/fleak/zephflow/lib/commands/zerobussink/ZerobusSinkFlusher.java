@@ -112,9 +112,14 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
    */
   private void connect() {
     ZerobusSdk newSdk = ZerobusClientFactory.createClient(config.getZerobusEndpoint(), credential);
-    // Use the SDK's default stream configuration (incl. its own in-flight defaults); we don't
-    // override tuning knobs the user never configured.
-    StreamConfigurationOptions options = StreamConfigurationOptions.getDefault();
+    // Builder seeds from getDefault(), so maxInflightRecords (50_000) and recovery settings stay
+    // intact; we only tighten the ack/flush timeouts so an outage is detected in seconds, not the
+    // SDK's default minutes (60s ack / 5min flush).
+    StreamConfigurationOptions options =
+        StreamConfigurationOptions.builder()
+            .setServerLackOfAckTimeoutMs(config.getAckTimeoutMillis())
+            .setFlushTimeoutMs(config.getFlushTimeoutMillis())
+            .build();
     try {
       if (ZerobusSinkDto.ENCODING_JSON.equalsIgnoreCase(config.getEncodingType())) {
         ZerobusJsonStream newJsonStream =

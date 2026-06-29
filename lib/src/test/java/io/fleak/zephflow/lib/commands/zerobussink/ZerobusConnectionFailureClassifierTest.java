@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.commands.zerobussink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.databricks.zerobus.NonRetriableException;
+import com.databricks.zerobus.ZerobusException;
 import io.fleak.zephflow.lib.commands.sink.RetriableConnectionException;
 import io.fleak.zephflow.lib.commands.sink.UnknownSinkCommitStateException;
 import java.io.IOException;
@@ -60,6 +62,23 @@ class ZerobusConnectionFailureClassifierTest {
   void nonRetryableGrpcStatusIsNotConnectionFailure() {
     assertFalse(
         classifier.isConnectionFailure(new StatusRuntimeException("INVALID_ARGUMENT: bad schema")));
+  }
+
+  @Test
+  void bareZerobusExceptionIsConnectionFailure() {
+    // Real offline behavior: the native layer throws a message-only ZerobusException (no cause).
+    assertTrue(
+        classifier.isConnectionFailure(
+            new UnknownSinkCommitStateException(
+                "commit state unknown", new ZerobusException("server lack of ack timeout"))));
+  }
+
+  @Test
+  void nonRetriableExceptionIsNotConnectionFailure() {
+    assertFalse(
+        classifier.isConnectionFailure(
+            new UnknownSinkCommitStateException(
+                "commit state unknown", new NonRetriableException("invalid schema"))));
   }
 
   @Test
