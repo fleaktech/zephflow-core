@@ -44,6 +44,7 @@ pubsub = "1.131.0"
 activemqClassic = "6.1.0"
 activemqArtemis = "2.53.0"
 jakartaJms = "3.1.0"
+pahoMqttV5 = "1.2.5"
 h2 = "2.2.224"
 postgresql = "42.7.3"
 mysql = "9.2.0"
@@ -185,6 +186,7 @@ gcs-pubsub = { module = "com.google.cloud:google-cloud-pubsub", version.ref = "p
 activemq-client-jakarta = { module = "org.apache.activemq:activemq-client-jakarta", version.ref = "activemqClassic" }
 artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client", version.ref = "activemqArtemis" }
 jakarta-jms-api = { module = "jakarta.jms:jakarta.jms-api", version.ref = "jakartaJms" }
+paho-mqttv5-client = { module = "org.eclipse.paho:org.eclipse.paho.mqttv5.client", version.ref = "pahoMqttV5" }
 h2-database = { module = "com.h2database:h2", version.ref = "h2" }
 postgresql-driver = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 mysql-connector = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }

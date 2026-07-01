@@ -49,6 +49,7 @@ dependencies {
   implementation libs.jakarta.jms.api
   implementation libs.activemq.client.jakarta
   implementation libs.artemis.jakarta.client
+  implementation libs.paho.mqttv5.client
 
   runtimeOnly libs.postgresql.driver
   runtimeOnly libs.mysql.connector

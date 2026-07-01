@@ -39,6 +39,7 @@ import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesis.KinesisSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kinesissource.KinesisSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.ldapsource.LdapSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.mqttsource.MqttSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsink.PubSubSinkCommandFactory;
@@ -85,6 +86,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_ZEROBUS_SINK, new ZerobusSinkCommandFactory())
           .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
           .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
+          .put(COMMAND_NAME_MQTT_SOURCE, new MqttSourceCommandFactory())
           .put(COMMAND_NAME_JDBC_SOURCE, new JdbcSourceCommandFactory())
           .put(COMMAND_NAME_JDBC_SINK, new JdbcSinkCommandFactory())
           .put(COMMAND_NAME_SQS_SOURCE, new SqsSourceCommandFactory())

@@ -49,6 +49,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_ZEROBUS_SINK)
             .add(COMMAND_NAME_SYSLOG_UDP)
             .add(COMMAND_NAME_ACTIVEMQ_SOURCE)
+            .add(COMMAND_NAME_MQTT_SOURCE)
             .add(COMMAND_NAME_JDBC_SINK)
             .add(COMMAND_NAME_JDBC_SOURCE)
             .add(COMMAND_NAME_SQS_SINK)
