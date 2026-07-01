@@ -244,9 +244,21 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
           flushedDataSize += json.getBytes(StandardCharsets.UTF_8).length;
         } catch (Exception e) {
           // Per-record failures become ErrorOutputs which, in the non-DLQ path, are counted and
-          // then discarded — so log each one or the reason never reaches the pipeline log.
-          log.warn(
-              "Zerobus JSON encode failed for a record to table {}: {}", tableName, e.getMessage());
+          // then discarded — so surface the reason or it never reaches the pipeline log. Log only
+          // the FIRST failure of the batch at warn; a systematically-bad batch (e.g. every record
+          // missing a required field) would otherwise emit up to batchSize() warn lines per flush
+          // and flood the disk. The rest go to debug; the total is reported in the summary below.
+          if (errors.isEmpty()) {
+            log.warn(
+                "Zerobus JSON encode failed for a record to table {} (first of batch): {}",
+                tableName,
+                e.getMessage());
+          } else {
+            log.debug(
+                "Zerobus JSON encode failed for a record to table {}: {}",
+                tableName,
+                e.getMessage());
+          }
           errors.add(
               new ErrorOutput(pair.getLeft(), "Zerobus JSON encode failed: " + e.getMessage()));
         }
@@ -276,13 +288,22 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         payloads.add(bytes);
         flushedDataSize += bytes.length;
       } catch (Exception e) {
-        // Per-record failures become ErrorOutputs which, in the non-DLQ path, are counted and
-        // then discarded — so log each one or the reason never reaches the pipeline log. This is
-        // where a record/schema mismatch (e.g. an unexpected field) surfaces.
-        log.warn(
-            "Zerobus protobuf encode failed for a record to table {}: {}",
-            tableName,
-            e.getMessage());
+        // Per-record failures become ErrorOutputs which, in the non-DLQ path, are counted and then
+        // discarded — so surface the reason or it never reaches the pipeline log. This is where a
+        // record/schema mismatch (e.g. an unexpected field) surfaces. Log only the FIRST failure of
+        // the batch at warn; a systematically-bad batch would otherwise emit up to batchSize() warn
+        // lines per flush and flood the disk. The rest go to debug; the total is in the summary.
+        if (errors.isEmpty()) {
+          log.warn(
+              "Zerobus protobuf encode failed for a record to table {} (first of batch): {}",
+              tableName,
+              e.getMessage());
+        } else {
+          log.debug(
+              "Zerobus protobuf encode failed for a record to table {}: {}",
+              tableName,
+              e.getMessage());
+        }
         errors.add(
             new ErrorOutput(pair.getLeft(), "Zerobus protobuf encode failed: " + e.getMessage()));
       }
