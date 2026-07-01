@@ -57,6 +57,10 @@ import org.apache.commons.lang3.tuple.Pair;
 @Slf4j
 public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
 
+  // Fully-qualified table name, carried only so every log line identifies which Zerobus sink it
+  // belongs to (a pipeline may have several).
+  private final String tableName;
+
   // Present only on the production path; enables reconnect. Null in unit tests (mocked streams).
   private final ZerobusSinkDto.Config config;
   private final DatabricksCredential credential;
@@ -80,11 +84,13 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
   private final Object streamLock = new Object();
 
   ZerobusSinkFlusher(
+      String tableName,
       ZerobusSdk sdk,
       ZerobusProtoStream protoStream,
       Schema avroSchema,
       Descriptors.Descriptor protoDescriptor,
       ZerobusJsonStream jsonStream) {
+    this.tableName = tableName;
     this.config = null;
     this.credential = null;
     this.sdk = sdk;
@@ -95,6 +101,7 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
   }
 
   private ZerobusSinkFlusher(ZerobusSinkDto.Config config, DatabricksCredential credential) {
+    this.tableName = config.getTableName();
     this.config = config;
     this.credential = credential;
   }
@@ -134,6 +141,7 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         this.protoStream = null;
         this.avroSchema = null;
         this.protoDescriptor = null;
+        log.info("Opened Zerobus JSON stream for table {}", tableName);
       } else {
         Schema schema = AvroToProtoDescriptorConverter.parseAvro(config.getAvroSchema());
         var descriptorProto =
@@ -154,15 +162,30 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         this.avroSchema = schema;
         this.protoDescriptor = descriptor;
         this.jsonStream = null;
+        log.info("Opened Zerobus protobuf stream for table {}", tableName);
       }
       this.sdk = newSdk;
       this.healthy = true;
     } catch (RuntimeException e) {
+      // Stream open failed (bad/unsupported Avro schema, descriptor build, auth, or the open
+      // itself). Log at error level with context BEFORE surfacing: otherwise the only sink output
+      // is the earlier "Creating Zerobus SDK" info line and the real cause never reaches the
+      // pipeline log (on the initial path the node just crash-loops on init).
+      log.error(
+          "Failed to open Zerobus stream for table {} (endpoint {}, encoding {}): {}",
+          tableName,
+          config.getZerobusEndpoint(),
+          config.getEncodingType(),
+          e.getMessage(),
+          e);
       // stream creation failed: clean up the SDK before surfacing
       try {
         newSdk.close();
       } catch (RuntimeException closeError) {
-        log.warn("Failed to close Zerobus SDK after stream creation failure", closeError);
+        log.warn(
+            "Failed to close Zerobus SDK after stream creation failure for table {}",
+            tableName,
+            closeError);
       }
       throw e;
     }
@@ -220,6 +243,22 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
           payloads.add(json);
           flushedDataSize += json.getBytes(StandardCharsets.UTF_8).length;
         } catch (Exception e) {
+          // Per-record failures become ErrorOutputs which, in the non-DLQ path, are counted and
+          // then discarded — so surface the reason or it never reaches the pipeline log. Log only
+          // the FIRST failure of the batch at warn; a systematically-bad batch (e.g. every record
+          // missing a required field) would otherwise emit up to batchSize() warn lines per flush
+          // and flood the disk. The rest go to debug; the total is reported in the summary below.
+          if (errors.isEmpty()) {
+            log.warn(
+                "Zerobus JSON encode failed for a record to table {} (first of batch): {}",
+                tableName,
+                e.getMessage());
+          } else {
+            log.debug(
+                "Zerobus JSON encode failed for a record to table {}: {}",
+                tableName,
+                e.getMessage());
+          }
           errors.add(
               new ErrorOutput(pair.getLeft(), "Zerobus JSON encode failed: " + e.getMessage()));
         }
@@ -228,6 +267,13 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
           ingestWithUnknownCommitState(
               !payloads.isEmpty(), () -> jsonStream.ingestRecordsOffset(payloads));
       awaitDurability(offset, jsonStream::waitForOffset);
+      log.info(
+          "Zerobus flush to table {} (json): {} records committed, {} failed, {} bytes, offset {}",
+          tableName,
+          payloads.size(),
+          errors.size(),
+          flushedDataSize,
+          offset.map(String::valueOf).orElse("none"));
       return new FlushResult(payloads.size(), flushedDataSize, errors);
     }
 
@@ -242,6 +288,22 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         payloads.add(bytes);
         flushedDataSize += bytes.length;
       } catch (Exception e) {
+        // Per-record failures become ErrorOutputs which, in the non-DLQ path, are counted and then
+        // discarded — so surface the reason or it never reaches the pipeline log. This is where a
+        // record/schema mismatch (e.g. an unexpected field) surfaces. Log only the FIRST failure of
+        // the batch at warn; a systematically-bad batch would otherwise emit up to batchSize() warn
+        // lines per flush and flood the disk. The rest go to debug; the total is in the summary.
+        if (errors.isEmpty()) {
+          log.warn(
+              "Zerobus protobuf encode failed for a record to table {} (first of batch): {}",
+              tableName,
+              e.getMessage());
+        } else {
+          log.debug(
+              "Zerobus protobuf encode failed for a record to table {}: {}",
+              tableName,
+              e.getMessage());
+        }
         errors.add(
             new ErrorOutput(pair.getLeft(), "Zerobus protobuf encode failed: " + e.getMessage()));
       }
@@ -250,6 +312,13 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         ingestWithUnknownCommitState(
             !payloads.isEmpty(), () -> protoStream.ingestRecordsOffset(payloads));
     awaitDurability(offset, protoStream::waitForOffset);
+    log.info(
+        "Zerobus flush to table {} (protobuf): {} records committed, {} failed, {} bytes, offset {}",
+        tableName,
+        payloads.size(),
+        errors.size(),
+        flushedDataSize,
+        offset.map(String::valueOf).orElse("none"));
     return new FlushResult(payloads.size(), flushedDataSize, errors);
   }
 
@@ -270,6 +339,12 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
     try {
       return ingestor.ingest();
     } catch (Exception e) {
+      log.error(
+          "Zerobus ingest failed for table {} after a non-empty batch was handed to the SDK; "
+              + "commit state is unknown: {}",
+          tableName,
+          e.getMessage(),
+          e);
       throw new UnknownSinkCommitStateException(
           "Zerobus ingest failed after a non-empty batch was handed to the SDK; "
               + "commit state is unknown",
@@ -296,6 +371,12 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
     try {
       waiter.waitForOffset(offset.get());
     } catch (Exception e) {
+      log.error(
+          "Zerobus durability wait failed for table {} at offset {}; commit state is unknown: {}",
+          tableName,
+          offset.get(),
+          e.getMessage(),
+          e);
       throw new UnknownSinkCommitStateException(
           "Zerobus accepted records but durability confirmation failed; commit state is unknown — "
               + "not treating this batch as retryable per-record failures",
@@ -317,14 +398,14 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         jsonStream.close();
       }
     } catch (Exception e) {
-      log.warn("Error closing Zerobus stream", e);
+      log.warn("Error closing Zerobus stream for table {}", tableName, e);
     } finally {
       try {
         if (sdk != null) {
           sdk.close();
         }
       } catch (RuntimeException e) {
-        log.warn("Error closing Zerobus SDK", e);
+        log.warn("Error closing Zerobus SDK for table {}", tableName, e);
       }
     }
   }

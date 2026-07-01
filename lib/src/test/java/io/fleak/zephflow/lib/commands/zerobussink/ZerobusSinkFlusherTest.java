@@ -73,7 +73,8 @@ class ZerobusSinkFlusherTest {
     when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
         .thenReturn(Optional.of(10L));
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
+        new ZerobusSinkFlusher(
+            "c.s.t", mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
 
     // one valid record, one missing the non-nullable "id" field (fails to encode)
     FlushResult result =
@@ -93,7 +94,8 @@ class ZerobusSinkFlusherTest {
         .thenReturn(Optional.of(7L));
     doThrow(new ZerobusException("ack timeout")).when(stream).waitForOffset(7L);
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
+        new ZerobusSinkFlusher(
+            "c.s.t", mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
 
     UnknownSinkCommitStateException e =
         assertThrows(
@@ -108,7 +110,8 @@ class ZerobusSinkFlusherTest {
     when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
         .thenThrow(new ZerobusException("native ingest failed"));
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
+        new ZerobusSinkFlusher(
+            "c.s.t", mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
 
     UnknownSinkCommitStateException e =
         assertThrows(
@@ -125,7 +128,7 @@ class ZerobusSinkFlusherTest {
     when(stream.ingestRecordsOffset(ArgumentMatchers.<String>anyIterable()))
         .thenThrow(new ZerobusException("native ingest failed"));
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), null, null, null, stream);
+        new ZerobusSinkFlusher("c.s.t", mock(ZerobusSdk.class), null, null, null, stream);
 
     UnknownSinkCommitStateException e =
         assertThrows(
@@ -139,7 +142,8 @@ class ZerobusSinkFlusherTest {
   void allRecordsFailingToEncodeDoesNotTouchTheStream() throws Exception {
     ZerobusProtoStream stream = mock(ZerobusProtoStream.class);
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
+        new ZerobusSinkFlusher(
+            "c.s.t", mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
 
     FlushResult result =
         flusher.flush(
@@ -158,7 +162,7 @@ class ZerobusSinkFlusherTest {
         .thenReturn(Optional.of(3L));
     // JSON mode needs no avro schema / descriptor
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), null, null, null, stream);
+        new ZerobusSinkFlusher("c.s.t", mock(ZerobusSdk.class), null, null, null, stream);
 
     FlushResult result =
         flusher.flush(events(List.of(Map.of("id", 1, "name", "a"), Map.of("id", 2))), Map.of());
@@ -172,7 +176,8 @@ class ZerobusSinkFlusherTest {
   void emptyBatchNeverWaitsForOffset() throws Exception {
     ZerobusProtoStream stream = mock(ZerobusProtoStream.class);
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
+        new ZerobusSinkFlusher(
+            "c.s.t", mock(ZerobusSdk.class), stream, avroSchema(), descriptor(), null);
 
     FlushResult result = flusher.flush(events(List.of()), Map.of());
 

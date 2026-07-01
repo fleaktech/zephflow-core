@@ -75,7 +75,7 @@ class ZerobusStoreForwardE2ETest {
 
     // JSON-mode flusher with a mocked stream; config==null so it never tries a real reconnect.
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), null, null, null, stream);
+        new ZerobusSinkFlusher("c.s.t", mock(ZerobusSdk.class), null, null, null, stream);
     ZerobusMessageProcessor preprocessor = new ZerobusMessageProcessor();
 
     ChronicleStoreForward storeForward =

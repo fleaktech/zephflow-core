@@ -78,7 +78,7 @@ class ZerobusSinkBlackboxTest {
         .thenAnswer(inv -> endpoint.ingest(inv.getArgument(0)));
 
     ZerobusSinkFlusher flusher =
-        new ZerobusSinkFlusher(mock(ZerobusSdk.class), null, null, null, stream);
+        new ZerobusSinkFlusher("c.s.t", mock(ZerobusSdk.class), null, null, null, stream);
     ZerobusMessageProcessor preprocessor = new ZerobusMessageProcessor();
 
     AtomicLong buffered = new AtomicLong();
