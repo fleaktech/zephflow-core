@@ -63,6 +63,7 @@ dependencies {
     exclude group: 'com.azure', module: 'azure-core-http-netty'
   }
   implementation libs.azure.core.http.okhttp
+  implementation libs.sshj
 
   implementation platform(libs.chronicle.bom)
   implementation libs.chronicle.queue
