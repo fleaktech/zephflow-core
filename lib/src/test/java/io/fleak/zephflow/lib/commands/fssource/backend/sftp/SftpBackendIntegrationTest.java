@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource.backend.sftp;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.commands.fssource.api.*;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -126,6 +127,33 @@ class SftpBackendIntegrationTest {
       FileEntry entry = lister.stat(FileKey.of(urn));
       assertEquals(5, entry.size()); // "hello"
       assertEquals(urn, entry.key().urn());
+    }
+  }
+
+  @Test
+  void readsFullFile() throws Exception {
+    try (SftpReader reader = new SftpReader(passwordConfig())) {
+      try (InputStream in = reader.open(FileKey.of(rootUrn() + "/evt_1.log"), 0)) {
+        assertEquals("hello", new String(in.readAllBytes(), StandardCharsets.UTF_8));
+      }
+    }
+  }
+
+  @Test
+  void readsFromOffset() throws Exception {
+    try (SftpReader reader = new SftpReader(passwordConfig())) {
+      try (InputStream in = reader.open(FileKey.of(rootUrn() + "/evt_1.log"), 2)) {
+        assertEquals("llo", new String(in.readAllBytes(), StandardCharsets.UTF_8));
+      }
+    }
+  }
+
+  @Test
+  void openingMissingFileThrows() {
+    try (SftpReader reader = new SftpReader(passwordConfig())) {
+      assertThrows(
+          UncheckedIOException.class,
+          () -> reader.open(FileKey.of(rootUrn() + "/does_not_exist.log"), 0));
     }
   }
 }
