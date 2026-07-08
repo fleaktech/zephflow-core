@@ -15,8 +15,12 @@ package io.fleak.zephflow.lib.commands.fssource.backend.sftp;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.lib.commands.fssource.api.*;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.images.builder.Transferable;
@@ -89,5 +93,39 @@ class SftpBackendIntegrationTest {
     connection.sftp();
     connection.close();
     connection.close();
+  }
+
+  @Test
+  void listsRecursivelyWithRegexFilter() {
+    try (SftpLister lister = new SftpLister(passwordConfig())) {
+      List<FileEntry> entries =
+          lister.list(new ListRequest(rootUrn(), Pattern.compile("evt_\\d+\\.log"))).toList();
+
+      assertEquals(3, entries.size()); // evt_1, evt_2, nested/evt_3; skip.txt filtered out
+      assertTrue(entries.stream().allMatch(e -> e.key().backend().equals("sftp")));
+      assertTrue(
+          entries.stream().anyMatch(e -> e.key().urn().endsWith("/upload/data/nested/evt_3.log")));
+      assertTrue(entries.stream().allMatch(e -> e.key().urn().startsWith("sftp://")));
+      assertTrue(entries.stream().allMatch(e -> e.size() > 0));
+      assertTrue(entries.stream().allMatch(e -> e.lastModified().isAfter(Instant.EPOCH)));
+    }
+  }
+
+  @Test
+  void listsEverythingWithoutRegex() {
+    try (SftpLister lister = new SftpLister(passwordConfig())) {
+      List<FileEntry> entries = lister.list(new ListRequest(rootUrn(), null)).toList();
+      assertEquals(4, entries.size()); // includes skip.txt
+    }
+  }
+
+  @Test
+  void statReturnsEntry() {
+    try (SftpLister lister = new SftpLister(passwordConfig())) {
+      String urn = rootUrn() + "/evt_1.log";
+      FileEntry entry = lister.stat(FileKey.of(urn));
+      assertEquals(5, entry.size()); // "hello"
+      assertEquals(urn, entry.key().urn());
+    }
   }
 }
