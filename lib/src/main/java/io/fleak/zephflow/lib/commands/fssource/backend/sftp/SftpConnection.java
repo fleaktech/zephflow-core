@@ -19,6 +19,7 @@ import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.sftp.SFTPClient;
 import net.schmizz.sshj.transport.verification.FingerprintVerifier;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
+import net.schmizz.sshj.userauth.keyprovider.KeyProvider;
 
 /**
  * One lazily-established SFTP session. Reconnects once per call if the underlying SSH transport has
@@ -59,7 +60,12 @@ final class SftpConnection implements AutoCloseable {
   }
 
   private void authenticate() throws IOException {
-    ssh.authPassword(cfg.username(), cfg.password());
+    if (cfg.password() != null) {
+      ssh.authPassword(cfg.username(), cfg.password());
+      return;
+    }
+    KeyProvider keyProvider = ssh.loadKeys(cfg.privateKeyPkcs8(), null, null);
+    ssh.authPublickey(cfg.username(), keyProvider);
   }
 
   @Override
