@@ -45,12 +45,6 @@ class FsSourceRegistrationTest {
 
   @Test
   void sftpBackendIsRegistered() {
-    try {
-      FsBackendRegistry.get("sftp");
-    } catch (IllegalArgumentException ignored) {
-      FsBackendRegistry.register(
-          new io.fleak.zephflow.lib.commands.fssource.backend.sftp.SftpBackend());
-    }
     assertNotNull(FsBackendRegistry.get("sftp"));
   }
 }
