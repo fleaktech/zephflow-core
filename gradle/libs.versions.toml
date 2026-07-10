@@ -29,7 +29,7 @@ clickhouse = "0.9.8"
 influxdb = "2.23"
 influxdb2 = "8.0.0"
 hadoop = "3.4.0"
-databricksSdk = "0.123.0"
+databricksSdk = "0.127.0"
 # 1.0.1 ships the bundled native zerobus_jni libs for all platforms (linux/osx/windows,
 # x86_64 + aarch64). The later 1.2.0 repackage dropped the native libraries, so it fails to
 # load at runtime — do not bump without verifying natives are present in the jar.
