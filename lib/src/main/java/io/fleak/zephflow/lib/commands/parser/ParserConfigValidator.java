@@ -24,7 +24,8 @@ public class ParserConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     var parserConfig = ((ParserConfigs.ParserConfig) commandConfig);
-    Preconditions.checkNotNull(parserConfig.getTargetField(), "targetField is missing");
-    Preconditions.checkNotNull(parserConfig.getExtractionConfig(), "extractionConfig is missing");
+    Preconditions.checkArgument(parserConfig.getTargetField() != null, "targetField is missing");
+    Preconditions.checkArgument(
+        parserConfig.getExtractionConfig() != null, "extractionConfig is missing");
   }
 }
