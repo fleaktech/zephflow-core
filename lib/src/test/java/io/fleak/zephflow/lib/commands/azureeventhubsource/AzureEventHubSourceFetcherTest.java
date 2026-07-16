@@ -65,6 +65,45 @@ class AzureEventHubSourceFetcherTest {
   }
 
   @Test
+  void fetchAttachesMetadataFromExtractor() {
+    BlockingQueue<EventContext> queue = new LinkedBlockingQueue<>();
+    queue.add(eventContext("0", "hello"));
+
+    AzureEventHubSourceFetcher fetcher =
+        new AzureEventHubSourceFetcher(
+            mock(EventProcessorClient.class),
+            queue,
+            500,
+            SHORT_POLL,
+            PerRecordCommitStrategy.INSTANCE,
+            ctx -> java.util.Map.of("deviceId", "sensor-01"));
+
+    List<SerializedEvent> events = fetcher.fetch();
+
+    assertEquals(1, events.size());
+    assertEquals("sensor-01", events.get(0).metadata().get("deviceId"));
+  }
+
+  @Test
+  void fiveArgConstructorLeavesMetadataNull() {
+    BlockingQueue<EventContext> queue = new LinkedBlockingQueue<>();
+    queue.add(eventContext("0", "hello"));
+
+    AzureEventHubSourceFetcher fetcher =
+        new AzureEventHubSourceFetcher(
+            mock(EventProcessorClient.class),
+            queue,
+            500,
+            SHORT_POLL,
+            PerRecordCommitStrategy.INSTANCE);
+
+    List<SerializedEvent> events = fetcher.fetch();
+
+    assertEquals(1, events.size());
+    assertNull(events.get(0).metadata());
+  }
+
+  @Test
   void fetchReturnsEmptyWhenQueueIsEmpty() {
     AzureEventHubSourceFetcher fetcher =
         new AzureEventHubSourceFetcher(

@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -55,6 +56,7 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
   private final int maxEventsPerFetch;
   private final Duration pollTimeout;
   private final CommitStrategy commitStrategy;
+  private final Function<EventContext, Map<String, String>> metadataExtractor;
 
   private final Map<String, EventContext> latestCheckpointByPartition = new LinkedHashMap<>();
 
@@ -64,11 +66,22 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
       int maxEventsPerFetch,
       Duration pollTimeout,
       CommitStrategy commitStrategy) {
+    this(processorClient, queue, maxEventsPerFetch, pollTimeout, commitStrategy, ctx -> null);
+  }
+
+  public AzureEventHubSourceFetcher(
+      EventProcessorClient processorClient,
+      BlockingQueue<EventContext> queue,
+      int maxEventsPerFetch,
+      Duration pollTimeout,
+      CommitStrategy commitStrategy,
+      Function<EventContext, Map<String, String>> metadataExtractor) {
     this.processorClient = processorClient;
     this.queue = queue;
     this.maxEventsPerFetch = maxEventsPerFetch;
     this.pollTimeout = pollTimeout;
     this.commitStrategy = commitStrategy;
+    this.metadataExtractor = metadataExtractor;
   }
 
   @Override
@@ -105,7 +118,8 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
         eventData.getPartitionKey() == null
             ? null
             : eventData.getPartitionKey().getBytes(StandardCharsets.UTF_8);
-    rawEvents.add(new SerializedEvent(key, eventData.getBody(), null));
+    Map<String, String> metadata = metadataExtractor.apply(eventContext);
+    rawEvents.add(new SerializedEvent(key, eventData.getBody(), metadata));
   }
 
   @Override
