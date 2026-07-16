@@ -18,9 +18,14 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +67,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private static final String PAYLOAD_KEY = "r";
   private static final String ACK_FILE_NAME = "sf-ack.idx";
   private static final String ACK_CAUGHT_UP = "END";
+  private static final String LOCK_FILE_NAME = "sf.lock";
 
   private final long maxBytes;
   private final long retryIntervalMs;
@@ -77,6 +83,8 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private final ExcerptAppender appender;
   private final ExcerptTailer tailer;
   private final Path ackFile;
+  private final FileChannel lockChannel;
+  private final FileLock dirLock;
 
   // Outstanding bytes still on disk (appended minus drained). Bounds disk use against maxBytes.
   // Reset to 0 on restart: the cap then applies to newly appended data only.
@@ -103,6 +111,39 @@ public class ChronicleStoreForward implements SinkStoreForward {
     this.bufferedCounter = bufferedCounter;
     this.replayedCounter = replayedCounter;
     this.droppedCounter = droppedCounter;
+    // Exclusive OS-level lock on the buffer directory: cross-process sharing would silently
+    // corrupt the queue and the ack watermark, so a second process must fail fast instead.
+    try {
+      Files.createDirectories(config.storePath());
+      this.lockChannel =
+          FileChannel.open(
+              config.storePath().resolve(LOCK_FILE_NAME),
+              StandardOpenOption.CREATE,
+              StandardOpenOption.WRITE);
+    } catch (IOException e) {
+      throw new IllegalStateException(
+          "store-and-forward [" + nodeId + "] cannot open buffer dir " + config.storePath(), e);
+    }
+    FileLock lock;
+    try {
+      lock = lockChannel.tryLock();
+    } catch (OverlappingFileLockException e) {
+      lock = null; // held by another instance in this JVM
+    } catch (IOException e) {
+      closeQuietly(lockChannel);
+      throw new IllegalStateException(
+          "store-and-forward [" + nodeId + "] cannot lock buffer dir " + config.storePath(), e);
+    }
+    if (lock == null) {
+      closeQuietly(lockChannel);
+      throw new IllegalStateException(
+          "store-and-forward ["
+              + nodeId
+              + "] buffer dir "
+              + config.storePath()
+              + " is already locked by another process; each job replica needs its own directory");
+    }
+    this.dirLock = lock;
     this.queue = SingleChronicleQueueBuilder.single(config.storePath().toFile()).build();
     this.appender = queue.createAppender();
     this.tailer = queue.createTailer();
@@ -185,6 +226,20 @@ public class ChronicleStoreForward implements SinkStoreForward {
       }
     }
     queue.close();
+    try {
+      dirLock.release();
+    } catch (IOException e) {
+      log.warn("store-and-forward [{}] could not release dir lock", nodeId, e);
+    }
+    closeQuietly(lockChannel);
+  }
+
+  private static void closeQuietly(FileChannel channel) {
+    try {
+      channel.close();
+    } catch (IOException e) {
+      log.warn("store-and-forward could not close lock file channel", e);
+    }
   }
 
   // ===== worker =====
