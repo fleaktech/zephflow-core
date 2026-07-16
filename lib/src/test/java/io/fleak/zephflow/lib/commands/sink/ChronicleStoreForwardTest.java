@@ -176,6 +176,25 @@ class ChronicleStoreForwardTest {
     second.close();
   }
 
+  @Test
+  void secondInstanceOnSameDirFailsFastUntilFirstCloses(@TempDir Path dir) {
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+
+    IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                new ChronicleStoreForward(
+                    config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null));
+    assertTrue(e.getMessage().contains("already locked by another process"));
+
+    first.close();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.close();
+  }
+
   private static void await(BooleanSupplier condition) throws InterruptedException {
     long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
     while (System.nanoTime() < deadline) {
