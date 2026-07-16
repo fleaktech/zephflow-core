@@ -22,6 +22,7 @@ import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
 import io.fleak.zephflow.lib.commands.azureblobsink.AzureBlobSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.azureeventhubsink.AzureEventHubSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.azuremonitorsink.AzureMonitorSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.azuremonitorsource.AzureMonitorSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
@@ -108,5 +109,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_PUBSUB_SINK, new PubSubSinkCommandFactory())
           .put(COMMAND_NAME_AZURE_EVENTHUB_SOURCE, new AzureEventHubSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_EVENTHUB_SINK, new AzureEventHubSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_IOTHUB_SOURCE, new AzureIotHubSourceCommandFactory())
           .build();
 }

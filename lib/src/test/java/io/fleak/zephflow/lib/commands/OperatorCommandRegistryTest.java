@@ -69,7 +69,16 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_PUBSUB_SINK)
             .add(COMMAND_NAME_AZURE_EVENTHUB_SOURCE)
             .add(COMMAND_NAME_AZURE_EVENTHUB_SINK)
+            .add(COMMAND_NAME_AZURE_IOTHUB_SOURCE)
             .build(),
         OPERATOR_COMMANDS.keySet());
+  }
+
+  @Test
+  void registersIotHubSource() {
+    assertEquals("azureiothubsource", COMMAND_NAME_AZURE_IOTHUB_SOURCE);
+    assertInstanceOf(
+        io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceCommandFactory.class,
+        OPERATOR_COMMANDS.get(COMMAND_NAME_AZURE_IOTHUB_SOURCE));
   }
 }

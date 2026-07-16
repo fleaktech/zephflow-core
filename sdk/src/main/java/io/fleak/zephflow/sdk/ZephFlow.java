@@ -33,6 +33,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.SimpleHttpClient;
 import io.fleak.zephflow.lib.commands.azureeventhubsink.AzureEventHubSinkDto;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceDto;
+import io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceDto;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandDto;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
@@ -542,6 +543,41 @@ public class ZephFlow {
             .encodingType(encodingType)
             .build();
     return appendNode(COMMAND_NAME_AZURE_EVENTHUB_SOURCE, config);
+  }
+
+  /**
+   * Appends an Azure IoT Hub source node to the flow. Consumes device-to-cloud telemetry from the
+   * IoT Hub built-in Event Hub-compatible endpoint, authenticated with the Event Hub-compatible SAS
+   * connection string, checkpointing partition offsets to Azure Blob Storage. Device id, enqueued
+   * time and application properties are attached to each event under an {@code _iothub} key. For
+   * Entra ID authentication or advanced tuning, build an {@link AzureIotHubSourceDto.Config} and
+   * use {@link #appendNode(String, CommandConfig)} directly.
+   *
+   * @param connectionString The IoT Hub Event Hub-compatible SAS connection string.
+   * @param eventHubName The Event Hub-compatible name of the built-in endpoint.
+   * @param consumerGroup The consumer group to read under (e.g. {@code $Default}).
+   * @param checkpointStorageConnectionString Connection string for the checkpoint storage account.
+   * @param checkpointContainerName Blob container holding checkpoint and ownership data.
+   * @param encodingType The encoding of the telemetry messages.
+   * @return A new ZephFlow instance with the IoT Hub source appended.
+   */
+  public ZephFlow iotHubSource(
+      @NonNull String connectionString,
+      @NonNull String eventHubName,
+      @NonNull String consumerGroup,
+      @NonNull String checkpointStorageConnectionString,
+      @NonNull String checkpointContainerName,
+      @NonNull EncodingType encodingType) {
+    AzureIotHubSourceDto.Config config =
+        AzureIotHubSourceDto.Config.builder()
+            .connectionString(connectionString)
+            .eventHubName(eventHubName)
+            .consumerGroup(consumerGroup)
+            .checkpointStorageConnectionString(checkpointStorageConnectionString)
+            .checkpointContainerName(checkpointContainerName)
+            .encodingType(encodingType)
+            .build();
+    return appendNode(COMMAND_NAME_AZURE_IOTHUB_SOURCE, config);
   }
 
   /**
