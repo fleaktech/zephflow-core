@@ -55,6 +55,7 @@ angusMail = "2.0.3"
 unboundidLdapsdk = "7.0.1"
 azureStorageBlob = "12.28.0"
 azureCoreHttpOkHttp = "1.12.6"
+sshj = "0.40.0"
 chronicle = "2026.2"
 
 nebulaDependencyLock = "17.0.1"
@@ -197,6 +198,7 @@ angus-mail = { module = "org.eclipse.angus:angus-mail", version.ref = "angusMail
 unboundid-ldapsdk = { module = "com.unboundid:unboundid-ldapsdk", version.ref = "unboundidLdapsdk" }
 azure-storage-blob = { module = "com.azure:azure-storage-blob", version.ref = "azureStorageBlob" }
 azure-core-http-okhttp = { module = "com.azure:azure-core-http-okhttp", version.ref = "azureCoreHttpOkHttp" }
+sshj = { module = "com.hierynomus:sshj", version.ref = "sshj" }
 chronicle-bom = { module = "net.openhft:chronicle-bom", version.ref = "chronicle" }
 chronicle-queue = { module = "net.openhft:chronicle-queue" }
 
