@@ -72,6 +72,30 @@ class IotHubRawDataConverterTest {
   }
 
   @Test
+  void emitsEmptyPropertiesWhenNoApplicationProperties() {
+    Map<String, String> metadata = new LinkedHashMap<>();
+    metadata.put(IotHubRawDataConverter.DEVICE_ID_KEY, "sensor-01");
+    metadata.put(IotHubRawDataConverter.ENQUEUED_TIME_KEY, "2026-07-16T10:00:00Z");
+
+    SerializedEvent event =
+        new SerializedEvent(null, "{\"temp\":72}".getBytes(StandardCharsets.UTF_8), metadata);
+
+    ConvertedResult<SerializedEvent> result =
+        new IotHubRawDataConverter(deserializer).convert(event, ctx());
+
+    Map<String, Object> map = result.transformedData().get(0).unwrap();
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> iothub = (Map<String, Object>) map.get("_iothub");
+    assertEquals("sensor-01", iothub.get("deviceId"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> properties = (Map<String, Object>) iothub.get("properties");
+    assertNotNull(properties, "properties should always be present when the envelope exists");
+    assertTrue(properties.isEmpty());
+  }
+
+  @Test
   void omitsEnvelopeWhenNoMetadata() {
     SerializedEvent event =
         new SerializedEvent(null, "{\"temp\":72}".getBytes(StandardCharsets.UTF_8), null);

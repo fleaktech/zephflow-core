@@ -102,9 +102,9 @@ public class IotHubRawDataConverter implements RawDataConverter<SerializedEvent>
         envelope.put(e.getKey(), e.getValue());
       }
     }
-    if (!properties.isEmpty()) {
-      envelope.put(PROPERTIES_KEY, properties);
-    }
+    // Always surface {@code properties} (empty object when the message carried none) so downstream
+    // consumers can rely on {@code _iothub.properties} being present whenever the envelope exists.
+    envelope.put(PROPERTIES_KEY, properties);
     return FleakData.wrap(envelope);
   }
 }
