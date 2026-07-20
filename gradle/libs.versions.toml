@@ -29,7 +29,12 @@ clickhouse = "0.9.8"
 influxdb = "2.23"
 influxdb2 = "8.0.0"
 hadoop = "3.4.0"
-databricksSdk = "0.119.0"
+databricksSdk = "0.130.0"
+# 1.0.1 ships the bundled native zerobus_jni libs for all platforms (linux/osx/windows,
+# x86_64 + aarch64). The later 1.2.0 repackage dropped the native libraries, so it fails to
+# load at runtime — do not bump without verifying natives are present in the jar.
+zerobusSdk = "1.0.1"
+protobuf = "4.33.0"
 deltaKernel = "4.0.0"
 netty = "4.1.122.Final"
 splunk = "1.9.5"
@@ -39,6 +44,7 @@ pubsub = "1.131.0"
 activemqClassic = "6.1.0"
 activemqArtemis = "2.53.0"
 jakartaJms = "3.1.0"
+pahoMqttV5 = "1.2.5"
 h2 = "2.2.224"
 postgresql = "42.7.3"
 mysql = "9.2.0"
@@ -49,6 +55,8 @@ angusMail = "2.0.3"
 unboundidLdapsdk = "7.0.1"
 azureStorageBlob = "12.28.0"
 azureCoreHttpOkHttp = "1.12.6"
+sshj = "0.40.0"
+chronicle = "2026.2"
 
 nebulaDependencyLock = "17.0.1"
 nebulaMavenPublish = "23.0.0"
@@ -112,6 +120,8 @@ hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "had
 hadoop-aws = { module = "org.apache.hadoop:hadoop-aws", version.ref = "hadoop" }
 
 databricks-sdk = { module = "com.databricks:databricks-sdk-java", version.ref = "databricksSdk" }
+zerobus-ingest-sdk = { module = "com.databricks:zerobus-ingest-sdk", version.ref = "zerobusSdk" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
 
 delta-kernel-api = { module = "io.delta:delta-kernel-api", version.ref = "deltaKernel" }
 delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref = "deltaKernel" }
@@ -177,6 +187,7 @@ gcs-pubsub = { module = "com.google.cloud:google-cloud-pubsub", version.ref = "p
 activemq-client-jakarta = { module = "org.apache.activemq:activemq-client-jakarta", version.ref = "activemqClassic" }
 artemis-jakarta-client = { module = "org.apache.artemis:artemis-jakarta-client", version.ref = "activemqArtemis" }
 jakarta-jms-api = { module = "jakarta.jms:jakarta.jms-api", version.ref = "jakartaJms" }
+paho-mqttv5-client = { module = "org.eclipse.paho:org.eclipse.paho.mqttv5.client", version.ref = "pahoMqttV5" }
 h2-database = { module = "com.h2database:h2", version.ref = "h2" }
 postgresql-driver = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 mysql-connector = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
@@ -187,6 +198,9 @@ angus-mail = { module = "org.eclipse.angus:angus-mail", version.ref = "angusMail
 unboundid-ldapsdk = { module = "com.unboundid:unboundid-ldapsdk", version.ref = "unboundidLdapsdk" }
 azure-storage-blob = { module = "com.azure:azure-storage-blob", version.ref = "azureStorageBlob" }
 azure-core-http-okhttp = { module = "com.azure:azure-core-http-okhttp", version.ref = "azureCoreHttpOkHttp" }
+sshj = { module = "com.hierynomus:sshj", version.ref = "sshj" }
+chronicle-bom = { module = "net.openhft:chronicle-bom", version.ref = "chronicle" }
+chronicle-queue = { module = "net.openhft:chronicle-queue" }
 
 [plugins]
 nebula-dependency-lock = { id = "com.netflix.nebula.dependency-lock", version.ref = "nebulaDependencyLock" }

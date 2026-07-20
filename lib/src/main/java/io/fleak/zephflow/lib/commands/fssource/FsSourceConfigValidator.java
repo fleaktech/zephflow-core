@@ -16,50 +16,34 @@ package io.fleak.zephflow.lib.commands.fssource;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 public final class FsSourceConfigValidator implements ConfigValidator {
 
   @Override
-  public void validateConfig(CommandConfig config, String nodeId, JobContext ctx) {
-    if (!(config instanceof FsSourceDto.Config c)) {
+  public void validateConfig(CommandConfig config, String nodeId, JobContext jobContext) {
+    if (!(config instanceof FsSourceDto.Config fsSourceConfig)) {
       throw new IllegalArgumentException("expected FsSourceDto.Config, got " + config.getClass());
     }
-    if (c.getBackend() == null || c.getBackend().isBlank()) {
+    if (fsSourceConfig.getBackend() == null || fsSourceConfig.getBackend().isBlank()) {
       throw new IllegalArgumentException("backend is required");
     }
-    if (c.getRoot() == null || c.getRoot().isBlank()) {
+    if (fsSourceConfig.getRoot() == null || fsSourceConfig.getRoot().isBlank()) {
       throw new IllegalArgumentException("root is required");
     }
-    if (c.getFileNameRegex() != null && !c.getFileNameRegex().isBlank()) {
+    if (fsSourceConfig.getFileNameRegex() != null && !fsSourceConfig.getFileNameRegex().isBlank()) {
       try {
-        Pattern.compile(c.getFileNameRegex());
-      } catch (PatternSyntaxException e) {
-        throw new IllegalArgumentException("invalid fileNameRegex: " + e.getMessage(), e);
+        Pattern.compile(fsSourceConfig.getFileNameRegex());
+      } catch (PatternSyntaxException exception) {
+        throw new IllegalArgumentException(
+            "invalid fileNameRegex: " + exception.getMessage(), exception);
       }
     }
-    if (c.getEmission() == null || c.getEmission().getType() == null) {
-      throw new IllegalArgumentException("emission.type is required");
+    if (fsSourceConfig.getEncodingType() == null) {
+      throw new IllegalArgumentException("encodingType is required");
     }
-    if (c.getEmission().getType() == FsSourceDto.EmissionType.LINE
-        && c.getEmission().getLineBatchSize() <= 0) {
-      throw new IllegalArgumentException("emission.lineBatchSize must be > 0");
-    }
-    if (c.getPartition() != null) {
-      if (c.getPartition().getParallelism() <= 0) {
-        throw new IllegalArgumentException("partition.parallelism must be > 0");
-      }
-      if (c.getPartition().getIndex() < 0
-          || c.getPartition().getIndex() >= c.getPartition().getParallelism()) {
-        throw new IllegalArgumentException("partition.index must be in [0, partition.parallelism)");
-      }
-    }
-    if (c.getPostAction() != null
-        && c.getPostAction().getType() == FsSourceDto.PostActionType.ARCHIVE
-        && (c.getPostAction().getDestinationPrefix() == null
-            || c.getPostAction().getDestinationPrefix().isBlank())) {
-      throw new IllegalArgumentException("postAction.destinationPrefix required for ARCHIVE");
-    }
+    DeserializerFactory.validateEncodingType(fsSourceConfig.getEncodingType());
   }
 }

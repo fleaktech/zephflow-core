@@ -38,5 +38,17 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }
+    if (config.isStoreAndForwardEnabled()) {
+      if (config.getLocalStoreMaxBytes() <= 0) {
+        throw new IllegalArgumentException(
+            "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: "
+                + config.getLocalStoreMaxBytes());
+      }
+      if (config.getForwardRetryIntervalMillis() <= 0) {
+        throw new IllegalArgumentException(
+            "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: "
+                + config.getForwardRetryIntervalMillis());
+      }
+    }
   }
 }

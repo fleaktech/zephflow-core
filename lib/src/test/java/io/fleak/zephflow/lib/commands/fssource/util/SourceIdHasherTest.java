@@ -44,4 +44,34 @@ class SourceIdHasherTest {
   void nullRegexAllowed() {
     assertDoesNotThrow(() -> SourceIdHasher.compute("file", "/tmp/x", null));
   }
+
+  @Test
+  void singleReplicaOverloadMatchesLegacyThreeArg() {
+    String legacy = SourceIdHasher.compute("s3", "s3://bucket/root", "evt_(?<ts>\\d+)\\.log");
+    String shardedCount1 =
+        SourceIdHasher.compute("s3", "s3://bucket/root", "evt_(?<ts>\\d+)\\.log", 0, 1);
+    assertEquals(legacy, shardedCount1);
+  }
+
+  @Test
+  void countZeroAlsoMatchesLegacy() {
+    String legacy = SourceIdHasher.compute("file", "file:///data", null);
+    assertEquals(legacy, SourceIdHasher.compute("file", "file:///data", null, 0, 0));
+  }
+
+  @Test
+  void distinctIdsPerReplicaWhenCountGreaterThanOne() {
+    String r0 = SourceIdHasher.compute("s3", "s3://bucket/root", null, 0, 3);
+    String r1 = SourceIdHasher.compute("s3", "s3://bucket/root", null, 1, 3);
+    String r2 = SourceIdHasher.compute("s3", "s3://bucket/root", null, 2, 3);
+    assertNotEquals(r0, r1);
+    assertNotEquals(r1, r2);
+    assertNotEquals(r0, r2);
+  }
+
+  @Test
+  void shardedIdDiffersFromLegacyWhenCountGreaterThanOne() {
+    String legacy = SourceIdHasher.compute("s3", "s3://bucket/root", null);
+    assertNotEquals(legacy, SourceIdHasher.compute("s3", "s3://bucket/root", null, 0, 3));
+  }
 }

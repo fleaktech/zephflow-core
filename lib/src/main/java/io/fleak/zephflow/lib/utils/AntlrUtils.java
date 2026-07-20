@@ -18,6 +18,8 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.lib.antlr.*;
 import io.fleak.zephflow.lib.commands.eval.FeelFunction;
+import io.fleak.zephflow.lib.commands.eval.FunctionSignature;
+import io.fleak.zephflow.lib.commands.eval.PythonFunction;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
@@ -87,17 +89,16 @@ public interface AntlrUtils {
     EVAL
   }
 
-  Map<String, FeelFunction.FunctionSignature> FEEL_FUNCTION_SIGNATURES =
-      createAllFunctionSignatures();
+  Map<String, FunctionSignature> FEEL_FUNCTION_SIGNATURES = createAllFunctionSignatures();
 
-  private static Map<String, FeelFunction.FunctionSignature> createAllFunctionSignatures() {
+  private static Map<String, FunctionSignature> createAllFunctionSignatures() {
     // Create signatures from base functions (without PythonExecutor)
-    Map<String, FeelFunction.FunctionSignature> signatures =
+    Map<String, FunctionSignature> signatures =
         FeelFunction.createFunctionsTable(null).entrySet().stream()
             .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getSignature()));
 
     // Add Python function signature by creating a dummy instance to get its signature
-    signatures.put("python", new FeelFunction.PythonFunction(null).getSignature());
+    signatures.put("python", new PythonFunction(null).getSignature());
 
     return signatures;
   }
@@ -172,7 +173,7 @@ public interface AntlrUtils {
 
     private String createFunctionArgumentErrorMessage(
         String functionName, Object offendingSymbol, String originalMessage) {
-      FeelFunction.FunctionSignature signature = FEEL_FUNCTION_SIGNATURES.get(functionName);
+      FunctionSignature signature = FEEL_FUNCTION_SIGNATURES.get(functionName);
       if (signature == null) {
         return originalMessage;
       }

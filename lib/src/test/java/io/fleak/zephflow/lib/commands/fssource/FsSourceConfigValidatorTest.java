@@ -16,55 +16,99 @@ package io.fleak.zephflow.lib.commands.fssource;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import org.junit.jupiter.api.Test;
 
 class FsSourceConfigValidatorTest {
 
-  private FsSourceDto.Config cfg() {
+  private FsSourceDto.Config validConfig() {
     return FsSourceDto.Config.builder()
         .backend("file")
         .root("file:///tmp/data")
         .fileNameRegex("invoice_(?<ts>\\d+)\\.json")
+        .encodingType(EncodingType.JSON_OBJECT_LINE)
         .build();
   }
 
   @Test
   void acceptsValidConfig() {
-    new FsSourceConfigValidator().validateConfig(cfg(), "n", JobContext.builder().build());
+    new FsSourceConfigValidator().validateConfig(validConfig(), "n", JobContext.builder().build());
   }
 
   @Test
   void rejectsMissingBackend() {
-    FsSourceDto.Config c = cfg();
-    c.setBackend(null);
+    FsSourceDto.Config config = validConfig();
+    config.setBackend(null);
     assertThrows(
         IllegalArgumentException.class,
-        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
   }
 
   @Test
   void rejectsMissingRoot() {
-    FsSourceDto.Config c = cfg();
-    c.setRoot(null);
+    FsSourceDto.Config config = validConfig();
+    config.setRoot(null);
     assertThrows(
         IllegalArgumentException.class,
-        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
   }
 
   @Test
   void rejectsInvalidRegex() {
-    FsSourceDto.Config c = cfg();
-    c.setFileNameRegex("invoice_(?<ts>\\d+");
+    FsSourceDto.Config config = validConfig();
+    config.setFileNameRegex("invoice_(?<ts>\\d+");
     assertThrows(
         IllegalArgumentException.class,
-        () -> new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build()));
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
   }
 
   @Test
-  void boundedWithListingIntervalAllowed() {
-    FsSourceDto.Config c = cfg();
-    c.setMode(FsSourceDto.Mode.BOUNDED);
-    c.setListingIntervalMs(1000);
-    new FsSourceConfigValidator().validateConfig(c, "n", JobContext.builder().build());
+  void rejectsMissingEncodingType() {
+    FsSourceDto.Config config = validConfig();
+    config.setEncodingType(null);
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsParquetEncodingType() {
+    FsSourceDto.Config config = validConfig();
+    config.setEncodingType(EncodingType.PARQUET);
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsBlankBackend() {
+    FsSourceDto.Config config = validConfig();
+    config.setBackend("");
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsBlankRoot() {
+    FsSourceDto.Config config = validConfig();
+    config.setRoot("");
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
   }
 }

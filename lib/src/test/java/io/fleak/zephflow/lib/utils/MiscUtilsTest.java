@@ -15,12 +15,15 @@ package io.fleak.zephflow.lib.utils;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.credentials.RSAPrivateKeyCredential;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -111,5 +114,25 @@ class MiscUtilsTest {
     Map<String, String> result = getCallingUserTagAndEventTags(null, null);
 
     assertTrue(result.isEmpty());
+  }
+
+  @Test
+  void lookupRSAPrivateKeyCredentialReturnsCredential() {
+    RSAPrivateKeyCredential credential = new RSAPrivateKeyCredential("pkcs8-key-content", "demo");
+    JobContext jobContext =
+        JobContext.builder().otherProperties(Map.of("my_key_cred", credential)).build();
+
+    RSAPrivateKeyCredential loaded =
+        MiscUtils.lookupRSAPrivateKeyCredential(jobContext, "my_key_cred");
+
+    assertEquals("pkcs8-key-content", loaded.getKey());
+    assertEquals("demo", loaded.getUser());
+  }
+
+  @Test
+  void lookupRSAPrivateKeyCredentialMissingIdThrows() {
+    JobContext jobContext = JobContext.builder().otherProperties(Map.of()).build();
+    assertThrows(
+        RuntimeException.class, () -> MiscUtils.lookupRSAPrivateKeyCredential(jobContext, "nope"));
   }
 }

@@ -78,7 +78,13 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                         .id(n.getId())
                         .build();
                   } catch (Exception e) {
-                    log.error("dag compilation error at node {}: {}", n.getId(), rdn, e);
+                    // config errors are expected user-input failures; the exception is wrapped
+                    // and rethrown for the caller to handle, so don't log at ERROR
+                    log.warn(
+                        "dag compilation error at node {}: {}, reason: {}",
+                        n.getId(),
+                        rdn,
+                        e.getMessage());
                     throw new DagCompilationException(
                         DagCompilationException.ErrorType.NODE_COMPILATION,
                         n.getId(),

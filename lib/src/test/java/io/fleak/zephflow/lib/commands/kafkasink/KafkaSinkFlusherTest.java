@@ -285,7 +285,8 @@ class KafkaSinkFlusherTest {
   void testResourceManagement_ProperCleanup() {
     flusher.close();
 
-    verify(mockProducer, times(1)).close();
+    // Shutdown is bounded so a wedged producer can't hang terminate() (see KafkaSinkFlusher.close).
+    verify(mockProducer, times(1)).close(any(java.time.Duration.class));
 
     // Verify close() is idempotent
     assertDoesNotThrow(

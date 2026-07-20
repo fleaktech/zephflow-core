@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,23 +24,6 @@ import lombok.NoArgsConstructor;
 
 public interface FsSourceDto {
 
-  enum Mode {
-    BOUNDED,
-    UNBOUNDED
-  }
-
-  enum EmissionType {
-    LINE,
-    WHOLE_FILE,
-    FILE_REFERENCE
-  }
-
-  enum PostActionType {
-    NONE,
-    DELETE,
-    ARCHIVE
-  }
-
   @Data
   @Builder
   @NoArgsConstructor
@@ -47,61 +31,9 @@ public interface FsSourceDto {
   @JsonIgnoreProperties(ignoreUnknown = true)
   class Config implements CommandConfig {
     private String backend;
-
     private String root;
-
     private String fileNameRegex;
-
-    @Builder.Default private Emission emission = Emission.builder().type(EmissionType.LINE).build();
-    @Builder.Default private Mode mode = Mode.BOUNDED;
-    @Builder.Default private long listingIntervalMs = 30_000;
-
-    @Builder.Default private Stability stability = Stability.builder().enabled(false).build();
-
-    @Builder.Default
-    private PostActionConfig postAction =
-        PostActionConfig.builder().type(PostActionType.NONE).build();
-
-    private PartitionConfig partition;
-
+    private EncodingType encodingType;
     private Map<String, Object> backendConfig;
-  }
-
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Emission {
-    private EmissionType type;
-    @Builder.Default private String encoding = "utf-8";
-    @Builder.Default private int lineBatchSize = 500;
-  }
-
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class Stability {
-    private boolean enabled;
-    @Builder.Default private long probeDelayMs = 10_000;
-  }
-
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class PostActionConfig {
-    private PostActionType type;
-
-    private String destinationPrefix;
-  }
-
-  @Data
-  @Builder
-  @NoArgsConstructor
-  @AllArgsConstructor
-  class PartitionConfig {
-    private int index;
-    private int parallelism;
   }
 }

@@ -21,10 +21,23 @@ public final class SourceIdHasher {
   private SourceIdHasher() {}
 
   public static String compute(String backend, String root, String fileNameRegex) {
-    String canonical = backend + "\n" + root + "\n" + (fileNameRegex == null ? "" : fileNameRegex);
-    return Hashing.sha256()
-        .hashString(canonical, StandardCharsets.UTF_8)
-        .toString()
-        .substring(0, 16);
+    return hash16(canonical(backend, root, fileNameRegex));
+  }
+
+  public static String compute(
+      String backend, String root, String fileNameRegex, int replicaIndex, int replicaCount) {
+    if (replicaCount <= 1) {
+      return compute(backend, root, fileNameRegex);
+    }
+    return hash16(
+        canonical(backend, root, fileNameRegex) + "\n" + replicaIndex + "\n" + replicaCount);
+  }
+
+  private static String canonical(String backend, String root, String fileNameRegex) {
+    return backend + "\n" + root + "\n" + (fileNameRegex == null ? "" : fileNameRegex);
+  }
+
+  private static String hash16(String value) {
+    return Hashing.sha256().hashString(value, StandardCharsets.UTF_8).toString().substring(0, 16);
   }
 }

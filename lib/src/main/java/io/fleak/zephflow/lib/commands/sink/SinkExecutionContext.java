@@ -20,12 +20,15 @@ import java.io.IOException;
 /**
  * Created by bolei on 9/3/24
  *
+ * @param storeForward store-and-forward collaborator; {@link SinkStoreForward#noop()} for sinks
+ *     that have not enrolled (the default), so they keep their exact current behavior.
  * @param errorCounter error count during preparation phase
  * @param sinkErrorCounter error count during flushing phase
  */
 public record SinkExecutionContext<T>(
     SimpleSinkCommand.Flusher<T> flusher,
     SimpleSinkCommand.SinkMessagePreProcessor<T> messagePreProcessor,
+    SinkStoreForward storeForward,
     FleakCounter inputMessageCounter,
     FleakCounter errorCounter,
     FleakCounter sinkOutputCounter,
@@ -33,10 +36,33 @@ public record SinkExecutionContext<T>(
     FleakCounter sinkErrorCounter)
     implements ExecutionContext {
 
+  /** Convenience constructor for sinks that have not enrolled in store-and-forward. */
+  public SinkExecutionContext(
+      SimpleSinkCommand.Flusher<T> flusher,
+      SimpleSinkCommand.SinkMessagePreProcessor<T> messagePreProcessor,
+      FleakCounter inputMessageCounter,
+      FleakCounter errorCounter,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter) {
+    this(
+        flusher,
+        messagePreProcessor,
+        SinkStoreForward.noop(),
+        inputMessageCounter,
+        errorCounter,
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter);
+  }
+
   @Override
   public void close() throws IOException {
     if (flusher != null) {
       flusher.close();
+    }
+    if (storeForward != null) {
+      storeForward.close();
     }
   }
 }

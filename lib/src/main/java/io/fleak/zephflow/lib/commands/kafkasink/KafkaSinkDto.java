@@ -28,5 +28,21 @@ public interface KafkaSinkDto {
     private String partitionKeyFieldExpressionStr;
     @NonNull private String encodingType;
     private Map<String, String> properties;
+
+    /**
+     * Store-and-forward: when enabled, a connectivity failure persists records to a local durable
+     * queue and replays them once the broker is reachable again, instead of dropping them. This
+     * also switches the producer to synchronous delivery so failures are detected at flush time.
+     */
+    @Builder.Default private boolean storeAndForwardEnabled = false;
+
+    /** Directory for the local store-and-forward queue. Defaults to a temp dir keyed by node id. */
+    private String localStorePath;
+
+    /** Hard cap on local store size; once reached, incoming records are dropped. */
+    @Builder.Default private long localStoreMaxBytes = 1_073_741_824L; // 1 GiB
+
+    /** How often the background forwarder retries draining the local queue during an outage. */
+    @Builder.Default private long forwardRetryIntervalMillis = 5_000L;
   }
 }

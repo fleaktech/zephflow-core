@@ -49,6 +49,15 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       List<RecordFleakData> events, @NonNull String callingUser, ExecutionContext context) {
     Map<String, String> tags =
         getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.getFirst());
+
+    //noinspection unchecked
+    SinkExecutionContext<T> sinkContext = (SinkExecutionContext<T>) context;
+    // Outage fast-path: while store-and-forward is buffering, route everything straight to disk
+    // (no remote attempt) so we don't reorder ahead of already-queued records.
+    if (sinkContext.storeForward().isBuffering()) {
+      return bufferDuringOutage(events, tags, sinkContext);
+    }
+
     List<List<RecordFleakData>> batches = Lists.partition(events, batchSize());
     long ts = System.currentTimeMillis();
 
@@ -123,6 +132,18 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     try {
       flushResult = sinkContext.flusher().flush(preparedInputEvents, callingUserTag);
     } catch (Exception e) {
+      // Connectivity failure with store-and-forward enrolled: persist the prepared records to local
+      // storage instead of dropping them. Only records that preprocessed successfully are buffered;
+      // preprocess errors stay on the normal error path.
+      if (sinkContext.storeForward().shouldBuffer(e)) {
+        return bufferFailedBatch(
+            batch, preparedInputEvents, errorOutputs, callingUserTag, sinkContext);
+      }
+      if (e instanceof UnknownSinkCommitStateException unknownState) {
+        // Records may already be committed; we cannot honestly report them as failed (in the
+        // non-DLQ path failed records are silently dropped). Let it propagate as a fatal job error.
+        throw unknownState;
+      }
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure
       List<ErrorOutput> error =
@@ -137,6 +158,49 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     SinkResult sinkResult = new SinkResult(batch.size(), flushResult.successCount, errorOutputs);
     sinkContext.sinkErrorCounter().increase(sinkResult.errorCount(), callingUserTag);
     return sinkResult;
+  }
+
+  private static final String STORE_FORWARD_FULL_MSG =
+      "store-and-forward local buffer is full; record dropped";
+
+  /**
+   * Outage path from {@link #writeToSink}: persist all events to local storage, none sent to
+   * remote.
+   */
+  private SinkResult bufferDuringOutage(
+      List<RecordFleakData> events, Map<String, String> tags, SinkExecutionContext<T> sinkContext) {
+    sinkContext.inputMessageCounter().increase(events.size(), tags);
+    int stored = sinkContext.storeForward().offer(events);
+    List<ErrorOutput> errors = new ArrayList<>();
+    for (int i = stored; i < events.size(); i++) {
+      errors.add(new ErrorOutput(events.get(i), STORE_FORWARD_FULL_MSG));
+    }
+    // Buffered records are safely persisted, so they count as success and the pipeline proceeds.
+    SinkResult result = new SinkResult(events.size(), stored, errors);
+    sinkContext.sinkErrorCounter().increase(result.errorCount(), tags);
+    return result;
+  }
+
+  /**
+   * Failure path from {@link #writeOneBatch}: buffer the prepared records of a batch that hit a
+   * connectivity failure.
+   */
+  private SinkResult bufferFailedBatch(
+      List<RecordFleakData> batch,
+      PreparedInputEvents<T> preparedInputEvents,
+      List<ErrorOutput> preprocessErrors,
+      Map<String, String> tags,
+      SinkExecutionContext<T> sinkContext) {
+    List<RecordFleakData> raws =
+        preparedInputEvents.rawAndPreparedList().stream().map(Pair::getKey).toList();
+    int stored = sinkContext.storeForward().offer(raws);
+    List<ErrorOutput> errors = new ArrayList<>(preprocessErrors);
+    for (int i = stored; i < raws.size(); i++) {
+      errors.add(new ErrorOutput(raws.get(i), STORE_FORWARD_FULL_MSG));
+    }
+    SinkResult result = new SinkResult(batch.size(), stored, errors);
+    sinkContext.sinkErrorCounter().increase(result.errorCount(), tags);
+    return result;
   }
 
   public interface SinkMessagePreProcessor<T> {
