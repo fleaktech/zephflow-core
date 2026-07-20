@@ -85,6 +85,22 @@ class CompiledRulesTest {
   }
 
   @Test
+  public void testNonStringTargetFieldReturnsInputUnchanged() {
+    RecordFleakData inputEvent =
+        (RecordFleakData) FleakData.wrap(Map.of("k", Map.of("a", 100L), "other", "value"));
+    ParserConfigs.ParserConfig parserConfig =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("k")
+            .extractionConfig(new JsonExtractionConfig("my_field"))
+            .removeTargetField(true)
+            .build();
+    ParserConfigCompiler parserConfigCompiler = new ParserConfigCompiler();
+    CompiledRules.ParseRule parseRule = parserConfigCompiler.compile(parserConfig);
+    RecordFleakData output = parseRule.parse(inputEvent);
+    assertEquals(inputEvent, output);
+  }
+
+  @Test
   public void testEmptyTargetFieldReturnsInputUnchanged() {
     RecordFleakData inputEvent =
         (RecordFleakData) FleakData.wrap(Map.of("k", "", "other", "value"));

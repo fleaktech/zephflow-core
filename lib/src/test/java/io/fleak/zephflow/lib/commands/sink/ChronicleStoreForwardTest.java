@@ -15,15 +15,19 @@ package io.fleak.zephflow.lib.commands.sink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
@@ -174,6 +178,145 @@ class ChronicleStoreForwardTest {
     await(() -> !second.isBuffering());
     assertEquals(List.of("a", "b", "c"), values(delivered));
     second.close();
+  }
+
+  @Test
+  void secondInstanceOnSameDirFailsFastUntilFirstCloses(@TempDir Path dir) {
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+
+    IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                new ChronicleStoreForward(
+                    config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null));
+    assertTrue(e.getMessage().contains("already locked by another process"));
+
+    first.close();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.close();
+  }
+
+  /**
+   * The real FLE-2131 scenario: two replicas of the same job (same base dir, same node id) buffer
+   * and drain concurrently. With per-replica paths they must not interfere: each replica delivers
+   * exactly its own records, in order.
+   */
+  @Test
+  void coLocatedReplicasBufferAndDrainWithoutInterference(@TempDir Path base) throws Exception {
+    Path dir0 = replicaStorePath(base, 0);
+    Path dir1 = replicaStorePath(base, 1);
+    assertNotEquals(dir0, dir1);
+
+    List<RecordFleakData> delivered0 = new CopyOnWriteArrayList<>();
+    List<RecordFleakData> delivered1 = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward sf0 =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(dir0, 1_000_000, 50, 10, "node-1"),
+            IO_IS_CONNECTION,
+            null,
+            null,
+            null);
+    ChronicleStoreForward sf1 =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(dir1, 1_000_000, 50, 10, "node-1"),
+            IO_IS_CONNECTION,
+            null,
+            null,
+            null);
+    sf0.start(delivered0::addAll);
+    sf1.start(delivered1::addAll);
+
+    int n = 200;
+    Thread offer0 = offerThread(sf0, "a", n);
+    Thread offer1 = offerThread(sf1, "b", n);
+    offer0.start();
+    offer1.start();
+    offer0.join(TimeUnit.SECONDS.toMillis(30));
+    offer1.join(TimeUnit.SECONDS.toMillis(30));
+
+    await(() -> !sf0.isBuffering() && !sf1.isBuffering());
+
+    assertEquals(prefixedValues("a", n), values(delivered0));
+    assertEquals(prefixedValues("b", n), values(delivered1));
+    sf0.close();
+    sf1.close();
+  }
+
+  private static Path replicaStorePath(Path base, int replicaIndex) {
+    JobContext jc =
+        JobContext.builder()
+            .otherProperties(Map.of(JobContext.REPLICA_INDEX, String.valueOf(replicaIndex)))
+            .metricTags(Map.of("job_id", "job-1"))
+            .build();
+    return StoreForwardPaths.resolve(base.toString(), jc, "node-1");
+  }
+
+  private static Thread offerThread(ChronicleStoreForward sf, String prefix, int n) {
+    return new Thread(
+        () -> {
+          for (int i = 0; i < n; i++) {
+            sf.offer(List.of(record(prefix + i)));
+          }
+        },
+        "offer-" + prefix);
+  }
+
+  private static List<String> prefixedValues(String prefix, int n) {
+    List<String> out = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      out.add(prefix + i);
+    }
+    return out;
+  }
+
+  /**
+   * The lock must hold across OS processes, not just within this JVM: a forked {@code java} process
+   * must fail to lock {@code sf.lock} while we hold it, and succeed once we close.
+   */
+  @Test
+  void dirLockIsEnforcedAcrossProcesses(@TempDir Path dir, @TempDir Path probeDir)
+      throws Exception {
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+
+    Path probe = probeDir.resolve("LockProbe.java");
+    Files.writeString(
+        probe,
+        """
+        import java.nio.channels.FileChannel;
+        import java.nio.channels.FileLock;
+        import java.nio.file.Path;
+        import java.nio.file.StandardOpenOption;
+
+        public class LockProbe {
+          public static void main(String[] args) throws Exception {
+            try (FileChannel ch = FileChannel.open(Path.of(args[0]), StandardOpenOption.WRITE)) {
+              FileLock lock = ch.tryLock();
+              System.exit(lock == null ? 17 : 0);
+            }
+          }
+        }
+        """);
+    Path lockFile = dir.resolve("sf.lock");
+
+    assertEquals(17, runLockProbe(probe, lockFile), "child process must not acquire a held lock");
+    sf.close();
+    assertEquals(0, runLockProbe(probe, lockFile), "lock must be free after close");
+  }
+
+  private static int runLockProbe(Path probe, Path lockFile) throws Exception {
+    Process p =
+        new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                probe.toString(),
+                lockFile.toString())
+            .inheritIO()
+            .start();
+    assertTrue(p.waitFor(60, TimeUnit.SECONDS), "lock probe process timed out");
+    return p.exitValue();
   }
 
   private static void await(BooleanSupplier condition) throws InterruptedException {

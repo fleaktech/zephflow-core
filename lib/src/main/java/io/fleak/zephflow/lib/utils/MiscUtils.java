@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
+import io.fleak.zephflow.lib.credentials.RSAPrivateKeyCredential;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.File;
 import java.io.IOException;
@@ -370,6 +371,19 @@ public interface MiscUtils {
     } catch (Exception e) {
       throw new RuntimeException(
           "failed to load API key credential for credentialId: " + credentialId, e);
+    }
+  }
+
+  /** Helper method to look up RSAPrivateKeyCredential from JobContext */
+  static RSAPrivateKeyCredential lookupRSAPrivateKeyCredential(
+      JobContext jobContext, String credentialId) {
+    Preconditions.checkNotNull(credentialId, "credentialId not provided");
+    try {
+      return lookupFromMapOrThrow(
+          jobContext.getOtherProperties(), credentialId, RSAPrivateKeyCredential.class);
+    } catch (Exception e) {
+      throw new RuntimeException(
+          "failed to load RSA private key credential for credentialId: " + credentialId, e);
     }
   }
 
