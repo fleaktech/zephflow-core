@@ -32,10 +32,17 @@ public class PubSubSinkFlusher implements SimpleSinkCommand.Flusher<PubSubOutbou
 
   private final PublisherStub publisherStub;
   private final String topicPath;
+  private final Map<String, String> additionalProperties;
 
   public PubSubSinkFlusher(PublisherStub publisherStub, String topicPath) {
+    this(publisherStub, topicPath, null);
+  }
+
+  public PubSubSinkFlusher(
+      PublisherStub publisherStub, String topicPath, Map<String, String> additionalProperties) {
     this.publisherStub = publisherStub;
     this.topicPath = topicPath;
+    this.additionalProperties = additionalProperties;
   }
 
   @Override
@@ -56,6 +63,9 @@ public class PubSubSinkFlusher implements SimpleSinkCommand.Flusher<PubSubOutbou
           PubsubMessage.newBuilder().setData(ByteString.copyFromUtf8(message.body()));
       if (message.orderingKey() != null) {
         builder.setOrderingKey(message.orderingKey());
+      }
+      if (additionalProperties != null && !additionalProperties.isEmpty()) {
+        builder.putAllAttributes(additionalProperties);
       }
       pubsubMessages.add(builder.build());
       flushedDataSize += message.body().getBytes(StandardCharsets.UTF_8).length;
