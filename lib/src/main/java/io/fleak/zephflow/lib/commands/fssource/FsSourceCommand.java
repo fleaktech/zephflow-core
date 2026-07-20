@@ -21,6 +21,7 @@ import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
+import io.fleak.zephflow.lib.commands.fssource.backend.sftp.SftpBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
@@ -106,6 +107,8 @@ public final class FsSourceCommand extends SourceCommand {
       case "s3" -> s3BackendConfig(config.getBackendConfig(), jobContext);
       case "gs" -> gcsBackendConfig(config.getBackendConfig());
       case "azblob" -> azureBackendConfig(config.getBackendConfig(), jobContext);
+      case "sftp" ->
+          SftpBackendConfig.from(config.getRoot(), config.getBackendConfig(), jobContext);
       default -> throw new IllegalArgumentException("Unsupported backend: " + config.getBackend());
     };
   }

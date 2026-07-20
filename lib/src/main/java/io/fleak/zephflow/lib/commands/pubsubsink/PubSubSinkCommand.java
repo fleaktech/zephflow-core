@@ -90,7 +90,7 @@ public class PubSubSinkCommand extends SimpleSinkCommand<PubSubOutboundMessage> 
             .map(pubSubClientFactory::createPublisherStub)
             .orElseGet(pubSubClientFactory::createPublisherStub);
 
-    return new PubSubSinkFlusher(stub, topicPath);
+    return new PubSubSinkFlusher(stub, topicPath, config.getAdditionalProperties());
   }
 
   private SimpleSinkCommand.SinkMessagePreProcessor<PubSubOutboundMessage> createPreProcessor(

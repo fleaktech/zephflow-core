@@ -42,4 +42,9 @@ class FsSourceRegistrationTest {
   void localFsBackendIsRegistered() {
     assertNotNull(FsBackendRegistry.get("file"));
   }
+
+  @Test
+  void sftpBackendIsRegistered() {
+    assertNotNull(FsBackendRegistry.get("sftp"));
+  }
 }

@@ -48,6 +48,15 @@ public class RecordFleakData implements FleakData {
     return new RecordFleakData(new HashMap<>(newPayload));
   }
 
+  /**
+   * Returns a fully independent copy of this record. Unlike {@link #copy()}, which shares the
+   * nested {@link FleakData} values with the original, mutations on the returned record can never
+   * affect this record.
+   */
+  public RecordFleakData deepCopy() {
+    return (RecordFleakData) FleakData.wrap(unwrap());
+  }
+
   public RecordFleakData copyAndMerge(Map<String, FleakData> additionalPayload) {
     RecordFleakData copy = this.copy();
     copy.payload.putAll(additionalPayload);
