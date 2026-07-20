@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.Map;
 import lombok.*;
 
 public interface PubSubSinkDto {
@@ -32,5 +33,6 @@ public interface PubSubSinkDto {
     private String credentialId;
     private String orderingKeyExpression;
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
+    private Map<String, String> additionalProperties;
   }
 }
