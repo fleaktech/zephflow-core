@@ -42,7 +42,7 @@ class AzureBackendIntegrationTest {
   @Container
   static GenericContainer<?> AZURITE =
       new GenericContainer<>(
-              DockerImageName.parse("mcr.microsoft.com/azure-storage/azurite:3.33.0"))
+              DockerImageName.parse("mcr.microsoft.com/azure-storage/azurite:3.35.0"))
           .withExposedPorts(AZURITE_BLOB_PORT)
           .withCommand("azurite-blob", "--blobHost", "0.0.0.0")
           .withEnv("AZURITE_ACCOUNTS", AZURITE_ACCOUNT + ":" + AZURITE_KEY);

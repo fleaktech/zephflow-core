@@ -63,6 +63,18 @@ dependencies {
     exclude group: 'com.azure', module: 'azure-core-http-netty'
   }
   implementation libs.azure.core.http.okhttp
+  // Event Hub connector. Follow the repo's Azure convention: drop the Netty HTTP transport
+  // (heavily version-constrained in the root build) and rely on the shared okhttp client above.
+  // The Event Hubs data path is AMQP; the excluded module only affects the HTTP control path.
+  implementation(libs.azure.messaging.eventhubs) {
+    exclude group: 'com.azure', module: 'azure-core-http-netty'
+  }
+  implementation(libs.azure.messaging.eventhubs.checkpointstore.blob) {
+    exclude group: 'com.azure', module: 'azure-core-http-netty'
+  }
+  implementation(libs.azure.identity) {
+    exclude group: 'com.azure', module: 'azure-core-http-netty'
+  }
   implementation libs.sshj
 
   implementation platform(libs.chronicle.bom)
@@ -73,6 +85,7 @@ dependencies {
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.gcloud
   testImplementation libs.testcontainers.localstack
+  testImplementation libs.testcontainers.azure
 
   antlr libs.antlr4
 }
