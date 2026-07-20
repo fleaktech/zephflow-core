@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.parser;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.parser.extractions.ExtractionRule;
 import java.util.Map;
 import java.util.Optional;
@@ -35,7 +36,7 @@ public interface CompiledRules {
 
     public RecordFleakData parse(RecordFleakData input) {
       FleakData targetValue = input.getPayload().get(targetField);
-      if (targetValue == null) {
+      if (!(targetValue instanceof StringPrimitiveFleakData)) {
         return input;
       }
       String strVal = targetValue.getStringValue();
