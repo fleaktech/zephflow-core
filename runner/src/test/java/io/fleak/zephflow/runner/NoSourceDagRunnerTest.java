@@ -837,6 +837,49 @@ class NoSourceDagRunnerTest {
     }
 
     @Test
+    @DisplayName("step output snapshots should not be affected by downstream in-place mutation")
+    void run_shouldSnapshotStepOutputAgainstDownstreamMutation() {
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Node<OperatorCommand> node2 =
+          Node.<OperatorCommand>builder().id(NODE_ID_2).nodeContent(mockScalarCmd2).build();
+      List<Node<OperatorCommand>> nodes = List.of(node1, node2);
+      List<Edge> edges = List.of(Edge.builder().from(NODE_ID_1).to(NODE_ID_2).build());
+      Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges);
+
+      // node2 mutates the incoming events in place (like piimask) and returns the same instances
+      when(mockScalarCmd2.process(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenAnswer(
+              invocation -> {
+                List<RecordFleakData> events = invocation.getArgument(0);
+                for (RecordFleakData e : events) {
+                  ((StringPrimitiveFleakData) e.getPayload().get("id")).setStringValue("[MASKED]");
+                }
+                return new ScalarCommand.ProcessResult(
+                    new ArrayList<>(events), Collections.emptyList());
+              });
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      assertDebugInfo(
+          result.outputByStep,
+          NODE_ID_1,
+          SOURCE_NODE_ID,
+          List.of(createEvent("event1"), createEvent("event2")),
+          "outputByStep");
+      assertDebugInfo(
+          result.outputByStep,
+          NODE_ID_2,
+          NODE_ID_1,
+          List.of(createEvent("[MASKED]"), createEvent("[MASKED]")),
+          "outputByStep");
+    }
+
+    @Test
     @DisplayName("should include sink output in outputEvents even when step output is excluded")
     void run_shouldIncludeSinkOutputInOutputEventsWhenStepOutputIsExcluded() {
 

@@ -41,6 +41,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_PARSER)
             .add(COMMAND_NAME_FILE_SOURCE)
             .add(COMMAND_NAME_FS_SOURCE)
+            .add(COMMAND_NAME_S3_FILE_READER)
             .add(COMMAND_NAME_SPLUNK_SOURCE)
             .add(COMMAND_NAME_CLICK_HOUSE_SINK)
             .add(COMMAND_NAME_DELTA_LAKE_SINK)
@@ -67,7 +68,18 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_AZURE_BLOB_SINK)
             .add(COMMAND_NAME_PUBSUB_SOURCE)
             .add(COMMAND_NAME_PUBSUB_SINK)
+            .add(COMMAND_NAME_AZURE_EVENTHUB_SOURCE)
+            .add(COMMAND_NAME_AZURE_EVENTHUB_SINK)
+            .add(COMMAND_NAME_AZURE_IOTHUB_SOURCE)
             .build(),
         OPERATOR_COMMANDS.keySet());
+  }
+
+  @Test
+  void registersIotHubSource() {
+    assertEquals("azureiothubsource", COMMAND_NAME_AZURE_IOTHUB_SOURCE);
+    assertInstanceOf(
+        io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceCommandFactory.class,
+        OPERATOR_COMMANDS.get(COMMAND_NAME_AZURE_IOTHUB_SOURCE));
   }
 }

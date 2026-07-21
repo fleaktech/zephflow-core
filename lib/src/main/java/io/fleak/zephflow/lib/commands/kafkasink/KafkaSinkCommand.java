@@ -26,6 +26,7 @@ import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
+import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -180,10 +181,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       return SinkStoreForward.noop();
     }
 
-    Path storePath =
-        (config.getLocalStorePath() != null && !config.getLocalStorePath().isBlank())
-            ? Path.of(config.getLocalStorePath(), nodeId)
-            : Path.of(System.getProperty("java.io.tmpdir"), "zephflow-store-forward", nodeId);
+    Path storePath = StoreForwardPaths.resolve(config.getLocalStorePath(), jobContext, nodeId);
 
     Map<String, String> metricTags =
         basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);

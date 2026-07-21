@@ -31,6 +31,9 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.SimpleHttpClient;
+import io.fleak.zephflow.lib.commands.azureeventhubsink.AzureEventHubSinkDto;
+import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceDto;
+import io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceDto;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandDto;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
@@ -507,6 +510,101 @@ public class ZephFlow {
             .properties(properties == null ? Collections.emptyMap() : properties)
             .build();
     return appendNode(COMMAND_NAME_KAFKA_SINK, config);
+  }
+
+  /**
+   * Appends an Azure Event Hub source node to the flow, authenticated with a SAS connection string
+   * and checkpointing partition offsets to an Azure Blob Storage container. For Entra ID
+   * authentication or advanced tuning, build an {@link AzureEventHubSourceDto.Config} and use
+   * {@link #appendNode(String, CommandConfig)} directly.
+   *
+   * @param connectionString The Event Hub SAS connection string.
+   * @param eventHubName The Event Hub (topic) name to consume from.
+   * @param consumerGroup The consumer group to read under (e.g. {@code $Default}).
+   * @param checkpointStorageConnectionString Connection string for the checkpoint storage account.
+   * @param checkpointContainerName Blob container holding checkpoint and ownership data.
+   * @param encodingType The encoding of the messages.
+   * @return A new ZephFlow instance with the Event Hub source appended.
+   */
+  public ZephFlow eventHubSource(
+      @NonNull String connectionString,
+      @NonNull String eventHubName,
+      @NonNull String consumerGroup,
+      @NonNull String checkpointStorageConnectionString,
+      @NonNull String checkpointContainerName,
+      @NonNull EncodingType encodingType) {
+    AzureEventHubSourceDto.Config config =
+        AzureEventHubSourceDto.Config.builder()
+            .connectionString(connectionString)
+            .eventHubName(eventHubName)
+            .consumerGroup(consumerGroup)
+            .checkpointStorageConnectionString(checkpointStorageConnectionString)
+            .checkpointContainerName(checkpointContainerName)
+            .encodingType(encodingType)
+            .build();
+    return appendNode(COMMAND_NAME_AZURE_EVENTHUB_SOURCE, config);
+  }
+
+  /**
+   * Appends an Azure IoT Hub source node to the flow. Consumes device-to-cloud telemetry from the
+   * IoT Hub built-in Event Hub-compatible endpoint, authenticated with the Event Hub-compatible SAS
+   * connection string, checkpointing partition offsets to Azure Blob Storage. Device id, enqueued
+   * time and application properties are attached to each event under an {@code _iothub} key. For
+   * Entra ID authentication or advanced tuning, build an {@link AzureIotHubSourceDto.Config} and
+   * use {@link #appendNode(String, CommandConfig)} directly.
+   *
+   * @param connectionString The IoT Hub Event Hub-compatible SAS connection string.
+   * @param eventHubName The Event Hub-compatible name of the built-in endpoint.
+   * @param consumerGroup The consumer group to read under (e.g. {@code $Default}).
+   * @param checkpointStorageConnectionString Connection string for the checkpoint storage account.
+   * @param checkpointContainerName Blob container holding checkpoint and ownership data.
+   * @param encodingType The encoding of the telemetry messages.
+   * @return A new ZephFlow instance with the IoT Hub source appended.
+   */
+  public ZephFlow iotHubSource(
+      @NonNull String connectionString,
+      @NonNull String eventHubName,
+      @NonNull String consumerGroup,
+      @NonNull String checkpointStorageConnectionString,
+      @NonNull String checkpointContainerName,
+      @NonNull EncodingType encodingType) {
+    AzureIotHubSourceDto.Config config =
+        AzureIotHubSourceDto.Config.builder()
+            .connectionString(connectionString)
+            .eventHubName(eventHubName)
+            .consumerGroup(consumerGroup)
+            .checkpointStorageConnectionString(checkpointStorageConnectionString)
+            .checkpointContainerName(checkpointContainerName)
+            .encodingType(encodingType)
+            .build();
+    return appendNode(COMMAND_NAME_AZURE_IOTHUB_SOURCE, config);
+  }
+
+  /**
+   * Appends an Azure Event Hub sink node to the flow, authenticated with a SAS connection string.
+   * For Entra ID authentication, build an {@link AzureEventHubSinkDto.Config} and use {@link
+   * #appendNode(String, CommandConfig)} directly.
+   *
+   * @param connectionString The Event Hub SAS connection string.
+   * @param eventHubName The Event Hub (topic) name to produce to.
+   * @param partitionKeyFieldExpressionStr Optional expression whose value becomes the partition
+   *     key.
+   * @param encodingType The encoding for the output messages.
+   * @return A new ZephFlow instance with the Event Hub sink appended.
+   */
+  public ZephFlow eventHubSink(
+      @NonNull String connectionString,
+      @NonNull String eventHubName,
+      String partitionKeyFieldExpressionStr,
+      @NonNull EncodingType encodingType) {
+    AzureEventHubSinkDto.Config config =
+        AzureEventHubSinkDto.Config.builder()
+            .connectionString(connectionString)
+            .eventHubName(eventHubName)
+            .partitionKeyFieldExpressionStr(partitionKeyFieldExpressionStr)
+            .encodingType(encodingType.toString())
+            .build();
+    return appendNode(COMMAND_NAME_AZURE_EVENTHUB_SINK, config);
   }
 
   /**

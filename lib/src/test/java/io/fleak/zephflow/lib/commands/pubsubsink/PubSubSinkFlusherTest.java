@@ -123,6 +123,56 @@ class PubSubSinkFlusherTest {
   }
 
   @Test
+  void testFlushWithAdditionalProperties() throws Exception {
+    PubSubSinkFlusher flusherWithAttrs =
+        new PubSubSinkFlusher(stub, TOPIC_PATH, Map.of("env", "prod", "team", "sec"));
+
+    SimpleSinkCommand.PreparedInputEvents<PubSubOutboundMessage> prepared =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+
+    RecordFleakData r = new RecordFleakData(Map.of("d", new StringPrimitiveFleakData("v")));
+    prepared.add(r, new PubSubOutboundMessage("{\"d\":\"v\"}", null));
+
+    when(publishCallable.call(any(PublishRequest.class)))
+        .thenReturn(PublishResponse.newBuilder().addMessageIds("m1").build());
+
+    SimpleSinkCommand.FlushResult result = flusherWithAttrs.flush(prepared, Map.of());
+
+    assertEquals(1, result.successCount());
+
+    verify(publishCallable)
+        .call(
+            argThat(
+                (PublishRequest req) -> {
+                  assertEquals("prod", req.getMessages(0).getAttributesMap().get("env"));
+                  assertEquals("sec", req.getMessages(0).getAttributesMap().get("team"));
+                  return true;
+                }));
+  }
+
+  @Test
+  void testFlushWithoutAdditionalProperties() throws Exception {
+    SimpleSinkCommand.PreparedInputEvents<PubSubOutboundMessage> prepared =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+
+    RecordFleakData r = new RecordFleakData(Map.of("d", new StringPrimitiveFleakData("v")));
+    prepared.add(r, new PubSubOutboundMessage("{\"d\":\"v\"}", null));
+
+    when(publishCallable.call(any(PublishRequest.class)))
+        .thenReturn(PublishResponse.newBuilder().addMessageIds("m1").build());
+
+    flusher.flush(prepared, Map.of());
+
+    verify(publishCallable)
+        .call(
+            argThat(
+                (PublishRequest req) -> {
+                  assertTrue(req.getMessages(0).getAttributesMap().isEmpty());
+                  return true;
+                }));
+  }
+
+  @Test
   void testEmptyBatch() throws Exception {
     SimpleSinkCommand.PreparedInputEvents<PubSubOutboundMessage> prepared =
         new SimpleSinkCommand.PreparedInputEvents<>();

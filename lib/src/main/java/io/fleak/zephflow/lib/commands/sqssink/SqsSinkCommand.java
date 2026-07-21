@@ -96,6 +96,9 @@ public class SqsSinkCommand extends SimpleSinkCommand<SqsOutboundMessage> {
 
   @Override
   protected int batchSize() {
-    return SqsSinkDto.MAX_BATCH_SIZE;
+    SqsSinkDto.Config config = (SqsSinkDto.Config) commandConfig;
+    int batch =
+        config.getBatchSize() != null ? config.getBatchSize() : SqsSinkDto.DEFAULT_BATCH_SIZE;
+    return Math.max(1, Math.min(batch, SqsSinkDto.MAX_BATCH_SIZE));
   }
 }

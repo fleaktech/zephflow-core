@@ -69,7 +69,11 @@ public class DagResult {
       recordDebugInfo(nodeId, upstreamNodeId, failureEvents, errorByStep, false);
     }
     if (runConfig.includeOutputByStep()) {
-      recordDebugInfo(nodeId, upstreamNodeId, output, outputByStep, true);
+      // snapshot with deep copies: downstream commands may mutate events in place,
+      // which would otherwise retroactively corrupt the recorded step outputs
+      List<RecordFleakData> copies =
+          output == null ? null : output.stream().map(RecordFleakData::deepCopy).toList();
+      recordDebugInfo(nodeId, upstreamNodeId, copies, outputByStep, true);
     }
   }
 

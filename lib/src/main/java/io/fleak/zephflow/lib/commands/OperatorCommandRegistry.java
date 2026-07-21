@@ -20,6 +20,9 @@ import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.lib.commands.activemqsource.ActiveMqSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.assertion.AssertionCommandFactory;
 import io.fleak.zephflow.lib.commands.azureblobsink.AzureBlobSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.azureeventhubsink.AzureEventHubSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.azuremonitorsink.AzureMonitorSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.azuremonitorsource.AzureMonitorSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
@@ -46,6 +49,7 @@ import io.fleak.zephflow.lib.commands.pubsubsink.PubSubSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsource.PubSubSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
+import io.fleak.zephflow.lib.commands.s3filereader.S3FileReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.smtpsink.SmtpSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkCommandFactory;
@@ -78,6 +82,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_PARSER, new ParserCommandFactory())
           .put(COMMAND_NAME_FILE_SOURCE, new FileSourceCommandFactory())
           .put(COMMAND_NAME_FS_SOURCE, new FsSourceCommandFactory())
+          .put(COMMAND_NAME_S3_FILE_READER, new S3FileReaderCommandFactory())
           .put(COMMAND_NAME_SPLUNK_SOURCE, new SplunkSourceCommandFactory())
           .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
           .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
@@ -104,5 +109,8 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_AZURE_BLOB_SINK, new AzureBlobSinkCommandFactory())
           .put(COMMAND_NAME_PUBSUB_SOURCE, new PubSubSourceCommandFactory())
           .put(COMMAND_NAME_PUBSUB_SINK, new PubSubSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_EVENTHUB_SOURCE, new AzureEventHubSourceCommandFactory())
+          .put(COMMAND_NAME_AZURE_EVENTHUB_SINK, new AzureEventHubSinkCommandFactory())
+          .put(COMMAND_NAME_AZURE_IOTHUB_SOURCE, new AzureIotHubSourceCommandFactory())
           .build();
 }

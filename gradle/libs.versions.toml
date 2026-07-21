@@ -29,7 +29,7 @@ clickhouse = "0.9.8"
 influxdb = "2.23"
 influxdb2 = "8.0.0"
 hadoop = "3.4.0"
-databricksSdk = "0.128.0"
+databricksSdk = "0.130.0"
 # 1.0.1 ships the bundled native zerobus_jni libs for all platforms (linux/osx/windows,
 # x86_64 + aarch64). The later 1.2.0 repackage dropped the native libraries, so it fails to
 # load at runtime — do not bump without verifying natives are present in the jar.
@@ -55,6 +55,10 @@ angusMail = "2.0.3"
 unboundidLdapsdk = "7.0.1"
 azureStorageBlob = "12.28.0"
 azureCoreHttpOkHttp = "1.12.6"
+azureMessagingEventhubs = "5.20.3"
+azureMessagingEventhubsCheckpointstoreBlob = "1.20.7"
+azureIdentity = "1.16.2"
+sshj = "0.40.0"
 chronicle = "2026.2"
 
 nebulaDependencyLock = "17.0.1"
@@ -179,6 +183,7 @@ testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "tes
 testcontainers-localstack = { module = "org.testcontainers:localstack", version.ref = "testContainers" }
 testcontainers-clickhouse = { module = "org.testcontainers:clickhouse", version.ref = "testContainers" }
 testcontainers-gcloud = { module = "org.testcontainers:gcloud", version.ref = "testContainers" }
+testcontainers-azure = { module = "org.testcontainers:azure", version.ref = "testContainers" }
 
 gcs-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "gcs" }
 gcs-pubsub = { module = "com.google.cloud:google-cloud-pubsub", version.ref = "pubsub" }
@@ -197,6 +202,10 @@ angus-mail = { module = "org.eclipse.angus:angus-mail", version.ref = "angusMail
 unboundid-ldapsdk = { module = "com.unboundid:unboundid-ldapsdk", version.ref = "unboundidLdapsdk" }
 azure-storage-blob = { module = "com.azure:azure-storage-blob", version.ref = "azureStorageBlob" }
 azure-core-http-okhttp = { module = "com.azure:azure-core-http-okhttp", version.ref = "azureCoreHttpOkHttp" }
+azure-messaging-eventhubs = { module = "com.azure:azure-messaging-eventhubs", version.ref = "azureMessagingEventhubs" }
+azure-messaging-eventhubs-checkpointstore-blob = { module = "com.azure:azure-messaging-eventhubs-checkpointstore-blob", version.ref = "azureMessagingEventhubsCheckpointstoreBlob" }
+azure-identity = { module = "com.azure:azure-identity", version.ref = "azureIdentity" }
+sshj = { module = "com.hierynomus:sshj", version.ref = "sshj" }
 chronicle-bom = { module = "net.openhft:chronicle-bom", version.ref = "chronicle" }
 chronicle-queue = { module = "net.openhft:chronicle-queue" }
 
