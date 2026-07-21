@@ -21,11 +21,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import org.apache.commons.lang3.StringUtils;
 
-/**
- * Converts an existing table into a TimescaleDB hypertable via {@code create_hypertable(...,
- * if_not_exists => TRUE)}, which is idempotent: a no-op once the table is already a hypertable.
- * Serializable and injectable so the command can substitute a stub in unit tests.
- */
 public class TimescaleHypertableInitializer implements Serializable {
 
   public void ensureHypertable(
@@ -43,10 +38,6 @@ public class TimescaleHypertableInitializer implements Serializable {
     }
   }
 
-  /**
-   * Passes the table and time column as quoted string literals rather than bind parameters, the
-   * form TimescaleDB documents; an untyped bind parameter does not resolve to {@code regclass}.
-   */
   static String buildCreateHypertableSql(String qualifiedTableName, String timeColumn) {
     return "SELECT create_hypertable('"
         + qualifiedTableName.replace("'", "''")

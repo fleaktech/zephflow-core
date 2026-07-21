@@ -22,7 +22,6 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkDto;
 import org.apache.commons.lang3.StringUtils;
 
-/** Validates {@link TimescaleDbSinkDto.Config}. */
 public class TimescaleDbSinkConfigValidator implements ConfigValidator {
 
   @Override

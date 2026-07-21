@@ -21,11 +21,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Configuration for the TimescaleDB sink connector. TimescaleDB is a PostgreSQL extension, so this
- * reuses the JDBC sink's batched write path and adds the time-series specifics: converting the
- * target table into a hypertable and coercing the time column to a timestamp.
- */
 public interface TimescaleDbSinkDto {
 
   int DEFAULT_BATCH_SIZE = 1000;
@@ -36,36 +31,22 @@ public interface TimescaleDbSinkDto {
   @AllArgsConstructor
   class Config implements CommandConfig {
 
-    /** PostgreSQL JDBC URL of the TimescaleDB instance, e.g. {@code jdbc:postgresql://host/db}. */
     private String jdbcUrl;
 
-    /** Credential id resolving to a username/password for the connection. */
     private String credentialId;
 
-    /** Target table. It must already exist (the user owns its column definitions). */
     private String tableName;
 
-    /** Optional schema qualifier for the table. */
     private String schemaName;
 
-    /**
-     * Column that is the hypertable's time dimension. The record field of the same name supplies
-     * the value, which is coerced to a timestamp before writing.
-     */
     private String timeColumn;
 
-    /** Unit of a numeric time value (epoch). ISO-8601 string time values ignore this. */
     @Builder.Default private TimeUnit timeUnit = TimeUnit.MILLISECONDS;
 
-    /**
-     * When true (default), run {@code create_hypertable(..., if_not_exists => TRUE)} on startup.
-     */
     @Builder.Default private boolean createHypertable = true;
 
-    /** INSERT or UPSERT, reusing the JDBC sink's write semantics. */
     @Builder.Default private JdbcSinkDto.WriteMode writeMode = JdbcSinkDto.WriteMode.INSERT;
 
-    /** Comma-separated conflict-key columns; required when {@code writeMode} is UPSERT. */
     private String upsertKeyColumns;
 
     @Builder.Default private int batchSize = DEFAULT_BATCH_SIZE;

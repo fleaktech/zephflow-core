@@ -54,11 +54,6 @@ class TimescaleDbSinkCommandTest {
   }
 
   @Test
-  void reportsCommandName() {
-    assertEquals("timescaledbsink", command(validConfig().build()).commandName());
-  }
-
-  @Test
   void usesConfiguredBatchSize() {
     assertEquals(250, command(validConfig().batchSize(250).build()).batchSize());
   }

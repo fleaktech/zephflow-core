@@ -22,14 +22,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Turns a {@link RecordFleakData} into a column map for the JDBC writer, coercing the configured
- * time column to a UTC {@link OffsetDateTime} so it lands in a {@code TIMESTAMPTZ} hypertable
- * column (record numerics are all doubles and would otherwise be rejected by a timestamp column).
- *
- * <p>A missing or unparseable time value throws, so the enclosing {@code SimpleSinkCommand} records
- * only that single record as an error and continues the batch.
- */
 public class TimescaleDbSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<Map<String, Object>> {
 

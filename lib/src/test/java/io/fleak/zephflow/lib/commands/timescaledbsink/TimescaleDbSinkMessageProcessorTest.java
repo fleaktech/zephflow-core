@@ -45,7 +45,7 @@ class TimescaleDbSinkMessageProcessorTest {
             java.time.Instant.ofEpochMilli(1_700_000_000_000L), ZoneOffset.UTC),
         row.get("ts"));
     assertEquals("a", row.get("host"));
-    assertEquals(12.5, row.get("val")); // non-time columns pass through unchanged
+    assertEquals(12.5, row.get("val"));
   }
 
   @Test
@@ -72,7 +72,6 @@ class TimescaleDbSinkMessageProcessorTest {
     var row =
         processor.preprocess(record(Map.of("ts", "2023-11-15T22:13:20+02:00", "val", 1.0)), 0L);
 
-    // normalized to UTC instant
     assertEquals(OffsetDateTime.of(2023, 11, 15, 20, 13, 20, 0, ZoneOffset.UTC), row.get("ts"));
   }
 
