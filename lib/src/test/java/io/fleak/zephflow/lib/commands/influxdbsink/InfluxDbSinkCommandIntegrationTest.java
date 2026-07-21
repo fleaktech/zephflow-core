@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -107,23 +108,36 @@ class InfluxDbSinkCommandIntegrationTest {
     assertEquals(0, result.getFailureEvents().size());
 
     // Query the temperature field back and confirm both points landed with their tags/values.
-    List<FluxRecord> temps = queryTemps();
+    List<FluxRecord> temps = queryField("temp");
     assertEquals(2, temps.size());
 
-    Map<String, Double> byCity = new LinkedHashMap<>();
+    Map<String, Double> tempByCity = new LinkedHashMap<>();
     for (FluxRecord r : temps) {
-      byCity.put((String) r.getValueByKey("city"), (Double) r.getValue());
+      tempByCity.put((String) r.getValueByKey("city"), (Double) r.getValue());
     }
-    assertEquals(18.5, byCity.get("SF"));
-    assertEquals(5.0, byCity.get("NYC"));
+    assertEquals(18.5, tempByCity.get("SF"));
+    assertEquals(5.0, tempByCity.get("NYC"));
+
+    // humidity was mapped from a long, so it round-trips as an integer field.
+    Map<String, Long> humidityByCity = new LinkedHashMap<>();
+    for (FluxRecord r : queryField("humidity")) {
+      humidityByCity.put((String) r.getValueByKey("city"), (Long) r.getValue());
+    }
+    assertEquals(60L, humidityByCity.get("SF"));
+    assertEquals(40L, humidityByCity.get("NYC"));
+
+    // the configured timestamp field is honored (not write time).
+    FluxRecord sf =
+        temps.stream().filter(r -> "SF".equals(r.getValueByKey("city"))).findFirst().orElseThrow();
+    assertEquals(Instant.ofEpochMilli(1_700_000_000_000L), sf.getTime());
   }
 
-  private List<FluxRecord> queryTemps() {
+  private List<FluxRecord> queryField(String field) {
     String flux =
         String.format(
             "from(bucket: \"%s\") |> range(start: 0) "
-                + "|> filter(fn: (r) => r._measurement == \"weather\" and r._field == \"temp\")",
-            BUCKET);
+                + "|> filter(fn: (r) => r._measurement == \"weather\" and r._field == \"%s\")",
+            BUCKET, field);
     try (InfluxDBClient client = new InfluxDbClientProvider().create(url(), TOKEN, ORG, BUCKET)) {
       List<FluxRecord> records = new ArrayList<>();
       for (FluxTable table : client.getQueryApi().query(flux, ORG)) {

@@ -159,6 +159,17 @@ class InfluxDbSinkMessageProcessorTest {
   }
 
   @Test
+  void defaultsToMillisecondPrecisionWhenPrecisionIsNull() throws Exception {
+    var processor =
+        new InfluxDbSinkMessageProcessor("m", null, List.of(), List.of("v"), null, null);
+    var event = record(Map.of("v", 1L));
+
+    String lp = lineProtocol(processor, event);
+
+    assertTrue(lp.endsWith(" " + TS), lp); // millisecond timestamp, no NPE
+  }
+
+  @Test
   void throwsWhenNoFieldsResolved() {
     var processor =
         new InfluxDbSinkMessageProcessor(

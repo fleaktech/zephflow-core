@@ -14,7 +14,7 @@
 package io.fleak.zephflow.lib.commands.influxdbsink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_INFLUXDB_SINK;
-import static io.fleak.zephflow.lib.utils.MiscUtils.lookupApiKeyCredentialOpt;
+import static io.fleak.zephflow.lib.utils.MiscUtils.lookupApiKeyCredential;
 
 import com.influxdb.client.InfluxDBClient;
 import com.influxdb.client.write.Point;
@@ -22,7 +22,7 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
-import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
+import org.apache.commons.lang3.StringUtils;
 
 /** Sink that writes records to InfluxDB via the v2 write API. */
 public class InfluxDbSinkCommand extends SimpleSinkCommand<Point> {
@@ -77,10 +77,12 @@ public class InfluxDbSinkCommand extends SimpleSinkCommand<Point> {
 
   private SimpleSinkCommand.Flusher<Point> createFlusher(
       InfluxDbSinkDto.Config config, JobContext jobContext) {
+    // A configured credentialId that fails to resolve is a misconfiguration and must fail fast;
+    // only the absence of a credentialId means connect without authentication.
     String token =
-        lookupApiKeyCredentialOpt(jobContext, config.getCredentialId())
-            .map(ApiKeyCredential::getKey)
-            .orElse(null);
+        StringUtils.isBlank(config.getCredentialId())
+            ? null
+            : lookupApiKeyCredential(jobContext, config.getCredentialId()).getKey();
     InfluxDBClient client =
         clientProvider.create(config.getUrl(), token, config.getOrg(), config.getBucket());
     return new InfluxDbSinkFlusher(client);

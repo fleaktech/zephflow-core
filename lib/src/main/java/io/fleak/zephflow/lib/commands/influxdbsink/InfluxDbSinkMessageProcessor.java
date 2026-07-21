@@ -58,7 +58,7 @@ public class InfluxDbSinkMessageProcessor
     this.tagFields = tagFields == null ? List.of() : tagFields;
     this.fieldFields = fieldFields;
     this.timestampField = timestampField;
-    this.precision = precision;
+    this.precision = precision == null ? WritePrecision.MS : precision;
   }
 
   @Override
