@@ -24,6 +24,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -65,9 +66,9 @@ public class ChronicleStoreForward implements SinkStoreForward {
       Path storePath, long maxBytes, long retryIntervalMs, int drainChunkSize, String nodeId) {}
 
   private static final String PAYLOAD_KEY = "r";
-  private static final String ACK_FILE_NAME = "sf-ack.idx";
+  static final String ACK_FILE_NAME = "sf-ack.idx";
   private static final String ACK_CAUGHT_UP = "END";
-  private static final String LOCK_FILE_NAME = "sf.lock";
+  static final String LOCK_FILE_NAME = "sf.lock";
 
   private final long maxBytes;
   private final long retryIntervalMs;
@@ -402,6 +403,69 @@ public class ChronicleStoreForward implements SinkStoreForward {
       Files.writeString(ackFile, token, StandardCharsets.UTF_8);
     } catch (Exception e) {
       log.warn("store-and-forward [{}] could not persist ack watermark", nodeId, e);
+    }
+  }
+
+  /**
+   * Under the buffer directory's exclusive ownership lock, reports whether it is safe for {@link
+   * StoreForwardCleaner} to delete: {@code true} only when no live process owns the directory
+   * <em>and</em> it holds no records past the delivered watermark. Returns {@code false} if the
+   * lock is held by another owner, or on any doubt (unreadable ack, unopenable queue), so we never
+   * delete a directory that a live replica uses or that might still contain undelivered data.
+   */
+  static boolean isReclaimable(Path dir) {
+    try (FileChannel ch = FileChannel.open(dir.resolve(LOCK_FILE_NAME), StandardOpenOption.WRITE)) {
+      FileLock lock;
+      try {
+        lock = ch.tryLock();
+      } catch (OverlappingFileLockException e) {
+        return false; // held by a live instance in this JVM
+      }
+      if (lock == null) {
+        return false; // held by another process
+      }
+      try {
+        return !hasUndeliveredRecords(dir);
+      } finally {
+        lock.release();
+      }
+    } catch (NoSuchFileException e) {
+      return false; // directory vanished concurrently
+    } catch (IOException e) {
+      log.warn("store-and-forward cleaner: cannot lock {}; keeping", dir, e);
+      return false;
+    }
+  }
+
+  private static boolean hasUndeliveredRecords(Path dir) {
+    String token;
+    try {
+      Path ack = dir.resolve(ACK_FILE_NAME);
+      token = Files.exists(ack) ? Files.readString(ack, StandardCharsets.UTF_8).trim() : null;
+    } catch (IOException e) {
+      log.warn("store-and-forward cleaner: cannot read ack in {}; keeping", dir, e);
+      return true;
+    }
+    if (ACK_CAUGHT_UP.equals(token)) {
+      return false; // watermark confirms everything was delivered
+    }
+    try (ChronicleQueue queue = SingleChronicleQueueBuilder.single(dir.toFile()).build()) {
+      ExcerptTailer tailer = queue.createTailer();
+      ((SingleThreadedChecked) tailer).singleThreadedCheckDisabled(true);
+      if (token != null) {
+        try {
+          tailer.moveToIndex(Long.parseLong(token));
+        } catch (NumberFormatException e) {
+          log.warn("store-and-forward cleaner: malformed ack {} in {}; keeping", token, dir);
+          return true;
+        }
+      }
+      try (DocumentContext dc = tailer.readingDocument()) {
+        return dc.isPresent();
+      }
+    } catch (Exception e) {
+      log.warn("store-and-forward cleaner: cannot inspect queue in {}; keeping", dir, e);
+      return true;
     }
   }
 

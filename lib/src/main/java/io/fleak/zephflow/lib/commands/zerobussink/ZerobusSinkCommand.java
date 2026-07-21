@@ -22,6 +22,7 @@ import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
+import io.fleak.zephflow.lib.commands.sink.StoreForwardCleaner;
 import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
 import java.nio.file.Path;
@@ -81,6 +82,7 @@ public class ZerobusSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
     }
 
     Path storePath = StoreForwardPaths.resolve(config.getLocalStorePath(), jobContext, nodeId);
+    StoreForwardCleaner.sweepOnce(config.getLocalStorePath(), jobContext, storePath);
 
     Map<String, String> metricTags =
         basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
