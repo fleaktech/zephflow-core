@@ -15,11 +15,25 @@ package io.fleak.zephflow.api.metric;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class InfluxDBV2FleakCounter implements FleakCounter {
+
+  // Shared daemon flusher: without it, pending increments are only flushed from inside a
+  // later increase() call, so a bursty counter that goes quiet (e.g. a one-off batch of
+  // error counts) is never written out at all.
+  private static final ScheduledExecutorService FLUSH_SCHEDULER =
+      Executors.newSingleThreadScheduledExecutor(
+          r -> {
+            Thread t = new Thread(r, "influxdb-counter-flusher");
+            t.setDaemon(true);
+            return t;
+          });
 
   private final String name;
   private final Map<String, String> tags;
@@ -46,6 +60,16 @@ public class InfluxDBV2FleakCounter implements FleakCounter {
     this.metricSender = metricSender;
     this.flushThreshold = flushThreshold;
     this.flushIntervalMs = flushIntervalMs;
+    FLUSH_SCHEDULER.scheduleAtFixedRate(
+        this::flushQuietly, flushIntervalMs, flushIntervalMs, TimeUnit.MILLISECONDS);
+  }
+
+  private void flushQuietly() {
+    try {
+      flush();
+    } catch (Exception e) {
+      log.warn("Periodic flush failed for counter {}", name, e);
+    }
   }
 
   @Override
