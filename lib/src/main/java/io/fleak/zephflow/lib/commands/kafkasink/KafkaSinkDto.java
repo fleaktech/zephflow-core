@@ -29,6 +29,10 @@ public interface KafkaSinkDto {
     @NonNull private String encodingType;
     private Map<String, String> properties;
 
+    private String credentialId;
+    private String securityProtocol;
+    private String saslMechanism;
+
     /**
      * Store-and-forward: when enabled, a connectivity failure persists records to a local durable
      * queue and replays them once the broker is reachable again, instead of dropping them. This
