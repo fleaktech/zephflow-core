@@ -39,8 +39,8 @@ import org.apache.commons.lang3.StringUtils;
 public class InfluxDbSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<Point> {
 
-  private final String measurement; // nullable; exactly one of measurement/measurementField set
-  private final String measurementField; // nullable
+  private final String measurement;
+  private final String measurementField;
   private final List<String> tagFields; // never null
   private final List<String> fieldFields; // nullable/empty => all remaining fields
   private final String timestampField; // nullable => write time

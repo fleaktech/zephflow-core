@@ -35,6 +35,20 @@ class InfluxDbSinkDtoTest {
   }
 
   @Test
+  void appliesDefaultsWhenParsingJsonThatOmitsThem() {
+    // JsonConfigParser deserializes via the no-args constructor + setters (not the builder), so
+    // @Builder.Default initializers must not be relied on for the JSON path.
+    Map<String, Object> json = Map.of("url", "u", "org", "o", "bucket", "b", "measurement", "m");
+
+    InfluxDbSinkDto.Config config = OBJECT_MAPPER.convertValue(json, InfluxDbSinkDto.Config.class);
+
+    assertEquals(WritePrecision.MS, config.getPrecision());
+    assertEquals(InfluxDbSinkDto.DEFAULT_BATCH_SIZE, config.getBatchSize());
+    assertNotNull(config.getTagFields());
+    assertTrue(config.getTagFields().isEmpty());
+  }
+
+  @Test
   void parsesFromJsonMap() {
     Map<String, Object> json =
         Map.of(

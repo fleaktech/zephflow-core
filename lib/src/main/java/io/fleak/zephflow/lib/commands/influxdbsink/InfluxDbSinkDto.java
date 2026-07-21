@@ -38,10 +38,8 @@ public interface InfluxDbSinkDto {
     /** InfluxDB base URL, e.g. {@code https://influx:8086}. */
     private String url;
 
-    /** InfluxDB v2 organization. */
     private String org;
 
-    /** InfluxDB v2 bucket to write to. */
     private String bucket;
 
     /**
