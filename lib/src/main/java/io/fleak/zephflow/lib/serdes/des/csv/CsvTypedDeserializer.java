@@ -29,7 +29,12 @@ import org.apache.commons.csv.CSVRecord;
 public class CsvTypedDeserializer extends MultipleEventsTypedDeserializer<Map<String, Object>> {
 
   private static final CSVFormat CSV_FORMAT =
-      CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build();
+      CSVFormat.DEFAULT
+          .builder()
+          .setHeader()
+          .setSkipHeaderRecord(true)
+          .setIgnoreSurroundingSpaces(true)
+          .build();
 
   @Override
   protected List<Map<String, Object>> deserializeToMultipleTypedEvent(byte[] value)
