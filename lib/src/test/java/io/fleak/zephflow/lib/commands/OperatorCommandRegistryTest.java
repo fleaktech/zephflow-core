@@ -71,8 +71,17 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_AZURE_EVENTHUB_SOURCE)
             .add(COMMAND_NAME_AZURE_EVENTHUB_SINK)
             .add(COMMAND_NAME_AZURE_IOTHUB_SOURCE)
+            .add(COMMAND_NAME_TIMESCALE_DB_SINK)
             .build(),
         OPERATOR_COMMANDS.keySet());
+  }
+
+  @Test
+  void registersTimescaleDbSink() {
+    assertEquals("timescaledbsink", COMMAND_NAME_TIMESCALE_DB_SINK);
+    assertInstanceOf(
+        io.fleak.zephflow.lib.commands.timescaledbsink.TimescaleDbSinkCommandFactory.class,
+        OPERATOR_COMMANDS.get(COMMAND_NAME_TIMESCALE_DB_SINK));
   }
 
   @Test
