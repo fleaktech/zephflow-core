@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.io.IOUtils;
@@ -43,5 +44,20 @@ class CsvTypedDeserializerTest {
     List<ObjectNode> expected =
         fromJsonResource("/serdes/test_csv_expected_output.json", new TypeReference<>() {});
     assertEquals(expected, jsonList);
+  }
+
+  @Test
+  void deserializeTrimsSurroundingSpaces() throws Exception {
+    byte[] raw = "a, b\n1, 2".getBytes(StandardCharsets.UTF_8);
+    CsvTypedDeserializer converter = new CsvTypedDeserializer();
+    List<JsonNode> actual =
+        converter.deserializeToMultipleTypedEvent(raw).stream()
+            .map(JsonUtils::convertToJsonNode)
+            .toList();
+    List<JsonNode> expected =
+        List.of(
+            JsonUtils.fromJsonString(
+                "{\"a\":\"1\",\"b\":\"2\"}", new TypeReference<JsonNode>() {}));
+    assertEquals(expected, actual);
   }
 }

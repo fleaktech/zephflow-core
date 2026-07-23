@@ -37,6 +37,7 @@ import io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceDto;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandDto;
 import io.fleak.zephflow.lib.commands.filesource.FileSourceDto;
+import io.fleak.zephflow.lib.commands.influxdbsink.InfluxDbSinkDto;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceDto;
 import io.fleak.zephflow.lib.commands.s3.S3SinkDto;
@@ -610,6 +611,18 @@ public class ZephFlow {
 
   public ZephFlow timescaleDbSink(@NonNull TimescaleDbSinkDto.Config config) {
     return appendNode(COMMAND_NAME_TIMESCALE_DB_SINK, config);
+  }
+
+  /**
+   * Appends an InfluxDB (v2 write API) sink node to the flow. Records are mapped to line-protocol
+   * points using the supplied config: measurement (literal or from a record field), tag/field
+   * selectors (top-level record field names), and an optional timestamp field.
+   *
+   * @param config The InfluxDB sink configuration.
+   * @return A new ZephFlow instance with the InfluxDB sink appended.
+   */
+  public ZephFlow influxDbSink(@NonNull InfluxDbSinkDto.Config config) {
+    return appendNode(COMMAND_NAME_INFLUXDB_SINK, config);
   }
 
   /**

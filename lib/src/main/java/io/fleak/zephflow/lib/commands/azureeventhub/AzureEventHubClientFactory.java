@@ -96,13 +96,16 @@ public class AzureEventHubClientFactory implements Serializable {
       String storageConnectionString,
       String storageEndpoint,
       String containerName) {
-    BlobContainerClientBuilder builder =
-        new BlobContainerClientBuilder().containerName(containerName);
+    BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
     if (StringUtils.isNotBlank(storageConnectionString)) {
       builder.connectionString(storageConnectionString);
     } else {
       builder.endpoint(storageEndpoint).credential(resolveTokenCredential(eventHubConnection));
     }
+    // containerName MUST be set AFTER connectionString()/endpoint(): both re-parse the address and
+    // reset the container to the default "$root", so setting it earlier is silently discarded
+    // (yields a ContainerNotFound 404 against "$root" at load-balancing time).
+    builder.containerName(containerName);
     BlobContainerAsyncClient containerClient = builder.buildAsyncClient();
     return new BlobCheckpointStore(containerClient);
   }

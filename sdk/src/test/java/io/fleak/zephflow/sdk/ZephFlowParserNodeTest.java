@@ -110,9 +110,12 @@ public class ZephFlowParserNodeTest {
             .stdoutSink(EncodingType.JSON_OBJECT);
     flow.execute("test_id", "test_env", "test_service");
     String output = testOut.toString();
-    List<String> lines = output.lines().toList();
+    // The captured stream also carries INFO log lines and the "use an empty line to quit" prompt.
+    // Select only JSON object lines instead of assuming a fixed number of preamble lines.
     var objects =
-        lines.subList(1, lines.size()).stream()
+        output
+            .lines()
+            .filter(l -> l.startsWith("{"))
             .map(l -> fromJsonString(l, new TypeReference<Map<String, Object>>() {}))
             .toList();
     assertEquals(1, objects.size());

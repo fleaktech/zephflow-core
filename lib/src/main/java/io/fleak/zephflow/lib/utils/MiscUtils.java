@@ -117,6 +117,7 @@ public interface MiscUtils {
   String COMMAND_NAME_AZURE_EVENTHUB_SINK = "azureeventhubsink";
   String COMMAND_NAME_AZURE_IOTHUB_SOURCE = "azureiothubsource";
   String COMMAND_NAME_TIMESCALE_DB_SINK = "timescaledbsink";
+  String COMMAND_NAME_INFLUXDB_SINK = "influxdbsink";
   String METRIC_NAME_INPUT_EVENT_COUNT = "input_event_count";
   String METRIC_NAME_INPUT_EVENT_SIZE_COUNT = "input_event_size";
   String METRIC_NAME_INPUT_DESER_ERR_COUNT = "input_deser_err_count";

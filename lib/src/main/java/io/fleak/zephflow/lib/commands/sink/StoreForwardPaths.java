@@ -46,7 +46,7 @@ public final class StoreForwardPaths {
         .resolve(REPLICA_DIR_PREFIX + replicaIndex(jobContext));
   }
 
-  private static Path baseDir(String localStorePath, JobContext jobContext) {
+  static Path baseDir(String localStorePath, JobContext jobContext) {
     if (localStorePath != null && !localStorePath.isBlank()) {
       return Path.of(localStorePath);
     }
