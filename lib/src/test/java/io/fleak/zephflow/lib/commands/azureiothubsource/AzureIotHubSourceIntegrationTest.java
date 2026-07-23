@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.azure.messaging.eventhubs.EventData;
 import com.azure.messaging.eventhubs.EventHubClientBuilder;
 import com.azure.messaging.eventhubs.EventHubProducerClient;
+import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.SourceEventAcceptor;
@@ -35,6 +36,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -147,6 +149,9 @@ public class AzureIotHubSourceIntegrationTest {
       Map<String, Object> properties = (Map<String, Object>) iothub.get("properties");
       assertNotNull(properties, "expected application properties in _iothub");
       assertEquals("v2", properties.get("schema"));
+
+      // Checkpoint path exercised end-to-end: a checkpoint blob was written to Azurite.
+      assertTrue(checkpointBlobWritten(), "expected a checkpoint blob to be written to Azurite");
     } finally {
       sourceCommand.terminate();
       executor.shutdownNow();
@@ -184,6 +189,30 @@ public class AzureIotHubSourceIntegrationTest {
             new AzureIotHubSourceCommandFactory().createCommand("source", TestUtils.JOB_CONTEXT);
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
     return command;
+  }
+
+  /**
+   * Polls Azurite for a checkpoint blob. The checkpoint write happens on the source's commit path
+   * just after an event is delivered to the acceptor, so it can lag the latch that releases this
+   * assertion; poll with a bounded timeout rather than checking once.
+   */
+  private boolean checkpointBlobWritten() throws InterruptedException {
+    BlobContainerClient container =
+        new BlobContainerClientBuilder()
+            .connectionString(azurite.getConnectionString())
+            .containerName(CHECKPOINT_CONTAINER)
+            .buildClient();
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+    while (System.nanoTime() < deadline) {
+      boolean found =
+          StreamSupport.stream(container.listBlobs().spliterator(), false)
+              .anyMatch(b -> b.getName().contains("checkpoint"));
+      if (found) {
+        return true;
+      }
+      TimeUnit.MILLISECONDS.sleep(500);
+    }
+    return false;
   }
 
   private static class CollectingAcceptor implements SourceEventAcceptor {
