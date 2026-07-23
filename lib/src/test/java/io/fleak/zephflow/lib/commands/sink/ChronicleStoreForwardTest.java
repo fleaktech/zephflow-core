@@ -28,9 +28,11 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -181,6 +183,124 @@ class ChronicleStoreForwardTest {
   }
 
   @Test
+  void drainReclaimsQueueFilesLeavingOnlyLockAndMarker(@TempDir Path dir) throws Exception {
+    AtomicBoolean connected = new AtomicBoolean(false);
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    sf.start(
+        records -> {
+          if (!connected.get()) {
+            throw new IOException("down");
+          }
+          delivered.addAll(records);
+        });
+
+    sf.offer(List.of(record("a"), record("b")));
+    await(sf::isBuffering);
+    assertFalse(queueFiles(dir).isEmpty(), "queue files should exist during an outage");
+
+    connected.set(true);
+    awaitReclaimed(dir);
+
+    assertEquals(List.of("a", "b"), values(delivered));
+    assertEquals(List.of(), queueFiles(dir), "queue files and ack reclaimed after drain");
+    assertTrue(Files.exists(dir.resolve("sf-drained")), "drained marker written");
+    assertTrue(Files.exists(dir.resolve("sf.lock")), "ownership lock kept");
+    sf.close();
+  }
+
+  @Test
+  void secondOutageRebuildsQueueAndDrainsAgain(@TempDir Path dir) throws Exception {
+    AtomicBoolean connected = new AtomicBoolean(false);
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    sf.start(
+        records -> {
+          if (!connected.get()) {
+            throw new IOException("down");
+          }
+          delivered.addAll(records);
+        });
+
+    connected.set(false);
+    sf.offer(List.of(record("a")));
+    await(sf::isBuffering);
+    connected.set(true);
+    awaitReclaimed(dir);
+
+    connected.set(false);
+    sf.offer(List.of(record("b")));
+    await(sf::isBuffering);
+    connected.set(true);
+    awaitReclaimed(dir);
+
+    assertEquals(List.of("a", "b"), values(delivered));
+    sf.close();
+  }
+
+  @Test
+  void crashMidSecondOutageLosesNothing(@TempDir Path dir) throws Exception {
+    // Instance A: fully drain one outage (queue torn down + reclaimed), then start a second outage
+    // whose delivery fails, then close() while still buffering — a mid-outage "crash".
+    AtomicBoolean connected = new AtomicBoolean(true);
+    ChronicleStoreForward a =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    a.start(
+        records -> {
+          if (!connected.get()) {
+            throw new IOException("down");
+          }
+        });
+
+    connected.set(false);
+    a.offer(List.of(record("old")));
+    await(a::isBuffering);
+    connected.set(true);
+    awaitReclaimed(dir);
+
+    connected.set(false);
+    a.offer(List.of(record("x"), record("y")));
+    await(a::isBuffering);
+    a.close();
+
+    // Instance B on the SAME dir, connection restored: the second outage's records must all replay
+    // (no stale ack from the first outage's teardown skips them).
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward b =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    b.start(delivered::addAll);
+    await(() -> !b.isBuffering());
+    assertEquals(List.of("x", "y"), values(delivered));
+    b.close();
+  }
+
+  @Test
+  void offerReportsRecordsNotStoredWhenBufferCannotBeReopened(@TempDir Path dir) throws Exception {
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    sf.start(
+        records -> {
+          throw new IOException("down");
+        });
+    // start() with no backlog tore the queue down and wrote the drained marker; queue == null.
+    // Replace that marker with a NON-EMPTY DIRECTORY so the next offer's rebuild fails to clear it
+    // (DirectoryNotEmptyException) — a deterministic stand-in for any un-clearable buffer dir.
+    Path marker = dir.resolve("sf-drained");
+    Files.delete(marker);
+    Files.createDirectory(marker);
+    Files.writeString(marker.resolve("blocker"), "x");
+
+    // The failed rebuild must not escape offer(): the records are reported as not stored and the
+    // sink stays DIRECT rather than crashing or silently losing them.
+    int stored = sf.offer(List.of(record("a"), record("b")));
+    assertEquals(0, stored);
+    assertFalse(sf.isBuffering());
+    sf.close();
+  }
+
+  @Test
   void secondInstanceOnSameDirFailsFastUntilFirstCloses(@TempDir Path dir) {
     ChronicleStoreForward first =
         new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
@@ -317,6 +437,31 @@ class ChronicleStoreForwardTest {
             .start();
     assertTrue(p.waitFor(60, TimeUnit.SECONDS), "lock probe process timed out");
     return p.exitValue();
+  }
+
+  /** Files in the buffer dir other than the ownership lock and the drained marker. */
+  private static List<String> queueFiles(Path dir) throws IOException {
+    try (Stream<Path> files = Files.list(dir)) {
+      return files
+          .map(p -> p.getFileName().toString())
+          .filter(n -> !n.equals("sf.lock") && !n.equals("sf-drained"))
+          .sorted()
+          .toList();
+    }
+  }
+
+  /**
+   * Waits until the buffer dir holds no queue files or ack, i.e. a drain teardown has reclaimed it.
+   */
+  private static void awaitReclaimed(Path dir) throws InterruptedException {
+    await(
+        () -> {
+          try {
+            return queueFiles(dir).isEmpty();
+          } catch (IOException e) {
+            return false;
+          }
+        });
   }
 
   private static void await(BooleanSupplier condition) throws InterruptedException {

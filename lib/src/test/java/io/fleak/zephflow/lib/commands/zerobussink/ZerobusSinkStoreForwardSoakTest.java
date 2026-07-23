@@ -30,6 +30,8 @@ import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -39,6 +41,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -125,6 +128,9 @@ class ZerobusSinkStoreForwardSoakTest {
     await(() -> !storeForward.isBuffering(), 300);
     assertEquals(OUTAGE, replayed.get(), "every buffered record replayed");
     assertEquals(HEALTHY + OUTAGE, endpoint.total());
+
+    // draining the tens-of-MB backlog reclaims the disk: only empty lock/marker files remain.
+    await(() -> dirBytes(dir) == 0L, 30);
 
     // back to direct
     stream(sink, ctx, HEALTHY + OUTAGE + 1, TOTAL);
@@ -230,6 +236,26 @@ class ZerobusSinkStoreForwardSoakTest {
         sink.addAndGet(n);
       }
     };
+  }
+
+  /** Total bytes of regular files under {@code dir}; ~0 once the buffer is reclaimed. */
+  private static long dirBytes(Path dir) {
+    try (Stream<Path> paths = Files.walk(dir)) {
+      return paths
+          .filter(Files::isRegularFile)
+          .mapToLong(ZerobusSinkStoreForwardSoakTest::size)
+          .sum();
+    } catch (IOException e) {
+      return -1;
+    }
+  }
+
+  private static long size(Path p) {
+    try {
+      return Files.size(p);
+    } catch (IOException e) {
+      return 0;
+    }
   }
 
   private static void await(BooleanSupplier condition, int timeoutSeconds)

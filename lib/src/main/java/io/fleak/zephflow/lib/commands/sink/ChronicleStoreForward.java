@@ -23,15 +23,17 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import net.openhft.chronicle.core.io.SingleThreadedChecked;
 import net.openhft.chronicle.queue.ChronicleQueue;
@@ -70,6 +72,12 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private static final String ACK_CAUGHT_UP = "END";
   static final String LOCK_FILE_NAME = "sf.lock";
 
+  // Cross-repo contract: written once the buffer is fully drained and its queue files are gone,
+  // deleted the moment a new outage starts. "Present" is a one-directional guarantee that the
+  // directory holds no undelivered records, so grid's orphan cleaner (FLE-2272) can safely reclaim
+  // an unowned dir that carries it. Produced here; consumed by grid in a separate change.
+  static final String DRAINED_MARKER_FILE_NAME = "sf-drained";
+
   private final long maxBytes;
   private final long retryIntervalMs;
   private final int drainChunkSize;
@@ -80,10 +88,16 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private final FleakCounter replayedCounter;
   private final FleakCounter droppedCounter;
 
-  private final ChronicleQueue queue;
-  private final ExcerptAppender appender;
-  private final ExcerptTailer tailer;
+  // Outage-only resource: built when buffering starts, torn down (closed + files deleted) when the
+  // buffer fully drains. null exactly when buffering == false. Guarded by stateLock; volatile so
+  // the
+  // worker's lock-free tailer reads always see the current instance.
+  private volatile ChronicleQueue queue;
+  private volatile ExcerptAppender appender;
+  private volatile ExcerptTailer tailer;
+  private final Path storePath;
   private final Path ackFile;
+  private final Path drainedMarker;
   private final FileChannel lockChannel;
   private final FileLock dirLock;
 
@@ -112,18 +126,21 @@ public class ChronicleStoreForward implements SinkStoreForward {
     this.bufferedCounter = bufferedCounter;
     this.replayedCounter = replayedCounter;
     this.droppedCounter = droppedCounter;
+    this.storePath = config.storePath();
+    this.ackFile = storePath.resolve(ACK_FILE_NAME);
+    this.drainedMarker = storePath.resolve(DRAINED_MARKER_FILE_NAME);
     // Exclusive OS-level lock on the buffer directory: cross-process sharing would silently
     // corrupt the queue and the ack watermark, so a second process must fail fast instead.
     try {
-      Files.createDirectories(config.storePath());
+      Files.createDirectories(storePath);
       this.lockChannel =
           FileChannel.open(
-              config.storePath().resolve(LOCK_FILE_NAME),
+              storePath.resolve(LOCK_FILE_NAME),
               StandardOpenOption.CREATE,
               StandardOpenOption.WRITE);
     } catch (IOException e) {
       throw new IllegalStateException(
-          "store-and-forward [" + nodeId + "] cannot open buffer dir " + config.storePath(), e);
+          "store-and-forward [" + nodeId + "] cannot open buffer dir " + storePath, e);
     }
     FileLock lock;
     try {
@@ -133,7 +150,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
     } catch (IOException e) {
       closeQuietly(lockChannel);
       throw new IllegalStateException(
-          "store-and-forward [" + nodeId + "] cannot lock buffer dir " + config.storePath(), e);
+          "store-and-forward [" + nodeId + "] cannot lock buffer dir " + storePath, e);
     }
     if (lock == null) {
       closeQuietly(lockChannel);
@@ -141,19 +158,115 @@ public class ChronicleStoreForward implements SinkStoreForward {
           "store-and-forward ["
               + nodeId
               + "] buffer dir "
-              + config.storePath()
+              + storePath
               + " is already locked by another process; each job replica needs its own directory");
     }
     this.dirLock = lock;
-    this.queue = SingleChronicleQueueBuilder.single(config.storePath().toFile()).build();
-    this.appender = queue.createAppender();
-    this.tailer = queue.createTailer();
-    this.ackFile = config.storePath().resolve(ACK_FILE_NAME);
+    // Open over whatever is already on disk (a prior run's backlog, if any); start() decides
+    // whether
+    // to resume it or reclaim it. The ack is left intact here so a restart can seek to its
+    // watermark.
+    buildQueue();
+  }
+
+  /** Builds the queue/appender/tailer over {@link #storePath} without touching any file. */
+  private void buildQueue() {
+    queue = SingleChronicleQueueBuilder.single(storePath.toFile()).build();
+    appender = queue.createAppender();
+    tailer = queue.createTailer();
     // We manage threading ourselves: the appender is only touched from offer() under stateLock, the
     // tailer only from the worker (and from start() before the worker exists). Chronicle's
     // single-thread ownership check is too strict for that controlled hand-off, so disable it.
     ((SingleThreadedChecked) appender).singleThreadedCheckDisabled(true);
     ((SingleThreadedChecked) tailer).singleThreadedCheckDisabled(true);
+  }
+
+  /**
+   * New outage after a teardown: guarantee a clean slate before appending. Removes the drained
+   * marker first (so "marker present" never coexists with undelivered data), then any stale ack (so
+   * a later restart cannot {@code toEnd()} past these fresh records), then any residual queue files
+   * (so already-delivered leftovers are not replayed), then builds an empty queue. The marker/ack
+   * deletes are hard: on failure this throws and {@link #offer} reports the records as not stored
+   * rather than risk buffering under a stale watermark.
+   */
+  private void rebuildQueueFresh() throws IOException {
+    Files.deleteIfExists(drainedMarker);
+    Files.deleteIfExists(ackFile);
+    // Residual delivered records must be gone too, else the fresh tailer would replay them. Treat a
+    // failure as hard (like the marker/ack deletes above): refuse to buffer into a dirty queue and
+    // let offer() report the records as not stored, rather than silently re-deliver on rebuild.
+    if (!deleteQueueFiles()) {
+      throw new IOException(
+          "store-and-forward ["
+              + nodeId
+              + "] could not clear residual queue files in "
+              + storePath);
+    }
+    buildQueue();
+  }
+
+  /**
+   * Fully drained → reclaim disk. Closes the queue, deletes its files, and marks the directory
+   * drained. Caller must hold {@link #stateLock} (or run single-threaded in {@link #start}).
+   */
+  private void teardownQueue() {
+    if (queue != null) {
+      queue.close();
+    }
+    queue = null;
+    appender = null;
+    tailer = null;
+    boolean allGone = deleteQueueFiles();
+    try {
+      if (allGone) {
+        Files.deleteIfExists(ackFile); // absent ack == "read from the beginning" for a future queue
+      } else {
+        // A delivered leftover survived deletion: keep an END watermark so a future reader (grid's
+        // orphan cleaner) still classifies the dir as fully delivered, never as undelivered.
+        writeAck(ACK_CAUGHT_UP);
+      }
+    } catch (IOException e) {
+      log.warn("store-and-forward [{}] could not reset ack on teardown", nodeId, e);
+    }
+    writeMarker();
+    outstandingBytes.set(0);
+  }
+
+  /**
+   * Deletes the Chronicle queue files (every regular file except the lock, ack, and drained
+   * marker). Returns {@code true} if none remain.
+   */
+  private boolean deleteQueueFiles() {
+    boolean allGone = true;
+    try (Stream<Path> files = Files.list(storePath)) {
+      for (Path f : (Iterable<Path>) files::iterator) {
+        String name = f.getFileName().toString();
+        if (name.equals(LOCK_FILE_NAME)
+            || name.equals(ACK_FILE_NAME)
+            || name.equals(DRAINED_MARKER_FILE_NAME)
+            || !Files.isRegularFile(f)) {
+          continue;
+        }
+        try {
+          Files.deleteIfExists(f);
+        } catch (IOException e) {
+          allGone = false;
+          log.warn("store-and-forward [{}] could not delete queue file {}", nodeId, f, e);
+        }
+      }
+    } catch (IOException e) {
+      log.warn("store-and-forward [{}] could not list buffer dir {}", nodeId, storePath, e);
+      return false;
+    }
+    return allGone;
+  }
+
+  private void writeMarker() {
+    try {
+      Files.writeString(drainedMarker, "", StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      log.warn("store-and-forward [{}] could not write drained marker", nodeId, e);
+    }
   }
 
   @Override
@@ -173,6 +286,20 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     int stored = 0;
     synchronized (stateLock) {
+      if (queue == null) {
+        // Coming out of DIRECT: this is a fresh outage, so open a clean queue before appending.
+        try {
+          rebuildQueueFresh();
+        } catch (IOException e) {
+          log.error(
+              "store-and-forward [{}] cannot open buffer dir {}; {} records reported as not stored",
+              nodeId,
+              storePath,
+              records.size(),
+              e);
+          return 0; // stays DIRECT; the caller surfaces the unstored records as errors
+        }
+      }
       for (RecordFleakData record : records) {
         byte[] payload = encode(record);
         long need = payload.length + (long) Integer.BYTES;
@@ -203,10 +330,13 @@ public class ChronicleStoreForward implements SinkStoreForward {
   public void start(ReplayTarget target) {
     this.replayTarget = target;
     positionFromAck();
-    // Resume a backlog from a previous run before the sink does any direct write.
+    // Resume a backlog from a previous run before the sink does any direct write; if there is none,
+    // reclaim the empty queue the constructor just built (and any leftovers from a clean shutdown).
     if (peekHasMore()) {
       buffering = true;
       log.info("store-and-forward [{}] found a backlog on startup; resuming drain", nodeId);
+    } else {
+      teardownQueue();
     }
     worker = new Thread(this::drainLoop, "sink-store-forward-" + nodeId);
     worker.setDaemon(true);
@@ -226,7 +356,11 @@ public class ChronicleStoreForward implements SinkStoreForward {
         Thread.currentThread().interrupt();
       }
     }
-    queue.close();
+    // May already be null if the buffer drained back to DIRECT. Never delete files here: a still-
+    // buffering instance shut down must leave its undelivered records + ack for the next instance.
+    if (queue != null) {
+      queue.close();
+    }
     try {
       dirLock.release();
     } catch (IOException e) {
@@ -286,6 +420,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
       synchronized (stateLock) {
         if (!peekHasMore()) {
           buffering = false;
+          teardownQueue(); // fully caught up: close the queue and reclaim its disk
           return DrainOutcome.DRAINED;
         }
       }
@@ -399,73 +534,18 @@ public class ChronicleStoreForward implements SinkStoreForward {
   }
 
   private void writeAck(String token) {
+    // Write-temp-then-atomic-rename so a crash mid-write can never leave a torn ack file that reads
+    // as a bogus watermark. The scheme leans on ack correctness for restart durability.
     try {
-      Files.writeString(ackFile, token, StandardCharsets.UTF_8);
+      Path tmp = storePath.resolve(ACK_FILE_NAME + ".tmp");
+      Files.writeString(tmp, token, StandardCharsets.UTF_8);
+      try {
+        Files.move(tmp, ackFile, StandardCopyOption.ATOMIC_MOVE);
+      } catch (AtomicMoveNotSupportedException e) {
+        Files.move(tmp, ackFile, StandardCopyOption.REPLACE_EXISTING);
+      }
     } catch (Exception e) {
       log.warn("store-and-forward [{}] could not persist ack watermark", nodeId, e);
-    }
-  }
-
-  /**
-   * Under the buffer directory's exclusive ownership lock, reports whether it is safe for {@link
-   * StoreForwardCleaner} to delete: {@code true} only when no live process owns the directory
-   * <em>and</em> it holds no records past the delivered watermark. Returns {@code false} if the
-   * lock is held by another owner, or on any doubt (unreadable ack, unopenable queue), so we never
-   * delete a directory that a live replica uses or that might still contain undelivered data.
-   */
-  static boolean isReclaimable(Path dir) {
-    try (FileChannel ch = FileChannel.open(dir.resolve(LOCK_FILE_NAME), StandardOpenOption.WRITE)) {
-      FileLock lock;
-      try {
-        lock = ch.tryLock();
-      } catch (OverlappingFileLockException e) {
-        return false; // held by a live instance in this JVM
-      }
-      if (lock == null) {
-        return false; // held by another process
-      }
-      try {
-        return !hasUndeliveredRecords(dir);
-      } finally {
-        lock.release();
-      }
-    } catch (NoSuchFileException e) {
-      return false; // directory vanished concurrently
-    } catch (IOException e) {
-      log.warn("store-and-forward cleaner: cannot lock {}; keeping", dir, e);
-      return false;
-    }
-  }
-
-  private static boolean hasUndeliveredRecords(Path dir) {
-    String token;
-    try {
-      Path ack = dir.resolve(ACK_FILE_NAME);
-      token = Files.exists(ack) ? Files.readString(ack, StandardCharsets.UTF_8).trim() : null;
-    } catch (IOException e) {
-      log.warn("store-and-forward cleaner: cannot read ack in {}; keeping", dir, e);
-      return true;
-    }
-    if (ACK_CAUGHT_UP.equals(token)) {
-      return false; // watermark confirms everything was delivered
-    }
-    try (ChronicleQueue queue = SingleChronicleQueueBuilder.single(dir.toFile()).build()) {
-      ExcerptTailer tailer = queue.createTailer();
-      ((SingleThreadedChecked) tailer).singleThreadedCheckDisabled(true);
-      if (token != null) {
-        try {
-          tailer.moveToIndex(Long.parseLong(token));
-        } catch (NumberFormatException e) {
-          log.warn("store-and-forward cleaner: malformed ack {} in {}; keeping", token, dir);
-          return true;
-        }
-      }
-      try (DocumentContext dc = tailer.readingDocument()) {
-        return dc.isPresent();
-      }
-    } catch (Exception e) {
-      log.warn("store-and-forward cleaner: cannot inspect queue in {}; keeping", dir, e);
-      return true;
     }
   }
 
