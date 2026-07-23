@@ -31,6 +31,7 @@ import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentMatchers;
@@ -118,12 +120,27 @@ class ZerobusStoreForwardE2ETest {
     await(() -> !storeForward.isBuffering());
     assertEquals(List.of("{\"id\":1}", "{\"id\":2}", "{\"id\":3}"), delivered);
 
+    // Draining reclaims disk: the queue files are gone, only the lock + drained marker remain.
+    await(() -> reclaimed(dir));
+    assertTrue(Files.exists(dir.resolve("sf-drained")));
+
     // 4) Back to DIRECT: a new write is delivered straight through.
     SinkResult r4 = sink.writeToSink(List.of(record(4)), "user", ctx);
     assertEquals(1, r4.getSuccessCount());
     assertEquals(List.of("{\"id\":1}", "{\"id\":2}", "{\"id\":3}", "{\"id\":4}"), delivered);
 
     storeForward.close();
+  }
+
+  /** True once the buffer dir holds nothing but the ownership lock and drained marker. */
+  private static boolean reclaimed(Path dir) {
+    try (Stream<Path> files = Files.list(dir)) {
+      return files
+          .map(p -> p.getFileName().toString())
+          .noneMatch(n -> !n.equals("sf.lock") && !n.equals("sf-drained"));
+    } catch (IOException e) {
+      return false;
+    }
   }
 
   private static void await(BooleanSupplier condition) throws InterruptedException {

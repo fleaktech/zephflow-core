@@ -153,6 +153,10 @@ class KafkaSinkStoreForwardIntegrationTest {
     assertEquals(OUTAGE, metrics.total(METRIC_REPLAYED), "all buffered records replayed");
     assertEquals(0, metrics.total(METRIC_DROPPED), "nothing dropped");
 
+    // Draining reclaims the disk: the queue files are deleted, leaving only empty lock/marker
+    // files.
+    await(() -> quietStoreDirBytes(storeDir) == 0L, 30);
+
     // 5) Every record (healthy + replayed) is in the topic exactly once, no loss.
     TreeSet<Integer> all = new TreeSet<>(consumeAllIds());
     assertEquals(TOTAL, all.size());
@@ -356,6 +360,14 @@ class KafkaSinkStoreForwardIntegrationTest {
       }
     }
     return ids;
+  }
+
+  private static long quietStoreDirBytes(Path dir) {
+    try {
+      return storeDirBytes(dir);
+    } catch (Exception e) {
+      return -1;
+    }
   }
 
   private static long storeDirBytes(Path dir) throws Exception {
