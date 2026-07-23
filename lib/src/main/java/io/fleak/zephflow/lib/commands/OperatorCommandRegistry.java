@@ -35,6 +35,7 @@ import io.fleak.zephflow.lib.commands.filesource.FileSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.fssource.FsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.gcssink.GcsSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.imapsource.ImapSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.influxdbsink.InfluxDbSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
@@ -111,6 +112,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_PUBSUB_SINK, new PubSubSinkCommandFactory())
           .put(COMMAND_NAME_AZURE_EVENTHUB_SOURCE, new AzureEventHubSourceCommandFactory())
           .put(COMMAND_NAME_AZURE_EVENTHUB_SINK, new AzureEventHubSinkCommandFactory())
+          .put(COMMAND_NAME_INFLUXDB_SINK, new InfluxDbSinkCommandFactory())
           .put(COMMAND_NAME_AZURE_IOTHUB_SOURCE, new AzureIotHubSourceCommandFactory())
           .build();
 }
