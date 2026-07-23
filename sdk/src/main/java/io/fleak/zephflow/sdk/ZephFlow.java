@@ -44,6 +44,7 @@ import io.fleak.zephflow.lib.commands.s3.S3SinkDto;
 import io.fleak.zephflow.lib.commands.sql.SqlCommandDto;
 import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
 import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
+import io.fleak.zephflow.lib.commands.timescaledbsink.TimescaleDbSinkDto;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -606,6 +607,10 @@ public class ZephFlow {
             .encodingType(encodingType.toString())
             .build();
     return appendNode(COMMAND_NAME_AZURE_EVENTHUB_SINK, config);
+  }
+
+  public ZephFlow timescaleDbSink(@NonNull TimescaleDbSinkDto.Config config) {
+    return appendNode(COMMAND_NAME_TIMESCALE_DB_SINK, config);
   }
 
   /**

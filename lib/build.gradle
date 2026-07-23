@@ -86,6 +86,7 @@ dependencies {
   testImplementation libs.testcontainers.gcloud
   testImplementation libs.testcontainers.localstack
   testImplementation libs.testcontainers.azure
+  testImplementation libs.testcontainers.postgresql
 
   antlr libs.antlr4
 }
