@@ -27,11 +27,13 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -293,6 +295,52 @@ class KafkaSinkStoreForwardIntegrationTest {
     sink.terminate();
   }
 
+  /**
+   * FLE-2281: a test run must never build the durable on-disk queue, even when store-and-forward is
+   * configured on. Otherwise a crash mid-init leaks the buffer-dir lock and the next test run fails
+   * with "buffer dir ... is already locked". In test mode the sink degrades to a plain async send.
+   */
+  @Test
+  void testModeDisablesStoreForwardSoNoOnDiskQueueIsCreated(@TempDir Path storeDir)
+      throws Exception {
+    String topic = "test_mode_no_store_forward_topic";
+    createTopic(topic);
+    CapturingMetrics metrics = new CapturingMetrics();
+
+    KafkaSinkCommand sink =
+        (KafkaSinkCommand)
+            new KafkaSinkCommandFactory().createCommand("kafka-sf-testmode", testModeJobContext());
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .topic(topic)
+            .broker(KAFKA.getBootstrapServers())
+            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .storeAndForwardEnabled(true)
+            .localStorePath(storeDir.toString())
+            .build();
+    sink.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    sink.initialize(metrics);
+
+    var ctx = (SinkExecutionContext<RecordFleakData>) sink.getExecutionContext();
+    assertSame(
+        SinkStoreForward.noop(),
+        ctx.storeForward(),
+        "test mode must degrade store-and-forward to the no-op");
+    assertEquals(
+        0L,
+        storeDirFileCount(storeDir),
+        "test mode must not create an on-disk store-forward queue");
+
+    // A healthy write still delivers straight to the broker and leaves no local queue behind.
+    sink.writeToSink(records(1, 5), "user", ctx);
+    List<Integer> delivered =
+        drain("testmode-" + System.nanoTime(), topic, Duration.ofSeconds(15), 5);
+    assertEquals(5, new TreeSet<>(delivered).size(), "records delivered directly to the broker");
+    assertEquals(0L, storeDirFileCount(storeDir), "still no on-disk queue after a healthy write");
+
+    sink.terminate();
+  }
+
   // ===== helpers =====
 
   private KafkaSinkCommand initSink(
@@ -370,6 +418,12 @@ class KafkaSinkStoreForwardIntegrationTest {
     }
   }
 
+  private static long storeDirFileCount(Path dir) throws Exception {
+    try (var paths = Files.walk(dir)) {
+      return paths.filter(Files::isRegularFile).count();
+    }
+  }
+
   private static long storeDirBytes(Path dir) throws Exception {
     try (var paths = Files.walk(dir)) {
       return paths
@@ -399,6 +453,15 @@ class KafkaSinkStoreForwardIntegrationTest {
     return JobContext.builder()
         .metricTags(Map.of(METRIC_TAG_SERVICE, "test_service", METRIC_TAG_ENV, "test_env"))
         .otherProperties(Map.of())
+        .build();
+  }
+
+  private static JobContext testModeJobContext() {
+    Map<String, Serializable> otherProperties = new HashMap<>();
+    otherProperties.put(JobContext.FLAG_TEST_MODE, true);
+    return JobContext.builder()
+        .metricTags(Map.of(METRIC_TAG_SERVICE, "test_service", METRIC_TAG_ENV, "test_env"))
+        .otherProperties(otherProperties)
         .build();
   }
 
