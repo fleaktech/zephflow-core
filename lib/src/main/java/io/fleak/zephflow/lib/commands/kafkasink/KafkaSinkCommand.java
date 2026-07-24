@@ -80,12 +80,17 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
+    // A test run is an ephemeral, in-memory single shot; durable store-and-forward buffering is
+    // meaningless there and would leave an orphaned, still-locked on-disk queue that blocks the
+    // next run. Force it off in test mode so the sink degrades to a plain async send.
+    boolean storeAndForwardEnabled = config.isStoreAndForwardEnabled() && !isTestMode(jobContext);
     KafkaConnectionFailureClassifier classifier =
-        config.isStoreAndForwardEnabled() ? new KafkaConnectionFailureClassifier() : null;
+        storeAndForwardEnabled ? new KafkaConnectionFailureClassifier() : null;
 
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
         createKafkaFlusher(
             config,
+            storeAndForwardEnabled,
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
             counters.sinkErrorCounter(),
@@ -99,6 +104,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
             metricClientProvider,
             jobContext,
             config,
+            storeAndForwardEnabled,
             nodeId,
             flusher,
             messagePreProcessor,
@@ -117,20 +123,19 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
       KafkaSinkDto.Config config,
+      boolean storeAndForwardEnabled,
       FleakCounter asyncDeliveredCountCounter,
       FleakCounter asyncDeliveredSizeCounter,
       FleakCounter asyncErrorCounter,
       KafkaConnectionFailureClassifier classifier) {
     Properties props = getProperties(config);
 
-    boolean isTestMode =
-        jobContext != null
-            && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
+    boolean isTestMode = isTestMode(jobContext);
     if (isTestMode) {
       props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000");
     }
 
-    if (config.isStoreAndForwardEnabled()) {
+    if (storeAndForwardEnabled) {
       // Bounded timeouts so an outage surfaces quickly as a thrown failure (-> buffer) instead of
       // blocking. delivery.timeout.ms must be >= request.timeout.ms + linger.ms.
       props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "5000");
@@ -169,7 +174,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
-        config.isStoreAndForwardEnabled(),
+        storeAndForwardEnabled,
         classifier);
   }
 
@@ -182,11 +187,12 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       MetricClientProvider metricClientProvider,
       JobContext jobContext,
       KafkaSinkDto.Config config,
+      boolean storeAndForwardEnabled,
       String nodeId,
       SimpleSinkCommand.Flusher<RecordFleakData> flusher,
       SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> preprocessor,
       KafkaConnectionFailureClassifier classifier) {
-    if (!config.isStoreAndForwardEnabled()) {
+    if (!storeAndForwardEnabled) {
       return SinkStoreForward.noop();
     }
 
@@ -272,6 +278,11 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     props.put(ProducerConfig.RETRIES_CONFIG, "3");
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
     return props;
+  }
+
+  private static boolean isTestMode(JobContext jobContext) {
+    return jobContext != null
+        && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
   }
 
   /**
