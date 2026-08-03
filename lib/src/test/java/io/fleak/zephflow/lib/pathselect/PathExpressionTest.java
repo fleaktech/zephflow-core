@@ -114,6 +114,53 @@ class PathExpressionTest {
   }
 
   @Test
+  public void getScalarStringValue_integerHasNoDecimalPoint() {
+    FleakData event = FleakData.wrap(Map.of("id", 4));
+    assertEquals(
+        "4", PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
+  public void getScalarStringValue_fractionalNumberKeepsItsFraction() {
+    FleakData event = FleakData.wrap(Map.of("id", 4.5));
+    assertEquals(
+        "4.5",
+        PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
+  public void getScalarStringValue_boolean() {
+    FleakData event = FleakData.wrap(Map.of("active", true));
+    assertEquals(
+        "true",
+        PathExpression.fromString("$.active").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
+  public void getScalarStringValue_string() {
+    FleakData event = FleakData.wrap(Map.of("id", "abc"));
+    assertEquals(
+        "abc",
+        PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
+  public void getScalarStringValue_nonScalarReturnsDefault() {
+    FleakData event = FleakData.wrap(Map.of("id", Map.of("nested", 1)));
+    assertEquals(
+        "fallback",
+        PathExpression.fromString("$.id")
+            .getScalarStringValueFromEventOrDefault(event, "fallback"));
+  }
+
+  @Test
+  public void getScalarStringValue_missingFieldReturnsDefault() {
+    FleakData event = FleakData.wrap(Map.of("other", 1));
+    assertNull(
+        PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
   public void testCalculateValue_selectArray() {
     RecordFleakData recordFleakData =
         (RecordFleakData)

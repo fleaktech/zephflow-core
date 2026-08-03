@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kinesis;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -36,7 +37,7 @@ import software.amazon.awssdk.services.kinesis.model.PutRecordsResponse;
 public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
   final KinesisClient kinesisClient;
   final String streamName;
-  final PathExpression partitionKeyPathExpression;
+  final KeyExpressionResolver partitionKeyResolver;
   final FleakSerializer<?> fleakSerializer;
 
   public KinesisFlusher(
@@ -46,7 +47,11 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
       FleakSerializer<?> fleakSerializer) {
     this.kinesisClient = kinesisClient;
     this.streamName = streamName;
-    this.partitionKeyPathExpression = partitionKeyPathExpression;
+    this.partitionKeyResolver =
+        KeyExpressionResolver.of(
+            partitionKeyPathExpression,
+            "partitionKeyFieldExpressionStr",
+            "such records fall back to a random partition key and are spread across shards");
     this.fleakSerializer = fleakSerializer;
   }
 
@@ -71,11 +76,11 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
               String.format("JSON serialization resulted in null for record %s", pair.getRight()));
         }
         recordSizes.add(serializedEvent.value().length);
+        // An unresolved key still needs some partition key: Kinesis requires one, so fall back to
+        // a random key (round-robin across shards). KeyExpressionResolver warns when that happens.
+        String resolvedPartitionKey = partitionKeyResolver.resolve(pair.getRight());
         String partitionKey =
-            partitionKeyPathExpression == null
-                ? UUID.randomUUID().toString()
-                : partitionKeyPathExpression.getStringValueFromEventOrDefault(
-                    pair.getRight(), UUID.randomUUID().toString());
+            resolvedPartitionKey != null ? resolvedPartitionKey : UUID.randomUUID().toString();
 
         PutRecordsRequestEntry entry =
             PutRecordsRequestEntry.builder()

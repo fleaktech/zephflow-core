@@ -97,6 +97,17 @@ public class PathExpression {
         inputEvent, new ValueExtractor.StringValueExtractor(defaultValue, null));
   }
 
+  /**
+   * Like {@link #getStringValueFromEventOrDefault} but accepts any scalar value (string, number,
+   * boolean) rather than strings only. Use this for routing keys — partition keys, ordering keys,
+   * FIFO group ids — where a numeric field is a legitimate key and silently dropping it costs the
+   * ordering guarantee the key was configured for.
+   */
+  public String getScalarStringValueFromEventOrDefault(FleakData inputEvent, String defaultValue) {
+    return getValueFromEvent(
+        inputEvent, new ValueExtractor.ScalarStringValueExtractor(defaultValue, null));
+  }
+
   @SuppressWarnings("unused")
   public String getStringValueFromEventOrThrow(
       FleakData inputEvent, String errorMessageTemplate, Object... args) {

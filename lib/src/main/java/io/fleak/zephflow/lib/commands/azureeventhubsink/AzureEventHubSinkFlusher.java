@@ -22,6 +22,7 @@ import com.azure.messaging.eventhubs.models.CreateBatchOptions;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.util.ArrayList;
@@ -49,7 +50,7 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
 
   private final EventHubProducerClient producerClient;
   private final FleakSerializer<?> fleakSerializer;
-  private final PathExpression partitionKeyExpression; // nullable
+  private final KeyExpressionResolver partitionKeyResolver;
 
   private volatile boolean closed = false;
 
@@ -59,7 +60,11 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
       PathExpression partitionKeyExpression) {
     this.producerClient = producerClient;
     this.fleakSerializer = fleakSerializer;
-    this.partitionKeyExpression = partitionKeyExpression;
+    this.partitionKeyResolver =
+        KeyExpressionResolver.of(
+            partitionKeyExpression,
+            "partitionKeyFieldExpressionStr",
+            "such events are sent without a partition key and are spread across partitions");
   }
 
   @Override
@@ -87,7 +92,7 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
         if (value == null) {
           continue;
         }
-        String partitionKey = resolvePartitionKey(event);
+        String partitionKey = partitionKeyResolver.resolve(event);
         eventsByPartitionKey
             .computeIfAbsent(partitionKey, k -> new ArrayList<>())
             .add(new PreparedEvent(event, new EventData(value), value.length));
@@ -167,13 +172,6 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
     var serialized = fleakSerializer.serialize(List.of(event));
     byte[] value = serialized.value();
     return (value == null || value.length == 0) ? null : value;
-  }
-
-  private String resolvePartitionKey(RecordFleakData event) {
-    if (partitionKeyExpression == null) {
-      return null;
-    }
-    return partitionKeyExpression.getStringValueFromEventOrDefault(event, null);
   }
 
   @Override

@@ -65,6 +65,30 @@ public abstract class ValueExtractor<T> {
     }
   }
 
+  /**
+   * Extracts any scalar (string, number, boolean) as its string form. Numbers stringify through
+   * {@link FleakData#unwrap()}, which honors the value's {@code NumberType}, so an integral id
+   * yields {@code "4"} rather than {@code "4.0"}. Records and arrays are not scalars and fall
+   * through to {@link #handleError()}.
+   */
+  public static class ScalarStringValueExtractor extends ValueExtractor<String> {
+
+    public ScalarStringValueExtractor(
+        String defaultValue, Supplier<RuntimeException> exceptionSupplier) {
+      super(defaultValue, exceptionSupplier);
+    }
+
+    @Override
+    protected String doExtraction(FleakData fleakData) {
+      return String.valueOf(fleakData.unwrap());
+    }
+
+    @Override
+    protected boolean typeMatches(FleakData fleakData) {
+      return fleakData instanceof PrimitiveFleakData;
+    }
+  }
+
   public static class FloatValueExtractor extends ValueExtractor<Float> {
 
     public FloatValueExtractor(Float defaultValue, Supplier<RuntimeException> exceptionSupplier) {

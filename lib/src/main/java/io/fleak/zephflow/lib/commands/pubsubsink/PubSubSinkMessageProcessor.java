@@ -17,25 +17,25 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import javax.annotation.Nullable;
 
 public class PubSubSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<PubSubOutboundMessage> {
 
-  private final PathExpression orderingKeyExpression;
+  private final KeyExpressionResolver orderingKeyResolver;
 
   public PubSubSinkMessageProcessor(@Nullable PathExpression orderingKeyExpression) {
-    this.orderingKeyExpression = orderingKeyExpression;
+    this.orderingKeyResolver =
+        KeyExpressionResolver.of(
+            orderingKeyExpression,
+            "orderingKeyExpression",
+            "such messages are published without an ordering key");
   }
 
   @Override
   public PubSubOutboundMessage preprocess(RecordFleakData event, long ts) {
-    String body = toJsonString(event);
-    String orderingKey =
-        orderingKeyExpression != null
-            ? orderingKeyExpression.getStringValueFromEventOrDefault(event, null)
-            : null;
-    return new PubSubOutboundMessage(body, orderingKey);
+    return new PubSubOutboundMessage(toJsonString(event), orderingKeyResolver.resolve(event));
   }
 }
