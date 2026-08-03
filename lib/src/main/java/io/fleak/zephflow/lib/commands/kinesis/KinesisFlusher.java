@@ -15,8 +15,8 @@ package io.fleak.zephflow.lib.commands.kinesis;
 
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -48,7 +48,7 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
     this.kinesisClient = kinesisClient;
     this.streamName = streamName;
     this.partitionKeyResolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             partitionKeyPathExpression,
             "partitionKeyFieldExpressionStr",
             "such records fall back to a random partition key and are spread across shards");

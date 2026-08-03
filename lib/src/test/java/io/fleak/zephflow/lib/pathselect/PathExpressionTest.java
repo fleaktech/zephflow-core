@@ -129,6 +129,30 @@ class PathExpressionTest {
   }
 
   @Test
+  public void getScalarStringValue_wholeDoubleKeysTheSameAsTheIntegerForm() {
+    // {"id": 4} and {"id": 4.0} are the same logical id and must not key to different partitions.
+    FleakData asDouble = FleakData.wrap(Map.of("id", 4.0));
+    assertEquals(
+        "4",
+        PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(asDouble, null));
+  }
+
+  @Test
+  public void getScalarStringValue_largeNumberIsNotScientificNotation() {
+    FleakData event = FleakData.wrap(Map.of("id", 1e20));
+    assertEquals(
+        "100000000000000000000",
+        PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
+  public void getScalarStringValue_zero() {
+    FleakData event = FleakData.wrap(Map.of("id", 0.0));
+    assertEquals(
+        "0", PathExpression.fromString("$.id").getScalarStringValueFromEventOrDefault(event, null));
+  }
+
+  @Test
   public void getScalarStringValue_boolean() {
     FleakData event = FleakData.wrap(Map.of("active", true));
     assertEquals(

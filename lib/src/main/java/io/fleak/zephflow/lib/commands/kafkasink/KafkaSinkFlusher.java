@@ -19,8 +19,8 @@ import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.ConnectionFailureClassifier;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.nio.charset.StandardCharsets;
@@ -96,7 +96,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     this.topic = topic;
     this.fleakSerializer = fleakSerializer;
     this.partitionKeyResolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             partitionKeyExpression,
             "partitionKeyFieldExpressionStr",
             "such records are sent without a key and are spread across partitions");

@@ -16,8 +16,8 @@ package io.fleak.zephflow.lib.commands.sqssink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import javax.annotation.Nullable;
 
@@ -31,15 +31,16 @@ public class SqsSinkMessageProcessor
       @Nullable PathExpression messageGroupIdExpression,
       @Nullable PathExpression deduplicationIdExpression) {
     this.messageGroupIdResolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             messageGroupIdExpression,
             "messageGroupIdExpression",
-            "such messages are sent without a message group id");
+            "such messages are sent without a message group id, which a FIFO queue rejects");
     this.deduplicationIdResolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             deduplicationIdExpression,
             "deduplicationIdExpression",
-            "such messages are sent without a deduplication id");
+            "such messages are sent without a deduplication id and rely on the queue's"
+                + " content-based deduplication, if enabled");
   }
 
   @Override

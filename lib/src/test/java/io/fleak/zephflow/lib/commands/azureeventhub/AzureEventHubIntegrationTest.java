@@ -14,8 +14,13 @@
 package io.fleak.zephflow.lib.commands.azureeventhub;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.azure.messaging.eventhubs.EventHubClientBuilder;
+import com.azure.messaging.eventhubs.EventHubConsumerClient;
+import com.azure.messaging.eventhubs.models.EventPosition;
+import com.azure.messaging.eventhubs.models.PartitionEvent;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -32,9 +37,14 @@ import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceCom
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceDto;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -63,6 +73,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 public class AzureEventHubIntegrationTest {
 
   private static final String EVENT_HUB_NAME = "eh1";
+  // A second, multi-partition hub: partition-key co-location is unobservable with one partition.
+  private static final String KEYED_EVENT_HUB_NAME = "eh2";
   private static final String CONSUMER_GROUP = "cg1";
   private static final String CHECKPOINT_CONTAINER = "checkpoints";
 
@@ -78,6 +90,11 @@ public class AzureEventHubIntegrationTest {
                 {
                   "Name": "eh1",
                   "PartitionCount": "1",
+                  "ConsumerGroups": [ { "Name": "cg1" } ]
+                },
+                {
+                  "Name": "eh2",
+                  "PartitionCount": "4",
                   "ConsumerGroups": [ { "Name": "cg1" } ]
                 }
               ]
@@ -164,6 +181,76 @@ public class AzureEventHubIntegrationTest {
     }
   }
 
+  /**
+   * Regression test for FLE-2242. A numeric partition key resolved to null, so events were sent
+   * unkeyed and one id's events were spread over every partition. Mirrors the manual reproduction:
+   * ten events with ids 1x1, 2x2, 3x3, 4x4 into a four-partition hub, read back per partition.
+   */
+  @Test
+  void numericPartitionKeyKeepsEachKeyInOnePartition() throws Exception {
+    AzureEventHubSinkDto.Config config =
+        AzureEventHubSinkDto.Config.builder()
+            .connectionString(eventHubs.getConnectionString())
+            .eventHubName(KEYED_EVENT_HUB_NAME)
+            .encodingType("JSON_OBJECT")
+            .partitionKeyFieldExpressionStr("$.id")
+            .build();
+
+    AzureEventHubSinkCommand sink =
+        (AzureEventHubSinkCommand)
+            new AzureEventHubSinkCommandFactory().createCommand("sink", TestUtils.JOB_CONTEXT);
+    sink.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    sink.initialize(new MetricClientProvider.NoopMetricClientProvider());
+
+    List<RecordFleakData> events = new ArrayList<>();
+    for (int id = 1; id <= 4; id++) {
+      for (int copy = 0; copy < id; copy++) {
+        events.add((RecordFleakData) FleakData.wrap(Map.of("id", id, "copy", copy)));
+      }
+    }
+
+    try {
+      ScalarSinkCommand.SinkResult result =
+          sink.writeToSink(events, "test_user", sink.getExecutionContext());
+      assertEquals(events.size(), result.getSuccessCount());
+    } finally {
+      sink.terminate();
+    }
+
+    Map<Integer, Set<String>> partitionsById = new HashMap<>();
+    int consumed = 0;
+    try (EventHubConsumerClient consumer =
+        new EventHubClientBuilder()
+            .connectionString(eventHubs.getConnectionString(), KEYED_EVENT_HUB_NAME)
+            .consumerGroup(CONSUMER_GROUP)
+            .buildConsumerClient()) {
+      for (String partitionId : consumer.getPartitionIds()) {
+        for (PartitionEvent partitionEvent :
+            consumer.receiveFromPartition(
+                partitionId, events.size(), EventPosition.earliest(), Duration.ofSeconds(10))) {
+          Map<String, Object> body =
+              fromJsonString(partitionEvent.getData().getBodyAsString(), new TypeReference<>() {});
+          int id = ((Number) body.get("id")).intValue();
+          // The event carries the numeric id as its partition key ("4", not "4.0" and not absent).
+          // Asserted per event because an unkeyed batch also lands wholly in one partition, so
+          // co-location alone would not distinguish the fixed behavior from the bug.
+          assertEquals(
+              String.valueOf(id),
+              partitionEvent.getData().getPartitionKey(),
+              "event was published without its numeric partition key");
+          partitionsById.computeIfAbsent(id, k -> new HashSet<>()).add(partitionId);
+          consumed++;
+        }
+      }
+    }
+
+    assertEquals(events.size(), consumed, "not all events were read back");
+    assertEquals(Set.of(1, 2, 3, 4), partitionsById.keySet());
+    partitionsById.forEach(
+        (id, partitions) ->
+            assertEquals(1, partitions.size(), "id " + id + " was split across " + partitions));
+  }
+
   private void publishEvents(int eventCount) throws Exception {
     AzureEventHubSinkDto.Config config =
         AzureEventHubSinkDto.Config.builder()
@@ -180,7 +267,7 @@ public class AzureEventHubIntegrationTest {
 
     List<RecordFleakData> events = new ArrayList<>();
     for (int i = 0; i < eventCount; i++) {
-      events.add((RecordFleakData) FleakData.wrap(java.util.Map.of("id", i)));
+      events.add((RecordFleakData) FleakData.wrap(Map.of("id", i)));
     }
 
     ScalarSinkCommand.SinkResult result =

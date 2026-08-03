@@ -21,8 +21,8 @@ import com.azure.messaging.eventhubs.EventHubProducerClient;
 import com.azure.messaging.eventhubs.models.CreateBatchOptions;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.util.ArrayList;
@@ -61,7 +61,7 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
     this.producerClient = producerClient;
     this.fleakSerializer = fleakSerializer;
     this.partitionKeyResolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             partitionKeyExpression,
             "partitionKeyFieldExpressionStr",
             "such events are sent without a partition key and are spread across partitions");

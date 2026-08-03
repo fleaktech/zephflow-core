@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.pathselect;
 
 import io.fleak.zephflow.api.structure.*;
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,10 +67,18 @@ public abstract class ValueExtractor<T> {
   }
 
   /**
-   * Extracts any scalar (string, number, boolean) as its string form. Numbers stringify through
-   * {@link FleakData#unwrap()}, which honors the value's {@code NumberType}, so an integral id
-   * yields {@code "4"} rather than {@code "4.0"}. Records and arrays are not scalars and fall
-   * through to {@link #handleError()}.
+   * Extracts any scalar (string, number, boolean) as its string form. Records and arrays are not
+   * scalars and fall through to {@link #handleError()}, as does a primitive holding a null value.
+   *
+   * <p>Numbers are rendered in plain notation with trailing zeros stripped, so equal numbers always
+   * produce equal strings regardless of how they were typed: {@code 4}, {@code 4.0} and a {@code
+   * LONG}-typed 4 all yield {@code "4"}, and {@code 1e20} yields {@code "100000000000000000000"}
+   * rather than {@code "1.0E20"}. That matters because these strings are used as routing keys — two
+   * spellings of one id would otherwise split across partitions.
+   *
+   * <p>Note that {@link NumberPrimitiveFleakData} is double-backed, so integers beyond 2^53 are
+   * already rounded before they reach here; two distinct ids that large can collapse onto one key.
+   * The serialized record body has the same limitation, so keys stay consistent with payloads.
    */
   public static class ScalarStringValueExtractor extends ValueExtractor<String> {
 
@@ -80,7 +89,14 @@ public abstract class ValueExtractor<T> {
 
     @Override
     protected String doExtraction(FleakData fleakData) {
-      return String.valueOf(fleakData.unwrap());
+      Object raw = fleakData.unwrap();
+      if (raw == null) {
+        return handleError();
+      }
+      if (raw instanceof Number) {
+        return new BigDecimal(raw.toString()).stripTrailingZeros().toPlainString();
+      }
+      return String.valueOf(raw);
     }
 
     @Override

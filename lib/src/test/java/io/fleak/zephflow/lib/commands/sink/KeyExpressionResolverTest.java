@@ -11,11 +11,12 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.pathselect;
+package io.fleak.zephflow.lib.commands.sink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.lib.pathselect.PathExpression;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -51,7 +52,7 @@ class KeyExpressionResolverTest {
   @Test
   void resolvesNumericValueWithoutDecimalPoint() {
     KeyExpressionResolver resolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             PathExpression.fromString("$.id"), "partitionKeyFieldExpressionStr", "no key is set");
 
     assertEquals("4", resolver.resolve(FleakData.wrap(Map.of("id", 4))));
@@ -61,16 +62,29 @@ class KeyExpressionResolverTest {
   @Test
   void resolvesBooleanValue() {
     KeyExpressionResolver resolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             PathExpression.fromString("$.active"), "partitionKeyFieldExpressionStr", "no key");
 
     assertEquals("true", resolver.resolve(FleakData.wrap(Map.of("active", true))));
   }
 
   @Test
+  void passesAnEmptyStringThroughAsAKey() {
+    KeyExpressionResolver resolver =
+        new KeyExpressionResolver(
+            PathExpression.fromString("$.id"), "partitionKeyFieldExpressionStr", "no key");
+
+    // Deliberately unchanged: an empty string is a value, not a missing field, so it stays a key.
+    // (Kafka and Event Hub accept it; Kinesis rejects it, which is pre-existing behavior for any
+    // string-typed key expression and is not this resolver's call to silently paper over.)
+    assertEquals("", resolver.resolve(FleakData.wrap(Map.of("id", ""))));
+    assertTrue(appender.messages.isEmpty());
+  }
+
+  @Test
   void returnsNullForNonScalarValue() {
     KeyExpressionResolver resolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             PathExpression.fromString("$.id"), "partitionKeyFieldExpressionStr", "no key");
 
     assertNull(resolver.resolve(FleakData.wrap(Map.of("id", Map.of("nested", 1)))));
@@ -79,7 +93,7 @@ class KeyExpressionResolverTest {
   @Test
   void warnsOnceWhenTheKeyCannotBeResolved() {
     KeyExpressionResolver resolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             PathExpression.fromString("$.id"),
             "partitionKeyFieldExpressionStr",
             "records are sent without a partition key");
@@ -94,15 +108,16 @@ class KeyExpressionResolverTest {
     assertTrue(warning.contains("partitionKeyFieldExpressionStr"), warning);
     assertTrue(warning.contains("$.id"), warning);
     assertTrue(warning.contains("records are sent without a partition key"), warning);
+    // The offending record is included so the warning is actionable without a repro.
+    assertTrue(warning.contains("\"nested\""), warning);
   }
 
   @Test
   void unconfiguredResolverReturnsNullWithoutWarning() {
     KeyExpressionResolver resolver =
-        KeyExpressionResolver.of(null, "partitionKeyFieldExpressionStr", "no key");
+        new KeyExpressionResolver(null, "partitionKeyFieldExpressionStr", "no key");
 
     assertNull(resolver.resolve(FleakData.wrap(Map.of("id", 4))));
-    assertFalse(resolver.isConfigured());
     assertTrue(appender.messages.isEmpty(), "an unconfigured key must not warn");
   }
 

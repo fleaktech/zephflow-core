@@ -16,8 +16,8 @@ package io.fleak.zephflow.lib.commands.pubsubsink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.pathselect.KeyExpressionResolver;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import javax.annotation.Nullable;
 
@@ -28,7 +28,7 @@ public class PubSubSinkMessageProcessor
 
   public PubSubSinkMessageProcessor(@Nullable PathExpression orderingKeyExpression) {
     this.orderingKeyResolver =
-        KeyExpressionResolver.of(
+        new KeyExpressionResolver(
             orderingKeyExpression,
             "orderingKeyExpression",
             "such messages are published without an ordering key");
