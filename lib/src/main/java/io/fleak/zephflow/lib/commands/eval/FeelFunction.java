@@ -56,6 +56,10 @@ public interface FeelFunction {
             .put("epoch_to_ts_str", new EpochToTsStrFunction())
             .put("str_contains", new StrContainsFunction())
             .put("regex_match", new RegexMatchFunction())
+            .put("regex_match_any", new RegexMatchAnyFunction())
+            .put("regex_search_any", new RegexSearchAnyFunction())
+            .put("num_compare_any", new NumCompareAnyFunction())
+            .put("date_component_eq_any", new DateComponentEqAnyFunction())
             .put("to_str", new ToStringFunction())
             .put("upper", new UpperFunction())
             .put("lower", new LowerFunction())
@@ -82,7 +86,9 @@ public interface FeelFunction {
             .put("ceil", new CeilFunction())
             .put("now", new NowFunction())
             .put("random_long", new RandomLongFunction())
-            .put("in", new InFunction());
+            .put("in", new InFunction())
+            .put("cidr_match", new CidrMatchFunction())
+            .put("deep_contains", new DeepContainsFunction());
 
     if (pythonExecutor != null) {
       builder.put("python", new PythonFunction(pythonExecutor));
