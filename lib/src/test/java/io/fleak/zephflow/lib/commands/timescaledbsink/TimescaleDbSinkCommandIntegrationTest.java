@@ -14,10 +14,14 @@
 package io.fleak.zephflow.lib.commands.timescaledbsink;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -94,13 +98,24 @@ class TimescaleDbSinkCommandIntegrationTest {
             .build();
 
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
-    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+
+    // timescaledbsink reuses JdbcSinkFlusher, which used to report a hard-coded 0 data size, so
+    // output_event_size was always 0 for this node. Capture the counter to prove it now reports.
+    FleakCounter outputSizeCounter = mock(FleakCounter.class);
+    MetricClientProvider metricClientProvider = mock(MetricClientProvider.class);
+    when(metricClientProvider.counter(anyString(), anyMap()))
+        .thenReturn(new MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter());
+    when(metricClientProvider.counter(eq(METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT), anyMap()))
+        .thenReturn(outputSizeCounter);
+
+    command.initialize(metricClientProvider);
     var result = command.writeToSink(events, "user", command.getExecutionContext());
 
     assertEquals(2, result.getSuccessCount());
     assertEquals(0, result.getFailureEvents().size());
     assertTrue(isHypertable("metrics"));
     assertEquals(2, rowCount());
+    verify(outputSizeCounter).increase(longThat(size -> size > 0), anyMap());
   }
 
   @SneakyThrows

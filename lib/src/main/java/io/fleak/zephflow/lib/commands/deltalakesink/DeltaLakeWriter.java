@@ -530,7 +530,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
           "Flushing {} remaining buffered events before closing writer for path: {}",
           snapshot.size(),
           config.getTablePath());
-      SimpleSinkCommand.FlushResult result = executeFlush(snapshot, Map.of());
+      SimpleSinkCommand.FlushResult result = executeFlushOutOfBand(snapshot, Map.of());
       if (!result.errorOutputList().isEmpty()) {
         reportErrorMetrics(result.errorOutputList().size(), Map.of());
         if (dlqWriter == null) {

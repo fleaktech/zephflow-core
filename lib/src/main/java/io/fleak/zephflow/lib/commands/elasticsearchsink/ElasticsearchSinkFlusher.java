@@ -76,10 +76,16 @@ public class ElasticsearchSinkFlusher
     var metaNode = OBJECT_MAPPER.createObjectNode();
     metaNode.putObject("index").put("_index", index);
     String actionMeta = OBJECT_MAPPER.writeValueAsString(metaNode);
+    int actionMetaBytes = actionMeta.getBytes(StandardCharsets.UTF_8).length;
+    // Per-doc NDJSON byte sizes, so a partial failure can report only what actually got indexed.
+    long[] docBytes = new long[docs.size()];
     StringBuilder ndjson = new StringBuilder();
-    for (ElasticsearchOutboundDoc doc : docs) {
+    for (int i = 0; i < docs.size(); i++) {
+      String jsonPayload = docs.get(i).jsonPayload();
       ndjson.append(actionMeta).append("\n");
-      ndjson.append(doc.jsonPayload()).append("\n");
+      ndjson.append(jsonPayload).append("\n");
+      // action-meta line + its newline + payload line + its newline
+      docBytes[i] = actionMetaBytes + 1L + jsonPayload.getBytes(StandardCharsets.UTF_8).length + 1L;
     }
 
     byte[] bodyBytes = ndjson.toString().getBytes(StandardCharsets.UTF_8);
@@ -127,6 +133,7 @@ public class ElasticsearchSinkFlusher
 
     List<ErrorOutput> errors = new ArrayList<>();
     int successCount = 0;
+    long flushedDataSize = 0;
     JsonNode items = bulkResponse.path("items");
     var rawAndPrepared = preparedInputEvents.rawAndPreparedList();
     for (int i = 0; i < items.size(); i++) {
@@ -135,6 +142,9 @@ public class ElasticsearchSinkFlusher
       int status = indexResult.path("status").asInt(200);
       if (status >= 200 && status < 300) {
         successCount++;
+        if (i < docBytes.length) {
+          flushedDataSize += docBytes[i];
+        }
       } else {
         String errorReason = indexResult.path("error").path("reason").asText("unknown error");
         if (i < rawAndPrepared.size()) {
@@ -144,7 +154,7 @@ public class ElasticsearchSinkFlusher
     }
 
     log.debug("Elasticsearch bulk: {} succeeded, {} failed", successCount, errors.size());
-    return new SimpleSinkCommand.FlushResult(successCount, bodyBytes.length, errors);
+    return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, errors);
   }
 
   @Override
