@@ -239,6 +239,47 @@ class JdbcSinkFlusherTest {
     flusher.close();
   }
 
+  /**
+   * jdbcsink (and timescaledbsink, which reuses this flusher) used to hard-code a 0 data size, so
+   * {@code output_event_size} was always 0 for both.
+   */
+  @Test
+  void flushReportsEstimatedRowBytes() throws Exception {
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL, null, null, "test_sink", null, JdbcSinkDto.WriteMode.INSERT, List.of());
+
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    events.add(record, buildRow(1.0, "alpha", 10.5));
+    events.add(record, buildRow(2.0, "beta", 20.0));
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(2, result.successCount());
+    // Two rows of (Double id = 8, String name, Double amount = 8).
+    long expected = (8 + 5 + 8) + (8 + 4 + 8);
+    assertEquals(expected, result.flushedDataSize());
+  }
+
+  @Test
+  void flushOfNonAsciiValueCountsUtf8Bytes() throws Exception {
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL, null, null, "test_sink", null, JdbcSinkDto.WriteMode.INSERT, List.of());
+
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    // "日本" is 2 chars but 6 UTF-8 bytes.
+    events.add(record, buildRow(1.0, "日本", 10.5));
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(8 + 6 + 8, result.flushedDataSize());
+  }
+
   private static Map<String, Object> buildRow(double id, String name, double amount) {
     LinkedHashMap<String, Object> row = new LinkedHashMap<>();
     row.put("id", id);

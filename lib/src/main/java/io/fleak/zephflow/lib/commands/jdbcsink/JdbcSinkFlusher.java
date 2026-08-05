@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.jdbcsink;
 
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcDriverLoader;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkDataSizeEstimator;
 import java.io.IOException;
 import java.sql.*;
 import java.util.*;
@@ -68,11 +69,13 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
       List<String> columns = new ArrayList<>(data.getFirst().keySet());
       String sql = buildSql(columns);
 
+      long flushedDataSize = 0;
       try (PreparedStatement stmt = connection.prepareStatement(sql)) {
         for (Map<String, Object> row : data) {
           for (int i = 0; i < columns.size(); i++) {
             Object value = row.get(columns.get(i));
             stmt.setObject(i + 1, value);
+            flushedDataSize += SinkDataSizeEstimator.estimateValueBytes(value);
           }
           stmt.addBatch();
         }
@@ -80,8 +83,8 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
       }
 
       connection.commit();
-      log.debug("Flushed {} rows to JDBC sink", data.size());
-      return new SimpleSinkCommand.FlushResult(data.size(), 0, List.of());
+      log.debug("Flushed {} rows ({} bytes) to JDBC sink", data.size(), flushedDataSize);
+      return new SimpleSinkCommand.FlushResult(data.size(), flushedDataSize, List.of());
     } catch (Exception e) {
       try {
         connection.rollback();

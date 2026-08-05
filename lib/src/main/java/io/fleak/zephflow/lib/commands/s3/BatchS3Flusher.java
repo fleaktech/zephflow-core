@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
@@ -29,6 +30,7 @@ import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
@@ -52,6 +54,8 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
   private final BlobFileWriter<RecordFleakData> fileWriter;
   private final int batchSize;
   private final long flushIntervalMs;
+  private final FleakCounter sinkOutputCounter;
+  private final FleakCounter outputSizeCounter;
   private Path tempDirectory;
 
   public BatchS3Flusher(
@@ -63,7 +67,9 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       long flushIntervalMs,
       DlqWriter dlqWriter,
       JobContext jobContext,
-      String nodeId) {
+      String nodeId,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter) {
     super(dlqWriter, jobContext, nodeId);
     this.s3TransferResources = s3TransferResources;
     this.bucketName = bucketName;
@@ -71,6 +77,20 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     this.fileWriter = fileWriter;
     this.batchSize = batchSize;
     this.flushIntervalMs = flushIntervalMs;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+  }
+
+  /**
+   * Only reached for timer-driven and close-time flushes (see {@link
+   * AbstractBufferedFlusher#executeFlushOutOfBand}). Batch-size-triggered flushes return their
+   * result to {@code SimpleSinkCommand}, which counts them.
+   */
+  @Override
+  protected void reportMetrics(
+      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
+    sinkOutputCounter.increase(result.successCount(), metricTags);
+    outputSizeCounter.increase(result.flushedDataSize(), metricTags);
   }
 
   @Override
@@ -193,7 +213,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     List<Pair<RecordFleakData, RecordFleakData>> remaining = swapBufferIfNotEmpty();
     if (!remaining.isEmpty()) {
       log.info("Flushing {} remaining records on close", remaining.size());
-      executeFlush(remaining, java.util.Map.of());
+      executeFlushOutOfBand(remaining, Map.of());
     }
     s3TransferResources.close();
     if (dlqWriter != null) {

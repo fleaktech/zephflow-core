@@ -21,6 +21,7 @@ import jakarta.mail.Session;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +71,7 @@ public class SmtpSinkFlusher implements SimpleSinkCommand.Flusher<PreparedEmail>
         MimeMessage message = createMimeMessage(email);
         Transport.send(message, username, password);
         sentCount++;
-        totalSize += email.body() != null ? email.body().length() : 0;
+        totalSize += messageSizeBytes(email);
       } catch (Exception e) {
         log.error("Failed to send email to {}", email.to(), e);
         errorOutputs.add(new ErrorOutput(rawEvent, e.getMessage()));
@@ -79,6 +80,19 @@ public class SmtpSinkFlusher implements SimpleSinkCommand.Flusher<PreparedEmail>
 
     log.debug("SMTP flush completed: {} sent, {} errors", sentCount, errorOutputs.size());
     return new SimpleSinkCommand.FlushResult(sentCount, totalSize, errorOutputs);
+  }
+
+  /**
+   * Bytes of the message content we generated: subject plus body, measured as UTF-8 rather than as
+   * Java chars so non-ASCII mail is not under-reported. Excludes MIME headers and transfer
+   * encoding, which the mail library adds.
+   */
+  static long messageSizeBytes(PreparedEmail email) {
+    return utf8Length(email.subject()) + utf8Length(email.body());
+  }
+
+  private static long utf8Length(String s) {
+    return s == null ? 0L : s.getBytes(StandardCharsets.UTF_8).length;
   }
 
   MimeMessage createMimeMessage(PreparedEmail email) throws Exception {

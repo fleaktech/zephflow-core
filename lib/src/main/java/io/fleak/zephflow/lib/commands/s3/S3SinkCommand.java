@@ -60,7 +60,8 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     S3SinkDto.Config config = (S3SinkDto.Config) commandConfig;
-    SimpleSinkCommand.Flusher<RecordFleakData> flusher = createS3Flusher(config, jobContext);
+    SimpleSinkCommand.Flusher<RecordFleakData> flusher =
+        createS3Flusher(config, jobContext, counters);
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
 
@@ -75,7 +76,7 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createS3Flusher(
-      S3SinkDto.Config config, JobContext jobContext) {
+      S3SinkDto.Config config, JobContext jobContext, SinkCounters counters) {
     Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt =
         lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
 
@@ -104,7 +105,9 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
               config.getFlushIntervalMillis(),
               dlqWriter,
               jobContext,
-              nodeId);
+              nodeId,
+              counters.sinkOutputCounter(),
+              counters.outputSizeCounter());
       flusher.initialize();
       return flusher;
     } else {

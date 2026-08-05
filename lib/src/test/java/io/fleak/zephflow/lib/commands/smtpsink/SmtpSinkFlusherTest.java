@@ -110,6 +110,29 @@ class SmtpSinkFlusherTest {
     assertNull(message.getRecipients(Message.RecipientType.CC));
   }
 
+  /**
+   * The size used to be {@code body().length()} — a Java char count, which under-reports non-ASCII
+   * mail and ignored the subject entirely.
+   */
+  @Test
+  void messageSizeCountsUtf8BytesOfSubjectAndBody() {
+    // "Grüße" is 5 chars / 7 UTF-8 bytes; "日本語" is 3 chars / 9 UTF-8 bytes.
+    PreparedEmail email =
+        new PreparedEmail(
+            "from@test.com", List.of("to@test.com"), List.of(), "Grüße", "日本語", "text/plain");
+
+    assertEquals(7 + 9, SmtpSinkFlusher.messageSizeBytes(email));
+  }
+
+  @Test
+  void messageSizeToleratesNullSubjectAndBody() {
+    PreparedEmail email =
+        new PreparedEmail(
+            "from@test.com", List.of("to@test.com"), List.of(), null, null, "text/plain");
+
+    assertEquals(0, SmtpSinkFlusher.messageSizeBytes(email));
+  }
+
   @Test
   void testFlushEmptyEvents() throws Exception {
     SimpleSinkCommand.PreparedInputEvents<PreparedEmail> emptyEvents =

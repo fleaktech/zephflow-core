@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
@@ -49,6 +50,8 @@ class BatchS3FlusherTest {
   private S3Client testS3Client;
   private BatchS3Flusher flusher;
   private AwsClientFactory awsClientFactory;
+  private FleakCounter sinkOutputCounter;
+  private FleakCounter outputSizeCounter;
 
   @Container
   protected static MinIOContainer minioContainer =
@@ -57,6 +60,8 @@ class BatchS3FlusherTest {
   @BeforeEach
   void setUp() {
     awsClientFactory = new AwsClientFactory();
+    sinkOutputCounter = mock(FleakCounter.class);
+    outputSizeCounter = mock(FleakCounter.class);
     testS3Client = createS3Client();
     testS3Client.createBucket(b -> b.bucket(BUCKET_NAME));
   }
@@ -111,7 +116,9 @@ class BatchS3FlusherTest {
         flushIntervalMs,
         null,
         null,
-        null);
+        null,
+        sinkOutputCounter,
+        outputSizeCounter);
   }
 
   @Test
@@ -159,6 +166,61 @@ class BatchS3FlusherTest {
 
     List<String> objectKeys = listS3Objects();
     assertEquals(1, objectKeys.size());
+  }
+
+  /**
+   * A timer-driven flush never returns its FlushResult to SimpleSinkCommand, so reportMetrics is
+   * the only thing that can count it. Before reportMetrics was implemented here, these flushes
+   * uploaded to S3 and reported nothing.
+   */
+  @Test
+  void timerFlushReportsOutputSizeAndCount() throws Exception {
+    flusher = createFlusher(100, 60000);
+    flusher.initialize();
+
+    for (int i = 0; i < 3; i++) {
+      Map<String, Object> data = new HashMap<>();
+      data.put("id", i);
+      data.put("name", "test" + i);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(data);
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, record);
+      flusher.flush(events, Map.of());
+    }
+
+    // Buffer is below the batch size, so nothing has been reported yet.
+    verify(outputSizeCounter, never()).increase(anyLong(), anyMap());
+
+    flusher.executeScheduledFlush();
+
+    verify(sinkOutputCounter).increase(eq(3L), anyMap());
+    verify(outputSizeCounter).increase(longThat(size -> size > 0), anyMap());
+  }
+
+  /**
+   * A batch-size-triggered flush returns its FlushResult to SimpleSinkCommand, which counts it. The
+   * flusher must not also report it, or every inline flush is counted twice.
+   */
+  @Test
+  void inlineFlushDoesNotDoubleReport() throws Exception {
+    flusher = createFlusher(1, 60000);
+    flusher.initialize();
+
+    Map<String, Object> data = Map.of("id", 1, "name", "test");
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(data);
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record, record);
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    // The size comes back on the result for SimpleSinkCommand to count...
+    assertEquals(1, result.successCount());
+    assertTrue(result.flushedDataSize() > 0);
+    // ...and must not be reported a second time by the flusher itself.
+    verify(outputSizeCounter, never()).increase(anyLong(), anyMap());
+    verify(sinkOutputCounter, never()).increase(anyLong(), anyMap());
   }
 
   @Test
@@ -227,7 +289,17 @@ class BatchS3FlusherTest {
 
     flusher =
         new BatchS3Flusher(
-            s3TransferResources, BUCKET_NAME, KEY_NAME, parquetWriter, 5, 60000, null, null, null);
+            s3TransferResources,
+            BUCKET_NAME,
+            KEY_NAME,
+            parquetWriter,
+            5,
+            60000,
+            null,
+            null,
+            null,
+            sinkOutputCounter,
+            outputSizeCounter);
     flusher.initialize();
 
     for (int i = 0; i < 5; i++) {
@@ -289,7 +361,9 @@ class BatchS3FlusherTest {
             60000,
             mockDlqWriter,
             null,
-            "s3-test-node");
+            "s3-test-node",
+            sinkOutputCounter,
+            outputSizeCounter);
     dlqFlusher.initialize();
 
     Map<String, Object> data = Map.of("id", 1, "name", "test");

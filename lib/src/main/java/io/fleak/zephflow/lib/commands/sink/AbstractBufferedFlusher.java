@@ -169,7 +169,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   private void executeScheduledFlushInternal(List<Pair<RecordFleakData, T>> batch) {
     try {
-      SimpleSinkCommand.FlushResult result = executeFlush(batch, Map.of());
+      SimpleSinkCommand.FlushResult result = executeFlushOutOfBand(batch, Map.of());
       if (!result.errorOutputList().isEmpty()) {
         reportErrorMetrics(result.errorOutputList().size(), Map.of());
         handleScheduledFlushErrors(result.errorOutputList());
@@ -252,7 +252,10 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   }
 
   /**
-   * Executes a flush with proper lock handling and metrics reporting.
+   * Executes a flush with proper lock handling, for flushes triggered from {@link #flush}. Does
+   * <b>not</b> call {@link #reportMetrics}: the returned {@link SimpleSinkCommand.FlushResult}
+   * travels back to {@link SimpleSinkCommand#writeToSink}, which already counts it. Reporting here
+   * too would double-count both {@code sink_output_count} and {@code output_event_size}.
    *
    * @param batch The batch to flush
    * @param metricTags Tags for metrics
@@ -268,12 +271,28 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
     beforeWrite();
     try {
-      SimpleSinkCommand.FlushResult result = doFlushWithRecovery(batch);
-      reportMetrics(result, metricTags);
-      return result;
+      return doFlushWithRecovery(batch);
     } finally {
       afterWrite();
     }
+  }
+
+  /**
+   * Executes a flush whose result never reaches {@link SimpleSinkCommand} — timer-driven and
+   * close-time flushes. Because nothing downstream will count the result, this is the only place
+   * those flushes can be reported, so it calls {@link #reportMetrics}. Subclasses that buffer must
+   * use this (not {@link #executeFlush}) from their own close path, or the final partial batch is
+   * written but never counted.
+   *
+   * @param batch The batch to flush
+   * @param metricTags Tags for metrics
+   * @return The flush result
+   */
+  protected final SimpleSinkCommand.FlushResult executeFlushOutOfBand(
+      List<Pair<RecordFleakData, T>> batch, Map<String, String> metricTags) {
+    SimpleSinkCommand.FlushResult result = executeFlush(batch, metricTags);
+    reportMetrics(result, metricTags);
+    return result;
   }
 
   /**
