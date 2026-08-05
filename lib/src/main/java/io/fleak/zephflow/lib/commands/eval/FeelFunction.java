@@ -88,7 +88,9 @@ public interface FeelFunction {
             .put("random_long", new RandomLongFunction())
             .put("in", new InFunction())
             .put("cidr_match", new CidrMatchFunction())
-            .put("deep_contains", new DeepContainsFunction());
+            .put("deep_contains", new DeepContainsFunction())
+            .put("coalesce", new CoalesceFunction())
+            .put("concat", new ConcatFunction());
 
     if (pythonExecutor != null) {
       builder.put("python", new PythonFunction(pythonExecutor));
