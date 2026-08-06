@@ -87,6 +87,7 @@ public interface FeelFunction {
             .put("now", new NowFunction())
             .put("random_long", new RandomLongFunction())
             .put("in", new InFunction())
+            .put("exists", new ExistsFunction())
             .put("cidr_match", new CidrMatchFunction())
             .put("deep_contains", new DeepContainsFunction())
             .put("coalesce", new CoalesceFunction())
