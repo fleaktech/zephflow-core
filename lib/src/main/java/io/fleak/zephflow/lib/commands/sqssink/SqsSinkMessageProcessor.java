@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.sqssink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import javax.annotation.Nullable;
@@ -23,30 +24,29 @@ import javax.annotation.Nullable;
 public class SqsSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<SqsOutboundMessage> {
 
-  private final PathExpression messageGroupIdExpression;
-  private final PathExpression deduplicationIdExpression;
+  private final KeyExpressionResolver messageGroupIdResolver;
+  private final KeyExpressionResolver deduplicationIdResolver;
 
   public SqsSinkMessageProcessor(
       @Nullable PathExpression messageGroupIdExpression,
       @Nullable PathExpression deduplicationIdExpression) {
-    this.messageGroupIdExpression = messageGroupIdExpression;
-    this.deduplicationIdExpression = deduplicationIdExpression;
+    this.messageGroupIdResolver =
+        new KeyExpressionResolver(
+            messageGroupIdExpression,
+            "messageGroupIdExpression",
+            "such messages are sent without a message group id, which a FIFO queue rejects");
+    this.deduplicationIdResolver =
+        new KeyExpressionResolver(
+            deduplicationIdExpression,
+            "deduplicationIdExpression",
+            "such messages are sent without a deduplication id and rely on the queue's"
+                + " content-based deduplication, if enabled");
   }
 
   @Override
   public SqsOutboundMessage preprocess(RecordFleakData event, long ts) {
     String body = toJsonString(event);
-
-    String messageGroupId = null;
-    if (messageGroupIdExpression != null) {
-      messageGroupId = messageGroupIdExpression.getStringValueFromEventOrDefault(event, null);
-    }
-
-    String deduplicationId = null;
-    if (deduplicationIdExpression != null) {
-      deduplicationId = deduplicationIdExpression.getStringValueFromEventOrDefault(event, null);
-    }
-
-    return new SqsOutboundMessage(body, messageGroupId, deduplicationId);
+    return new SqsOutboundMessage(
+        body, messageGroupIdResolver.resolve(event), deduplicationIdResolver.resolve(event));
   }
 }

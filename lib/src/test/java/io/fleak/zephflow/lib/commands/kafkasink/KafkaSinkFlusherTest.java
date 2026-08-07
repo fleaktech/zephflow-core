@@ -33,6 +33,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -238,6 +239,35 @@ class KafkaSinkFlusherTest {
   }
 
   @Test
+  void testNumericPartitionKeyExpression() throws Exception {
+    PathExpression keyExpression = PathExpression.fromString("$.id");
+    KafkaSinkFlusher flusherWithKey =
+        new KafkaSinkFlusher(
+            mockProducer,
+            topic,
+            mockSerializer,
+            keyExpression,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
+
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
+        createPreparedEvents(List.of((RecordFleakData) FleakData.wrap(Map.of("id", 7))));
+
+    SimpleSinkCommand.FlushResult result = flusherWithKey.flush(preparedEvents, TEST_METRIC_TAGS);
+
+    assertEquals(1, result.successCount());
+    ArgumentCaptor<ProducerRecord<byte[], byte[]>> sent =
+        ArgumentCaptor.forClass(ProducerRecord.class);
+    verify(mockProducer).send(sent.capture(), any(Callback.class));
+    // A numeric id must produce a record key ("7", not "7.0" and not null).
+    assertNotNull(sent.getValue().key(), "numeric partition key was dropped");
+    assertEquals("7", new String(sent.getValue().key(), java.nio.charset.StandardCharsets.UTF_8));
+
+    flusherWithKey.close();
+  }
+
+  @Test
   void testEmptyFlush_HandledGracefully() throws Exception {
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> emptyEvents =
         new SimpleSinkCommand.PreparedInputEvents<>();
@@ -330,7 +360,7 @@ class KafkaSinkFlusherTest {
   @Test
   void testPartitionKey_NullHandling() throws Exception {
     PathExpression nullKeyExpression = mock(PathExpression.class);
-    when(nullKeyExpression.getStringValueFromEventOrDefault(any(), any())).thenReturn(null);
+    when(nullKeyExpression.getScalarStringValueFromEventOrDefault(any(), any())).thenReturn(null);
 
     KafkaSinkFlusher nullKeyFlusher =
         new KafkaSinkFlusher(
@@ -359,7 +389,7 @@ class KafkaSinkFlusherTest {
   @Test
   void testPartitionKey_ExpressionError() throws Exception {
     PathExpression errorKeyExpression = mock(PathExpression.class);
-    when(errorKeyExpression.getStringValueFromEventOrDefault(any(), any()))
+    when(errorKeyExpression.getScalarStringValueFromEventOrDefault(any(), any()))
         .thenThrow(new RuntimeException("Path evaluation failed"));
 
     KafkaSinkFlusher errorKeyFlusher =

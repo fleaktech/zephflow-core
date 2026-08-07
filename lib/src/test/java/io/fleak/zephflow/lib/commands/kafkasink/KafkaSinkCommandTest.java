@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,7 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -137,6 +139,69 @@ class KafkaSinkCommandTest {
                 r -> fromJsonString(new String(r.value()), new TypeReference<RecordFleakData>() {}))
             .toList();
     assertEquals(SOURCE_EVENTS, foundEvents);
+  }
+
+  /**
+   * Regression test for FLE-2242: a numeric partition key used to resolve to null, so records were
+   * sent unkeyed and one id's records were spread over every partition. Mirrors the manual
+   * reproduction: ten records with ids 1x1, 2x2, 3x3, 4x4 over a four-partition topic.
+   */
+  @Test
+  public void testNumericPartitionKeyKeepsEachKeyInOnePartition() throws Exception {
+    String topic = "numeric_key_topic";
+    adminClient
+        .createTopics(Collections.singleton(new NewTopic(topic, 4, (short) 1)))
+        .all()
+        .get(30, TimeUnit.SECONDS);
+
+    List<RecordFleakData> events = new ArrayList<>();
+    for (int id = 1; id <= 4; id++) {
+      for (int copy = 0; copy < id; copy++) {
+        events.add((RecordFleakData) FleakData.wrap(Map.of("id", id, "copy", copy)));
+      }
+    }
+
+    KafkaSinkCommand kafkaSinkCommand =
+        (KafkaSinkCommand)
+            new KafkaSinkCommandFactory().createCommand("my_node", TestUtils.JOB_CONTEXT);
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .topic(topic)
+            .broker(KAFKA_CONTAINER.getBootstrapServers())
+            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .partitionKeyFieldExpressionStr("$.id")
+            .build();
+    kafkaSinkCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    kafkaSinkCommand.writeToSink(events, "test_user", kafkaSinkCommand.getExecutionContext());
+
+    Properties props = getProperties();
+    props.put(ConsumerConfig.GROUP_ID_CONFIG, "numeric-key-consumer-group");
+    Map<String, Set<Integer>> partitionsByKey = new HashMap<>();
+    int consumed = 0;
+    try (KafkaConsumer<byte[], byte[]> keyedConsumer = new KafkaConsumer<>(props)) {
+      keyedConsumer.subscribe(Collections.singletonList(topic));
+      long deadline = System.currentTimeMillis() + 30_000;
+      while (consumed < events.size() && System.currentTimeMillis() < deadline) {
+        for (ConsumerRecord<byte[], byte[]> record :
+            keyedConsumer.poll(Duration.ofSeconds(2)).records(topic)) {
+          assertNotNull(record.key(), "record was sent without a key");
+          partitionsByKey
+              .computeIfAbsent(
+                  new String(record.key(), StandardCharsets.UTF_8), k -> new HashSet<>())
+              .add(record.partition());
+          consumed++;
+        }
+      }
+    }
+
+    assertEquals(events.size(), consumed, "not all records were delivered");
+    // Keys are the plain numeric ids ("4", not "4.0"), and each key sits in exactly one partition.
+    assertEquals(Set.of("1", "2", "3", "4"), partitionsByKey.keySet());
+    partitionsByKey.forEach(
+        (key, partitions) ->
+            assertEquals(1, partitions.size(), "key " + key + " was split across " + partitions));
   }
 
   @Test

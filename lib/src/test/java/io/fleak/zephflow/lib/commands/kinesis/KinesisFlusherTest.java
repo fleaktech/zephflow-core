@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kinesis;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
@@ -98,6 +99,39 @@ class KinesisFlusherTest {
                   assertEquals(2, request.records().size());
                   assertEquals("key1", request.records().get(0).partitionKey());
                   assertEquals("key2", request.records().get(1).partitionKey());
+                  return true;
+                }));
+  }
+
+  @Test
+  void testNumericPartitionKeyIsUsedForAllRecordsWithTheSameId() throws Exception {
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+
+    RecordFleakData record1 =
+        (RecordFleakData) FleakData.wrap(Map.of("partitionKey", 42, "data", "value1"));
+    RecordFleakData record2 =
+        (RecordFleakData) FleakData.wrap(Map.of("partitionKey", 42, "data", "value2"));
+    preparedInputEvents.add(record1, record1);
+    preparedInputEvents.add(record2, record2);
+
+    PutRecordsResponse mockResponse =
+        PutRecordsResponse.builder()
+            .failedRecordCount(0)
+            .records(
+                PutRecordsResultEntry.builder().build(), PutRecordsResultEntry.builder().build())
+            .build();
+    when(kinesisClient.putRecords(any(PutRecordsRequest.class))).thenReturn(mockResponse);
+
+    flusher.flush(preparedInputEvents, Map.of());
+
+    // A numeric key must resolve to the same deterministic key, not a per-record random UUID.
+    verify(kinesisClient)
+        .putRecords(
+            argThat(
+                (PutRecordsRequest request) -> {
+                  assertEquals("42", request.records().get(0).partitionKey());
+                  assertEquals("42", request.records().get(1).partitionKey());
                   return true;
                 }));
   }
