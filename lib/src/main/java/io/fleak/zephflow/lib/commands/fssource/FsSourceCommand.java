@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.fssource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.*;
+
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
-import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
@@ -26,7 +27,10 @@ import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.des.DeserializationOutcome;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import io.fleak.zephflow.lib.utils.CompressionUtils;
@@ -36,9 +40,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 @Slf4j
 public final class FsSourceCommand extends SourceCommand {
@@ -75,7 +81,41 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.checkpointClient = buildCheckpointClient(jobContext);
     executionContext.replicaIndex = parseIntProperty(jobContext, JobContext.REPLICA_INDEX, 0);
     executionContext.replicaCount = parseIntProperty(jobContext, JobContext.REPLICA_COUNT, 1);
+
+    Map<String, String> metricTags = metricTags(jobContext, nodeId);
+    executionContext.dataSizeCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, metricTags);
+    executionContext.inputEventCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
+    executionContext.deserializeFailureCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
+    executionContext.dlqWriter = buildDlqWriter(jobContext);
     return executionContext;
+  }
+
+  /**
+   * Same shape as {@link io.fleak.zephflow.lib.utils.MiscUtils#basicCommandMetricTags}, minus its
+   * precondition on service/env tags: a batch file read must still run when the job wasn't given
+   * metric tags.
+   */
+  private Map<String, String> metricTags(JobContext jobContext, String nodeId) {
+    Map<String, String> metricTags =
+        new java.util.HashMap<>(
+            jobContext.getMetricTags() == null ? Map.of() : jobContext.getMetricTags());
+    metricTags.put(METRIC_TAG_COMMAND_NAME, commandName());
+    metricTags.put(METRIC_TAG_NODE_ID, nodeId);
+    return metricTags;
+  }
+
+  private static DlqWriter buildDlqWriter(JobContext jobContext) {
+    JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
+    if (dlqConfig == null) {
+      return null;
+    }
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+    DlqWriter dlqWriter = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    dlqWriter.open();
+    return dlqWriter;
   }
 
   private static int parseIntProperty(JobContext jobContext, String key, int defaultValue) {
@@ -203,25 +243,82 @@ public final class FsSourceCommand extends SourceCommand {
     for (Pending pending : pendingFiles) {
       if (terminated) break;
       FileEntry fileEntry = pending.entry();
-      try {
-        byte[] bytes;
-        try (InputStream inputStream = executionContext.reader.open(fileEntry.key(), 0)) {
-          bytes = maybeGunzip(inputStream.readAllBytes());
-        }
-        List<RecordFleakData> records =
-            deserializer.deserialize(new SerializedEvent(null, bytes, null));
-        eventAcceptor.accept(records);
-        currentCheckpoint =
-            currentCheckpoint.withEmitted(fileEntry.key().urn(), pending.timestamp());
-        saveCheckpoint(executionContext.checkpointClient, sourceId, currentCheckpoint);
+      String urn = fileEntry.key().urn();
+
+      byte[] bytes;
+      try (InputStream inputStream = executionContext.reader.open(fileEntry.key(), 0)) {
+        bytes = maybeGunzip(inputStream.readAllBytes());
       } catch (Exception exception) {
-        log.error(
-            "fs_source skip file urn={} due to read/deserialize error",
-            fileEntry.key().urn(),
-            exception);
+        // Transient: leave the file uncheckpointed so a later run retries it.
+        log.error("fs_source skip file urn={} due to read error", urn, exception);
+        continue;
       }
+      executionContext.dataSizeCounter.increase(bytes.length, Map.of());
+
+      DeserializationOutcome outcome =
+          deserializer.deserializeWithErrors(new SerializedEvent(null, bytes, Map.of()));
+      boolean quarantined = reportDeserializationErrors(executionContext, urn, outcome);
+
+      try {
+        if (!outcome.records().isEmpty()) {
+          executionContext.inputEventCounter.increase(outcome.records().size(), Map.of());
+          eventAcceptor.accept(outcome.records());
+        }
+      } catch (Exception exception) {
+        // Downstream failure, not a data problem: don't checkpoint, so the file is retried.
+        log.error("fs_source skip file urn={} due to downstream error", urn, exception);
+        continue;
+      }
+
+      if (outcome.records().isEmpty() && !quarantined) {
+        // Nothing parsed and nowhere to quarantine it: leave uncheckpointed so a retry is possible.
+        log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
+        continue;
+      }
+
+      // Records that did parse were emitted, and malformed ones were quarantined, so the file is
+      // done. Checkpointing is what keeps a retry from re-emitting the records already emitted.
+      currentCheckpoint = currentCheckpoint.withEmitted(urn, pending.timestamp());
+      saveCheckpoint(executionContext.checkpointClient, sourceId, currentCheckpoint);
     }
     eventAcceptor.terminate();
+  }
+
+  /**
+   * Counts and logs deserialization failures, and writes the offending raw records to the dlq when
+   * one is configured.
+   *
+   * @return whether every failure is now recorded somewhere durable (trivially true when there were
+   *     no failures)
+   */
+  private boolean reportDeserializationErrors(
+      FsSourceExecutionContext executionContext, String urn, DeserializationOutcome outcome) {
+    if (!outcome.hasErrors()) {
+      return true;
+    }
+    executionContext.deserializeFailureCounter.increase(outcome.errors().size(), Map.of());
+    log.error(
+        "fs_source urn={}: {} record(s) failed to deserialize, {} emitted. first failure: {}",
+        urn,
+        outcome.errors().size(),
+        outcome.records().size(),
+        outcome.errors().getFirst().error().toString());
+    if (executionContext.dlqWriter == null) {
+      return false;
+    }
+    for (DeserializationOutcome.RecordError recordError : outcome.errors()) {
+      Map<String, String> metadata = new java.util.HashMap<>();
+      metadata.put(METADATA_FS_SOURCE_URN, urn);
+      if (recordError.recordIndex() > 0) {
+        metadata.put(METADATA_FS_SOURCE_RECORD_INDEX, String.valueOf(recordError.recordIndex()));
+      }
+      executionContext.dlqWriter.writeToDlq(
+          System.currentTimeMillis(),
+          new SerializedEvent(null, recordError.rawRecord(), metadata),
+          ExceptionUtils.getStackTrace(recordError.error()),
+          nodeId);
+    }
+    return true;
   }
 
   private static FsCheckpoint loadCheckpoint(CheckpointClient checkpointClient, String sourceId) {

@@ -18,7 +18,10 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.TypedEventContainer;
 import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /** Created by bolei on 9/16/24 */
 public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
@@ -37,5 +40,32 @@ public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
     List<TypedEventContainer<T>> typedEvents =
         multipleEventsTypedDeserializer.deserializeMultiple(serializedEvent);
     return typedEvents.stream().map(typedEventConverter::typedEventToFleakData).toList();
+  }
+
+  @Override
+  public DeserializationOutcome deserializeWithErrors(SerializedEvent serializedEvent) {
+    if (!(multipleEventsTypedDeserializer
+        instanceof LineOrientedTypedDeserializer<T> lineOrientedTypedDeserializer)) {
+      return super.deserializeWithErrors(serializedEvent);
+    }
+    Map<String, String> metadata = SerializedEvent.metadataWithKey(serializedEvent);
+    List<RecordFleakData> records = new ArrayList<>();
+    List<DeserializationOutcome.RecordError> errors = new ArrayList<>();
+    for (var lineOutcome :
+        lineOrientedTypedDeserializer.deserializeEachLine(serializedEvent.value())) {
+      if (lineOutcome.failed()) {
+        errors.add(
+            new DeserializationOutcome.RecordError(
+                lineOutcome.line().text().getBytes(StandardCharsets.UTF_8),
+                lineOutcome.line().number(),
+                lineOutcome.error()));
+        continue;
+      }
+      lineOutcome.events().stream()
+          .map(event -> new TypedEventContainer<>(event, metadata))
+          .map(typedEventConverter::typedEventToFleakData)
+          .forEach(records::add);
+    }
+    return new DeserializationOutcome(records, errors);
   }
 }

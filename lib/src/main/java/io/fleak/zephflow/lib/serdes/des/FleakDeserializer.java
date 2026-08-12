@@ -30,4 +30,19 @@ public abstract class FleakDeserializer<T> extends FleakSerdes<T> {
 
   public abstract List<RecordFleakData> deserialize(SerializedEvent serializedEvent)
       throws Exception;
+
+  /**
+   * Deserializes without throwing on malformed input: returns the records that parsed plus an error
+   * per record that didn't, so a caller can emit the good records and quarantine the bad ones.
+   *
+   * <p>The default treats the payload as one indivisible unit. Line-oriented formats override this
+   * to report per-line errors.
+   */
+  public DeserializationOutcome deserializeWithErrors(SerializedEvent serializedEvent) {
+    try {
+      return DeserializationOutcome.success(deserialize(serializedEvent));
+    } catch (Exception e) {
+      return DeserializationOutcome.wholePayloadFailure(serializedEvent.value(), e);
+    }
+  }
 }
