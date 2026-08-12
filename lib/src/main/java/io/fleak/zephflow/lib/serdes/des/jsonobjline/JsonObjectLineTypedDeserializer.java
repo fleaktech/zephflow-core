@@ -16,26 +16,53 @@ package io.fleak.zephflow.lib.serdes.des.jsonobjline;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.fleak.zephflow.lib.serdes.des.MultipleEventsTypedDeserializer;
+import io.fleak.zephflow.lib.serdes.des.LineOrientedTypedDeserializer;
+import java.util.ArrayList;
 import java.util.List;
 
-/** Created by bolei on 3/17/25 */
-public class JsonObjectLineTypedDeserializer extends MultipleEventsTypedDeserializer<ObjectNode> {
+/**
+ * Reads one JSON value per line. A line holding an object yields one event; a line holding an array
+ * of objects is flattened into one event per element:
+ *
+ * <pre>
+ * {"a":1}
+ * [{"a":2},{"a":3}]   -&gt; two events
+ * </pre>
+ *
+ * <p>An array line can only ever mean several events (an event is always a JSON object), so
+ * flattening is unambiguous. Blank lines are ignored.
+ *
+ * <p>Created by bolei on 3/17/25
+ */
+public class JsonObjectLineTypedDeserializer extends LineOrientedTypedDeserializer<ObjectNode> {
+
   @Override
-  protected List<ObjectNode> deserializeToMultipleTypedEvent(byte[] value) {
-    String rawStr = new String(value);
-    return rawStr
-        .lines()
-        .map(
-            l -> {
-              try {
-                return OBJECT_MAPPER.readTree(l);
-              } catch (JsonProcessingException e) {
-                throw new IllegalArgumentException("failed to parse json object line: " + l, e);
-              }
-            })
-        .map(jn -> (ObjectNode) jn)
-        .toList();
+  protected List<ObjectNode> deserializeLine(String line) {
+    JsonNode jsonNode;
+    try {
+      jsonNode = OBJECT_MAPPER.readTree(line);
+    } catch (JsonProcessingException e) {
+      throw new IllegalArgumentException("failed to parse json object line: " + line, e);
+    }
+    if (jsonNode instanceof ObjectNode objectNode) {
+      return List.of(objectNode);
+    }
+    if (!jsonNode.isArray()) {
+      throw new IllegalArgumentException(
+          "expected a JSON object or an array of JSON objects per line, but this line is a %s: %s"
+              .formatted(jsonNode.getNodeType(), line));
+    }
+    List<ObjectNode> events = new ArrayList<>();
+    for (JsonNode element : jsonNode) {
+      if (!(element instanceof ObjectNode objectNode)) {
+        throw new IllegalArgumentException(
+            "expected an array of JSON objects, but element %d of this line is a %s: %s"
+                .formatted(events.size(), element.getNodeType(), line));
+      }
+      events.add(objectNode);
+    }
+    return events;
   }
 }

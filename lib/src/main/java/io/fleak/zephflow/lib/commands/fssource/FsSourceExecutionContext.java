@@ -14,11 +14,13 @@
 package io.fleak.zephflow.lib.commands.fssource;
 
 import io.fleak.zephflow.api.ExecutionContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.commands.fssource.api.FileLister;
 import io.fleak.zephflow.lib.commands.fssource.api.FileReader;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackend;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
 
 public final class FsSourceExecutionContext implements ExecutionContext {
@@ -30,6 +32,12 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   CheckpointClient checkpointClient;
   int replicaIndex;
   int replicaCount = 1;
+  FleakCounter dataSizeCounter;
+  FleakCounter inputEventCounter;
+  FleakCounter deserializeFailureCounter;
+
+  /** null when the job has no dlq configured. */
+  DlqWriter dlqWriter;
 
   @Override
   public void close() throws IOException {
@@ -46,6 +54,11 @@ public final class FsSourceExecutionContext implements ExecutionContext {
     if (checkpointClient != null)
       try {
         checkpointClient.close();
+      } catch (Exception ignored) {
+      }
+    if (dlqWriter != null)
+      try {
+        dlqWriter.close();
       } catch (Exception ignored) {
       }
   }
