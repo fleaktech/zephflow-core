@@ -26,7 +26,6 @@ class InfluxDBV2FleakCounterTest {
   @Test
   void increase_negativeIncrementDoesNotCorruptSubsequentCounts() {
     InfluxDBV2MetricSender sender = mock(InfluxDBV2MetricSender.class);
-    // large threshold/interval so only the explicit flush() below sends anything
     InfluxDBV2FleakCounter counter =
         new InfluxDBV2FleakCounter("test_counter", Map.of(), sender, 1000, 600_000);
 
@@ -34,7 +33,6 @@ class InfluxDBV2FleakCounterTest {
     counter.increase(5, Map.of());
     counter.flush();
 
-    // the negative increment must be rejected, not silently absorb the following +5
     verify(sender).sendMetric(eq("counter"), eq("test_counter"), eq(5L), any(), any());
   }
 

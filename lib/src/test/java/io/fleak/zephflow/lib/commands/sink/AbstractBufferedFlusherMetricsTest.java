@@ -14,10 +14,13 @@
 package io.fleak.zephflow.lib.commands.sink;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.tuple.Pair;
@@ -39,13 +42,23 @@ class AbstractBufferedFlusherMetricsTest {
 
   private static final long BYTES_PER_RECORD = 11L;
 
-  /** Records every reportMetrics call so we can assert on how many happened, and from where. */
-  private static class RecordingFlusher extends AbstractBufferedFlusher<RecordFleakData> {
-    final List<SimpleSinkCommand.FlushResult> reported = new ArrayList<>();
+  private final FleakCounter sinkOutputCounter = mock(FleakCounter.class);
+  private final FleakCounter outputSizeCounter = mock(FleakCounter.class);
+  private final FleakCounter sinkErrorCounter = mock(FleakCounter.class);
+
+  private TestFlusher newFlusher(int batchSize) {
+    return new TestFlusher(batchSize, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+  }
+
+  private static class TestFlusher extends AbstractBufferedFlusher<RecordFleakData> {
     private final int batchSize;
 
-    RecordingFlusher(int batchSize) {
-      super(null, null, "test-node");
+    TestFlusher(
+        int batchSize,
+        FleakCounter sinkOutputCounter,
+        FleakCounter outputSizeCounter,
+        FleakCounter sinkErrorCounter) {
+      super(null, null, "test-node", sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
       this.batchSize = batchSize;
     }
 
@@ -73,12 +86,6 @@ class AbstractBufferedFlusherMetricsTest {
     protected void ensureCanWriteRecord(RecordFleakData record) {}
 
     @Override
-    protected void reportMetrics(
-        SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
-      reported.add(result);
-    }
-
-    @Override
     public void close() {
       stopFlushTimer();
     }
@@ -94,7 +101,7 @@ class AbstractBufferedFlusherMetricsTest {
 
   @Test
   void inlineFlush_returnsSizeAndDoesNotReport() throws Exception {
-    try (RecordingFlusher flusher = new RecordingFlusher(1)) {
+    try (TestFlusher flusher = newFlusher(1)) {
       flusher.initialize();
 
       SimpleSinkCommand.FlushResult result = flusher.flush(oneEvent(), Map.of());
@@ -103,38 +110,38 @@ class AbstractBufferedFlusherMetricsTest {
       assertEquals(1, result.successCount());
       assertEquals(BYTES_PER_RECORD, result.flushedDataSize());
       // ...so reporting here too would double-count.
-      assertTrue(
-          flusher.reported.isEmpty(),
-          "inline flush must not call reportMetrics; SimpleSinkCommand already counts the result");
+      verify(sinkOutputCounter, never()).increase(anyLong(), anyMap());
+      verify(outputSizeCounter, never()).increase(anyLong(), anyMap());
     }
   }
 
   @Test
   void bufferedBelowBatchSize_reportsNothingAndReturnsZero() throws Exception {
-    try (RecordingFlusher flusher = new RecordingFlusher(10)) {
+    try (TestFlusher flusher = newFlusher(10)) {
       flusher.initialize();
 
       SimpleSinkCommand.FlushResult result = flusher.flush(oneEvent(), Map.of());
 
       assertEquals(0, result.successCount());
       assertEquals(0, result.flushedDataSize());
-      assertTrue(flusher.reported.isEmpty());
+      verify(sinkOutputCounter, never()).increase(anyLong(), anyMap());
+      verify(outputSizeCounter, never()).increase(anyLong(), anyMap());
     }
   }
 
   @Test
   void timerFlush_reportsExactlyOnce() throws Exception {
-    try (RecordingFlusher flusher = new RecordingFlusher(10)) {
+    try (TestFlusher flusher = newFlusher(10)) {
       flusher.initialize();
       flusher.flush(oneEvent(), Map.of());
       flusher.flush(oneEvent(), Map.of());
-      assertTrue(flusher.reported.isEmpty(), "still buffered, nothing flushed yet");
+      verify(sinkOutputCounter, never()).increase(anyLong(), anyMap());
 
       flusher.executeScheduledFlush();
 
-      assertEquals(1, flusher.reported.size(), "timer flush must be reported exactly once");
-      assertEquals(2, flusher.reported.getFirst().successCount());
-      assertEquals(2 * BYTES_PER_RECORD, flusher.reported.getFirst().flushedDataSize());
+      verify(sinkOutputCounter).increase(2L, Map.of());
+      verify(outputSizeCounter).increase(2 * BYTES_PER_RECORD, Map.of());
+      verifyNoMoreInteractions(sinkOutputCounter, outputSizeCounter);
     }
   }
 
@@ -144,21 +151,36 @@ class AbstractBufferedFlusherMetricsTest {
    */
   @Test
   void mixedInlineAndTimerFlushes_eachCountedOnce() throws Exception {
-    try (RecordingFlusher flusher = new RecordingFlusher(2)) {
+    try (TestFlusher flusher = newFlusher(2)) {
       flusher.initialize();
 
       // Two events reach batchSize=2 -> inline flush, counted by SimpleSinkCommand via the result.
       flusher.flush(oneEvent(), Map.of());
       SimpleSinkCommand.FlushResult inline = flusher.flush(oneEvent(), Map.of());
       assertEquals(2 * BYTES_PER_RECORD, inline.flushedDataSize());
-      assertTrue(flusher.reported.isEmpty());
+      verify(sinkOutputCounter, never()).increase(anyLong(), anyMap());
 
       // A third event stays buffered until the timer fires.
       flusher.flush(oneEvent(), Map.of());
       flusher.executeScheduledFlush();
 
-      assertEquals(1, flusher.reported.size());
-      assertEquals(BYTES_PER_RECORD, flusher.reported.getFirst().flushedDataSize());
+      verify(sinkOutputCounter).increase(1L, Map.of());
+      verify(outputSizeCounter).increase(BYTES_PER_RECORD, Map.of());
+      verifyNoMoreInteractions(sinkOutputCounter, outputSizeCounter);
+    }
+  }
+
+  @Test
+  void reportMetrics_passesResultAndTagsToCounters() throws Exception {
+    try (TestFlusher flusher = newFlusher(10)) {
+      Map<String, String> metricTags = Map.of("tenant_id", "789");
+
+      flusher.reportMetrics(new SimpleSinkCommand.FlushResult(200, 10000L, List.of()), metricTags);
+      flusher.reportErrorMetrics(5, metricTags);
+
+      verify(sinkOutputCounter).increase(200L, metricTags);
+      verify(outputSizeCounter).increase(10000L, metricTags);
+      verify(sinkErrorCounter).increase(5L, metricTags);
     }
   }
 }

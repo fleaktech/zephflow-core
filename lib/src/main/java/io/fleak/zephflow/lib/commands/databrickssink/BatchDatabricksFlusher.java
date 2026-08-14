@@ -48,10 +48,6 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   private final Path tempDirectory;
   private final StructType schema;
 
-  private final FleakCounter sinkOutputCounter;
-  private final FleakCounter outputSizeCounter;
-  private final FleakCounter sinkErrorCounter;
-
   private final ReentrantLock flushLock = new ReentrantLock();
   private volatile boolean closed = false;
 
@@ -65,11 +61,8 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter,
       String nodeId) {
-    super(dlqWriter, jobContext, nodeId);
+    super(dlqWriter, jobContext, nodeId, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
     this.config = config;
-    this.sinkOutputCounter = sinkOutputCounter;
-    this.outputSizeCounter = outputSizeCounter;
-    this.sinkErrorCounter = sinkErrorCounter;
     schema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
     this.parquetWriter = new DatabricksParquetWriter(schema);
     this.volumeUploader = new DatabricksVolumeUploader(workspaceClient);
@@ -97,16 +90,13 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter,
       String nodeId) {
-    super(dlqWriter, null, nodeId);
+    super(dlqWriter, null, nodeId, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
     this.config = config;
     this.parquetWriter = parquetWriter;
     this.volumeUploader = volumeUploader;
     this.sqlExecutor = sqlExecutor;
     this.tempDirectory = tempDirectory;
     this.schema = schema;
-    this.sinkOutputCounter = sinkOutputCounter;
-    this.outputSizeCounter = outputSizeCounter;
-    this.sinkErrorCounter = sinkErrorCounter;
     // Note: Timer not started for test constructor - tests control flushing manually
   }
 
@@ -149,18 +139,6 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   @Override
   protected void afterWrite() {
     flushLock.unlock();
-  }
-
-  @Override
-  protected void reportMetrics(
-      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
-    sinkOutputCounter.increase(result.successCount(), metricTags);
-    outputSizeCounter.increase(result.flushedDataSize(), metricTags);
-  }
-
-  @Override
-  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
-    sinkErrorCounter.increase(errorCount, metricTags);
   }
 
   // ===== TIMER CONFIGURATION =====

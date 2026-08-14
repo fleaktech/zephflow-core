@@ -39,9 +39,6 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
   private final AtomicLong metricsQueued = new AtomicLong(0);
   private final AtomicLong metricsSent = new AtomicLong(0);
 
-  // InfluxDB identifies a point by measurement + tag set + timestamp; two writes of the same
-  // field with identical tags and timestamp silently overwrite each other. This clock is
-  // strictly monotonic so rapid successive sends never share a timestamp.
   private final AtomicLong lastTimestampNanos = new AtomicLong(0);
 
   public InfluxDBV2MetricSender(InfluxDBV2Config config, InfluxDBClient influxDBClient) {
@@ -151,7 +148,7 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     try {
       Map<String, String> allTags = mergeAllTags(tags, null);
 
-      long timestampNanos = toMonotonicNanos(timestamp);
+      long timestampNanos = timestamp == null ? nextTimestampNanos() : toMonotonicNanos(timestamp);
       List<Point> points = new ArrayList<>(metrics.size());
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
         Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestampNanos);

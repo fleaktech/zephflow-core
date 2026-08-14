@@ -30,11 +30,6 @@ import org.mockito.ArgumentCaptor;
 
 class InfluxDBV2MetricSenderTest {
 
-  /**
-   * InfluxDB identifies a point by measurement + tag set + timestamp: two writes of the same
-   * counter field with identical tags in the same timestamp silently overwrite each other, losing
-   * increments. Rapid successive sends must therefore never share a timestamp.
-   */
   @Test
   void sendMetric_rapidCallsWithSameTagsProduceDistinctTimestamps() {
     InfluxDBClient client = mock(InfluxDBClient.class);

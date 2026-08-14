@@ -176,17 +176,6 @@ class SimpleSinkCommandTest {
     verify(outputSizeCounter, never()).increase(anyLong(), any());
   }
 
-  /**
-   *
-   *
-   * <pre>
-   * A batching flusher (e.g. BatchS3Flusher) returns FlushResult(0, 0, []) when it only buffers
-   * records, and later returns a successCount larger than the triggering batch when it drains
-   * the accumulated buffer. Neither case is a failure:
-   *   - buffered-but-not-yet-flushed records must not be counted as sink errors
-   *   - a drain (successCount > batch size) must not produce a negative error increment
-   * </pre>
-   */
   @Test
   public void testWriteToSink_bufferingFlusherDoesNotFabricateSinkErrors() throws Exception {
     FakeBufferingSinkCommand sinkCommand =
@@ -199,9 +188,7 @@ class SimpleSinkCommandTest {
     List<RecordFleakData> firstBatch = List.of(event(0), event(1), event(2));
     List<RecordFleakData> secondBatch = List.of(event(3), event(4));
 
-    // first call: flusher buffers all 3 records, nothing written, nothing failed
     sinkCommand.writeToSink(firstBatch, callingUser, context);
-    // second call: flusher drains the buffer; 5 records written, nothing failed
     sinkCommand.writeToSink(secondBatch, callingUser, context);
 
     verify(sinkOutputCounter).increase(eq(5L), any());
@@ -274,7 +261,6 @@ class SimpleSinkCommandTest {
     }
   }
 
-  /** Buffers the first call's records; drains everything on the second call. */
   private static class FakeBufferingFlusher implements SimpleSinkCommand.Flusher<Integer> {
 
     private int buffered = 0;

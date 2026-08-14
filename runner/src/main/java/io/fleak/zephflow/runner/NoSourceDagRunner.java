@@ -158,8 +158,6 @@ public record NoSourceDagRunner(
         Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
         tags.put(METRIC_TAG_NODE_ID, currentNodeId);
         tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
-        // Count what was actually written, not what was handed to the sink: events may have
-        // failed, or (for buffered sinks) may still be sitting in the buffer.
         counters.increaseOutputEventCounter(result.getSuccessCount(), tags);
 
         if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {

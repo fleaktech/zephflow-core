@@ -385,11 +385,6 @@ class BatchS3FlusherTest {
     dlqFlusher.close();
   }
 
-  /**
-   * Timer-driven and close-time flush results never travel back to SimpleSinkCommand, so the
-   * flusher itself must report their failures — otherwise records that fail in a scheduled flush
-   * are never counted in the sink error metric.
-   */
   @SuppressWarnings("unchecked")
   @Test
   void testScheduledFlushFailureReportsSinkErrors() throws Exception {

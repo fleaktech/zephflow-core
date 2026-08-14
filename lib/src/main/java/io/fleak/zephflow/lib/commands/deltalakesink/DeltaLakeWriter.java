@@ -59,9 +59,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
   private final DeltaLakeSinkDto.Config config;
   private final JobContext jobContext;
-  private final FleakCounter sinkOutputCounter;
-  private final FleakCounter outputSizeCounter;
-  private final FleakCounter sinkErrorCounter;
 
   private Engine engine;
   private Table table;
@@ -82,12 +79,9 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter,
       String nodeId) {
-    super(dlqWriter, jobContext, nodeId);
+    super(dlqWriter, jobContext, nodeId, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
     this.config = config;
     this.jobContext = jobContext;
-    this.sinkOutputCounter = sinkOutputCounter;
-    this.outputSizeCounter = outputSizeCounter;
-    this.sinkErrorCounter = sinkErrorCounter;
   }
 
   /** Initialize the Delta Lake writer. Must be called before using flush(). */
@@ -252,18 +246,6 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   @Override
   protected void afterWrite() {
     flushLock.unlock();
-  }
-
-  @Override
-  protected void reportMetrics(
-      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
-    sinkOutputCounter.increase(result.successCount(), metricTags);
-    outputSizeCounter.increase(result.flushedDataSize(), metricTags);
-  }
-
-  @Override
-  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
-    sinkErrorCounter.increase(errorCount, metricTags);
   }
 
   // ===== DELTA LAKE WRITE LOGIC =====

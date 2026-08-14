@@ -407,7 +407,6 @@ class NoSourceDagRunnerTest {
               List.of(node1, sinkNode),
               List.of(Edge.builder().from(NODE_ID_1).to(SINK_ID).build()));
 
-      // Buffering sink: records accepted into the buffer, nothing written to the target yet
       when(mockSinkCmd.writeToSink(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
           .thenReturn(
               new ScalarSinkCommand.SinkResult(inputEvents.size(), 0, Collections.emptyList()));

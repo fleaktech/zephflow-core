@@ -80,9 +80,6 @@ public class InfluxDBV2FleakCounter implements FleakCounter {
   @Override
   public void increase(long n, Map<String, String> additionalTags) {
     if (n < 0) {
-      // Counters are monotonic. A negative increment would silently corrupt the pending
-      // aggregate (flushTagGroup only sends positive values, so the debt would eat
-      // subsequent legitimate increments before being dropped).
       log.warn("Ignoring negative increment {} for counter {}", n, name);
       return;
     }

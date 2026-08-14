@@ -156,9 +156,6 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     sinkContext.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
     sinkContext.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
     SinkResult sinkResult = new SinkResult(batch.size(), flushResult.successCount, errorOutputs);
-    // Count only actual failures. inputCount - successCount is NOT an error count for buffered
-    // flushers: a buffer-only call has successCount=0 (records pending, not failed), and a
-    // buffer-draining call has successCount > batch size (which would go negative).
     if (!errorOutputs.isEmpty()) {
       sinkContext.sinkErrorCounter().increase(errorOutputs.size(), callingUserTag);
     }
