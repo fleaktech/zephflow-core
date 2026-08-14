@@ -54,8 +54,6 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
   private final BlobFileWriter<RecordFleakData> fileWriter;
   private final int batchSize;
   private final long flushIntervalMs;
-  private final FleakCounter sinkOutputCounter;
-  private final FleakCounter outputSizeCounter;
   private Path tempDirectory;
 
   public BatchS3Flusher(
@@ -69,28 +67,15 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       JobContext jobContext,
       String nodeId,
       FleakCounter sinkOutputCounter,
-      FleakCounter outputSizeCounter) {
-    super(dlqWriter, jobContext, nodeId);
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter) {
+    super(dlqWriter, jobContext, nodeId, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
     this.s3TransferResources = s3TransferResources;
     this.bucketName = bucketName;
     this.keyName = keyName;
     this.fileWriter = fileWriter;
     this.batchSize = batchSize;
     this.flushIntervalMs = flushIntervalMs;
-    this.sinkOutputCounter = sinkOutputCounter;
-    this.outputSizeCounter = outputSizeCounter;
-  }
-
-  /**
-   * Only reached for timer-driven and close-time flushes (see {@link
-   * AbstractBufferedFlusher#executeFlushOutOfBand}). Batch-size-triggered flushes return their
-   * result to {@code SimpleSinkCommand}, which counts them.
-   */
-  @Override
-  protected void reportMetrics(
-      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
-    sinkOutputCounter.increase(result.successCount(), metricTags);
-    outputSizeCounter.increase(result.flushedDataSize(), metricTags);
   }
 
   @Override

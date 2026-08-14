@@ -158,7 +158,7 @@ public record NoSourceDagRunner(
         Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
         tags.put(METRIC_TAG_NODE_ID, currentNodeId);
         tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
-        counters.increaseOutputEventCounter(events.size(), tags);
+        counters.increaseOutputEventCounter(result.getSuccessCount(), tags);
 
         if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {
           result.merge(runContext.dagResult.sinkResultMap.get(currentNodeId));

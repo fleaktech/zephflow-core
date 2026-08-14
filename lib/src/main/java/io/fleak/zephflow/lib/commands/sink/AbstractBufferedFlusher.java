@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -48,12 +49,24 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected final String nodeId;
   protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
   protected final boolean testMode;
+  protected final FleakCounter sinkOutputCounter;
+  protected final FleakCounter outputSizeCounter;
+  protected final FleakCounter sinkErrorCounter;
 
   private BufferedWriter<Pair<RecordFleakData, T>> bufferedWriter;
 
-  protected AbstractBufferedFlusher(DlqWriter dlqWriter, JobContext jobContext, String nodeId) {
+  protected AbstractBufferedFlusher(
+      DlqWriter dlqWriter,
+      JobContext jobContext,
+      String nodeId,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter) {
     this.dlqWriter = dlqWriter;
     this.nodeId = nodeId;
+    this.sinkOutputCounter = sinkOutputCounter;
+    this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
     this.testMode =
         jobContext != null
             && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
@@ -115,22 +128,26 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected void afterWrite() {}
 
   /**
-   * Called to report success metrics after flush. Override for direct metrics reporting.
+   * Reports success metrics after flush.
    *
    * @param result The flush result
    * @param metricTags Tags for metrics
    */
-  protected void reportMetrics(
-      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {}
+  protected final void reportMetrics(
+      SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
+    sinkOutputCounter.increase(result.successCount(), metricTags);
+    outputSizeCounter.increase(result.flushedDataSize(), metricTags);
+  }
 
   /**
-   * Called to report error metrics (for scheduled/close flushes where SimpleSinkCommand isn't
-   * involved).
+   * Reports error metrics (for scheduled/close flushes where SimpleSinkCommand isn't involved).
    *
    * @param errorCount Number of errors
    * @param metricTags Tags for metrics
    */
-  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {}
+  protected final void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
+    sinkErrorCounter.increase(errorCount, metricTags);
+  }
 
   /**
    * Returns the flush interval in milliseconds. Override to enable timer-based flushing. Return 0

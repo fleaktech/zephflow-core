@@ -83,50 +83,67 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
     EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
 
     if (config.isBatching()) {
-      AwsClientFactory.S3TransferResources s3TransferResources =
-          awsClientFactory.createS3TransferResources(
-              config.getRegionStr(),
-              usernamePasswordCredentialOpt.orElse(null),
-              config.getS3EndpointOverride());
-
-      BlobFileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
-      String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-      DlqWriter dlqWriter = null;
-      if (jobContext.getDlqConfig() != null) {
-        dlqWriter = DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), keyPrefix);
-      }
-      BatchS3Flusher flusher =
-          new BatchS3Flusher(
-              s3TransferResources,
-              config.getBucketName(),
-              StringUtils.stripEnd(config.getKeyName(), "/"),
-              fileWriter,
-              config.getBatchSize(),
-              config.getFlushIntervalMillis(),
-              dlqWriter,
-              jobContext,
-              nodeId,
-              counters.sinkOutputCounter(),
-              counters.outputSizeCounter());
-      flusher.initialize();
-      return flusher;
-    } else {
-      S3Client s3Client =
-          awsClientFactory.createS3Client(
-              config.getRegionStr(),
-              usernamePasswordCredentialOpt.orElse(null),
-              config.getS3EndpointOverride());
-      SerializerFactory<?> serializerFactory =
-          SerializerFactory.createSerializerFactory(encodingType);
-      FleakSerializer<?> serializer = serializerFactory.createSerializer();
-      S3Commiter<RecordFleakData> commiter =
-          new OnDemandS3Commiter(
-              s3Client,
-              config.getBucketName(),
-              StringUtils.stripEnd(config.getKeyName(), "/"),
-              serializer);
-      return new S3Flusher(commiter);
+      return createBatchS3Flusher(
+          config, jobContext, counters, usernamePasswordCredentialOpt, encodingType);
     }
+    return createOnDemandS3Flusher(config, usernamePasswordCredentialOpt, encodingType);
+  }
+
+  private BatchS3Flusher createBatchS3Flusher(
+      S3SinkDto.Config config,
+      JobContext jobContext,
+      SinkCounters counters,
+      Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt,
+      EncodingType encodingType) {
+    AwsClientFactory.S3TransferResources s3TransferResources =
+        awsClientFactory.createS3TransferResources(
+            config.getRegionStr(),
+            usernamePasswordCredentialOpt.orElse(null),
+            config.getS3EndpointOverride());
+
+    BlobFileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+    DlqWriter dlqWriter = null;
+    if (jobContext.getDlqConfig() != null) {
+      dlqWriter = DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), keyPrefix);
+    }
+    BatchS3Flusher flusher =
+        new BatchS3Flusher(
+            s3TransferResources,
+            config.getBucketName(),
+            StringUtils.stripEnd(config.getKeyName(), "/"),
+            fileWriter,
+            config.getBatchSize(),
+            config.getFlushIntervalMillis(),
+            dlqWriter,
+            jobContext,
+            nodeId,
+            counters.sinkOutputCounter(),
+            counters.outputSizeCounter(),
+            counters.sinkErrorCounter());
+    flusher.initialize();
+    return flusher;
+  }
+
+  private S3Flusher createOnDemandS3Flusher(
+      S3SinkDto.Config config,
+      Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt,
+      EncodingType encodingType) {
+    S3Client s3Client =
+        awsClientFactory.createS3Client(
+            config.getRegionStr(),
+            usernamePasswordCredentialOpt.orElse(null),
+            config.getS3EndpointOverride());
+    SerializerFactory<?> serializerFactory =
+        SerializerFactory.createSerializerFactory(encodingType);
+    FleakSerializer<?> serializer = serializerFactory.createSerializer();
+    S3Commiter<RecordFleakData> commiter =
+        new OnDemandS3Commiter(
+            s3Client,
+            config.getBucketName(),
+            StringUtils.stripEnd(config.getKeyName(), "/"),
+            serializer);
+    return new S3Flusher(commiter);
   }
 
   private BlobFileWriter<RecordFleakData> createFileWriter(

@@ -39,6 +39,8 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
   private final AtomicLong metricsQueued = new AtomicLong(0);
   private final AtomicLong metricsSent = new AtomicLong(0);
 
+  private final AtomicLong lastTimestampNanos = new AtomicLong(0);
+
   public InfluxDBV2MetricSender(InfluxDBV2Config config, InfluxDBClient influxDBClient) {
     this.organization = config.getOrg();
     this.bucket = config.getBucket();
@@ -113,7 +115,7 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
       Map<String, String> additionalTags) {
     try {
       Map<String, String> allTags = mergeAllTags(tags, additionalTags);
-      Point point = createPoint(type + "_" + name, value, allTags, Instant.now());
+      Point point = createPoint(type + "_" + name, value, allTags, nextTimestampNanos());
 
       try {
         writeApi.writePoint(bucket, organization, point);
@@ -146,9 +148,10 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     try {
       Map<String, String> allTags = mergeAllTags(tags, null);
 
+      long timestampNanos = timestamp == null ? nextTimestampNanos() : toMonotonicNanos(timestamp);
       List<Point> points = new ArrayList<>(metrics.size());
       for (Map.Entry<String, Object> metric : metrics.entrySet()) {
-        Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestamp);
+        Point point = createPoint(metric.getKey(), metric.getValue(), allTags, timestampNanos);
         points.add(point);
       }
 
@@ -180,9 +183,18 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     return merged;
   }
 
+  private long nextTimestampNanos() {
+    return toMonotonicNanos(Instant.now());
+  }
+
+  private long toMonotonicNanos(Instant instant) {
+    long instantNanos = instant.getEpochSecond() * 1_000_000_000L + instant.getNano();
+    return lastTimestampNanos.updateAndGet(prev -> Math.max(prev + 1, instantNanos));
+  }
+
   private Point createPoint(
-      String fieldName, Object value, Map<String, String> allTags, Instant timestamp) {
-    Point point = Point.measurement(measurementName).time(timestamp, WritePrecision.MS);
+      String fieldName, Object value, Map<String, String> allTags, long timestampNanos) {
+    Point point = Point.measurement(measurementName).time(timestampNanos, WritePrecision.NS);
 
     for (Map.Entry<String, String> tag : allTags.entrySet()) {
       String tagKey = tag.getKey() != null ? tag.getKey() : "";

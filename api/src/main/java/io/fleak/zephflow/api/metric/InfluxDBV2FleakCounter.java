@@ -79,6 +79,10 @@ public class InfluxDBV2FleakCounter implements FleakCounter {
 
   @Override
   public void increase(long n, Map<String, String> additionalTags) {
+    if (n < 0) {
+      log.warn("Ignoring negative increment {} for counter {}", n, name);
+      return;
+    }
     String tagKey = getTagKey(additionalTags);
 
     PendingIncrement pending =

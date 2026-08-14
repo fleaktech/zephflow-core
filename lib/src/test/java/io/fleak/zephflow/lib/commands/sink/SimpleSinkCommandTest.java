@@ -176,6 +176,113 @@ class SimpleSinkCommandTest {
     verify(outputSizeCounter, never()).increase(anyLong(), any());
   }
 
+  @Test
+  public void testWriteToSink_bufferingFlusherDoesNotFabricateSinkErrors() throws Exception {
+    FakeBufferingSinkCommand sinkCommand =
+        (FakeBufferingSinkCommand)
+            new FakeBufferingSinkCommandFactory().createCommand(currentNodeId, jobContext);
+    sinkCommand.parseAndValidateArg(null);
+    sinkCommand.initialize(metricClientProvider);
+    var context = sinkCommand.getExecutionContext();
+
+    List<RecordFleakData> firstBatch = List.of(event(0), event(1), event(2));
+    List<RecordFleakData> secondBatch = List.of(event(3), event(4));
+
+    sinkCommand.writeToSink(firstBatch, callingUser, context);
+    sinkCommand.writeToSink(secondBatch, callingUser, context);
+
+    verify(sinkOutputCounter).increase(eq(5L), any());
+    verify(sinkErrorCounter, never()).increase(anyLong(), any());
+    verify(sinkErrorCounter, never()).increase(any());
+  }
+
+  private static RecordFleakData event(int val) {
+    return new RecordFleakData(
+        Map.of("val", new NumberPrimitiveFleakData(val, NumberPrimitiveFleakData.NumberType.LONG)));
+  }
+
+  private static class FakeBufferingSinkCommandFactory extends CommandFactory {
+
+    @Override
+    public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
+      return new FakeBufferingSinkCommand(
+          nodeId,
+          jobContext,
+          (ConfigParser) configStr -> new CommandConfig() {},
+          (ConfigValidator) (commandConfig, nodeId1, jobContext1) -> {});
+    }
+
+    @Override
+    public CommandType commandType() {
+      return CommandType.SINK;
+    }
+  }
+
+  private static class FakeBufferingSinkCommand extends SimpleSinkCommand<Integer> {
+
+    protected FakeBufferingSinkCommand(
+        String nodeId,
+        JobContext jobContext,
+        ConfigParser configParser,
+        ConfigValidator configValidator) {
+      super(nodeId, jobContext, configParser, configValidator);
+    }
+
+    @Override
+    protected int batchSize() {
+      return 100;
+    }
+
+    @Override
+    public String commandName() {
+      return "fake_buffering_sink";
+    }
+
+    @Override
+    protected SinkExecutionContext<Integer> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      SimpleSinkCommand.SinkMessagePreProcessor<Integer> preprocessor =
+          (event, ts) -> (int) event.getPayload().get("val").getNumberValue();
+
+      SimpleSinkCommand.Flusher<Integer> flusher = new FakeBufferingFlusher();
+
+      return new SinkExecutionContext<>(
+          flusher,
+          preprocessor,
+          metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(
+              METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, jobContext.getMetricTags()));
+    }
+  }
+
+  private static class FakeBufferingFlusher implements SimpleSinkCommand.Flusher<Integer> {
+
+    private int buffered = 0;
+
+    @Override
+    public SimpleSinkCommand.FlushResult flush(
+        SimpleSinkCommand.PreparedInputEvents<Integer> preparedInputEvents,
+        Map<String, String> metricTags) {
+      int n = preparedInputEvents.preparedList().size();
+      if (buffered == 0) {
+        buffered = n;
+        return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+      }
+      int drained = buffered + n;
+      buffered = 0;
+      return new SimpleSinkCommand.FlushResult(drained, 100, List.of());
+    }
+
+    @Override
+    public void close() {}
+  }
+
   private static class FakeSimpleSinkCommandFactory extends CommandFactory {
 
     @Override

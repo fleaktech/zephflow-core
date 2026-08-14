@@ -52,6 +52,7 @@ class BatchS3FlusherTest {
   private AwsClientFactory awsClientFactory;
   private FleakCounter sinkOutputCounter;
   private FleakCounter outputSizeCounter;
+  private FleakCounter sinkErrorCounter;
 
   @Container
   protected static MinIOContainer minioContainer =
@@ -62,6 +63,7 @@ class BatchS3FlusherTest {
     awsClientFactory = new AwsClientFactory();
     sinkOutputCounter = mock(FleakCounter.class);
     outputSizeCounter = mock(FleakCounter.class);
+    sinkErrorCounter = mock(FleakCounter.class);
     testS3Client = createS3Client();
     testS3Client.createBucket(b -> b.bucket(BUCKET_NAME));
   }
@@ -118,7 +120,8 @@ class BatchS3FlusherTest {
         null,
         null,
         sinkOutputCounter,
-        outputSizeCounter);
+        outputSizeCounter,
+        sinkErrorCounter);
   }
 
   @Test
@@ -299,7 +302,8 @@ class BatchS3FlusherTest {
             null,
             null,
             sinkOutputCounter,
-            outputSizeCounter);
+            outputSizeCounter,
+            sinkErrorCounter);
     flusher.initialize();
 
     for (int i = 0; i < 5; i++) {
@@ -363,7 +367,8 @@ class BatchS3FlusherTest {
             null,
             "s3-test-node",
             sinkOutputCounter,
-            outputSizeCounter);
+            outputSizeCounter,
+            sinkErrorCounter);
     dlqFlusher.initialize();
 
     Map<String, Object> data = Map.of("id", 1, "name", "test");
@@ -378,5 +383,44 @@ class BatchS3FlusherTest {
     verify(mockDlqWriter)
         .writeToDlq(anyLong(), any(), contains("S3 upload error"), eq("s3-test-node"));
     dlqFlusher.close();
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void testScheduledFlushFailureReportsSinkErrors() throws Exception {
+    BlobFileWriter<RecordFleakData> mockFileWriter = mock(BlobFileWriter.class);
+    when(mockFileWriter.getFileExtension()).thenReturn("jsonl");
+    when(mockFileWriter.writeToTempFiles(anyList(), any()))
+        .thenThrow(new RuntimeException("S3 upload error"));
+
+    AwsClientFactory.S3TransferResources s3TransferResources = createS3TransferResources();
+    BatchS3Flusher failingFlusher =
+        new BatchS3Flusher(
+            s3TransferResources,
+            BUCKET_NAME,
+            KEY_NAME,
+            mockFileWriter,
+            100,
+            60000,
+            null,
+            null,
+            "s3-test-node",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    failingFlusher.initialize();
+
+    for (int i = 0; i < 2; i++) {
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", i));
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, record);
+      failingFlusher.flush(events, Map.of());
+    }
+
+    failingFlusher.executeScheduledFlush();
+
+    verify(sinkErrorCounter).increase(eq(2L), anyMap());
+    failingFlusher.close();
   }
 }
