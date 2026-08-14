@@ -56,6 +56,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
   private final long flushIntervalMs;
   private final FleakCounter sinkOutputCounter;
   private final FleakCounter outputSizeCounter;
+  private final FleakCounter sinkErrorCounter;
   private Path tempDirectory;
 
   public BatchS3Flusher(
@@ -69,7 +70,8 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       JobContext jobContext,
       String nodeId,
       FleakCounter sinkOutputCounter,
-      FleakCounter outputSizeCounter) {
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter) {
     super(dlqWriter, jobContext, nodeId);
     this.s3TransferResources = s3TransferResources;
     this.bucketName = bucketName;
@@ -79,6 +81,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     this.flushIntervalMs = flushIntervalMs;
     this.sinkOutputCounter = sinkOutputCounter;
     this.outputSizeCounter = outputSizeCounter;
+    this.sinkErrorCounter = sinkErrorCounter;
   }
 
   /**
@@ -91,6 +94,11 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       SimpleSinkCommand.FlushResult result, Map<String, String> metricTags) {
     sinkOutputCounter.increase(result.successCount(), metricTags);
     outputSizeCounter.increase(result.flushedDataSize(), metricTags);
+  }
+
+  @Override
+  protected void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
+    sinkErrorCounter.increase(errorCount, metricTags);
   }
 
   @Override

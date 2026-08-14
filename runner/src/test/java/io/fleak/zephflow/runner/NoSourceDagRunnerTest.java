@@ -396,6 +396,38 @@ class NoSourceDagRunnerTest {
     }
 
     @Test
+    @DisplayName("sink output counter should count successful writes, not events sent to the sink")
+    void run_shouldCountOnlySuccessfulWritesAsSinkOutput() {
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Node<OperatorCommand> sinkNode =
+          Node.<OperatorCommand>builder().id(SINK_ID).nodeContent(mockSinkCmd).build();
+      Dag<OperatorCommand> compiledDag =
+          new Dag<>(
+              List.of(node1, sinkNode),
+              List.of(Edge.builder().from(NODE_ID_1).to(SINK_ID).build()));
+
+      // Buffering sink: records accepted into the buffer, nothing written to the target yet
+      when(mockSinkCmd.writeToSink(eq(inputEvents), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenReturn(
+              new ScalarSinkCommand.SinkResult(inputEvents.size(), 0, Collections.emptyList()));
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigExcludeSteps);
+
+      verify(mockCounters).increaseOutputEventCounter(eq(0L), tagsCaptor.capture());
+      assertEquals(
+          createNodeTags(SINK_ID, SINK_CMD_NAME),
+          tagsCaptor.getValue(),
+          "Sink output counter tags mismatch");
+      verify(mockCounters, never())
+          .increaseOutputEventCounter(eq((long) inputEvents.size()), anyMap());
+    }
+
+    @Test
     @DisplayName("should handle empty input event list")
     void run_shouldHandleEmptyInputEventList() {
 
@@ -623,7 +655,7 @@ class NoSourceDagRunnerTest {
           .increaseErrorEventCounter(eq((long) errors.size()), tagsCaptor.capture());
       assertEquals(createNodeTags(SINK_ID, SINK_CMD_NAME), tagsCaptor.getValue());
       verify(mockCounters)
-          .increaseOutputEventCounter(eq((long) inputEvents.size()), tagsCaptor.capture());
+          .increaseOutputEventCounter(eq((long) successCount), tagsCaptor.capture());
       assertEquals(createNodeTags(SINK_ID, SINK_CMD_NAME), tagsCaptor.getValue());
       assertFalse(result.errorByStep.isEmpty(), "errorByStep should not be empty");
       assertDebugInfo(result.errorByStep, SINK_ID, NODE_ID_1, errors, "errorByStep");

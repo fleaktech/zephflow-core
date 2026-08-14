@@ -449,7 +449,8 @@ public class ZephFlowTest {
     verify(stdoutInputMessageCounter, times(5)).increase(eq(1L), any());
     verify(stdoutErrorMessageCounter, never()).increase(any());
     verify(sinkOutputCounter, times(5)).increase(eq(1L), any());
-    verify(sinkErrorCounter, times(5)).increase(eq(0L), any());
+    // no failures: the sink error counter must not be touched at all
+    verify(sinkErrorCounter, never()).increase(anyLong(), any());
 
     verify(inputEventCounter).increase(eq(10L), any());
     verify(outputEventCounter).increase(eq(5L), any());

@@ -107,7 +107,8 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
               jobContext,
               nodeId,
               counters.sinkOutputCounter(),
-              counters.outputSizeCounter());
+              counters.outputSizeCounter(),
+              counters.sinkErrorCounter());
       flusher.initialize();
       return flusher;
     } else {
