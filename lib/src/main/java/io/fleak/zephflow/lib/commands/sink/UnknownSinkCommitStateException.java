@@ -17,12 +17,12 @@ package io.fleak.zephflow.lib.commands.sink;
  * Thrown by a {@link SimpleSinkCommand.Flusher} when records have already been handed to the target
  * system but the durability confirmation failed, leaving the commit state unknown.
  *
- * <p>This must NOT be treated as a normal per-record failure. {@link SimpleSinkCommand} converts an
- * ordinary thrown exception into one {@code ErrorOutput} per record (see {@code writeOneBatch}); in
- * the runner's non-DLQ path those are merely counted and then discarded, which would silently lose
- * records that may in fact have been written. Reporting a clean "complete failure" when the truth
- * is "we don't know" is worse than failing the node. So {@code writeOneBatch} rethrows this
- * exception instead, letting it propagate as a fatal node/job error.
+ * <p>It is handled like any other flush failure by {@link SimpleSinkCommand}: with
+ * store-and-forward enrolled the batch is buffered to local storage (the classifier walks the cause
+ * chain and treats the underlying network signal as transient), giving at-least-once via replay;
+ * otherwise it is converted to per-record {@code ErrorOutput}s that go to the DLQ (at-least-once)
+ * or are dropped in the plain non-DLQ path (at-most-once). It no longer fails the whole job — that
+ * would couple unrelated sink branches, breaking per-node fault isolation.
  */
 public class UnknownSinkCommitStateException extends RuntimeException {
   public UnknownSinkCommitStateException(String message, Throwable cause) {

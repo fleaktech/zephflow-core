@@ -139,11 +139,6 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
         return bufferFailedBatch(
             batch, preparedInputEvents, errorOutputs, callingUserTag, sinkContext);
       }
-      if (e instanceof UnknownSinkCommitStateException unknownState) {
-        // Records may already be committed; we cannot honestly report them as failed (in the
-        // non-DLQ path failed records are silently dropped). Let it propagate as a fatal job error.
-        throw unknownState;
-      }
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure
       List<ErrorOutput> error =

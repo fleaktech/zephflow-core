@@ -38,6 +38,10 @@ public class DagResult {
 
   @JsonIgnore Map<String, ScalarSinkCommand.SinkResult> sinkResultMap = new HashMap<>();
 
+  // First node failure seen during the run, tracked independently of the debug-only errorByStep so
+  // the DLQ path can reliably fire regardless of runConfig. Null when the run had no failures.
+  @JsonIgnore NodeFailure firstFailure;
+
   void consolidateSinkResult() {
     sinkResultMap.forEach(
         (s, sinkResult) -> {
@@ -54,12 +58,9 @@ public class DagResult {
       NoSourceDagRunner.DagRunConfig runConfig,
       List<RecordFleakData> output,
       List<ErrorOutput> failureEvents,
-      DagRunCounters pipelineCounters,
-      boolean useDlq) {
+      DagRunCounters pipelineCounters) {
     if (CollectionUtils.isNotEmpty(failureEvents)) {
-      if (useDlq) {
-        throw new IllegalArgumentException(failureEvents.getFirst().errorMessage());
-      }
+      recordFailure(nodeId, commandName, failureEvents.getFirst().errorMessage());
       Map<String, String> tags = new HashMap<>(callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, nodeId);
       tags.put(METRIC_TAG_COMMAND_NAME, commandName);
@@ -76,6 +77,19 @@ public class DagResult {
       recordDebugInfo(nodeId, upstreamNodeId, copies, outputByStep, true);
     }
   }
+
+  /** Remembers the first node failure of the run; later failures don't overwrite it. */
+  void recordFailure(String nodeId, String commandName, String errorMessage) {
+    if (firstFailure == null) {
+      firstFailure = new NodeFailure(nodeId, commandName, errorMessage);
+    }
+  }
+
+  boolean hasFailure() {
+    return firstFailure != null;
+  }
+
+  record NodeFailure(String nodeId, String commandName, String errorMessage) {}
 
   private <T> void recordDebugInfo(
       String currentNodeId,
