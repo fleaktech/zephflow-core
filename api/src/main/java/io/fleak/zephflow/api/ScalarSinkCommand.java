@@ -34,6 +34,10 @@ public abstract class ScalarSinkCommand extends OperatorCommand {
   /**
    * Write events to sink with explicit execution context.
    *
+   * <p><b>Contract:</b> must NOT mutate the input {@code events} (or the records they contain) in
+   * place. The DAG runner shares the same event objects across fan-out branches without copying, so
+   * an in-place mutation here would corrupt what sibling branches see.
+   *
    * @param events The events to write
    * @param callingUser The calling user ID
    * @param context The execution context (must be initialized via initialize())

@@ -84,6 +84,17 @@ public record NoSourceDagRunner(
     if (log.isDebugEnabled() && MapUtils.isNotEmpty(dagResult.getErrorByStep())) {
       log.debug("failed to process events: {}", toJsonString(dagResult.errorByStep));
     }
+    // Per-node failures are isolated during the traversal (siblings still run). When DLQ is enabled
+    // we surface them here, after every branch has run, so the source persists the whole raw record
+    // to the DLQ (at-least-once). Without DLQ the failures are counted and dropped (at-most-once).
+    if (useDlq && dagResult.hasFailure()) {
+      DagResult.NodeFailure failure = dagResult.getFirstFailure();
+      throw new NodeExecutionException(
+          failure.nodeId(),
+          failure.commandName(),
+          failure.errorMessage(),
+          new IllegalArgumentException(failure.errorMessage()));
+    }
     return dagResult;
   }
 
@@ -104,7 +115,20 @@ public record NoSourceDagRunner(
       return;
     }
     for (var e : outgoingEdges) {
-      processEvent(e.getTo(), currentNodeId, events, runContext);
+      // Failure isolation: a node failure aborts only its own subtree; sibling branches still run.
+      // Recorded failures may trigger the DLQ once the whole run finishes (see run()).
+      // Data isolation relies on the command contract (no in-place mutation of input records), so
+      // fan-out branches safely share the same event objects with no per-branch copy.
+      try {
+        processEvent(e.getTo(), currentNodeId, events, runContext);
+      } catch (NodeExecutionException nee) {
+        runContext.dagResult.recordFailure(nee.getNodeId(), nee.getCommandName(), nee.getMessage());
+        Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
+        tags.put(METRIC_TAG_NODE_ID, nee.getNodeId());
+        tags.put(METRIC_TAG_COMMAND_NAME, nee.getCommandName());
+        counters.increaseErrorEventCounter(events.size(), tags);
+        log.debug("node {} failed; isolating branch", nee.getNodeId(), nee);
+      }
     }
   }
 
@@ -133,8 +157,7 @@ public record NoSourceDagRunner(
             runContext.runConfig,
             result.getOutput(),
             result.getFailureEvents(),
-            counters,
-            useDlq);
+            counters);
 
         routeToDownstream(
             currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
@@ -153,8 +176,7 @@ public record NoSourceDagRunner(
             runContext.runConfig,
             List.of(sinkOutputEvent),
             result.getFailureEvents(),
-            counters,
-            useDlq);
+            counters);
         Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
         tags.put(METRIC_TAG_NODE_ID, currentNodeId);
         tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());

@@ -196,9 +196,106 @@ class SimpleSinkCommandTest {
     verify(sinkErrorCounter, never()).increase(any());
   }
 
+  @Test
+  public void testWriteToSink_unknownCommitStateBecomesPerRecordErrorsWithoutStoreForward()
+      throws Exception {
+    FakeUnknownStateSinkCommand sinkCommand =
+        (FakeUnknownStateSinkCommand)
+            new FakeUnknownStateSinkCommandFactory().createCommand(currentNodeId, jobContext);
+    sinkCommand.parseAndValidateArg(null);
+    sinkCommand.initialize(metricClientProvider);
+    var context = sinkCommand.getExecutionContext();
+
+    List<RecordFleakData> input = List.of(event(0), event(3));
+    // Must NOT throw: with no store-and-forward, an unknown-commit-state failure is downgraded to
+    // per-record errors so it stays a node-local failure instead of aborting the whole job.
+    ScalarSinkCommand.SinkResult result = sinkCommand.writeToSink(input, callingUser, context);
+
+    ScalarSinkCommand.SinkResult expected =
+        new ScalarSinkCommand.SinkResult(
+            2,
+            0,
+            List.of(
+                new ErrorOutput(event(0), "commit state unknown"),
+                new ErrorOutput(event(3), "commit state unknown")));
+    assertEquals(expected, result);
+  }
+
   private static RecordFleakData event(int val) {
     return new RecordFleakData(
         Map.of("val", new NumberPrimitiveFleakData(val, NumberPrimitiveFleakData.NumberType.LONG)));
+  }
+
+  private static class FakeUnknownStateSinkCommandFactory extends CommandFactory {
+
+    @Override
+    public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
+      return new FakeUnknownStateSinkCommand(
+          nodeId,
+          jobContext,
+          (ConfigParser) configStr -> new CommandConfig() {},
+          (ConfigValidator) (commandConfig, nodeId1, jobContext1) -> {});
+    }
+
+    @Override
+    public CommandType commandType() {
+      return CommandType.SINK;
+    }
+  }
+
+  private static class FakeUnknownStateSinkCommand extends SimpleSinkCommand<Integer> {
+
+    protected FakeUnknownStateSinkCommand(
+        String nodeId,
+        JobContext jobContext,
+        ConfigParser configParser,
+        ConfigValidator configValidator) {
+      super(nodeId, jobContext, configParser, configValidator);
+    }
+
+    @Override
+    protected int batchSize() {
+      return 100;
+    }
+
+    @Override
+    public String commandName() {
+      return "fake_unknown_state_sink";
+    }
+
+    @Override
+    protected SinkExecutionContext<Integer> createExecutionContext(
+        MetricClientProvider metricClientProvider,
+        JobContext jobContext,
+        CommandConfig commandConfig,
+        String nodeId) {
+      SimpleSinkCommand.SinkMessagePreProcessor<Integer> preprocessor =
+          (event, ts) -> (int) event.getPayload().get("val").getNumberValue();
+
+      SimpleSinkCommand.Flusher<Integer> flusher =
+          new SimpleSinkCommand.Flusher<>() {
+            @Override
+            public SimpleSinkCommand.FlushResult flush(
+                SimpleSinkCommand.PreparedInputEvents<Integer> preparedInputEvents,
+                Map<String, String> metricTags) {
+              throw new UnknownSinkCommitStateException(
+                  "commit state unknown", new RuntimeException("io"));
+            }
+
+            @Override
+            public void close() {}
+          };
+
+      return new SinkExecutionContext<>(
+          flusher,
+          preprocessor,
+          metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(
+              METRIC_NAME_OUTPUT_EVENT_SIZE_COUNT, jobContext.getMetricTags()),
+          metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, jobContext.getMetricTags()));
+    }
   }
 
   private static class FakeBufferingSinkCommandFactory extends CommandFactory {

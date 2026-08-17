@@ -35,6 +35,12 @@ public abstract class ScalarCommand extends OperatorCommand {
   /**
    * Process events with explicit execution context.
    *
+   * <p><b>Contract:</b> must NOT mutate the input {@code events} (or the records they contain) in
+   * place. Return new records or pass inputs through unchanged. The DAG runner shares the same
+   * event objects across fan-out branches without copying, so an in-place mutation would corrupt
+   * what sibling branches see. This applies to overrides of both this method and {@link
+   * #processOneEvent}.
+   *
    * @param events The events to process
    * @param callingUser The calling user ID
    * @param context The execution context (must be initialized via initialize())
@@ -58,6 +64,11 @@ public abstract class ScalarCommand extends OperatorCommand {
 
   /**
    * Process a single event. Subclasses should implement this method.
+   *
+   * <p><b>Contract:</b> must NOT mutate the input {@code event} in place. Either return a new
+   * {@link RecordFleakData} or pass the input through unchanged. The DAG runner shares the same
+   * event objects across fan-out branches without copying, so an in-place mutation here would
+   * corrupt what sibling branches see.
    *
    * @param event The event to process
    * @param callingUser The calling user ID

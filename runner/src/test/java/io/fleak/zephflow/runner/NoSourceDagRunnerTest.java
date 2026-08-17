@@ -616,7 +616,8 @@ class NoSourceDagRunnerTest {
       assertEquals(NODE_ID_1, exception.getNodeId(), "NodeId mismatch");
       assertEquals(CMD_NAME_1, exception.getCommandName(), "CommandName mismatch");
       assertInstanceOf(IllegalArgumentException.class, exception.getCause());
-      verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
+      // Failures are now counted during the isolated traversal; the DLQ throw fires at end of run.
+      verify(mockCounters).increaseErrorEventCounter(eq((long) errors.size()), anyMap());
       verify(mockScalarCmd2, never()).process(anyList(), anyString(), any());
       verify(mockCounters).increaseInputEventCounter(anyLong(), anyMap());
       verify(mockCounters).startStopWatch();
@@ -711,7 +712,8 @@ class NoSourceDagRunnerTest {
       assertEquals(SINK_ID, exception.getNodeId(), "NodeId mismatch");
       assertEquals(SINK_CMD_NAME, exception.getCommandName(), "CommandName mismatch");
       assertInstanceOf(IllegalArgumentException.class, exception.getCause());
-      verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
+      // Failures are now counted during the isolated traversal; the DLQ throw fires at end of run.
+      verify(mockCounters).increaseErrorEventCounter(eq((long) errors.size()), anyMap());
       verify(mockCounters).increaseInputEventCounter(anyLong(), anyMap());
       verify(mockCounters).startStopWatch();
     }
@@ -745,6 +747,303 @@ class NoSourceDagRunnerTest {
       assertTrue(
           result.errorByStep.isEmpty(),
           "errorByStep map should be empty when includeErrorByStep=false");
+    }
+
+    private ScalarSinkCommand throwingSink(String commandName, RuntimeException toThrow) {
+      ScalarSinkCommand sink = mock(ScalarSinkCommand.class);
+      lenient().when(sink.commandName()).thenReturn(commandName);
+      lenient().when(sink.getExecutionContext()).thenReturn(mock(ExecutionContext.class));
+      lenient().doNothing().when(sink).initialize(any());
+      lenient()
+          .when(sink.writeToSink(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenThrow(toThrow);
+      return sink;
+    }
+
+    @Test
+    @DisplayName("should isolate a failing branch so sibling branches still process (useDlq=false)")
+    void run_shouldIsolateFailingBranch_whenDlqFalse() {
+      String sinkAId = "sinkA";
+      String sinkBId = "sinkB";
+      ScalarSinkCommand failingSink =
+          throwingSink("failingSink", new RuntimeException("sink A blew up"));
+
+      edgesFromSource =
+          List.of(
+              Edge.builder().from(SOURCE_NODE_ID).to(sinkAId).build(),
+              Edge.builder().from(SOURCE_NODE_ID).to(sinkBId).build());
+      List<Node<OperatorCommand>> nodes =
+          List.of(
+              Node.<OperatorCommand>builder().id(sinkAId).nodeContent(failingSink).build(),
+              Node.<OperatorCommand>builder().id(sinkBId).nodeContent(mockSinkCmd).build());
+      Dag<OperatorCommand> compiledDag = new Dag<>(nodes, List.of());
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      verify(mockSinkCmd).writeToSink(anyList(), eq(CALLING_USER), any(ExecutionContext.class));
+      assertTrue(result.outputEvents.containsKey(sinkBId), "sibling sink B should have output");
+      assertFalse(
+          result.outputEvents.containsKey(sinkAId), "failing sink A should produce no output");
+      verify(mockCounters).increaseErrorEventCounter(eq((long) inputEvents.size()), anyMap());
+    }
+
+    @Test
+    @DisplayName("should isolate a deep branch failure without affecting sibling downstream")
+    void run_shouldIsolateDeepBranchFailure() {
+      String sinkFailId = "sinkFail";
+      String sinkGoodId = "sinkGood";
+      ScalarSinkCommand failingSink =
+          throwingSink("failingSink", new RuntimeException("deep sink blew up"));
+
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      List<Node<OperatorCommand>> nodes =
+          List.of(
+              node1,
+              Node.<OperatorCommand>builder().id(sinkFailId).nodeContent(failingSink).build(),
+              Node.<OperatorCommand>builder().id(sinkGoodId).nodeContent(mockSinkCmd).build());
+      List<Edge> edges =
+          List.of(
+              Edge.builder().from(NODE_ID_1).to(sinkFailId).build(),
+              Edge.builder().from(NODE_ID_1).to(sinkGoodId).build());
+      Dag<OperatorCommand> compiledDag = new Dag<>(nodes, edges);
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      verify(mockSinkCmd).writeToSink(anyList(), eq(CALLING_USER), any(ExecutionContext.class));
+      assertTrue(result.outputEvents.containsKey(sinkGoodId), "sibling sink should have output");
+      assertFalse(
+          result.outputEvents.containsKey(sinkFailId), "failing sink should produce no output");
+    }
+
+    @Test
+    @DisplayName("should share event objects across fan-out branches without copying")
+    void run_shouldShareEventsAcrossBranches_noCopy() {
+      // Data isolation across branches is guaranteed by the command contract (no in-place
+      // mutation),
+      // not by copying. This locks the zero-copy fan-out so a copy is never silently reintroduced.
+      edgesFromSource =
+          List.of(
+              Edge.builder().from(SOURCE_NODE_ID).to(NODE_ID_1).build(),
+              Edge.builder().from(SOURCE_NODE_ID).to(NODE_ID_2).build());
+      List<Node<OperatorCommand>> nodes =
+          List.of(
+              Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build(),
+              Node.<OperatorCommand>builder().id(NODE_ID_2).nodeContent(mockScalarCmd2).build());
+      Dag<OperatorCommand> compiledDag = new Dag<>(nodes, List.of());
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      ArgumentCaptor<List<RecordFleakData>> cap1 = ArgumentCaptor.forClass(List.class);
+      ArgumentCaptor<List<RecordFleakData>> cap2 = ArgumentCaptor.forClass(List.class);
+      verify(mockScalarCmd1).process(cap1.capture(), eq(CALLING_USER), any(ExecutionContext.class));
+      verify(mockScalarCmd2).process(cap2.capture(), eq(CALLING_USER), any(ExecutionContext.class));
+
+      assertSame(
+          inputEvents.get(0),
+          cap1.getValue().get(0),
+          "fan-out must pass the original record instances (no copy)");
+      assertSame(
+          cap1.getValue().get(0),
+          cap2.getValue().get(0),
+          "both branches must share the same record instance");
+    }
+
+    @Test
+    @DisplayName("should run all branches then throw for DLQ when one branch fails (useDlq=true)")
+    void run_shouldRunAllBranchesThenThrow_whenDlqTrue() {
+      String sinkFailId = "sinkFail";
+      String sinkGoodId = "sinkGood";
+      ScalarSinkCommand failingSink =
+          throwingSink("failingSink", new RuntimeException("sink blew up"));
+
+      edgesFromSource =
+          List.of(
+              Edge.builder().from(SOURCE_NODE_ID).to(sinkFailId).build(),
+              Edge.builder().from(SOURCE_NODE_ID).to(sinkGoodId).build());
+      List<Node<OperatorCommand>> nodes =
+          List.of(
+              Node.<OperatorCommand>builder().id(sinkFailId).nodeContent(failingSink).build(),
+              Node.<OperatorCommand>builder().id(sinkGoodId).nodeContent(mockSinkCmd).build());
+      Dag<OperatorCommand> compiledDag = new Dag<>(nodes, List.of());
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
+
+      NodeExecutionException exception =
+          assertThrows(
+              NodeExecutionException.class,
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll));
+
+      // the sibling good sink still ran before the end-of-run DLQ throw
+      verify(mockSinkCmd).writeToSink(anyList(), eq(CALLING_USER), any(ExecutionContext.class));
+      assertEquals(sinkFailId, exception.getNodeId(), "throw should carry the failing node id");
+    }
+
+    @Test
+    @DisplayName("should not visit the downstream of a node that threw")
+    void run_shouldSkipDownstreamOfFailingNode() {
+      when(mockScalarCmd1.process(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenThrow(new RuntimeException("node1 blew up"));
+
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Node<OperatorCommand> sinkNode =
+          Node.<OperatorCommand>builder().id(SINK_ID).nodeContent(mockSinkCmd).build();
+      Dag<OperatorCommand> compiledDag =
+          new Dag<>(
+              List.of(node1, sinkNode),
+              List.of(Edge.builder().from(NODE_ID_1).to(SINK_ID).build()));
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      verify(mockSinkCmd, never()).writeToSink(anyList(), any(), any(ExecutionContext.class));
+      assertFalse(
+          result.outputEvents.containsKey(SINK_ID), "downstream of a failing node must be skipped");
+      verify(mockCounters).increaseErrorEventCounter(eq((long) inputEvents.size()), anyMap());
+    }
+
+    @Test
+    @DisplayName("should route only successful records downstream on a partial node failure")
+    void run_shouldRouteSuccessfulRecordsDownstreamOnPartialFailure() {
+      RecordFleakData good = createEvent("good");
+      RecordFleakData bad = createEvent("bad");
+      List<RecordFleakData> in = List.of(good, bad);
+      when(mockScalarCmd1.process(eq(in), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenReturn(
+              new ScalarCommand.ProcessResult(
+                  new ArrayList<>(List.of(good)), List.of(createError(bad, "boom"))));
+
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Node<OperatorCommand> sinkNode =
+          Node.<OperatorCommand>builder().id(SINK_ID).nodeContent(mockSinkCmd).build();
+      Dag<OperatorCommand> compiledDag =
+          new Dag<>(
+              List.of(node1, sinkNode),
+              List.of(Edge.builder().from(NODE_ID_1).to(SINK_ID).build()));
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      noSourceDagRunner.run(in, CALLING_USER, runConfigIncludeAll);
+
+      ArgumentCaptor<List<RecordFleakData>> sinkInput = ArgumentCaptor.forClass(List.class);
+      verify(mockSinkCmd)
+          .writeToSink(sinkInput.capture(), eq(CALLING_USER), any(ExecutionContext.class));
+      assertEquals(
+          List.of(good), sinkInput.getValue(), "only successful records should reach downstream");
+      verify(mockCounters).increaseErrorEventCounter(eq(1L), anyMap());
+    }
+
+    @Test
+    @DisplayName("should not throw for DLQ when the run has no failures (useDlq=true)")
+    void run_shouldNotThrowWhenNoFailure_whenDlqTrue() {
+      Node<OperatorCommand> node1 =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Node<OperatorCommand> sinkNode =
+          Node.<OperatorCommand>builder().id(SINK_ID).nodeContent(mockSinkCmd).build();
+      Dag<OperatorCommand> compiledDag =
+          new Dag<>(
+              List.of(node1, sinkNode),
+              List.of(Edge.builder().from(NODE_ID_1).to(SINK_ID).build()));
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
+
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      assertTrue(result.outputEvents.containsKey(SINK_ID), "sink output should be present");
+      verify(mockCounters, never()).increaseErrorEventCounter(anyLong(), anyMap());
+    }
+
+    @Test
+    @DisplayName("should attempt every failing branch and report the first failure (useDlq=true)")
+    void run_shouldReportFirstFailure_whenMultipleBranchesFail_whenDlqTrue() {
+      String sinkAId = "sinkA";
+      String sinkBId = "sinkB";
+      ScalarSinkCommand failA = throwingSink("failA", new RuntimeException("A blew up"));
+      ScalarSinkCommand failB = throwingSink("failB", new RuntimeException("B blew up"));
+
+      edgesFromSource =
+          List.of(
+              Edge.builder().from(SOURCE_NODE_ID).to(sinkAId).build(),
+              Edge.builder().from(SOURCE_NODE_ID).to(sinkBId).build());
+      List<Node<OperatorCommand>> nodes =
+          List.of(
+              Node.<OperatorCommand>builder().id(sinkAId).nodeContent(failA).build(),
+              Node.<OperatorCommand>builder().id(sinkBId).nodeContent(failB).build());
+      Dag<OperatorCommand> compiledDag = new Dag<>(nodes, List.of());
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, true); // useDlq=true
+
+      NodeExecutionException exception =
+          assertThrows(
+              NodeExecutionException.class,
+              () -> noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll));
+
+      assertEquals(sinkAId, exception.getNodeId(), "first branch's failure should be reported");
+      assertEquals("A blew up", exception.getMessage(), "first failure message should be reported");
+      // the second failing branch was still attempted despite the first failing
+      verify(failB).writeToSink(anyList(), eq(CALLING_USER), any(ExecutionContext.class));
+    }
+
+    @Test
+    @DisplayName("downstream in-place mutation must not corrupt an upstream node's recorded output")
+    void run_shouldSnapshotStepOutputBeforeDownstreamMutation() {
+      // A passes its records straight through; B mutates them in place. On a single-branch chain
+      // the
+      // runner does not copy between A and B, so the per-step output recording is what protects A's
+      // recorded output from B's mutation.
+      when(mockScalarCmd2.process(anyList(), eq(CALLING_USER), any(ExecutionContext.class)))
+          .thenAnswer(
+              invocation -> {
+                List<RecordFleakData> events = invocation.getArgument(0);
+                events.forEach(e -> e.getPayload().put("mutated", FleakData.wrap("yes")));
+                return new ScalarCommand.ProcessResult(new ArrayList<>(events), List.of());
+              });
+
+      Node<OperatorCommand> nodeA =
+          Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build();
+      Node<OperatorCommand> nodeB =
+          Node.<OperatorCommand>builder().id(NODE_ID_2).nodeContent(mockScalarCmd2).build();
+      Dag<OperatorCommand> compiledDag =
+          new Dag<>(
+              List.of(nodeA, nodeB), List.of(Edge.builder().from(NODE_ID_1).to(NODE_ID_2).build()));
+
+      noSourceDagRunner =
+          new NoSourceDagRunner(
+              edgesFromSource, compiledDag, mockMetricProvider, mockCounters, false);
+
+      DagResult result = noSourceDagRunner.run(inputEvents, CALLING_USER, runConfigIncludeAll);
+
+      List<RecordFleakData> recordedA = result.outputByStep.get(NODE_ID_1).get(SOURCE_NODE_ID);
+      recordedA.forEach(
+          r ->
+              assertFalse(
+                  r.getPayload().containsKey("mutated"),
+                  "upstream node's recorded output must not reflect a downstream mutation"));
     }
   }
 
