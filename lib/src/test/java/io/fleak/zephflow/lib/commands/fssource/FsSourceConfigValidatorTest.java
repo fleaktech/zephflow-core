@@ -111,4 +111,57 @@ class FsSourceConfigValidatorTest {
             new FsSourceConfigValidator()
                 .validateConfig(config, "n", JobContext.builder().build()));
   }
+
+  @Test
+  void acceptsExactObjectKeyBelowS3Root() {
+    FsSourceDto.Config config = validConfig();
+    config.setBackend("s3");
+    config.setRoot("s3://bucket/logs/");
+    config.setExactObjectKey("logs/2026/events.jsonl");
+
+    assertDoesNotThrow(
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsExactObjectKeyForNonS3Backend() {
+    FsSourceDto.Config config = validConfig();
+    config.setExactObjectKey("tmp/data/events.jsonl");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsExactObjectKeyOutsideS3Root() {
+    FsSourceDto.Config config = validConfig();
+    config.setBackend("s3");
+    config.setRoot("s3://bucket/logs/");
+    config.setExactObjectKey("other/events.jsonl");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void rejectsExactObjectKeyUri() {
+    FsSourceDto.Config config = validConfig();
+    config.setBackend("s3");
+    config.setRoot("s3://bucket/logs/");
+    config.setExactObjectKey("s3://bucket/logs/events.jsonl");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new FsSourceConfigValidator()
+                .validateConfig(config, "n", JobContext.builder().build()));
+  }
 }

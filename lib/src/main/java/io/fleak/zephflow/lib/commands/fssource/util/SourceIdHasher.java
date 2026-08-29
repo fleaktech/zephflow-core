@@ -26,15 +26,32 @@ public final class SourceIdHasher {
 
   public static String compute(
       String backend, String root, String fileNameRegex, int replicaIndex, int replicaCount) {
+    return compute(backend, root, fileNameRegex, null, replicaIndex, replicaCount);
+  }
+
+  public static String compute(
+      String backend,
+      String root,
+      String fileNameRegex,
+      String exactObjectKey,
+      int replicaIndex,
+      int replicaCount) {
+    String sourceIdentity = canonical(backend, root, fileNameRegex, exactObjectKey);
     if (replicaCount <= 1) {
-      return compute(backend, root, fileNameRegex);
+      return hash16(sourceIdentity);
     }
-    return hash16(
-        canonical(backend, root, fileNameRegex) + "\n" + replicaIndex + "\n" + replicaCount);
+    return hash16(sourceIdentity + "\n" + replicaIndex + "\n" + replicaCount);
   }
 
   private static String canonical(String backend, String root, String fileNameRegex) {
-    return backend + "\n" + root + "\n" + (fileNameRegex == null ? "" : fileNameRegex);
+    return canonical(backend, root, fileNameRegex, null);
+  }
+
+  private static String canonical(
+      String backend, String root, String fileNameRegex, String exactObjectKey) {
+    String legacyIdentity =
+        backend + "\n" + root + "\n" + (fileNameRegex == null ? "" : fileNameRegex);
+    return exactObjectKey == null ? legacyIdentity : legacyIdentity + "\n" + exactObjectKey;
   }
 
   private static String hash16(String value) {

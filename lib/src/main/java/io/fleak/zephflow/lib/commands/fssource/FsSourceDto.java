@@ -33,6 +33,7 @@ public interface FsSourceDto {
     private String backend;
     private String root;
     private String fileNameRegex;
+    private String exactObjectKey;
     private EncodingType encodingType;
     private Map<String, Object> backendConfig;
   }

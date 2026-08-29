@@ -168,6 +168,7 @@ public final class FsSourceCommand extends SourceCommand {
             config.getBackend(),
             config.getRoot(),
             config.getFileNameRegex(),
+            config.getExactObjectKey(),
             executionContext.replicaIndex,
             executionContext.replicaCount);
     FsCheckpoint checkpoint = loadCheckpoint(executionContext.checkpointClient, sourceId);
@@ -179,7 +180,8 @@ public final class FsSourceCommand extends SourceCommand {
         DeserializerFactory.createDeserializerFactory(config.getEncodingType())
             .createDeserializer();
 
-    ListRequest listRequest = new ListRequest(config.getRoot(), fileNamePattern);
+    ListRequest listRequest =
+        new ListRequest(config.getRoot(), fileNamePattern, config.getExactObjectKey());
     List<Pending> pendingFiles = new ArrayList<>();
     try (var stream = executionContext.lister.list(listRequest)) {
       stream
