@@ -15,4 +15,9 @@ package io.fleak.zephflow.lib.commands.fssource.api;
 
 import java.util.regex.Pattern;
 
-public record ListRequest(String root, Pattern fileNameRegex) {}
+public record ListRequest(String root, Pattern fileNameRegex, String exactObjectKey) {
+
+  public ListRequest(String root, Pattern fileNameRegex) {
+    this(root, fileNameRegex, null);
+  }
+}

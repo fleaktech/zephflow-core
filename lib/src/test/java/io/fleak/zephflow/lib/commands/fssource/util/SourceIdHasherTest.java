@@ -74,4 +74,22 @@ class SourceIdHasherTest {
     String legacy = SourceIdHasher.compute("s3", "s3://bucket/root", null);
     assertNotEquals(legacy, SourceIdHasher.compute("s3", "s3://bucket/root", null, 0, 3));
   }
+
+  @Test
+  void exactObjectKeyChangesCheckpointIdentity() {
+    String first =
+        SourceIdHasher.compute("s3", "s3://bucket/root/", null, "root/a/events.jsonl", 0, 1);
+    String second =
+        SourceIdHasher.compute("s3", "s3://bucket/root/", null, "root/b/events.jsonl", 0, 1);
+
+    assertNotEquals(first, second);
+  }
+
+  @Test
+  void nullExactObjectKeyPreservesLegacyCheckpointIdentity() {
+    String legacy = SourceIdHasher.compute("s3", "s3://bucket/root/", null, 0, 3);
+    String withNullExactKey = SourceIdHasher.compute("s3", "s3://bucket/root/", null, null, 0, 3);
+
+    assertEquals(legacy, withNullExactKey);
+  }
 }

@@ -33,6 +33,7 @@ public final class FsSourceConfigValidator implements ConfigValidator {
     if (fsSourceConfig.getRoot() == null || fsSourceConfig.getRoot().isBlank()) {
       throw new IllegalArgumentException("root is required");
     }
+    validateExactObjectKey(fsSourceConfig);
     if (fsSourceConfig.getFileNameRegex() != null && !fsSourceConfig.getFileNameRegex().isBlank()) {
       try {
         Pattern.compile(fsSourceConfig.getFileNameRegex());
@@ -45,5 +46,34 @@ public final class FsSourceConfigValidator implements ConfigValidator {
       throw new IllegalArgumentException("encodingType is required");
     }
     DeserializerFactory.validateEncodingType(fsSourceConfig.getEncodingType());
+  }
+
+  private static void validateExactObjectKey(FsSourceDto.Config config) {
+    String exactObjectKey = config.getExactObjectKey();
+    if (exactObjectKey == null) {
+      return;
+    }
+    if (exactObjectKey.isBlank()) {
+      throw new IllegalArgumentException("exactObjectKey must not be blank");
+    }
+    if (!"s3".equals(config.getBackend())) {
+      throw new IllegalArgumentException("exactObjectKey is supported only for the s3 backend");
+    }
+    if (!config.getRoot().startsWith("s3://")) {
+      throw new IllegalArgumentException("exactObjectKey requires an s3:// root");
+    }
+    if (exactObjectKey.startsWith("/") || exactObjectKey.startsWith("s3://")) {
+      throw new IllegalArgumentException("exactObjectKey must be an S3 object key, not a URI");
+    }
+
+    String rootWithoutScheme = config.getRoot().substring("s3://".length());
+    int firstSlash = rootWithoutScheme.indexOf('/');
+    String rootPrefix = firstSlash < 0 ? "" : rootWithoutScheme.substring(firstSlash + 1);
+    if (!rootPrefix.isEmpty() && !rootPrefix.endsWith("/")) {
+      rootPrefix += "/";
+    }
+    if (!exactObjectKey.startsWith(rootPrefix) || exactObjectKey.equals(rootPrefix)) {
+      throw new IllegalArgumentException("exactObjectKey must be below the configured S3 root");
+    }
   }
 }

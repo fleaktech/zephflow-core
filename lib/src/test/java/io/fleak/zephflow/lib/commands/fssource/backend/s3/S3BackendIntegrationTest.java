@@ -73,6 +73,12 @@ class S3BackendIntegrationTest {
       c.putObject(
           PutObjectRequest.builder().bucket("test-bkt").key("data/skip.txt").build(),
           RequestBody.fromString("nope"));
+      c.putObject(
+          PutObjectRequest.builder().bucket("test-bkt").key("data/a/events.jsonl").build(),
+          RequestBody.fromString("first"));
+      c.putObject(
+          PutObjectRequest.builder().bucket("test-bkt").key("data/b/events.jsonl").build(),
+          RequestBody.fromString("second"));
     }
   }
 
@@ -111,6 +117,28 @@ class S3BackendIntegrationTest {
     try (InputStream in = reader.open(entries.get(0).key(), 0)) {
       String body = new String(in.readAllBytes());
       assertTrue(body.equals("hello") || body.equals("world"));
+    }
+  }
+
+  @Test
+  void listsOnlyTheExactFullObjectKey() throws Exception {
+    S3BackendConfig config =
+        new S3BackendConfig(
+            LOCALSTACK.getRegion(),
+            null,
+            null,
+            LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.S3).toString());
+    S3Backend backend = new S3Backend();
+    FileLister lister = backend.createLister(config);
+    FileReader reader = backend.createReader(config);
+
+    List<FileEntry> entries =
+        lister.list(new ListRequest("s3://test-bkt/data/", null, "data/b/events.jsonl")).toList();
+
+    assertEquals(1, entries.size());
+    assertEquals("s3://test-bkt/data/b/events.jsonl", entries.getFirst().key().urn());
+    try (InputStream inputStream = reader.open(entries.getFirst().key(), 0)) {
+      assertEquals("second", new String(inputStream.readAllBytes()));
     }
   }
 }

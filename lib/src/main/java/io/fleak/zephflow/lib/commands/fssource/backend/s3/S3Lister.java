@@ -35,11 +35,13 @@ public final class S3Lister implements FileLister {
     int slash = stripped.indexOf('/');
     String bucket = slash < 0 ? stripped : stripped.substring(0, slash);
     String prefix = slash < 0 ? "" : stripped.substring(slash + 1);
+    String listPrefix = req.exactObjectKey() == null ? prefix : req.exactObjectKey();
 
     var iter =
         client.listObjectsV2Paginator(
-            ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build());
+            ListObjectsV2Request.builder().bucket(bucket).prefix(listPrefix).build());
     return StreamSupport.stream(iter.contents().spliterator(), false)
+        .filter(o -> req.exactObjectKey() == null || req.exactObjectKey().equals(o.key()))
         .filter(
             o ->
                 req.fileNameRegex() == null
