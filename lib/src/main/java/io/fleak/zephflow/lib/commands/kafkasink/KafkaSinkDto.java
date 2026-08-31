@@ -19,22 +19,13 @@ import lombok.*;
 
 public interface KafkaSinkDto {
 
-  /**
-   * When the sink's flush is allowed to return. The source checkpoint advances as soon as the sink
-   * returns, so this is the pipeline's delivery guarantee.
-   */
+  /** Controls when the sink reports a flushed batch as delivered. */
   enum DeliveryMode {
-    /**
-     * Default. Send the batch, then wait for a broker ack of every record before returning — no
-     * silent loss on crash. Costs one broker round-trip per flushed batch; since the source
-     * typically hands the sink one record per accept(), that usually means one round-trip per
-     * source record. Latency-sensitive users who have measured should consider FIRE_AND_FORGET.
-     */
+    /** Wait for a broker acknowledgement of every record before returning. Default. */
     WAIT_FOR_ACK,
     /**
-     * Return as soon as records are handed to the Kafka producer's client-side buffer. Highest
-     * throughput, but records still buffered at crash time are silently lost even though the source
-     * checkpoint has already advanced past them.
+     * Return once records are handed to the producer's client-side buffer; records still buffered
+     * when the process crashes are lost.
      */
     FIRE_AND_FORGET
   }
@@ -54,17 +45,12 @@ public interface KafkaSinkDto {
     private String securityProtocol;
     private String saslMechanism;
 
-    /**
-     * Delivery guarantee for the flush path; see {@link DeliveryMode}. {@code FIRE_AND_FORGET} is
-     * an explicit throughput-over-durability opt-in and cannot be combined with {@link
-     * #storeAndForwardEnabled}.
-     */
+    /** Cannot be {@code FIRE_AND_FORGET} when {@link #storeAndForwardEnabled} is set. */
     @Builder.Default private DeliveryMode deliveryMode = DeliveryMode.WAIT_FOR_ACK;
 
     /**
-     * Never returns null: a config deserialized without the field (Jackson uses the no-args
-     * constructor, which skips {@code @Builder.Default} initializers) must still get the durable
-     * default.
+     * Jackson deserializes through the no-args constructor, which skips {@code @Builder.Default}
+     * initializers, so a config without the field must still resolve to the default here.
      */
     public DeliveryMode getDeliveryMode() {
       return deliveryMode == null ? DeliveryMode.WAIT_FOR_ACK : deliveryMode;

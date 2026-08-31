@@ -488,13 +488,9 @@ public class ZephFlow {
   }
 
   /**
-   * Appends a Kafka sink node to the flow.
-   *
-   * <p>Delivery waits for broker acks by default ({@code deliveryMode: WAIT_FOR_ACK}, with {@code
-   * acks=all} and an idempotent producer), so a crash cannot silently lose records the source has
-   * already checkpointed past. To trade that guarantee for throughput, build a {@link
-   * KafkaSinkDto.Config} with {@link KafkaSinkDto.DeliveryMode#FIRE_AND_FORGET} and use {@link
-   * #appendNode(String, CommandConfig)} directly.
+   * Appends a Kafka sink node to the flow. Delivery waits for broker acknowledgements by default;
+   * to trade that guarantee for throughput, build a {@link KafkaSinkDto.Config} with {@link
+   * KafkaSinkDto.DeliveryMode#FIRE_AND_FORGET} and use {@link #appendNode(String, CommandConfig)}.
    *
    * @param broker The Kafka broker list (comma-separated).
    * @param topic The Kafka topic to produce to.

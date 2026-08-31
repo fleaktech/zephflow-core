@@ -62,8 +62,6 @@ class KafkaSinkConfigValidatorTest {
 
   @Test
   void validateConfig_storeAndForwardWithFireAndForget_rejected() {
-    // storeAndForward requires synchronous delivery to detect failures at flush time; combining it
-    // with fire-and-forget is contradictory and must be rejected loudly.
     KafkaSinkDto.Config config =
         KafkaSinkDto.Config.builder()
             .broker("localhost:9092")

@@ -29,23 +29,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
-/**
- * FLE-2366: kafkasink's default delivery mode must wait for broker acks before {@code flush()}
- * returns. The source checkpoint advances as soon as the sink returns, so a flusher that returns
- * while records are still in the producer's client-side accumulator turns a crash (SIGKILL) into
- * silent, unrecoverable data loss. Fire-and-forget is throughput-over-durability and must be an
- * explicit opt-in, decoupled from store-and-forward.
- */
+/** Delivery-mode selection and producer configuration for {@link KafkaSinkCommand} (FLE-2366). */
 class KafkaSinkDeliveryModeTest {
 
   private static final String TOPIC = "delivery_mode_topic";
@@ -57,7 +53,7 @@ class KafkaSinkDeliveryModeTest {
           (RecordFleakData) FleakData.wrap(Map.of("num", 2)));
 
   private KafkaProducer<byte[], byte[]> mockProducer;
-  private Properties capturedProducerProps;
+  private Properties capturedProducerProperties;
 
   @BeforeEach
   @SuppressWarnings("unchecked")
@@ -65,33 +61,36 @@ class KafkaSinkDeliveryModeTest {
     mockProducer = mock(KafkaProducer.class);
     when(mockProducer.partitionsFor(TOPIC))
         .thenReturn(List.of(new PartitionInfo(TOPIC, 0, null, null, null)));
-    // Synchronous path: send(record) returns an already-acked future.
     when(mockProducer.send(any(ProducerRecord.class)))
-        .thenAnswer(inv -> CompletableFuture.completedFuture(mock(RecordMetadata.class)));
-    // Fire-and-forget path: send(record, callback) reports success via the callback.
+        .thenAnswer(invocation -> CompletableFuture.completedFuture(mock(RecordMetadata.class)));
     when(mockProducer.send(any(ProducerRecord.class), any(Callback.class)))
         .thenAnswer(
-            inv -> {
-              Callback callback = inv.getArgument(1);
+            invocation -> {
+              Callback callback = invocation.getArgument(1);
               callback.onCompletion(mock(RecordMetadata.class), null);
               return CompletableFuture.completedFuture(mock(RecordMetadata.class));
             });
   }
 
   private KafkaSinkCommand buildCommand(KafkaSinkDto.Config config) {
-    KafkaProducerClientFactory producerFactory =
+    Map<String, Object> configMap = OBJECT_MAPPER.convertValue(config, new TypeReference<>() {});
+    return buildCommandFromConfigMap(configMap);
+  }
+
+  private KafkaSinkCommand buildCommandFromConfigMap(Map<String, Object> configMap) {
+    KafkaProducerClientFactory producerClientFactory =
         new KafkaProducerClientFactory() {
           @Override
-          KafkaProducer<byte[], byte[]> createKafkaProducer(Properties props) {
-            capturedProducerProps = props;
+          KafkaProducer<byte[], byte[]> createKafkaProducer(Properties producerProperties) {
+            capturedProducerProperties = producerProperties;
             return mockProducer;
           }
         };
     KafkaSinkCommand command =
         (KafkaSinkCommand)
-            new KafkaSinkCommandFactory(producerFactory)
+            new KafkaSinkCommandFactory(producerClientFactory)
                 .createCommand("delivery_mode_node", TestUtils.JOB_CONTEXT);
-    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    command.parseAndValidateArg(configMap);
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     return command;
   }
@@ -104,16 +103,13 @@ class KafkaSinkDeliveryModeTest {
   }
 
   @Test
-  void defaultDeliveryMode_waitsForBrokerAcks() {
+  void defaultDeliveryMode_sendsBatchThenFlushesAndWaitsForBrokerAcks() {
     KafkaSinkCommand command = buildCommand(baseConfig().build());
 
     ScalarSinkCommand.SinkResult result =
         command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
 
     assertEquals(EVENTS.size(), result.getSuccessCount());
-    // Synchronous shape: every record sent without a callback, then one producer.flush(), then the
-    // per-record futures are awaited. Fire-and-forget would use send(record, callback) and never
-    // call flush().
     InOrder inOrder = inOrder(mockProducer);
     inOrder.verify(mockProducer, times(EVENTS.size())).send(any(ProducerRecord.class));
     inOrder.verify(mockProducer).flush();
@@ -121,11 +117,11 @@ class KafkaSinkDeliveryModeTest {
   }
 
   @Test
-  void defaultDeliveryMode_producerIsDurable() {
+  void defaultDeliveryMode_enablesAcksAllAndIdempotence() {
     buildCommand(baseConfig().build());
 
-    assertEquals("all", capturedProducerProps.get(ProducerConfig.ACKS_CONFIG));
-    assertEquals("true", capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+    assertEquals("all", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
+    assertEquals("true", capturedProducerProperties.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
   }
 
   @Test
@@ -143,54 +139,46 @@ class KafkaSinkDeliveryModeTest {
   }
 
   @Test
-  void fireAndForgetOptIn_keepsThroughputProducerProps() {
+  void fireAndForgetOptIn_keepsAcksOneWithoutIdempotence() {
     buildCommand(baseConfig().deliveryMode(KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET).build());
 
-    assertEquals("1", capturedProducerProps.get(ProducerConfig.ACKS_CONFIG));
-    assertNull(capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+    assertEquals("1", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
+    assertNull(capturedProducerProperties.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
   }
 
   @Test
   void userAcksOverride_suppressesIdempotence() {
-    // A user explicitly weakening acks must not collide with enable.idempotence=true, which the
-    // producer rejects at construction time unless acks=all.
     buildCommand(baseConfig().properties(Map.of(ProducerConfig.ACKS_CONFIG, "1")).build());
 
-    assertEquals("1", capturedProducerProps.get(ProducerConfig.ACKS_CONFIG));
-    assertNull(capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+    assertEquals("1", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
+    assertNull(capturedProducerProperties.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
   }
 
   @Test
   void userRetriesZeroOverride_suppressesIdempotence() {
-    // enable.idempotence=true also requires retries > 0; a pre-existing config that pinned
-    // retries=0 must keep constructing a valid producer.
     buildCommand(baseConfig().properties(Map.of(ProducerConfig.RETRIES_CONFIG, "0")).build());
 
-    assertEquals("0", capturedProducerProps.get(ProducerConfig.RETRIES_CONFIG));
-    assertNull(capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+    assertEquals("0", capturedProducerProperties.get(ProducerConfig.RETRIES_CONFIG));
+    assertNull(capturedProducerProperties.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
   }
 
   @Test
   void userMaxInFlightOverride_suppressesIdempotence() {
-    // enable.idempotence=true requires max.in.flight <= 5; same backward-compat concern.
     buildCommand(
         baseConfig()
             .properties(Map.of(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "6"))
             .build());
 
-    assertNull(capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+    assertNull(capturedProducerProperties.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
   }
 
   @Test
-  void waitForAck_failedAckBecomesErrorOutput_notSuccess() {
-    // The heart of FLE-2366: a record whose broker ack fails must never be reported as delivered,
-    // because the source checkpoint advances on the sink's word.
-    java.util.concurrent.atomic.AtomicInteger sendCount =
-        new java.util.concurrent.atomic.AtomicInteger();
+  void defaultDeliveryMode_failedBrokerAckBecomesErrorOutputNotSuccess() {
+    AtomicInteger sendInvocations = new AtomicInteger();
     when(mockProducer.send(any(ProducerRecord.class)))
         .thenAnswer(
-            inv ->
-                sendCount.incrementAndGet() == 2
+            invocation ->
+                sendInvocations.incrementAndGet() == 2
                     ? CompletableFuture.failedFuture(new RuntimeException("ack failed"))
                     : CompletableFuture.completedFuture(mock(RecordMetadata.class)));
 
@@ -203,11 +191,8 @@ class KafkaSinkDeliveryModeTest {
   }
 
   @Test
-  void waitForAck_brokerUnreachable_failsBatchBeforeAnySend() {
-    // During an outage the pre-send metadata probe must fail the whole batch after ONE bounded
-    // wait instead of silently proceeding into per-record max.block.ms waits.
-    when(mockProducer.partitionsFor(TOPIC))
-        .thenThrow(new org.apache.kafka.common.errors.TimeoutException("no metadata"));
+  void defaultDeliveryMode_unreachableBrokerFailsBatchBeforeAnySend() {
+    when(mockProducer.partitionsFor(TOPIC)).thenThrow(new TimeoutException("no metadata"));
 
     KafkaSinkCommand command = buildCommand(baseConfig().build());
     ScalarSinkCommand.SinkResult result =
@@ -220,38 +205,15 @@ class KafkaSinkDeliveryModeTest {
   }
 
   @Test
-  void legacyConfigWithoutDeliveryModeField_getsDurableDefault() {
-    // Configs written before this field existed arrive as raw maps with no deliveryMode key and
-    // are deserialized through the no-args constructor, which skips @Builder.Default. They must
-    // still get the ack-waiting default.
-    KafkaProducerClientFactory producerFactory =
-        new KafkaProducerClientFactory() {
-          @Override
-          KafkaProducer<byte[], byte[]> createKafkaProducer(Properties props) {
-            capturedProducerProps = props;
-            return mockProducer;
-          }
-        };
+  void configWithoutDeliveryModeField_defaultsToWaitForAck() {
     KafkaSinkCommand command =
-        (KafkaSinkCommand)
-            new KafkaSinkCommandFactory(producerFactory)
-                .createCommand("legacy_config_node", TestUtils.JOB_CONTEXT);
-    command.parseAndValidateArg(
-        Map.of("broker", "localhost:9092", "topic", TOPIC, "encodingType", "JSON_OBJECT"));
-    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+        buildCommandFromConfigMap(
+            Map.of("broker", "localhost:9092", "topic", TOPIC, "encodingType", "JSON_OBJECT"));
 
     command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
 
-    assertEquals("all", capturedProducerProps.get(ProducerConfig.ACKS_CONFIG));
+    assertEquals("all", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
     verify(mockProducer).flush();
     verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
-  }
-
-  @Test
-  void storeAndForward_impliesWaitForAck() {
-    // storeAndForwardEnabled has always meant synchronous delivery; the new default must not
-    // change that, and the two knobs must agree.
-    KafkaSinkDto.Config config = baseConfig().storeAndForwardEnabled(true).build();
-    assertEquals(KafkaSinkDto.DeliveryMode.WAIT_FOR_ACK, config.getDeliveryMode());
   }
 }
