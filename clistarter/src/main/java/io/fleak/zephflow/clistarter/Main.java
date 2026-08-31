@@ -23,8 +23,16 @@ import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.metric.SplunkMetricClientProvider;
 import io.fleak.zephflow.api.metric.SplunkMetricSender;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
+import io.fleak.zephflow.runner.RunSummary;
+import io.fleak.zephflow.runner.RunSummaryMetricClientProvider;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.TreeMap;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.ParseException;
 import org.influxdb.InfluxDB;
@@ -35,16 +43,49 @@ import org.influxdb.dto.Query;
 @Slf4j
 public class Main {
 
+  public static final String RUN_SUMMARY_FILE_ENV_VAR = "ZEPHFLOW_RUN_SUMMARY_FILE";
+
+  public static final String RUN_SUMMARY_FILE_SYS_PROP = "zephflow.run.summary.file";
+
   public static void main(String[] args) throws Exception {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
-      try (MetricClientProvider metricClientProvider = createMetricClientProvider(args)) {
-        DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
-        dagExecutor.executeDag();
+      try (MetricClientProvider innerProvider = createMetricClientProvider(args)) {
+        RunSummaryMetricClientProvider metricClientProvider =
+            new RunSummaryMetricClientProvider(innerProvider);
+        try {
+          DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
+          dagExecutor.executeDag();
+        } finally {
+          writeRunSummary(metricClientProvider.summarize(), resolveRunSummaryPath());
+        }
       }
     } catch (ParseException cliParseException) {
       JobCliParser.printUsage("pipelinejob");
       System.exit(1);
+    }
+  }
+
+  private static String resolveRunSummaryPath() {
+    String path = System.getenv(RUN_SUMMARY_FILE_ENV_VAR);
+    if (path == null || path.isBlank()) {
+      path = System.getProperty(RUN_SUMMARY_FILE_SYS_PROP);
+    }
+    return path;
+  }
+
+  static void writeRunSummary(RunSummary runSummary, String path) {
+    if (path == null || path.isBlank()) {
+      return;
+    }
+    try {
+      Map<String, Object> payload = new LinkedHashMap<>();
+      payload.put("counters", new TreeMap<>(runSummary.counters()));
+      payload.put("summary", runSummary.summaryText());
+      Files.writeString(Path.of(path), JsonUtils.toJsonString(payload));
+      log.info("Wrote run summary to {}: {}", path, runSummary.summaryText());
+    } catch (Exception e) {
+      log.error("Failed to write run summary to {}", path, e);
     }
   }
 
