@@ -18,6 +18,12 @@ import java.util.Map;
 import lombok.*;
 
 public interface KafkaSinkDto {
+
+  enum DeliveryMode {
+    WAIT_FOR_ACK,
+    FIRE_AND_FORGET
+  }
+
   @Data
   @Builder
   @NoArgsConstructor
@@ -32,6 +38,20 @@ public interface KafkaSinkDto {
     private String credentialId;
     private String securityProtocol;
     private String saslMechanism;
+
+    /**
+     * Defaults to {@link DeliveryMode#WAIT_FOR_ACK}. Cannot be {@code FIRE_AND_FORGET} when {@link
+     * #storeAndForwardEnabled} is set.
+     */
+    @Builder.Default private DeliveryMode deliveryMode = DeliveryMode.WAIT_FOR_ACK;
+
+    /**
+     * Jackson deserializes through the no-args constructor, which skips {@code @Builder.Default}
+     * initializers, so a config without the field must still resolve to the default here.
+     */
+    public DeliveryMode getDeliveryMode() {
+      return deliveryMode == null ? DeliveryMode.WAIT_FOR_ACK : deliveryMode;
+    }
 
     /**
      * Store-and-forward: when enabled, a connectivity failure persists records to a local durable

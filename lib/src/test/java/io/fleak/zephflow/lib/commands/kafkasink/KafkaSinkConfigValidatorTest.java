@@ -61,6 +61,25 @@ class KafkaSinkConfigValidatorTest {
   }
 
   @Test
+  void validateConfig_storeAndForwardWithFireAndForget_rejected() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.JSON_OBJECT.name())
+            .storeAndForwardEnabled(true)
+            .deliveryMode(KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET)
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertTrue(exception.getMessage().contains("storeAndForwardEnabled"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("FIRE_AND_FORGET"), exception.getMessage());
+  }
+
+  @Test
   void validateConfig_missingTopic() {
     KafkaSinkDto.Config config =
         KafkaSinkDto.Config.builder()

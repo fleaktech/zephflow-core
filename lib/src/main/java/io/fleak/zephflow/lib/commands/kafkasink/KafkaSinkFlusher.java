@@ -37,11 +37,14 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.PartitionInfo;
 
 /**
- * Kafka sink flusher. By default it is fire-and-forget (relies on Kafka's native batching for
- * throughput and reports delivery via async callbacks). When constructed in <b>synchronous</b> mode
- * (used by store-and-forward), it instead waits for acks and <b>throws</b> a connectivity failure
- * when delivery fails, so {@link SimpleSinkCommand} can buffer the batch locally and replay it once
- * the broker is reachable again.
+ * Kafka sink flusher with two delivery modes. In <b>synchronous</b> mode (the default, {@code
+ * deliveryMode: WAIT_FOR_ACK}; always used by store-and-forward) it sends the batch, flushes the
+ * producer, and waits for every broker acknowledgement before returning, because the source
+ * checkpoint advances as soon as the flush returns. With store-and-forward it additionally
+ * <b>throws</b> a classified connectivity failure so {@link SimpleSinkCommand} can buffer the batch
+ * locally and replay it once the broker is reachable again. In <b>fire-and-forget</b> mode ({@code
+ * deliveryMode: FIRE_AND_FORGET}) it returns as soon as records are in the producer's client-side
+ * buffer and reports delivery via async callbacks.
  */
 @Slf4j
 public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
@@ -54,10 +57,13 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   private final FleakCounter asyncDeliveredSizeCounter;
   private final FleakCounter asyncErrorCounter;
 
-  // Synchronous delivery: when enabled the flusher waits for acks and throws connectivity failures
-  // (classified via this classifier) so store-and-forward can buffer + replay. Null in async mode.
   private final boolean synchronousDelivery;
   private final ConnectionFailureClassifier connectionFailureClassifier;
+
+  // Mid-batch connectivity failures are rethrown only when store-and-forward can buffer and
+  // replay the whole batch; without that, records whose acks already succeeded would be
+  // misreported as failed.
+  private final boolean bufferBatchOnConnectivityFailure;
 
   private volatile boolean closed = false;
 
@@ -78,7 +84,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
         false,
-        null);
+        null,
+        false);
   }
 
   public KafkaSinkFlusher(
@@ -90,7 +97,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       @NonNull FleakCounter asyncDeliveredSizeCounter,
       @NonNull FleakCounter asyncErrorCounter,
       boolean synchronousDelivery,
-      ConnectionFailureClassifier connectionFailureClassifier) {
+      ConnectionFailureClassifier connectionFailureClassifier,
+      boolean bufferBatchOnConnectivityFailure) {
     this.producer = producer;
     this.topic = topic;
     this.fleakSerializer = fleakSerializer;
@@ -100,6 +108,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     this.asyncErrorCounter = asyncErrorCounter;
     this.synchronousDelivery = synchronousDelivery;
     this.connectionFailureClassifier = connectionFailureClassifier;
+    this.bufferBatchOnConnectivityFailure = bufferBatchOnConnectivityFailure;
   }
 
   @Override
@@ -179,7 +188,9 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
             producer.send(new ProducerRecord<>(topic, keyBytes(event), eventValue));
         inflight.add(new Inflight(event, eventValue.length, future));
       } catch (Exception e) {
-        rethrowIfConnectivity(e); // never reached the broker
+        if (bufferBatchOnConnectivityFailure) {
+          rethrowIfConnectivity(e);
+        }
         errorOutputs.add(new ErrorOutput(event, e.getMessage()));
       }
     }
@@ -196,7 +207,9 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         asyncDeliveredCountCounter.increase(metricTags);
         asyncDeliveredSizeCounter.increase(item.size, metricTags);
       } catch (ExecutionException e) {
-        rethrowIfConnectivity(e.getCause());
+        if (bufferBatchOnConnectivityFailure) {
+          rethrowIfConnectivity(e.getCause());
+        }
         errorOutputs.add(new ErrorOutput(item.event, e.getCause().getMessage()));
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();

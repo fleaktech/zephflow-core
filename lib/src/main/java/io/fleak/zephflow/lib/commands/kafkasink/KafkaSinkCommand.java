@@ -82,19 +82,25 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
     // A test run is an ephemeral, in-memory single shot; durable store-and-forward buffering is
     // meaningless there and would leave an orphaned, still-locked on-disk queue that blocks the
-    // next run. Force it off in test mode so the sink degrades to a plain async send.
+    // next run. Force it off in test mode.
     boolean storeAndForwardEnabled = config.isStoreAndForwardEnabled() && !isTestMode(jobContext);
-    KafkaConnectionFailureClassifier classifier =
-        storeAndForwardEnabled ? new KafkaConnectionFailureClassifier() : null;
+
+    boolean waitForBrokerAcks =
+        storeAndForwardEnabled
+            || config.getDeliveryMode() != KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET;
+
+    KafkaConnectionFailureClassifier connectionFailureClassifier =
+        waitForBrokerAcks ? new KafkaConnectionFailureClassifier() : null;
 
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
         createKafkaFlusher(
             config,
             storeAndForwardEnabled,
+            waitForBrokerAcks,
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
             counters.sinkErrorCounter(),
-            classifier);
+            connectionFailureClassifier);
 
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
@@ -108,7 +114,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
             nodeId,
             flusher,
             messagePreProcessor,
-            classifier);
+            connectionFailureClassifier);
 
     return new SinkExecutionContext<>(
         flusher,
@@ -124,11 +130,12 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
       KafkaSinkDto.Config config,
       boolean storeAndForwardEnabled,
+      boolean waitForBrokerAcks,
       FleakCounter asyncDeliveredCountCounter,
       FleakCounter asyncDeliveredSizeCounter,
       FleakCounter asyncErrorCounter,
-      KafkaConnectionFailureClassifier classifier) {
-    Properties props = getProperties(config);
+      KafkaConnectionFailureClassifier connectionFailureClassifier) {
+    Properties props = getProperties(config, waitForBrokerAcks);
 
     boolean isTestMode = isTestMode(jobContext);
     if (isTestMode) {
@@ -145,6 +152,10 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
     if (config.getProperties() != null) {
       props.putAll(config.getProperties());
+    }
+
+    if (waitForBrokerAcks) {
+      enableIdempotenceIfConfigurationAllows(props);
     }
 
     applyCredentialSasl(props, config);
@@ -174,8 +185,9 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
-        storeAndForwardEnabled,
-        classifier);
+        waitForBrokerAcks,
+        connectionFailureClassifier,
+        storeAndForwardEnabled);
   }
 
   private static final int STORE_FORWARD_DRAIN_CHUNK = 1000;
@@ -263,7 +275,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     return v.replace("\\", "\\\\").replace("\"", "\\\"");
   }
 
-  private static @NotNull Properties getProperties(KafkaSinkDto.Config config) {
+  private static @NotNull Properties getProperties(
+      KafkaSinkDto.Config config, boolean waitForBrokerAcks) {
     Properties props = new Properties();
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBroker());
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
@@ -274,10 +287,41 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     props.put(ProducerConfig.LINGER_MS_CONFIG, "10");
     props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, "67108864");
     props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
-    props.put(ProducerConfig.ACKS_CONFIG, "1");
+    props.put(ProducerConfig.ACKS_CONFIG, waitForBrokerAcks ? "all" : "1");
     props.put(ProducerConfig.RETRIES_CONFIG, "3");
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
     return props;
+  }
+
+  /**
+   * The producer rejects {@code enable.idempotence=true} at construction time unless acks=all/-1,
+   * retries > 0 and max.in.flight <= 5, so a user property override weakening any of them must
+   * leave idempotence off instead of breaking producer construction.
+   */
+  private static void enableIdempotenceIfConfigurationAllows(Properties producerProperties) {
+    Object acks = producerProperties.get(ProducerConfig.ACKS_CONFIG);
+    Integer retries = producerPropertyAsInteger(producerProperties, ProducerConfig.RETRIES_CONFIG);
+    Integer maxInFlightRequests =
+        producerPropertyAsInteger(
+            producerProperties, ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
+    boolean idempotenceSupported =
+        ("all".equals(acks) || "-1".equals(acks))
+            && retries != null
+            && retries > 0
+            && maxInFlightRequests != null
+            && maxInFlightRequests <= 5
+            && !producerProperties.containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG);
+    if (idempotenceSupported) {
+      producerProperties.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
+    }
+  }
+
+  private static Integer producerPropertyAsInteger(Properties producerProperties, String key) {
+    try {
+      return Integer.parseInt(String.valueOf(producerProperties.get(key)).trim());
+    } catch (NumberFormatException e) {
+      return null;
+    }
   }
 
   private static boolean isTestMode(JobContext jobContext) {
