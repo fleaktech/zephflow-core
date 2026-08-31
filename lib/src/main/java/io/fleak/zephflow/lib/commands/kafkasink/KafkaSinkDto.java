@@ -19,20 +19,8 @@ import lombok.*;
 
 public interface KafkaSinkDto {
 
-  /**
-   * Controls when the sink reports a flushed batch as delivered. Defaults to {@link #WAIT_FOR_ACK}.
-   */
   enum DeliveryMode {
-    /**
-     * The default: wait for a broker acknowledgement of every record before returning, so a crash
-     * cannot lose records the source has already checkpointed past.
-     */
     WAIT_FOR_ACK,
-    /**
-     * Explicit opt-in for throughput over durability: return once records are handed to the
-     * producer's client-side buffer without waiting for broker acknowledgements. Records still
-     * buffered when the process crashes are lost.
-     */
     FIRE_AND_FORGET
   }
 
