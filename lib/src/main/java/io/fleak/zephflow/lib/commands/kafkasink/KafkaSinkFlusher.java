@@ -40,13 +40,13 @@ import org.apache.kafka.common.PartitionInfo;
  * Kafka sink flusher with two delivery modes. In <b>synchronous</b> mode (the command default,
  * {@code deliveryMode: WAIT_FOR_ACK}; also always used by store-and-forward) it sends the batch,
  * flushes the producer, and waits for every broker ack before returning — one broker round-trip per
- * batch, preserving Kafka's native batching. This matters because the source checkpoint advances as
- * soon as flush returns (FLE-2366). With store-and-forward it additionally <b>throws</b> a
- * classified connectivity failure so {@link SimpleSinkCommand} can buffer the batch locally and
- * replay it once the broker is reachable again. In <b>fire-and-forget</b> mode ({@code
- * deliveryMode: FIRE_AND_FORGET}, explicit opt-in) it returns as soon as records are in the
- * producer's client-side buffer and reports delivery via async callbacks; records still buffered
- * when the process dies are silently lost.
+ * flushed batch (often per source record, since the upstream flushes once per accept()). This
+ * matters because the source checkpoint advances as soon as flush returns (FLE-2366). With
+ * store-and-forward it additionally <b>throws</b> a classified connectivity failure so {@link
+ * SimpleSinkCommand} can buffer the batch locally and replay it once the broker is reachable again.
+ * In <b>fire-and-forget</b> mode ({@code deliveryMode: FIRE_AND_FORGET}, explicit opt-in) it
+ * returns as soon as records are in the producer's client-side buffer and reports delivery via
+ * async callbacks; records still buffered when the process dies are silently lost.
  */
 @Slf4j
 public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
@@ -59,10 +59,15 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   private final FleakCounter asyncDeliveredSizeCounter;
   private final FleakCounter asyncErrorCounter;
 
-  // Synchronous delivery: when enabled the flusher waits for acks and throws connectivity failures
-  // (classified via this classifier) so store-and-forward can buffer + replay. Null in async mode.
+  // Synchronous delivery: when enabled the flusher waits for acks. The classifier (null in
+  // fire-and-forget mode) lets the pre-send metadata probe fail the whole batch after one bounded
+  // wait during an outage. Only with bufferBatchOnConnectivityFailure (store-and-forward enrolled)
+  // are connectivity failures ALSO rethrown mid-batch so the batch gets buffered and replayed;
+  // without it a mid-batch throw would misreport records whose acks already succeeded, so those
+  // failures stay per-record ErrorOutputs instead.
   private final boolean synchronousDelivery;
   private final ConnectionFailureClassifier connectionFailureClassifier;
+  private final boolean bufferBatchOnConnectivityFailure;
 
   private volatile boolean closed = false;
 
@@ -83,7 +88,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
         false,
-        null);
+        null,
+        false);
   }
 
   public KafkaSinkFlusher(
@@ -95,7 +101,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       @NonNull FleakCounter asyncDeliveredSizeCounter,
       @NonNull FleakCounter asyncErrorCounter,
       boolean synchronousDelivery,
-      ConnectionFailureClassifier connectionFailureClassifier) {
+      ConnectionFailureClassifier connectionFailureClassifier,
+      boolean bufferBatchOnConnectivityFailure) {
     this.producer = producer;
     this.topic = topic;
     this.fleakSerializer = fleakSerializer;
@@ -105,6 +112,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     this.asyncErrorCounter = asyncErrorCounter;
     this.synchronousDelivery = synchronousDelivery;
     this.connectionFailureClassifier = connectionFailureClassifier;
+    this.bufferBatchOnConnectivityFailure = bufferBatchOnConnectivityFailure;
   }
 
   @Override
@@ -184,7 +192,12 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
             producer.send(new ProducerRecord<>(topic, keyBytes(event), eventValue));
         inflight.add(new Inflight(event, eventValue.length, future));
       } catch (Exception e) {
-        rethrowIfConnectivity(e); // never reached the broker
+        // Mid-batch throws are for store-and-forward only: earlier records of this batch are
+        // already in flight and may be delivered, so without a buffer+replay path a batch-level
+        // failure would misreport them. S&F accepts that as at-least-once.
+        if (bufferBatchOnConnectivityFailure) {
+          rethrowIfConnectivity(e); // this record never reached the broker
+        }
         errorOutputs.add(new ErrorOutput(event, e.getMessage()));
       }
     }
@@ -201,7 +214,9 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         asyncDeliveredCountCounter.increase(metricTags);
         asyncDeliveredSizeCounter.increase(item.size, metricTags);
       } catch (ExecutionException e) {
-        rethrowIfConnectivity(e.getCause());
+        if (bufferBatchOnConnectivityFailure) {
+          rethrowIfConnectivity(e.getCause());
+        }
         errorOutputs.add(new ErrorOutput(item.event, e.getCause().getMessage()));
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();

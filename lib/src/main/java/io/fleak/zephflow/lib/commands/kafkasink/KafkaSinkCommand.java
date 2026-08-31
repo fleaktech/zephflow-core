@@ -84,8 +84,6 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     // meaningless there and would leave an orphaned, still-locked on-disk queue that blocks the
     // next run. Force it off in test mode; delivery mode (ack-waiting by default) is unaffected.
     boolean storeAndForwardEnabled = config.isStoreAndForwardEnabled() && !isTestMode(jobContext);
-    KafkaConnectionFailureClassifier classifier =
-        storeAndForwardEnabled ? new KafkaConnectionFailureClassifier() : null;
 
     // The source checkpoint advances as soon as the sink returns, so a flusher that returns while
     // records are still in the producer's client-side accumulator silently loses them on a crash
@@ -94,6 +92,12 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     boolean waitForAcks =
         storeAndForwardEnabled
             || config.getDeliveryMode() != KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET;
+
+    // Any ack-waiting flusher needs the classifier so its pre-send metadata probe can fail a whole
+    // batch after one bounded wait during an outage; only store-and-forward additionally uses it to
+    // throw mid-batch (see KafkaSinkFlusher).
+    KafkaConnectionFailureClassifier classifier =
+        waitForAcks ? new KafkaConnectionFailureClassifier() : null;
 
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
         createKafkaFlusher(
@@ -147,7 +151,9 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
     if (storeAndForwardEnabled) {
       // Bounded timeouts so an outage surfaces quickly as a thrown failure (-> buffer) instead of
-      // blocking. delivery.timeout.ms must be >= request.timeout.ms + linger.ms.
+      // blocking. delivery.timeout.ms must be >= request.timeout.ms + linger.ms. Note acks=all
+      // under these tight timeouts classifies slow ISR replication as a connectivity failure ->
+      // more buffer/replay cycles (still at-least-once; duplicates possible across replays).
       props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "5000");
       props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "2000");
       props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, "5000");
@@ -189,7 +195,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
         waitForAcks,
-        classifier);
+        classifier,
+        storeAndForwardEnabled);
   }
 
   private static final int STORE_FORWARD_DRAIN_CHUNK = 1000;
@@ -300,14 +307,38 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
   /**
    * Turns on the idempotent producer for the durable path, but only when the effective (post user
-   * override) acks is still all/-1 and the user hasn't set enable.idempotence themselves — the
-   * producer rejects enable.idempotence=true with any weaker acks at construction time.
+   * override) config still satisfies every constraint the producer enforces at construction time
+   * for enable.idempotence=true: acks=all/-1, retries > 0, max.in.flight <= 5, and the user hasn't
+   * set enable.idempotence themselves. A pre-existing config that pinned any of these to a weaker
+   * value must keep constructing a valid producer rather than fail on upgrade.
    */
   private static void applyIdempotenceIfAcksAll(Properties props) {
     Object acks = props.get(ProducerConfig.ACKS_CONFIG);
     boolean acksAll = "all".equals(acks) || "-1".equals(acks);
-    if (acksAll && !props.containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG)) {
+    if (acksAll
+        && !props.containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG)
+        && intPropAtLeast(props, ProducerConfig.RETRIES_CONFIG, 1)
+        && intPropAtMost(props, ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5)) {
       props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
+    }
+  }
+
+  private static boolean intPropAtLeast(Properties props, String key, int min) {
+    Integer value = parseIntProp(props, key);
+    return value != null && value >= min;
+  }
+
+  private static boolean intPropAtMost(Properties props, String key, int max) {
+    Integer value = parseIntProp(props, key);
+    return value != null && value <= max;
+  }
+
+  /** Null on an unparseable value, so idempotence stays off and producer validation speaks. */
+  private static Integer parseIntProp(Properties props, String key) {
+    try {
+      return Integer.parseInt(String.valueOf(props.get(key)).trim());
+    } catch (NumberFormatException e) {
+      return null;
     }
   }
 

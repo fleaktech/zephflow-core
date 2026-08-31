@@ -25,8 +25,10 @@ public interface KafkaSinkDto {
    */
   enum DeliveryMode {
     /**
-     * Default. Send the batch, then wait for a broker ack of every record before returning. One
-     * broker round-trip per batch (Kafka's native batching is preserved), no silent loss on crash.
+     * Default. Send the batch, then wait for a broker ack of every record before returning — no
+     * silent loss on crash. Costs one broker round-trip per flushed batch; since the source
+     * typically hands the sink one record per accept(), that usually means one round-trip per
+     * source record. Latency-sensitive users who have measured should consider FIRE_AND_FORGET.
      */
     WAIT_FOR_ACK,
     /**

@@ -161,6 +161,93 @@ class KafkaSinkDeliveryModeTest {
   }
 
   @Test
+  void userRetriesZeroOverride_suppressesIdempotence() {
+    // enable.idempotence=true also requires retries > 0; a pre-existing config that pinned
+    // retries=0 must keep constructing a valid producer.
+    buildCommand(baseConfig().properties(Map.of(ProducerConfig.RETRIES_CONFIG, "0")).build());
+
+    assertEquals("0", capturedProducerProps.get(ProducerConfig.RETRIES_CONFIG));
+    assertNull(capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+  }
+
+  @Test
+  void userMaxInFlightOverride_suppressesIdempotence() {
+    // enable.idempotence=true requires max.in.flight <= 5; same backward-compat concern.
+    buildCommand(
+        baseConfig()
+            .properties(Map.of(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "6"))
+            .build());
+
+    assertNull(capturedProducerProps.get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG));
+  }
+
+  @Test
+  void waitForAck_failedAckBecomesErrorOutput_notSuccess() {
+    // The heart of FLE-2366: a record whose broker ack fails must never be reported as delivered,
+    // because the source checkpoint advances on the sink's word.
+    java.util.concurrent.atomic.AtomicInteger sendCount =
+        new java.util.concurrent.atomic.AtomicInteger();
+    when(mockProducer.send(any(ProducerRecord.class)))
+        .thenAnswer(
+            inv ->
+                sendCount.incrementAndGet() == 2
+                    ? CompletableFuture.failedFuture(new RuntimeException("ack failed"))
+                    : CompletableFuture.completedFuture(mock(RecordMetadata.class)));
+
+    KafkaSinkCommand command = buildCommand(baseConfig().build());
+    ScalarSinkCommand.SinkResult result =
+        command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    assertEquals(EVENTS.size() - 1, result.getSuccessCount());
+    assertEquals(1, result.errorCount());
+  }
+
+  @Test
+  void waitForAck_brokerUnreachable_failsBatchBeforeAnySend() {
+    // During an outage the pre-send metadata probe must fail the whole batch after ONE bounded
+    // wait instead of silently proceeding into per-record max.block.ms waits.
+    when(mockProducer.partitionsFor(TOPIC))
+        .thenThrow(new org.apache.kafka.common.errors.TimeoutException("no metadata"));
+
+    KafkaSinkCommand command = buildCommand(baseConfig().build());
+    ScalarSinkCommand.SinkResult result =
+        command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    assertEquals(0, result.getSuccessCount());
+    assertEquals(EVENTS.size(), result.errorCount());
+    verify(mockProducer, never()).send(any(ProducerRecord.class));
+    verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+  }
+
+  @Test
+  void legacyConfigWithoutDeliveryModeField_getsDurableDefault() {
+    // Configs written before this field existed arrive as raw maps with no deliveryMode key and
+    // are deserialized through the no-args constructor, which skips @Builder.Default. They must
+    // still get the ack-waiting default.
+    KafkaProducerClientFactory producerFactory =
+        new KafkaProducerClientFactory() {
+          @Override
+          KafkaProducer<byte[], byte[]> createKafkaProducer(Properties props) {
+            capturedProducerProps = props;
+            return mockProducer;
+          }
+        };
+    KafkaSinkCommand command =
+        (KafkaSinkCommand)
+            new KafkaSinkCommandFactory(producerFactory)
+                .createCommand("legacy_config_node", TestUtils.JOB_CONTEXT);
+    command.parseAndValidateArg(
+        Map.of("broker", "localhost:9092", "topic", TOPIC, "encodingType", "JSON_OBJECT"));
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+
+    command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    assertEquals("all", capturedProducerProps.get(ProducerConfig.ACKS_CONFIG));
+    verify(mockProducer).flush();
+    verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+  }
+
+  @Test
   void storeAndForward_impliesWaitForAck() {
     // storeAndForwardEnabled has always meant synchronous delivery; the new default must not
     // change that, and the two knobs must agree.
