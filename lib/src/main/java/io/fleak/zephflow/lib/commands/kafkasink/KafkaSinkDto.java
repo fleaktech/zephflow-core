@@ -19,13 +19,19 @@ import lombok.*;
 
 public interface KafkaSinkDto {
 
-  /** Controls when the sink reports a flushed batch as delivered. */
+  /**
+   * Controls when the sink reports a flushed batch as delivered. Defaults to {@link #WAIT_FOR_ACK}.
+   */
   enum DeliveryMode {
-    /** Wait for a broker acknowledgement of every record before returning. Default. */
+    /**
+     * The default: wait for a broker acknowledgement of every record before returning, so a crash
+     * cannot lose records the source has already checkpointed past.
+     */
     WAIT_FOR_ACK,
     /**
-     * Return once records are handed to the producer's client-side buffer; records still buffered
-     * when the process crashes are lost.
+     * Explicit opt-in for throughput over durability: return once records are handed to the
+     * producer's client-side buffer without waiting for broker acknowledgements. Records still
+     * buffered when the process crashes are lost.
      */
     FIRE_AND_FORGET
   }
@@ -45,7 +51,10 @@ public interface KafkaSinkDto {
     private String securityProtocol;
     private String saslMechanism;
 
-    /** Cannot be {@code FIRE_AND_FORGET} when {@link #storeAndForwardEnabled} is set. */
+    /**
+     * Defaults to {@link DeliveryMode#WAIT_FOR_ACK}. Cannot be {@code FIRE_AND_FORGET} when {@link
+     * #storeAndForwardEnabled} is set.
+     */
     @Builder.Default private DeliveryMode deliveryMode = DeliveryMode.WAIT_FOR_ACK;
 
     /**
