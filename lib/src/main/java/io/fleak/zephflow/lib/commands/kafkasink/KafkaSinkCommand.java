@@ -82,15 +82,24 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
     // A test run is an ephemeral, in-memory single shot; durable store-and-forward buffering is
     // meaningless there and would leave an orphaned, still-locked on-disk queue that blocks the
-    // next run. Force it off in test mode so the sink degrades to a plain async send.
+    // next run. Force it off in test mode; delivery mode (ack-waiting by default) is unaffected.
     boolean storeAndForwardEnabled = config.isStoreAndForwardEnabled() && !isTestMode(jobContext);
     KafkaConnectionFailureClassifier classifier =
         storeAndForwardEnabled ? new KafkaConnectionFailureClassifier() : null;
+
+    // The source checkpoint advances as soon as the sink returns, so a flusher that returns while
+    // records are still in the producer's client-side accumulator silently loses them on a crash
+    // (FLE-2366). Waiting for broker acks is therefore the default; FIRE_AND_FORGET is an explicit
+    // opt-in. Store-and-forward always requires ack-waiting to detect failures at flush time.
+    boolean waitForAcks =
+        storeAndForwardEnabled
+            || config.getDeliveryMode() != KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET;
 
     SimpleSinkCommand.Flusher<RecordFleakData> flusher =
         createKafkaFlusher(
             config,
             storeAndForwardEnabled,
+            waitForAcks,
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
             counters.sinkErrorCounter(),
@@ -124,11 +133,12 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   private SimpleSinkCommand.Flusher<RecordFleakData> createKafkaFlusher(
       KafkaSinkDto.Config config,
       boolean storeAndForwardEnabled,
+      boolean waitForAcks,
       FleakCounter asyncDeliveredCountCounter,
       FleakCounter asyncDeliveredSizeCounter,
       FleakCounter asyncErrorCounter,
       KafkaConnectionFailureClassifier classifier) {
-    Properties props = getProperties(config);
+    Properties props = getProperties(config, waitForAcks);
 
     boolean isTestMode = isTestMode(jobContext);
     if (isTestMode) {
@@ -145,6 +155,10 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
     if (config.getProperties() != null) {
       props.putAll(config.getProperties());
+    }
+
+    if (waitForAcks) {
+      applyIdempotenceIfAcksAll(props);
     }
 
     applyCredentialSasl(props, config);
@@ -174,7 +188,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
-        storeAndForwardEnabled,
+        waitForAcks,
         classifier);
   }
 
@@ -263,7 +277,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     return v.replace("\\", "\\\\").replace("\"", "\\\"");
   }
 
-  private static @NotNull Properties getProperties(KafkaSinkDto.Config config) {
+  private static @NotNull Properties getProperties(
+      KafkaSinkDto.Config config, boolean waitForAcks) {
     Properties props = new Properties();
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBroker());
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
@@ -274,10 +289,26 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     props.put(ProducerConfig.LINGER_MS_CONFIG, "10");
     props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, "67108864");
     props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
-    props.put(ProducerConfig.ACKS_CONFIG, "1");
+    // In the durable (default) mode the flusher already pays one broker round-trip per batch, so
+    // acks=all closes the residual leader-failure window at negligible extra cost. acks=1 is only
+    // for the explicit fire-and-forget opt-in.
+    props.put(ProducerConfig.ACKS_CONFIG, waitForAcks ? "all" : "1");
     props.put(ProducerConfig.RETRIES_CONFIG, "3");
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
     return props;
+  }
+
+  /**
+   * Turns on the idempotent producer for the durable path, but only when the effective (post user
+   * override) acks is still all/-1 and the user hasn't set enable.idempotence themselves — the
+   * producer rejects enable.idempotence=true with any weaker acks at construction time.
+   */
+  private static void applyIdempotenceIfAcksAll(Properties props) {
+    Object acks = props.get(ProducerConfig.ACKS_CONFIG);
+    boolean acksAll = "all".equals(acks) || "-1".equals(acks);
+    if (acksAll && !props.containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG)) {
+      props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
+    }
   }
 
   private static boolean isTestMode(JobContext jobContext) {

@@ -37,11 +37,16 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.PartitionInfo;
 
 /**
- * Kafka sink flusher. By default it is fire-and-forget (relies on Kafka's native batching for
- * throughput and reports delivery via async callbacks). When constructed in <b>synchronous</b> mode
- * (used by store-and-forward), it instead waits for acks and <b>throws</b> a connectivity failure
- * when delivery fails, so {@link SimpleSinkCommand} can buffer the batch locally and replay it once
- * the broker is reachable again.
+ * Kafka sink flusher with two delivery modes. In <b>synchronous</b> mode (the command default,
+ * {@code deliveryMode: WAIT_FOR_ACK}; also always used by store-and-forward) it sends the batch,
+ * flushes the producer, and waits for every broker ack before returning — one broker round-trip per
+ * batch, preserving Kafka's native batching. This matters because the source checkpoint advances as
+ * soon as flush returns (FLE-2366). With store-and-forward it additionally <b>throws</b> a
+ * classified connectivity failure so {@link SimpleSinkCommand} can buffer the batch locally and
+ * replay it once the broker is reachable again. In <b>fire-and-forget</b> mode ({@code
+ * deliveryMode: FIRE_AND_FORGET}, explicit opt-in) it returns as soon as records are in the
+ * producer's client-side buffer and reports delivery via async callbacks; records still buffered
+ * when the process dies are silently lost.
  */
 @Slf4j
 public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {

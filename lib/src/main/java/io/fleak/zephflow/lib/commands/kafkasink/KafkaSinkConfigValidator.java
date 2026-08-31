@@ -57,6 +57,12 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }
+    if (config.isStoreAndForwardEnabled()
+        && config.getDeliveryMode() == KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET) {
+      throw new IllegalArgumentException(
+          "storeAndForwardEnabled requires waiting for broker acks and cannot be combined with"
+              + " deliveryMode FIRE_AND_FORGET");
+    }
     if (config.isStoreAndForwardEnabled()) {
       if (config.getLocalStoreMaxBytes() <= 0) {
         throw new IllegalArgumentException(

@@ -18,6 +18,25 @@ import java.util.Map;
 import lombok.*;
 
 public interface KafkaSinkDto {
+
+  /**
+   * When the sink's flush is allowed to return. The source checkpoint advances as soon as the sink
+   * returns, so this is the pipeline's delivery guarantee.
+   */
+  enum DeliveryMode {
+    /**
+     * Default. Send the batch, then wait for a broker ack of every record before returning. One
+     * broker round-trip per batch (Kafka's native batching is preserved), no silent loss on crash.
+     */
+    WAIT_FOR_ACK,
+    /**
+     * Return as soon as records are handed to the Kafka producer's client-side buffer. Highest
+     * throughput, but records still buffered at crash time are silently lost even though the source
+     * checkpoint has already advanced past them.
+     */
+    FIRE_AND_FORGET
+  }
+
   @Data
   @Builder
   @NoArgsConstructor
@@ -32,6 +51,22 @@ public interface KafkaSinkDto {
     private String credentialId;
     private String securityProtocol;
     private String saslMechanism;
+
+    /**
+     * Delivery guarantee for the flush path; see {@link DeliveryMode}. {@code FIRE_AND_FORGET} is
+     * an explicit throughput-over-durability opt-in and cannot be combined with {@link
+     * #storeAndForwardEnabled}.
+     */
+    @Builder.Default private DeliveryMode deliveryMode = DeliveryMode.WAIT_FOR_ACK;
+
+    /**
+     * Never returns null: a config deserialized without the field (Jackson uses the no-args
+     * constructor, which skips {@code @Builder.Default} initializers) must still get the durable
+     * default.
+     */
+    public DeliveryMode getDeliveryMode() {
+      return deliveryMode == null ? DeliveryMode.WAIT_FOR_ACK : deliveryMode;
+    }
 
     /**
      * Store-and-forward: when enabled, a connectivity failure persists records to a local durable
