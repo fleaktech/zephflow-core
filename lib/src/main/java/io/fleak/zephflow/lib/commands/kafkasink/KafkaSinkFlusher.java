@@ -19,6 +19,7 @@ import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.ConnectionFailureClassifier;
+import io.fleak.zephflow.lib.commands.sink.KeyExpressionResolver;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -49,7 +50,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   private final KafkaProducer<byte[], byte[]> producer;
   private final String topic;
   private final FleakSerializer<?> fleakSerializer;
-  private final PathExpression partitionKeyExpression;
+  private final KeyExpressionResolver partitionKeyResolver;
   private final FleakCounter asyncDeliveredCountCounter;
   private final FleakCounter asyncDeliveredSizeCounter;
   private final FleakCounter asyncErrorCounter;
@@ -94,7 +95,11 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     this.producer = producer;
     this.topic = topic;
     this.fleakSerializer = fleakSerializer;
-    this.partitionKeyExpression = partitionKeyExpression;
+    this.partitionKeyResolver =
+        new KeyExpressionResolver(
+            partitionKeyExpression,
+            "partitionKeyFieldExpressionStr",
+            "such records are sent without a key and are spread across partitions");
     this.asyncDeliveredCountCounter = asyncDeliveredCountCounter;
     this.asyncDeliveredSizeCounter = asyncDeliveredSizeCounter;
     this.asyncErrorCounter = asyncErrorCounter;
@@ -240,10 +245,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   }
 
   private byte[] keyBytes(RecordFleakData event) {
-    if (partitionKeyExpression == null) {
-      return null;
-    }
-    String keyValue = partitionKeyExpression.getStringValueFromEventOrDefault(event, null);
+    String keyValue = partitionKeyResolver.resolve(event);
     return keyValue == null ? null : keyValue.getBytes(StandardCharsets.UTF_8);
   }
 
