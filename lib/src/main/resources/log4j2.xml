@@ -11,6 +11,18 @@
       <AppenderRef ref="Console"/>
     </Logger>
 
+    <!-- Kafka clients retry indefinitely on an unreachable broker. Drop only the per-retry
+         chatter (INFO reconnect churn + the two repeating "could not connect" WARNs); real
+         diagnostics (auth/TLS failures, listener misconfig, version mismatches) still log at
+         WARN. Connectivity is also surfaced by ScheduledKafkaHealthMonitor's error log. -->
+    <Logger name="org.apache.kafka.clients.NetworkClient" level="warn">
+      <RegexFilter
+          regex=".*(Connection to node .* could not be established|Bootstrap broker .* disconnected).*"
+          onMatch="DENY" onMismatch="NEUTRAL" useRawMsg="false"/>
+    </Logger>
+    <Logger name="org.apache.kafka.clients.admin.internals.AdminMetadataManager" level="warn"/>
+    <Logger name="org.apache.kafka.clients.Metadata" level="warn"/>
+
     <Root level="info">
       <AppenderRef ref="Console"/>
     </Root>
