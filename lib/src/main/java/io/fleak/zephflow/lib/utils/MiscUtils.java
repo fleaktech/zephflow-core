@@ -135,6 +135,7 @@ public interface MiscUtils {
   String METRIC_TAG_CALLING_USER = "calling_user";
   String METRIC_TAG_COMMAND_NAME = "command_name";
   String METRIC_TAG_NODE_ID = "node_id";
+  String METRIC_TAG_JOB_ID = "job_id";
   String METRIC_TAG_ENV = "env";
   String METRIC_TAG_SERVICE = "service";
   String REGEX_WINDOWS_LINE_SEPARATOR = "\\r\\n";

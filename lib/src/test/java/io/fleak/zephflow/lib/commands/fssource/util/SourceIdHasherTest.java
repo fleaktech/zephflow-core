@@ -19,77 +19,71 @@ import org.junit.jupiter.api.Test;
 
 class SourceIdHasherTest {
 
+  private static final String SCOPE = "11111111-1111-4111-8111-111111111111";
+  private static final String OTHER_SCOPE = "22222222-2222-4222-8222-222222222222";
+  private static final String NODE_ID = "s3_source";
+  private static final String ROOT = "s3://bkt/data/";
+  private static final String FILE_NAME_REGEX = "invoice_(?<ts>\\d+)\\.json";
+
+  private static String computeForRoot(String checkpointScope, String nodeId, String root) {
+    return SourceIdHasher.compute(checkpointScope, nodeId, "s3", root, FILE_NAME_REGEX, null, 0, 1);
+  }
+
   @Test
   void stableAcrossCalls() {
-    String a = SourceIdHasher.compute("s3", "s3://bkt/data/", "invoice_(?<ts>\\d+)\\.json");
-    String b = SourceIdHasher.compute("s3", "s3://bkt/data/", "invoice_(?<ts>\\d+)\\.json");
-    assertEquals(a, b);
+    assertEquals(computeForRoot(SCOPE, NODE_ID, ROOT), computeForRoot(SCOPE, NODE_ID, ROOT));
+  }
+
+  @Test
+  void differentCheckpointScopesDiffer() {
+    assertNotEquals(
+        computeForRoot(SCOPE, NODE_ID, ROOT), computeForRoot(OTHER_SCOPE, NODE_ID, ROOT));
+  }
+
+  @Test
+  void differentNodeIdsDiffer() {
+    assertNotEquals(
+        computeForRoot(SCOPE, "first_source", ROOT), computeForRoot(SCOPE, "second_source", ROOT));
   }
 
   @Test
   void differentRootsDiffer() {
-    String a = SourceIdHasher.compute("s3", "s3://bkt/data1/", null);
-    String b = SourceIdHasher.compute("s3", "s3://bkt/data2/", null);
-    assertNotEquals(a, b);
+    assertNotEquals(
+        computeForRoot(SCOPE, NODE_ID, "s3://bkt/data1/"),
+        computeForRoot(SCOPE, NODE_ID, "s3://bkt/data2/"));
   }
 
   @Test
   void length16Hex() {
-    String a = SourceIdHasher.compute("file", "/tmp/x", null);
-    assertEquals(16, a.length());
-    assertTrue(a.matches("[0-9a-f]{16}"));
+    String id = computeForRoot(SCOPE, NODE_ID, ROOT);
+    assertEquals(16, id.length());
+    assertTrue(id.matches("[0-9a-f]{16}"));
   }
 
   @Test
   void nullRegexAllowed() {
-    assertDoesNotThrow(() -> SourceIdHasher.compute("file", "/tmp/x", null));
+    assertDoesNotThrow(
+        () -> SourceIdHasher.compute(SCOPE, NODE_ID, "file", "/tmp/x", null, null, 0, 1));
   }
 
   @Test
-  void singleReplicaOverloadMatchesLegacyThreeArg() {
-    String legacy = SourceIdHasher.compute("s3", "s3://bucket/root", "evt_(?<ts>\\d+)\\.log");
-    String shardedCount1 =
-        SourceIdHasher.compute("s3", "s3://bucket/root", "evt_(?<ts>\\d+)\\.log", 0, 1);
-    assertEquals(legacy, shardedCount1);
-  }
+  void distinctIdsPerReplica() {
+    String replica0 = SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, null, 0, 3);
+    String replica1 = SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, null, 1, 3);
+    String replica2 = SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, null, 2, 3);
 
-  @Test
-  void countZeroAlsoMatchesLegacy() {
-    String legacy = SourceIdHasher.compute("file", "file:///data", null);
-    assertEquals(legacy, SourceIdHasher.compute("file", "file:///data", null, 0, 0));
-  }
-
-  @Test
-  void distinctIdsPerReplicaWhenCountGreaterThanOne() {
-    String r0 = SourceIdHasher.compute("s3", "s3://bucket/root", null, 0, 3);
-    String r1 = SourceIdHasher.compute("s3", "s3://bucket/root", null, 1, 3);
-    String r2 = SourceIdHasher.compute("s3", "s3://bucket/root", null, 2, 3);
-    assertNotEquals(r0, r1);
-    assertNotEquals(r1, r2);
-    assertNotEquals(r0, r2);
-  }
-
-  @Test
-  void shardedIdDiffersFromLegacyWhenCountGreaterThanOne() {
-    String legacy = SourceIdHasher.compute("s3", "s3://bucket/root", null);
-    assertNotEquals(legacy, SourceIdHasher.compute("s3", "s3://bucket/root", null, 0, 3));
+    assertNotEquals(replica0, replica1);
+    assertNotEquals(replica1, replica2);
+    assertNotEquals(replica0, replica2);
   }
 
   @Test
   void exactObjectKeyChangesCheckpointIdentity() {
     String first =
-        SourceIdHasher.compute("s3", "s3://bucket/root/", null, "root/a/events.jsonl", 0, 1);
+        SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, "root/a/events.jsonl", 0, 1);
     String second =
-        SourceIdHasher.compute("s3", "s3://bucket/root/", null, "root/b/events.jsonl", 0, 1);
+        SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, "root/b/events.jsonl", 0, 1);
 
     assertNotEquals(first, second);
-  }
-
-  @Test
-  void nullExactObjectKeyPreservesLegacyCheckpointIdentity() {
-    String legacy = SourceIdHasher.compute("s3", "s3://bucket/root/", null, 0, 3);
-    String withNullExactKey = SourceIdHasher.compute("s3", "s3://bucket/root/", null, null, 0, 3);
-
-    assertEquals(legacy, withNullExactKey);
   }
 }

@@ -49,6 +49,8 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 @Slf4j
 public final class FsSourceCommand extends SourceCommand {
 
+  static final String DEFAULT_CHECKPOINT_SCOPE = "local";
+
   private volatile boolean terminated = false;
 
   public FsSourceCommand(String nodeId, JobContext jobContext) {
@@ -79,6 +81,7 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.lister = executionContext.backend.createLister(backendConfig);
     executionContext.reader = executionContext.backend.createReader(backendConfig);
     executionContext.checkpointClient = buildCheckpointClient(jobContext);
+    executionContext.checkpointScope = checkpointScope(jobContext);
     executionContext.replicaIndex = parseIntProperty(jobContext, JobContext.REPLICA_INDEX, 0);
     executionContext.replicaCount = parseIntProperty(jobContext, JobContext.REPLICA_COUNT, 1);
 
@@ -129,6 +132,40 @@ public final class FsSourceCommand extends SourceCommand {
       log.warn("fs_source: unparseable {}={}; using default {}", key, value, defaultValue);
       return defaultValue;
     }
+  }
+
+  /**
+   * Resolves the identity the resume checkpoint belongs to. The scheduler-provided {@link
+   * JobContext#CHECKPOINT_SCOPE} keeps each workflow's progress separate over a shared folder;
+   * without it the checkpoint falls back to the current job, so a run re-reads the folder rather
+   * than inheriting another workflow's progress.
+   */
+  static String checkpointScope(JobContext jobContext) {
+    Object explicitScope =
+        jobContext.getOtherProperties() == null
+            ? null
+            : jobContext.getOtherProperties().get(JobContext.CHECKPOINT_SCOPE);
+    if (explicitScope != null && !explicitScope.toString().isBlank()) {
+      return explicitScope.toString().trim();
+    }
+    String jobId =
+        jobContext.getMetricTags() == null
+            ? null
+            : jobContext.getMetricTags().get(METRIC_TAG_JOB_ID);
+    if (jobId != null && !jobId.isBlank()) {
+      log.warn(
+          "fs_source: no {} in the job context; scoping the resume checkpoint to job_id={}, so this"
+              + " job cannot resume a previous job's progress",
+          JobContext.CHECKPOINT_SCOPE,
+          jobId);
+      return jobId.trim();
+    }
+    log.debug(
+        "fs_source: no {} and no {} in the job context; using checkpoint scope {}",
+        JobContext.CHECKPOINT_SCOPE,
+        METRIC_TAG_JOB_ID,
+        DEFAULT_CHECKPOINT_SCOPE);
+    return DEFAULT_CHECKPOINT_SCOPE;
   }
 
   private static CheckpointClient buildCheckpointClient(JobContext jobContext) {
@@ -205,6 +242,8 @@ public final class FsSourceCommand extends SourceCommand {
 
     String sourceId =
         SourceIdHasher.compute(
+            executionContext.checkpointScope,
+            nodeId,
             config.getBackend(),
             config.getRoot(),
             config.getFileNameRegex(),
@@ -212,7 +251,11 @@ public final class FsSourceCommand extends SourceCommand {
             executionContext.replicaIndex,
             executionContext.replicaCount);
     FsCheckpoint checkpoint = loadCheckpoint(executionContext.checkpointClient, sourceId);
-    log.info("fs_source open: sourceId={} watermark={}", sourceId, checkpoint.watermark());
+    log.info(
+        "fs_source open: sourceId={} checkpointScope={} watermark={}",
+        sourceId,
+        executionContext.checkpointScope,
+        checkpoint.watermark());
 
     Pattern fileNamePattern =
         config.getFileNameRegex() == null ? null : Pattern.compile(config.getFileNameRegex());

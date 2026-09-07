@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_JOB_ID;
+
 import io.fleak.zephflow.api.JobContext;
 import java.io.Serializable;
 import java.nio.file.Path;
@@ -33,7 +35,6 @@ import lombok.extern.slf4j.Slf4j;
 public final class StoreForwardPaths {
 
   static final String DEFAULT_BASE_DIR_NAME = "zephflow-store-forward";
-  static final String METRIC_TAG_JOB_ID = "job_id";
   static final String DEFAULT_JOB_ID = "local";
   static final String REPLICA_DIR_PREFIX = "replica-";
 

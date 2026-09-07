@@ -30,6 +30,7 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   FileLister lister;
   FileReader reader;
   CheckpointClient checkpointClient;
+  String checkpointScope;
   int replicaIndex;
   int replicaCount = 1;
   FleakCounter dataSizeCounter;
