@@ -15,6 +15,9 @@ package io.fleak.zephflow.lib.commands.kafkasource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.SourceEventAcceptor;
@@ -152,6 +155,74 @@ public class KafkaSourceCommandTest {
       //noinspection ResultOfMethodCallIgnored
       executor.awaitTermination(5, TimeUnit.SECONDS);
     }
+  }
+
+  // A mistyped topic must not be created on the broker as a side effect of subscribing, and the
+  // command must fail at initialization instead of polling an empty assignment forever.
+  @Test
+  public void testMissingTopicFailsFastWithoutCreatingIt() throws Exception {
+    String missingTopic = "missing_topic_" + System.currentTimeMillis();
+    KafkaSourceCommand kafkaSourceCommand = createCommand(missingTopic, Map.of());
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                kafkaSourceCommand.initialize(new MetricClientProvider.NoopMetricClientProvider()));
+
+    assertTrue(e.getMessage().contains(missingTopic), e.getMessage());
+    assertFalse(adminClient.listTopics().names().get(30, TimeUnit.SECONDS).contains(missingTopic));
+  }
+
+  // Explicit opt-in keeps the old behaviour: no existence check, and the broker creates the topic
+  // when the consumer subscribes (the test broker runs with auto.create.topics.enable=true).
+  @Test
+  public void testMissingTopicIsCreatedWhenAutoCreateExplicitlyAllowed() throws Exception {
+    String topic = "opt_in_topic_" + System.currentTimeMillis();
+    KafkaSourceCommand kafkaSourceCommand =
+        createCommand(topic, Map.of("allow.auto.create.topics", "true"));
+
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<?> future =
+          executor.submit(
+              () -> {
+                kafkaSourceCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+                kafkaSourceCommand.execute("test_user", new TestSourceEventAcceptor());
+                return null;
+              });
+      try {
+        long deadline = System.currentTimeMillis() + 30_000;
+        boolean created = false;
+        while (!created && System.currentTimeMillis() < deadline) {
+          Thread.sleep(500);
+          created = adminClient.listTopics().names().get(10, TimeUnit.SECONDS).contains(topic);
+        }
+        assertTrue(created, "expected the broker to auto-create " + topic);
+      } finally {
+        future.cancel(true);
+      }
+    } finally {
+      executor.shutdownNow();
+      //noinspection ResultOfMethodCallIgnored
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+  }
+
+  private static KafkaSourceCommand createCommand(String topic, Map<String, String> properties) {
+    KafkaSourceCommand kafkaSourceCommand =
+        new KafkaSourceCommandFactory().createCommand("my_node", TestUtils.JOB_CONTEXT);
+    KafkaSourceDto.Config config =
+        KafkaSourceDto.Config.builder()
+            .broker(KAFKA_CONTAINER.getBootstrapServers())
+            .topic(topic)
+            .encodingType(EncodingType.JSON_OBJECT)
+            .groupId("test-group-" + System.currentTimeMillis())
+            .properties(properties)
+            .build();
+    kafkaSourceCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    return kafkaSourceCommand;
   }
 
   private void sendTestMessages(int batchCount) {

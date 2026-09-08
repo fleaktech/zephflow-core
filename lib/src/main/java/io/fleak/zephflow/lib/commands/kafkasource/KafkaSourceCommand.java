@@ -91,6 +91,15 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   private Fetcher<SerializedEvent> createKafkaFetcher(KafkaSourceDto.Config config) {
     Properties consumerProps = KafkaClientProperties.source(config);
     log.debug("Using consumer: {}", consumerProps.get(ConsumerConfig.GROUP_ID_CONFIG));
+    // Kafka trims boolean config values before parsing them; mirror that so the gate and the
+    // consumer agree on what the user configured.
+    if (!Boolean.parseBoolean(
+        consumerProps.getProperty(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG).trim())) {
+      // Subscribing can no longer create the topic, so a missing topic would otherwise leave the
+      // consumer polling an empty assignment forever while the job looks healthy. Fail here,
+      // before any consumer thread starts, so the process exits with a clear error instead.
+      kafkaConsumerClientFactory.verifyTopicExists(consumerProps, config.getTopic());
+    }
     KafkaConsumer<byte[], byte[]> consumer =
         kafkaConsumerClientFactory.createKafkaConsumer(consumerProps);
     initializeKafkaConsumer(consumer, config.getTopic());
