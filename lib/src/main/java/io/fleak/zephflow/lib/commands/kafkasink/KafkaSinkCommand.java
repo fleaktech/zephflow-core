@@ -15,9 +15,7 @@ package io.fleak.zephflow.lib.commands.kafkasink;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_KAFKA_SINK;
 import static io.fleak.zephflow.lib.utils.MiscUtils.basicCommandMetricTags;
-import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -29,7 +27,7 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
-import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
+import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -41,15 +39,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.config.SaslConfigs;
-import org.apache.kafka.common.security.plain.PlainLoginModule;
-import org.apache.kafka.common.security.scram.ScramLoginModule;
-import org.apache.kafka.common.serialization.ByteArraySerializer;
-import org.jetbrains.annotations.NotNull;
 
 public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
 
@@ -135,30 +126,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       FleakCounter asyncDeliveredSizeCounter,
       FleakCounter asyncErrorCounter,
       KafkaConnectionFailureClassifier connectionFailureClassifier) {
-    Properties props = getProperties(config, waitForBrokerAcks);
-
+    Properties props = KafkaClientProperties.sink(config, jobContext);
     boolean isTestMode = isTestMode(jobContext);
-    if (isTestMode) {
-      props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000");
-    }
-
-    if (storeAndForwardEnabled) {
-      // Bounded timeouts so an outage surfaces quickly as a thrown failure (-> buffer) instead of
-      // blocking. delivery.timeout.ms must be >= request.timeout.ms + linger.ms.
-      props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "5000");
-      props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "2000");
-      props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, "5000");
-    }
-
-    if (config.getProperties() != null) {
-      props.putAll(config.getProperties());
-    }
-
-    if (waitForBrokerAcks) {
-      enableIdempotenceIfConfigurationAllows(props);
-    }
-
-    applyCredentialSasl(props, config);
 
     EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
     SerializerFactory<?> serializerFactory =
@@ -237,91 +206,6 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
           flusher.flush(prepared, Map.of());
         });
     return storeForward;
-  }
-
-  private void applyCredentialSasl(Properties props, KafkaSinkDto.Config config) {
-    String protocol = StringUtils.trimToNull(config.getSecurityProtocol());
-    if (protocol == null) {
-      return;
-    }
-    props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, protocol);
-    if (!protocol.startsWith("SASL_")) {
-      return;
-    }
-    String mechanism = StringUtils.trimToNull(config.getSaslMechanism());
-    Preconditions.checkArgument(
-        mechanism != null, "saslMechanism is required when securityProtocol is %s", protocol);
-    props.put(SaslConfigs.SASL_MECHANISM, mechanism);
-    UsernamePasswordCredential cred =
-        lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
-    props.put(
-        SaslConfigs.SASL_JAAS_CONFIG,
-        buildJaasConfig(mechanism, cred.getUsername(), cred.getPassword()));
-  }
-
-  private static String buildJaasConfig(String mechanism, String username, String password) {
-    String loginModule =
-        switch (mechanism) {
-          case "PLAIN" -> PlainLoginModule.class.getName();
-          case "SCRAM-SHA-256", "SCRAM-SHA-512" -> ScramLoginModule.class.getName();
-          default -> throw new IllegalArgumentException("Unsupported SASL mechanism: " + mechanism);
-        };
-    return String.format(
-        "%s required username=\"%s\" password=\"%s\";",
-        loginModule, escapeJaas(username), escapeJaas(password));
-  }
-
-  private static String escapeJaas(String v) {
-    return v.replace("\\", "\\\\").replace("\"", "\\\"");
-  }
-
-  private static @NotNull Properties getProperties(
-      KafkaSinkDto.Config config, boolean waitForBrokerAcks) {
-    Properties props = new Properties();
-    props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBroker());
-    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
-
-    // Performance optimizations - Kafka's native batching handles throughput
-    props.put(ProducerConfig.BATCH_SIZE_CONFIG, "65536");
-    props.put(ProducerConfig.LINGER_MS_CONFIG, "10");
-    props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, "67108864");
-    props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
-    props.put(ProducerConfig.ACKS_CONFIG, waitForBrokerAcks ? "all" : "1");
-    props.put(ProducerConfig.RETRIES_CONFIG, "3");
-    props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, "5");
-    return props;
-  }
-
-  /**
-   * The producer rejects {@code enable.idempotence=true} at construction time unless acks=all/-1,
-   * retries > 0 and max.in.flight <= 5, so a user property override weakening any of them must
-   * leave idempotence off instead of breaking producer construction.
-   */
-  private static void enableIdempotenceIfConfigurationAllows(Properties producerProperties) {
-    Object acks = producerProperties.get(ProducerConfig.ACKS_CONFIG);
-    Integer retries = producerPropertyAsInteger(producerProperties, ProducerConfig.RETRIES_CONFIG);
-    Integer maxInFlightRequests =
-        producerPropertyAsInteger(
-            producerProperties, ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
-    boolean idempotenceSupported =
-        ("all".equals(acks) || "-1".equals(acks))
-            && retries != null
-            && retries > 0
-            && maxInFlightRequests != null
-            && maxInFlightRequests <= 5
-            && !producerProperties.containsKey(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG);
-    if (idempotenceSupported) {
-      producerProperties.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
-    }
-  }
-
-  private static Integer producerPropertyAsInteger(Properties producerProperties, String key) {
-    try {
-      return Integer.parseInt(String.valueOf(producerProperties.get(key)).trim());
-    } catch (NumberFormatException e) {
-      return null;
-    }
   }
 
   private static boolean isTestMode(JobContext jobContext) {

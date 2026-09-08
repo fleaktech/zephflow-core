@@ -21,6 +21,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
+import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
@@ -29,7 +30,6 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 
 /** Created by bolei on 9/23/24 */
 @Slf4j
@@ -89,7 +89,8 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   private Fetcher<SerializedEvent> createKafkaFetcher(KafkaSourceDto.Config config) {
-    Properties consumerProps = calculateConsumerProperties(config);
+    Properties consumerProps = KafkaClientProperties.source(config);
+    log.debug("Using consumer: {}", consumerProps.get(ConsumerConfig.GROUP_ID_CONFIG));
     KafkaConsumer<byte[], byte[]> consumer =
         kafkaConsumerClientFactory.createKafkaConsumer(consumerProps);
     initializeKafkaConsumer(consumer, config.getTopic());
@@ -125,28 +126,6 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
                 partitions.stream().map(TopicPartition::toString).collect(Collectors.joining(",")));
           }
         });
-  }
-
-  private Properties calculateConsumerProperties(KafkaSourceDto.Config config) {
-    Properties props = new Properties();
-    props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getBroker());
-    props.put(ConsumerConfig.GROUP_ID_CONFIG, config.getGroupId());
-    props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-    props.put(
-        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-    props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-    props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "5000");
-    props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1048576");
-    props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "1000");
-    props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000");
-    props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, "10485760");
-    props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-
-    if (config.getProperties() != null) {
-      props.putAll(config.getProperties());
-    }
-    log.debug("Using consumer: {}", props.get(ConsumerConfig.GROUP_ID_CONFIG));
-    return props;
   }
 
   private CommitStrategy createCommitStrategy(KafkaSourceDto.Config config) {
