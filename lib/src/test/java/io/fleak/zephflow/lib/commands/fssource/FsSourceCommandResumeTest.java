@@ -140,4 +140,53 @@ class FsSourceCommandResumeTest {
     assertEquals(
         List.of("a", "b"), second.stream().map(record -> record.unwrap().get("v")).toList());
   }
+
+  private List<RecordFleakData> runWithCheckpointScope(Path tempDir, String checkpointScope)
+      throws Exception {
+    JobContext jobContext =
+        JobContext.builder()
+            .otherProperties(
+                new HashMap<>(
+                    Map.of(
+                        JobContext.CHECKPOINT_URL,
+                        baseUrl,
+                        JobContext.CHECKPOINT_SCOPE,
+                        checkpointScope)))
+            .build();
+    return run(tempDir, jobContext);
+  }
+
+  private static List<Object> emittedValues(List<RecordFleakData> records) {
+    return records.stream().map(record -> record.unwrap().get("v")).toList();
+  }
+
+  @Test
+  void aNewCheckpointScopeReadsTheWholeFolder(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
+    Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");
+
+    assertEquals(List.of("a", "b"), emittedValues(runWithCheckpointScope(tempDir, "workflow-a")));
+
+    Files.writeString(tempDir.resolve("evt_3.log"), "{\"v\":\"c\"}");
+    Files.writeString(tempDir.resolve("evt_4.log"), "{\"v\":\"d\"}");
+
+    List<RecordFleakData> otherWorkflow = runWithCheckpointScope(tempDir, "workflow-b");
+
+    assertEquals(
+        List.of("a", "b", "c", "d"),
+        emittedValues(otherWorkflow),
+        "a workflow that has never read this folder must not inherit another workflow's progress");
+    assertEquals(2, store.size(), "each checkpoint scope keeps its own checkpoint entry");
+  }
+
+  @Test
+  void theSameCheckpointScopeResumesAfterItsOwnCheckpoint(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
+
+    assertEquals(List.of("a"), emittedValues(runWithCheckpointScope(tempDir, "workflow-a")));
+
+    Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");
+
+    assertEquals(List.of("b"), emittedValues(runWithCheckpointScope(tempDir, "workflow-a")));
+  }
 }
