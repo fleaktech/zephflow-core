@@ -43,8 +43,9 @@ class KafkaConnectionValidatorTest {
     KafkaConnectionValidator validator =
         new KafkaConnectionValidator(
             actual -> {
-              assertFalse(actual.containsKey("group.id"));
-              assertFalse(actual.containsKey("metric.reporters"));
+              assertEquals("unused", actual.getProperty("group.id"));
+              assertEquals(List.of(), actual.get("metric.reporters"));
+              assertEquals("kafka-deployment-preflight", actual.getProperty("client.id"));
               assertEquals("false", actual.getProperty("enable.metrics.push"));
               assertTrue(Integer.parseInt(actual.getProperty("default.api.timeout.ms")) <= 1000);
               return admin;
@@ -56,6 +57,8 @@ class KafkaConnectionValidatorTest {
     verify(admin).close(any(Duration.class));
     verifyNoMoreInteractions(admin);
     assertEquals("9999999", properties.getProperty("default.api.timeout.ms"));
+    assertEquals("evil.Provider", properties.getProperty("metric.reporters"));
+    assertFalse(properties.containsKey("enable.metrics.push"));
   }
 
   @Test
@@ -83,45 +86,51 @@ class KafkaConnectionValidatorTest {
   }
 
   @Test
-  void rejectsProviderBeforeLoadingAnyClient() {
+  void nativeSecurityAndProviderConfigurationReachesClientUnchanged() {
+    Properties effective = properties();
+    effective.put("security.protocol", "SASL_SSL");
+    effective.put("sasl.mechanism", "GSSAPI");
+    effective.put(
+        "sasl.jaas.config",
+        "com.sun.security.auth.module.Krb5LoginModule required useTicketCache=true;");
+    effective.put("sasl.client.callback.handler.class", "example.CallbackHandler");
+    effective.put("sasl.login.callback.handler.class", "example.LoginCallbackHandler");
+    effective.put("sasl.login.class", "example.Login");
+    effective.put("security.providers", "example.SecurityProvider");
+    effective.put("ssl.provider", "example.TlsProvider");
+    effective.put("ssl.engine.factory.class", "example.SslEngineFactory");
+    effective.put("ssl.truststore.location", "/native/client/resolves/this/file");
+    effective.put("config.providers", "file");
+    effective.put(
+        "config.providers.file.class",
+        "org.apache.kafka.common.config.provider.FileConfigProvider");
+    effective.put("config.providers.file.param.allowed.paths", "/native/configuration");
+    Properties original = new Properties();
+    original.putAll(effective);
     KafkaConnectionValidator validator =
         new KafkaConnectionValidator(
-            properties -> {
-              fail("client created");
-              return null;
+            actual -> {
+              effective.forEach(
+                  (key, value) -> assertEquals(value, actual.get(key), key.toString()));
+              throw new SaslAuthenticationException("native-client-reached");
             });
-    Properties properties = properties();
-    properties.put("sasl.client.callback.handler.class", "evil.Provider");
     assertEquals(
-        KafkaConnectionValidator.Status.UNSUPPORTED,
-        validator.validate(properties, Duration.ofSeconds(1)));
-    properties.remove("sasl.client.callback.handler.class");
-    properties.put("ssl.truststore.location", "/missing/secret");
-    assertEquals(
-        KafkaConnectionValidator.Status.UNSUPPORTED,
-        validator.validate(properties, Duration.ofSeconds(1)));
+        KafkaConnectionValidator.Status.AUTHENTICATION_FAILED,
+        validator.validate(effective, Duration.ofSeconds(1)));
+    assertEquals(original, effective);
   }
 
   @Test
-  void unsupportedJaasAndDefaultKerberosCannotLoadProviderClasses() {
+  void expiredBudgetDoesNotCreateClient() {
     KafkaConnectionValidator validator =
         new KafkaConnectionValidator(
             properties -> {
-              fail("client created");
+              fail("client created after deadline");
               return null;
             });
-    Properties properties = properties();
-    properties.put("sasl.jaas.config", "com.sun.security.auth.module.JndiLoginModule required;");
     assertEquals(
-        KafkaConnectionValidator.Status.UNSUPPORTED,
-        validator.validate(properties, Duration.ofSeconds(1)));
-    properties.put(
-        "sasl.jaas.config",
-        "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"u\" password=\"p\";");
-    properties.put("security.protocol", "SASL_SSL");
-    assertEquals(
-        KafkaConnectionValidator.Status.UNSUPPORTED,
-        validator.validate(properties, Duration.ofSeconds(1)));
+        KafkaConnectionValidator.Status.UNAVAILABLE,
+        validator.validate(properties(), Duration.ZERO));
   }
 
   @Test

@@ -33,9 +33,6 @@ dependencies {
 tasks.named('test') {
   useJUnitPlatform()
   testLogging.showStandardStreams = true
-  doFirst {
-    systemProperty 'validation.test.classpath', sourceSets.main.runtimeClasspath.asPath
-  }
 }
 
 tasks.withType(PublishToMavenRepository) {
