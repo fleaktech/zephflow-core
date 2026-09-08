@@ -26,9 +26,11 @@ import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class AzureEventHubSinkFlusherTest {
 
@@ -122,6 +124,32 @@ class AzureEventHubSinkFlusherTest {
     verify(producerClient, times(2)).createBatch(any(CreateBatchOptions.class));
     verify(producerClient, times(2)).send(batch);
     verify(producerClient, never()).createBatch();
+  }
+
+  @Test
+  void groupsEventsByNumericPartitionKey() throws Exception {
+    EventDataBatch batch = mock(EventDataBatch.class);
+    when(producerClient.createBatch(any(CreateBatchOptions.class))).thenReturn(batch);
+    when(batch.tryAdd(any())).thenReturn(true);
+    when(batch.getCount()).thenReturn(1);
+
+    AzureEventHubSinkFlusher flusher =
+        new AzureEventHubSinkFlusher(producerClient, serializer, PathExpression.fromString("$.id"));
+
+    SimpleSinkCommand.FlushResult result =
+        flusher.flush(
+            prepared(record(Map.of("id", 1)), record(Map.of("id", 1)), record(Map.of("id", 2))),
+            Map.of());
+
+    assertEquals(3, result.successCount());
+    // A numeric key must key the batch, not fall back to round-robin.
+    verify(producerClient, never()).createBatch();
+    ArgumentCaptor<CreateBatchOptions> options = ArgumentCaptor.forClass(CreateBatchOptions.class);
+    verify(producerClient, times(2)).createBatch(options.capture());
+    // Integral values stringify without a decimal point: "1", not "1.0".
+    assertEquals(
+        List.of("1", "2"),
+        options.getAllValues().stream().map(CreateBatchOptions::getPartitionKey).toList());
   }
 
   @Test

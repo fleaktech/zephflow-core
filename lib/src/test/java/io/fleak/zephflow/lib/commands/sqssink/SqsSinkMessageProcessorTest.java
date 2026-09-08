@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.sqssink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
@@ -61,6 +62,22 @@ class SqsSinkMessageProcessorTest {
     assertNotNull(result.body());
     assertEquals("group-1", result.messageGroupId());
     assertEquals("dedup-1", result.deduplicationId());
+  }
+
+  @Test
+  void testPreprocessWithNumericFifoFields() {
+    SqsSinkMessageProcessor processor =
+        new SqsSinkMessageProcessor(
+            PathExpression.fromString("$.groupId"), PathExpression.fromString("$.dedupId"));
+
+    RecordFleakData event =
+        (RecordFleakData) FleakData.wrap(Map.of("groupId", 42, "dedupId", 7, "data", "payload"));
+
+    SqsOutboundMessage result = processor.preprocess(event, System.currentTimeMillis());
+
+    // Numeric FIFO ids must be used, not silently dropped; integral values carry no decimal point.
+    assertEquals("42", result.messageGroupId());
+    assertEquals("7", result.deduplicationId());
   }
 
   @Test
