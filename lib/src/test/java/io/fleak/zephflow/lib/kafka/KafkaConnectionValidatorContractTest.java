@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.kafka;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +27,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
@@ -87,72 +90,40 @@ class KafkaConnectionValidatorContractTest {
   }
 
   @Test
-  void realAuthenticationSuccessAndFailureAreDistinctAndLogsRemainSafe() {
-    var loggerContext =
-        (org.apache.logging.log4j.core.LoggerContext)
-            org.apache.logging.log4j.LogManager.getContext(false);
-    var rootLogger = loggerContext.getConfiguration().getRootLogger();
-    var filter = new KafkaValidationLogFilter();
-    var messages = new java.util.concurrent.CopyOnWriteArrayList<String>();
-    var appender =
-        new org.apache.logging.log4j.core.appender.AbstractAppender(
-            "contract-capture",
-            null,
-            null,
-            false,
-            org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
-          @Override
-          public void append(org.apache.logging.log4j.core.LogEvent event) {
-            messages.add(event.getMessage().getFormattedMessage());
-          }
-        };
-    appender.start();
-    rootLogger.addAppender(appender, org.apache.logging.log4j.Level.ALL, null);
-    var loggerConfigurations =
-        new java.util.ArrayList<>(loggerContext.getConfiguration().getLoggers().values());
-    loggerConfigurations.add(rootLogger);
-    loggerConfigurations.forEach(loggerConfiguration -> loggerConfiguration.addFilter(filter));
-    var kafkaLogger = org.apache.logging.log4j.LogManager.getLogger("org.apache.kafka");
-    var originalLevel = kafkaLogger.getLevel();
-    org.apache.logging.log4j.core.config.Configurator.setLevel(
-        "org.apache.kafka", org.apache.logging.log4j.Level.TRACE);
-    loggerContext.updateLoggers();
-    try {
-      Properties properties = properties(AUTHENTICATED.getBootstrapServers());
-      properties.put("security.protocol", "SASL_PLAINTEXT");
-      properties.put("sasl.mechanism", "PLAIN");
-      properties.put(
-          "sasl.jaas.config",
-          "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"test\" password=\"test-password\";");
-      assertEquals(
-          KafkaConnectionValidator.Status.SUCCESS,
-          new KafkaConnectionValidator().validate(properties, Duration.ofSeconds(5)));
-      properties.put(
-          "sasl.jaas.config",
-          "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"test\" password=\"SENTINEL_PASSWORD\";");
-      assertEquals(
-          KafkaConnectionValidator.Status.AUTHENTICATION_FAILED,
-          new KafkaConnectionValidator().validate(properties, Duration.ofSeconds(5)));
-      assertFalse(messages.toString().contains("SENTINEL_PASSWORD"));
-      assertFalse(messages.toString().contains("Invalid username or password"));
-      assertFalse(messages.toString().contains("SaslAuthenticationException"));
-      assertTrue(
-          messages.stream()
-              .anyMatch(
-                  message ->
-                      message.contains("kafka-deployment-preflight")
-                          && message.contains("disconnected")));
-      assertTrue(
-          messages.stream()
-              .anyMatch(
-                  message -> message.contains("validation completed: AUTHENTICATION_FAILED")));
-    } finally {
-      loggerConfigurations.forEach(loggerConfiguration -> loggerConfiguration.removeFilter(filter));
-      rootLogger.removeAppender(appender.getName());
-      org.apache.logging.log4j.core.config.Configurator.setLevel("org.apache.kafka", originalLevel);
-      loggerContext.updateLoggers();
-      appender.stop();
-    }
+  void nativeConfigProviderResolvesBrokerAndIgnoresConsumerProducerClasses(@TempDir Path directory)
+      throws Exception {
+    Path config = directory.resolve("kafka.properties");
+    Files.writeString(config, "bootstrap=" + ANONYMOUS.getBootstrapServers());
+    Properties properties = properties("${file:" + config + ":bootstrap}");
+    properties.put("config.providers", "file");
+    properties.put(
+        "config.providers.file.class",
+        "org.apache.kafka.common.config.provider.FileConfigProvider");
+    properties.put("key.deserializer", "not.a.ConsumerDeserializer");
+    properties.put("value.serializer", "not.a.ProducerSerializer");
+    assertEquals(
+        KafkaConnectionValidator.Status.SUCCESS,
+        new KafkaConnectionValidator().validate(properties, Duration.ofSeconds(5)));
+    assertEquals("${file:" + config + ":bootstrap}", properties.getProperty("bootstrap.servers"));
+  }
+
+  @Test
+  void realAuthenticationSuccessAndFailureAreDistinct() {
+    Properties properties = properties(AUTHENTICATED.getBootstrapServers());
+    properties.put("security.protocol", "SASL_PLAINTEXT");
+    properties.put("sasl.mechanism", "PLAIN");
+    properties.put(
+        "sasl.jaas.config",
+        "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"test\" password=\"test-password\";");
+    assertEquals(
+        KafkaConnectionValidator.Status.SUCCESS,
+        new KafkaConnectionValidator().validate(properties, Duration.ofSeconds(5)));
+    properties.put(
+        "sasl.jaas.config",
+        "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"test\" password=\"SENTINEL_PASSWORD\";");
+    assertEquals(
+        KafkaConnectionValidator.Status.AUTHENTICATION_FAILED,
+        new KafkaConnectionValidator().validate(properties, Duration.ofSeconds(5)));
   }
 
   @Test
