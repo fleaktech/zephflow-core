@@ -48,6 +48,9 @@ public final class KafkaClientProperties {
     props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000");
     props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, "10485760");
     props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    // Never create topics on the broker as a side effect of subscribing (KIP-361). A node that
+    // relies on auto-creation can opt back in with allow.auto.create.topics=true in properties.
+    props.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, "false");
 
     if (config.getProperties() != null) {
       props.putAll(config.getProperties());
