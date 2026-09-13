@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.pubsubsink;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
@@ -56,6 +57,20 @@ class PubSubSinkMessageProcessorTest {
 
     assertEquals("acme", result.orderingKey());
     assertTrue(result.body().contains("\"tenantId\""));
+  }
+
+  @Test
+  void testPreprocessWithNumericOrderingKey() {
+    PubSubSinkMessageProcessor processor =
+        new PubSubSinkMessageProcessor(PathExpression.fromString("$.tenantId"));
+
+    RecordFleakData event =
+        (RecordFleakData) FleakData.wrap(Map.of("tenantId", 42, "data", "payload"));
+
+    PubSubOutboundMessage result = processor.preprocess(event, System.currentTimeMillis());
+
+    // A numeric ordering key must be honored, not silently dropped.
+    assertEquals("42", result.orderingKey());
   }
 
   @Test

@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.pathselect;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
@@ -21,6 +23,14 @@ import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 4/19/24 */
 class ValueExtractorTest {
+  @Test
+  public void scalarStringExtractorFallsBackForANullStringValue() {
+    ValueExtractor.ScalarStringValueExtractor extractor =
+        new ValueExtractor.ScalarStringValueExtractor("fallback", null);
+    // A string primitive holding null is not a usable key; it must not stringify to "null".
+    assertEquals("fallback", extractor.extractValue(new StringPrimitiveFleakData(null)));
+  }
+
   @Test
   public void regressionTestRecordPayloadExtractorImmutableMap() {
     ValueExtractor.RecordPayloadExtractor recordPayloadExtractor =
