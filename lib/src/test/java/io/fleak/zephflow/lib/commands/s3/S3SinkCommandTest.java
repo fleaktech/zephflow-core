@@ -31,6 +31,7 @@ import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.dlq.S3DlqWriterTest;
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -47,7 +48,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -62,7 +62,7 @@ public class S3SinkCommandTest {
 
   @Container
   protected static MinIOContainer minioContainer =
-      new MinIOContainer(DockerImageName.parse("minio/minio:latest")).withCommand("server /data");
+      new MinIOContainer(TestUtils.MINIO_IMAGE).withCommand("server /data");
 
   private S3Client s3Client;
 
