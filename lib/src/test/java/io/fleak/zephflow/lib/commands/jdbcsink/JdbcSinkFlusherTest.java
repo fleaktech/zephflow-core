@@ -133,6 +133,68 @@ class JdbcSinkFlusherTest {
     assertEquals("INSERT INTO \"test_sink\" (\"id\", \"name\", \"amount\") VALUES (?, ?, ?)", sql);
   }
 
+  /**
+   * Column names are taken from event payload keys, so a hostile event gets to choose them. The
+   * flusher must reject an identifier that could break out of its quotes rather than execute it,
+   * and the table it writes to must survive.
+   */
+  @Test
+  void rejectsColumnNameThatTriesToBreakOutOfItsQuotes() throws Exception {
+    String malicious = "name\") VALUES (99, 'pwned', 0); DROP TABLE test_sink; --";
+
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL, null, null, "test_sink", null, JdbcSinkDto.WriteMode.INSERT, List.of());
+
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    LinkedHashMap<String, Object> row = new LinkedHashMap<>();
+    row.put("id", 1.0);
+    row.put(malicious, "x");
+    events.add(record, row);
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> flusher.flush(events, Map.of()));
+    assertTrue(e.getMessage().contains("double quote"), e.getMessage());
+
+    // The table is still there and nothing was written.
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_sink")) {
+      assertTrue(rs.next());
+      assertEquals(0, rs.getInt(1));
+    }
+
+    flusher.close();
+  }
+
+  @Test
+  void rejectsTableNameThatTriesToBreakOutOfItsQuotes() {
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL,
+            null,
+            null,
+            "test_sink\"; DROP TABLE test_sink; --",
+            null,
+            JdbcSinkDto.WriteMode.INSERT,
+            List.of());
+
+    assertThrows(IllegalArgumentException.class, () -> flusher.buildSql(List.of("id")));
+  }
+
+  @Test
+  void allowsColumnNamesThatOnlyWorkWhenQuoted() {
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL, null, null, "test_sink", null, JdbcSinkDto.WriteMode.INSERT, List.of());
+
+    String sql = flusher.buildSql(List.of("event time", "SELECT"));
+
+    assertEquals("INSERT INTO \"test_sink\" (\"event time\", \"SELECT\") VALUES (?, ?)", sql);
+  }
+
   @Test
   void testSqlGenerationWithSchema() {
     JdbcSinkFlusher flusher =

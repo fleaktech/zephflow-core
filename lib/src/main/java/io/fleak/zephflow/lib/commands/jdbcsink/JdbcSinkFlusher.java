@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.jdbcsink;
 import io.fleak.zephflow.lib.commands.jdbcsource.JdbcDriverLoader;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkDataSizeEstimator;
+import io.fleak.zephflow.lib.utils.SqlIdentifiers;
 import java.io.IOException;
 import java.sql.*;
 import java.util.*;
@@ -77,8 +78,10 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
             stmt.setObject(i + 1, value);
             flushedDataSize += SinkDataSizeEstimator.estimateValueBytes(value);
           }
+          // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
           stmt.addBatch();
         }
+        // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
         stmt.executeBatch();
       }
 
@@ -124,20 +127,28 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
     }
   }
 
+  /**
+   * Builds the INSERT. Row values are always bound as parameters; only identifiers are
+   * interpolated, and every one of them goes through {@link SqlIdentifiers#quote} first. Column
+   * names come from event payload keys, so they are untrusted input and that validation is the
+   * control that keeps this statement safe.
+   */
   String buildSql(List<String> columns) {
-    String qualifiedTable = buildQualifiedTableName();
+    String qualifiedTable = SqlIdentifiers.qualifiedTable(schemaName, tableName);
     String columnList =
-        columns.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+        columns.stream().map(JdbcSinkFlusher::quoteColumn).collect(Collectors.joining(", "));
     String placeholders = columns.stream().map(c -> "?").collect(Collectors.joining(", "));
 
     if (writeMode == JdbcSinkDto.WriteMode.UPSERT) {
       String conflictColumns =
-          upsertKeyColumns.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+          upsertKeyColumns.stream()
+              .map(JdbcSinkFlusher::quoteColumn)
+              .collect(Collectors.joining(", "));
       List<String> nonKeyColumns =
           columns.stream().filter(c -> !upsertKeyColumns.contains(c)).toList();
       String updateSet =
           nonKeyColumns.stream()
-              .map(c -> quoteIdentifier(c) + " = EXCLUDED." + quoteIdentifier(c))
+              .map(c -> quoteColumn(c) + " = EXCLUDED." + quoteColumn(c))
               .collect(Collectors.joining(", "));
 
       if (updateSet.isEmpty()) {
@@ -154,14 +165,7 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
         "INSERT INTO %s (%s) VALUES (%s)", qualifiedTable, columnList, placeholders);
   }
 
-  private String buildQualifiedTableName() {
-    if (schemaName != null && !schemaName.isBlank()) {
-      return quoteIdentifier(schemaName) + "." + quoteIdentifier(tableName);
-    }
-    return quoteIdentifier(tableName);
-  }
-
-  private String quoteIdentifier(String identifier) {
-    return "\"" + identifier.replace("\"", "\"\"") + "\"";
+  private static String quoteColumn(String column) {
+    return SqlIdentifiers.quote(column, "column name");
   }
 }

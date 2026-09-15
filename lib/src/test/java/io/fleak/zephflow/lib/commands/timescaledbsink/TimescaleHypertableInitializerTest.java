@@ -14,15 +14,23 @@
 package io.fleak.zephflow.lib.commands.timescaledbsink;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import org.junit.jupiter.api.Test;
 
 class TimescaleHypertableInitializerTest {
 
   @Test
-  void buildsIdempotentCreateHypertableStatement() {
+  void createHypertableStatementIsParameterizedAndIdempotent() {
     assertEquals(
-        "SELECT create_hypertable('\"metrics\"', 'ts', if_not_exists => TRUE)",
-        TimescaleHypertableInitializer.buildCreateHypertableSql("\"metrics\"", "ts"));
+        "SELECT create_hypertable(?::regclass, ?::name, if_not_exists => TRUE)",
+        TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL);
+  }
+
+  @Test
+  void createHypertableStatementInterpolatesNothing() {
+    // The table name and time column arrive from user-supplied config, so they must never be
+    // concatenated into the statement text.
+    assertFalse(TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL.contains("'"));
   }
 }

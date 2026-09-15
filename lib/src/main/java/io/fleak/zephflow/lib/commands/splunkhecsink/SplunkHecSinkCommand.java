@@ -112,7 +112,7 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
               }
             }
           };
-      SSLContext sslContext = SSLContext.getInstance("TLS");
+      SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
       sslContext.init(null, trustAll, new SecureRandom());
       SSLParameters sslParameters = new SSLParameters();
       sslParameters.setEndpointIdentificationAlgorithm("");
