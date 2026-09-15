@@ -20,21 +20,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
-/**
- * SQL dialect function {@code md5(input)}, matching the semantics of the same function in Postgres
- * and MySQL.
- *
- * <p>MD5 is used here as a content fingerprint for data processing — deduplication, partition keys,
- * joining against upstream systems that already store MD5 digests. It is deliberately NOT used for
- * passwords, signatures, or any other security decision, and nothing in zephflow treats its output
- * as a security boundary.
- *
- * <p>The algorithm is therefore part of this function's contract: users write {@code md5(col)} in
- * their pipelines and expect the 32-character digest that every other SQL engine produces.
- * Substituting SHA-256 would change the output of existing pipelines and break joins against
- * externally stored digests. Callers that need a cryptographic digest should use a SHA-2 function
- * instead of this one.
- */
 public class MD5 extends BaseFunction {
 
   public static final String NAME = "md5";
@@ -51,16 +36,15 @@ public class MD5 extends BaseFunction {
     if (input == null) return null;
 
     try {
-      // nosemgrep - non-cryptographic content fingerprint; see the class javadoc for why the
-      // algorithm is part of this SQL function's contract and cannot be substituted.
-      MessageDigest md = MessageDigest.getInstance("MD5");
-      md.update(input.toString().getBytes(StandardCharsets.UTF_8));
-      byte[] digest = md.digest();
-      StringBuilder sb = new StringBuilder();
-      for (byte b : digest) {
-        sb.append(String.format("%02x", b));
+      // nosemgrep: java.lang.security.audit.crypto.use-of-md5.use-of-md5
+      MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+      messageDigest.update(input.toString().getBytes(StandardCharsets.UTF_8));
+      byte[] digest = messageDigest.digest();
+      StringBuilder hexDigest = new StringBuilder();
+      for (byte digestByte : digest) {
+        hexDigest.append(String.format("%02x", digestByte));
       }
-      return sb.toString();
+      return hexDigest.toString();
     } catch (NoSuchAlgorithmException e) {
       throw new RuntimeException("MD5 algorithm not found", e);
     }

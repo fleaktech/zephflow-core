@@ -23,11 +23,6 @@ import org.apache.commons.lang3.StringUtils;
 
 public class TimescaleHypertableInitializer implements Serializable {
 
-  /**
-   * The table name and time column come from user-supplied config, so they are bound as statement
-   * parameters rather than concatenated into the SQL. The casts are required because {@code
-   * create_hypertable} takes {@code (regclass, name)} and JDBC sends both parameters as varchar.
-   */
   static final String CREATE_HYPERTABLE_SQL =
       "SELECT create_hypertable(?::regclass, ?::name, if_not_exists => TRUE)";
 

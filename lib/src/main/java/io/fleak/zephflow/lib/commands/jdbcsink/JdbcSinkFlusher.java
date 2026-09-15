@@ -71,18 +71,18 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
       String sql = buildSql(columns);
 
       long flushedDataSize = 0;
-      try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
         for (Map<String, Object> row : data) {
-          for (int i = 0; i < columns.size(); i++) {
-            Object value = row.get(columns.get(i));
-            stmt.setObject(i + 1, value);
+          for (int index = 0; index < columns.size(); index++) {
+            Object value = row.get(columns.get(index));
+            statement.setObject(index + 1, value);
             flushedDataSize += SinkDataSizeEstimator.estimateValueBytes(value);
           }
           // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
-          stmt.addBatch();
+          statement.addBatch();
         }
         // nosemgrep: java.lang.security.audit.formatted-sql-string.formatted-sql-string
-        stmt.executeBatch();
+        statement.executeBatch();
       }
 
       connection.commit();
@@ -127,17 +127,11 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
     }
   }
 
-  /**
-   * Builds the INSERT. Row values are always bound as parameters; only identifiers are
-   * interpolated, and every one of them goes through {@link SqlIdentifiers#quote} first. Column
-   * names come from event payload keys, so they are untrusted input and that validation is the
-   * control that keeps this statement safe.
-   */
   String buildSql(List<String> columns) {
     String qualifiedTable = SqlIdentifiers.qualifiedTable(schemaName, tableName);
     String columnList =
         columns.stream().map(JdbcSinkFlusher::quoteColumn).collect(Collectors.joining(", "));
-    String placeholders = columns.stream().map(c -> "?").collect(Collectors.joining(", "));
+    String placeholders = columns.stream().map(column -> "?").collect(Collectors.joining(", "));
 
     if (writeMode == JdbcSinkDto.WriteMode.UPSERT) {
       String conflictColumns =
@@ -145,10 +139,10 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
               .map(JdbcSinkFlusher::quoteColumn)
               .collect(Collectors.joining(", "));
       List<String> nonKeyColumns =
-          columns.stream().filter(c -> !upsertKeyColumns.contains(c)).toList();
+          columns.stream().filter(column -> !upsertKeyColumns.contains(column)).toList();
       String updateSet =
           nonKeyColumns.stream()
-              .map(c -> quoteColumn(c) + " = EXCLUDED." + quoteColumn(c))
+              .map(column -> quoteColumn(column) + " = EXCLUDED." + quoteColumn(column))
               .collect(Collectors.joining(", "));
 
       if (updateSet.isEmpty()) {

@@ -133,11 +133,6 @@ class JdbcSinkFlusherTest {
     assertEquals("INSERT INTO \"test_sink\" (\"id\", \"name\", \"amount\") VALUES (?, ?, ?)", sql);
   }
 
-  /**
-   * Column names are taken from event payload keys, so a hostile event gets to choose them. The
-   * flusher must reject an identifier that could break out of its quotes rather than execute it,
-   * and the table it writes to must survive.
-   */
   @Test
   void rejectsColumnNameThatTriesToBreakOutOfItsQuotes() throws Exception {
     String malicious = "name\") VALUES (99, 'pwned', 0); DROP TABLE test_sink; --";
@@ -154,11 +149,10 @@ class JdbcSinkFlusherTest {
     row.put(malicious, "x");
     events.add(record, row);
 
-    IllegalArgumentException e =
+    IllegalArgumentException exception =
         assertThrows(IllegalArgumentException.class, () -> flusher.flush(events, Map.of()));
-    assertTrue(e.getMessage().contains("double quote"), e.getMessage());
+    assertTrue(exception.getMessage().contains("double quote"), exception.getMessage());
 
-    // The table is still there and nothing was written.
     try (Connection conn = DriverManager.getConnection(JDBC_URL);
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_sink")) {

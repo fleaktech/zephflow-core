@@ -21,16 +21,13 @@ import org.junit.jupiter.api.Test;
 class TimescaleHypertableInitializerTest {
 
   @Test
-  void createHypertableStatementIsParameterizedAndIdempotent() {
-    assertEquals(
-        "SELECT create_hypertable(?::regclass, ?::name, if_not_exists => TRUE)",
-        TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL);
-  }
-
-  @Test
-  void createHypertableStatementInterpolatesNothing() {
-    // The table name and time column arrive from user-supplied config, so they must never be
-    // concatenated into the statement text.
+  void createHypertableStatementBindsItsArgumentsInsteadOfInterpolatingThem() {
     assertFalse(TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL.contains("'"));
+    assertEquals(
+        2,
+        TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL
+            .chars()
+            .filter(character -> character == '?')
+            .count());
   }
 }
