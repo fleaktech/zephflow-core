@@ -28,10 +28,15 @@ dependencies {
 
   implementation libs.clickhouse.jdbc
 
-  implementation libs.hadoop.common
-  implementation libs.hadoop.client
+  implementation(libs.hadoop.common) {
+    exclude group: 'ch.qos.logback'
+  }
+  implementation(libs.hadoop.client) {
+    exclude group: 'ch.qos.logback'
+  }
   implementation(libs.hadoop.aws) {
     exclude group: 'software.amazon.awssdk', module: 'bundle'
+    exclude group: 'ch.qos.logback'
   }
 
   implementation libs.delta.kernel.api
