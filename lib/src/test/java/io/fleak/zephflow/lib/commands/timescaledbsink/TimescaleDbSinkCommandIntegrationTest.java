@@ -29,6 +29,7 @@ import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.LinkedHashMap;
@@ -121,14 +122,13 @@ class TimescaleDbSinkCommandIntegrationTest {
   @SneakyThrows
   private boolean isHypertable(String table) {
     try (Connection connection = connect();
-        Statement statement = connection.createStatement();
-        ResultSet rs =
-            statement.executeQuery(
-                "SELECT 1 FROM timescaledb_information.hypertables"
-                    + " WHERE hypertable_name = '"
-                    + table
-                    + "'")) {
-      return rs.next();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                "SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = ?")) {
+      statement.setString(1, table);
+      try (ResultSet rs = statement.executeQuery()) {
+        return rs.next();
+      }
     }
   }
 

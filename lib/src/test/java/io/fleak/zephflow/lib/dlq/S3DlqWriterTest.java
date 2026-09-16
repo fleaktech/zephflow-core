@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.dlq;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -33,7 +34,6 @@ import org.junit.jupiter.api.*;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -49,7 +49,7 @@ public class S3DlqWriterTest {
 
   @Container
   protected static MinIOContainer minioContainer =
-      new MinIOContainer(DockerImageName.parse("minio/minio:latest")).withCommand("server /data");
+      new MinIOContainer(TestUtils.MINIO_IMAGE).withCommand("server /data");
 
   private static final String TEST_KEY_PREFIX = "test-env/pipeline-1/deployment-1/run-1";
 

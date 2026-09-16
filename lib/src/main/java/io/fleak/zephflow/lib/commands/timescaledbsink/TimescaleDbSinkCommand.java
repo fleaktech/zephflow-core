@@ -22,6 +22,7 @@ import io.fleak.zephflow.lib.commands.jdbcsink.JdbcSinkFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
+import io.fleak.zephflow.lib.utils.SqlIdentifiers;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -103,15 +104,7 @@ public class TimescaleDbSinkCommand extends SimpleSinkCommand<Map<String, Object
   }
 
   private static String qualifiedTableName(TimescaleDbSinkDto.Config config) {
-    String table = quoteIdentifier(config.getTableName());
-    if (StringUtils.isBlank(config.getSchemaName())) {
-      return table;
-    }
-    return quoteIdentifier(config.getSchemaName()) + "." + table;
-  }
-
-  private static String quoteIdentifier(String identifier) {
-    return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    return SqlIdentifiers.qualifiedTable(config.getSchemaName(), config.getTableName());
   }
 
   private static List<String> upsertKeyColumns(TimescaleDbSinkDto.Config config) {

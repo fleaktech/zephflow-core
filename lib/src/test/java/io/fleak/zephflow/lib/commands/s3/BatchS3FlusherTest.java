@@ -20,6 +20,7 @@ import static org.mockito.Mockito.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
@@ -37,7 +38,6 @@ import org.junit.jupiter.api.*;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
@@ -56,7 +56,7 @@ class BatchS3FlusherTest {
 
   @Container
   protected static MinIOContainer minioContainer =
-      new MinIOContainer(DockerImageName.parse("minio/minio:latest")).withCommand("server /data");
+      new MinIOContainer(TestUtils.MINIO_IMAGE).withCommand("server /data");
 
   @BeforeEach
   void setUp() {

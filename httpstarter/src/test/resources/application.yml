@@ -8,8 +8,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        include: "health"
   endpoint:
     health:
       enabled: true
-      show-details: always
+      show-details: never

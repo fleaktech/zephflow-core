@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.sql.exec.functions.strings;
 
 import io.fleak.zephflow.lib.sql.exec.functions.BaseFunction;
 import io.fleak.zephflow.lib.sql.exec.types.TypeSystem;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
@@ -35,14 +36,15 @@ public class MD5 extends BaseFunction {
     if (input == null) return null;
 
     try {
-      MessageDigest md = MessageDigest.getInstance("MD5");
-      md.update(input.toString().getBytes());
-      byte[] digest = md.digest();
-      StringBuilder sb = new StringBuilder();
-      for (byte b : digest) {
-        sb.append(String.format("%02x", b));
+      // nosemgrep: java.lang.security.audit.crypto.use-of-md5.use-of-md5
+      MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+      messageDigest.update(input.toString().getBytes(StandardCharsets.UTF_8));
+      byte[] digest = messageDigest.digest();
+      StringBuilder hexDigest = new StringBuilder();
+      for (byte digestByte : digest) {
+        hexDigest.append(String.format("%02x", digestByte));
       }
-      return sb.toString();
+      return hexDigest.toString();
     } catch (NoSuchAlgorithmException e) {
       throw new RuntimeException("MD5 algorithm not found", e);
     }

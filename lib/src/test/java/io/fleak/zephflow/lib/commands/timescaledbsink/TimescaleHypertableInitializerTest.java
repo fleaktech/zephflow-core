@@ -14,15 +14,20 @@
 package io.fleak.zephflow.lib.commands.timescaledbsink;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import org.junit.jupiter.api.Test;
 
 class TimescaleHypertableInitializerTest {
 
   @Test
-  void buildsIdempotentCreateHypertableStatement() {
+  void createHypertableStatementBindsItsArgumentsInsteadOfInterpolatingThem() {
+    assertFalse(TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL.contains("'"));
     assertEquals(
-        "SELECT create_hypertable('\"metrics\"', 'ts', if_not_exists => TRUE)",
-        TimescaleHypertableInitializer.buildCreateHypertableSql("\"metrics\"", "ts"));
+        2,
+        TimescaleHypertableInitializer.CREATE_HYPERTABLE_SQL
+            .chars()
+            .filter(character -> character == '?')
+            .count());
   }
 }

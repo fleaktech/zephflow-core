@@ -134,6 +134,62 @@ class JdbcSinkFlusherTest {
   }
 
   @Test
+  void rejectsColumnNameThatTriesToBreakOutOfItsQuotes() throws Exception {
+    String malicious = "name\") VALUES (99, 'pwned', 0); DROP TABLE test_sink; --";
+
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL, null, null, "test_sink", null, JdbcSinkDto.WriteMode.INSERT, List.of());
+
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    LinkedHashMap<String, Object> row = new LinkedHashMap<>();
+    row.put("id", 1.0);
+    row.put(malicious, "x");
+    events.add(record, row);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, () -> flusher.flush(events, Map.of()));
+    assertTrue(exception.getMessage().contains("double quote"), exception.getMessage());
+
+    try (Connection conn = DriverManager.getConnection(JDBC_URL);
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_sink")) {
+      assertTrue(rs.next());
+      assertEquals(0, rs.getInt(1));
+    }
+
+    flusher.close();
+  }
+
+  @Test
+  void rejectsTableNameThatTriesToBreakOutOfItsQuotes() {
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL,
+            null,
+            null,
+            "test_sink\"; DROP TABLE test_sink; --",
+            null,
+            JdbcSinkDto.WriteMode.INSERT,
+            List.of());
+
+    assertThrows(IllegalArgumentException.class, () -> flusher.buildSql(List.of("id")));
+  }
+
+  @Test
+  void allowsColumnNamesThatOnlyWorkWhenQuoted() {
+    JdbcSinkFlusher flusher =
+        new JdbcSinkFlusher(
+            JDBC_URL, null, null, "test_sink", null, JdbcSinkDto.WriteMode.INSERT, List.of());
+
+    String sql = flusher.buildSql(List.of("event time", "SELECT"));
+
+    assertEquals("INSERT INTO \"test_sink\" (\"event time\", \"SELECT\") VALUES (?, ?)", sql);
+  }
+
+  @Test
   void testSqlGenerationWithSchema() {
     JdbcSinkFlusher flusher =
         new JdbcSinkFlusher(

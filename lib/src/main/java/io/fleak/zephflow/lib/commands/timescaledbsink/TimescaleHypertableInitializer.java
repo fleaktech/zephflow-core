@@ -17,11 +17,14 @@ import io.fleak.zephflow.lib.commands.jdbcsource.JdbcDriverLoader;
 import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import org.apache.commons.lang3.StringUtils;
 
 public class TimescaleHypertableInitializer implements Serializable {
+
+  static final String CREATE_HYPERTABLE_SQL =
+      "SELECT create_hypertable(?::regclass, ?::name, if_not_exists => TRUE)";
 
   public void ensureHypertable(
       String jdbcUrl,
@@ -29,21 +32,14 @@ public class TimescaleHypertableInitializer implements Serializable {
       String password,
       String qualifiedTableName,
       String timeColumn) {
-    String sql = buildCreateHypertableSql(qualifiedTableName, timeColumn);
     try (Connection connection = connect(jdbcUrl, username, password);
-        Statement statement = connection.createStatement()) {
-      statement.execute(sql);
+        PreparedStatement statement = connection.prepareStatement(CREATE_HYPERTABLE_SQL)) {
+      statement.setString(1, qualifiedTableName);
+      statement.setString(2, timeColumn);
+      statement.execute();
     } catch (SQLException e) {
       throw new RuntimeException("failed to create hypertable for table " + qualifiedTableName, e);
     }
-  }
-
-  static String buildCreateHypertableSql(String qualifiedTableName, String timeColumn) {
-    return "SELECT create_hypertable('"
-        + qualifiedTableName.replace("'", "''")
-        + "', '"
-        + timeColumn.replace("'", "''")
-        + "', if_not_exists => TRUE)";
   }
 
   private Connection connect(String jdbcUrl, String username, String password) throws SQLException {

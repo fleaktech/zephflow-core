@@ -27,8 +27,13 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.testcontainers.utility.DockerImageName;
 
 public class TestUtils {
+
+  public static final DockerImageName MINIO_IMAGE =
+      DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
+          .asCompatibleSubstituteFor("minio/minio");
 
   public static final UsernamePasswordCredential USERNAME_PASSWORD_CREDENTIAL =
       new UsernamePasswordCredential("MY_USER_NAME", "MY_PASSWORD");

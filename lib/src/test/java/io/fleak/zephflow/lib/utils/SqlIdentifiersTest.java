@@ -1,0 +1,86 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.fleak.zephflow.lib.utils;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+class SqlIdentifiersTest {
+
+  @Test
+  void quotesOrdinaryIdentifiers() {
+    assertEquals("\"metrics\"", SqlIdentifiers.quote("metrics", "tableName"));
+    assertEquals("\"user_id\"", SqlIdentifiers.quote("user_id", "column"));
+  }
+
+  @Test
+  void allowsIdentifiersThatOnlyWorkWhenQuoted() {
+    assertEquals("\"event time\"", SqlIdentifiers.quote("event time", "column"));
+    assertEquals("\"SELECT\"", SqlIdentifiers.quote("SELECT", "column"));
+    assertEquals("\"co2-ppm\"", SqlIdentifiers.quote("co2-ppm", "column"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "x\" ) VALUES (1); DROP TABLE users; --",
+        "a\"\"b",
+        "\"",
+        "ts\"",
+      })
+  void rejectsIdentifiersContainingADoubleQuote(String identifier) {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> SqlIdentifiers.quote(identifier, "column"));
+    assertTrue(exception.getMessage().contains("column"), exception.getMessage());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"a\0b", "a\nb", "a\rb", "a\tb", "a\033b"})
+  void rejectsControlCharacters(String identifier) {
+    assertThrows(IllegalArgumentException.class, () -> SqlIdentifiers.quote(identifier, "column"));
+  }
+
+  @Test
+  void rejectsBlankAndNull() {
+    assertThrows(IllegalArgumentException.class, () -> SqlIdentifiers.quote(null, "tableName"));
+    assertThrows(IllegalArgumentException.class, () -> SqlIdentifiers.quote("", "tableName"));
+    assertThrows(IllegalArgumentException.class, () -> SqlIdentifiers.quote("   ", "tableName"));
+  }
+
+  @Test
+  void rejectsOverlongIdentifiers() {
+    String tooLong = "a".repeat(SqlIdentifiers.MAX_LENGTH + 1);
+    assertThrows(IllegalArgumentException.class, () -> SqlIdentifiers.quote(tooLong, "column"));
+    assertDoesNotThrow(() -> SqlIdentifiers.quote("a".repeat(SqlIdentifiers.MAX_LENGTH), "column"));
+  }
+
+  @Test
+  void qualifiesSchemaAndTable() {
+    assertEquals("\"public\".\"metrics\"", SqlIdentifiers.qualifiedTable("public", "metrics"));
+    assertEquals("\"metrics\"", SqlIdentifiers.qualifiedTable(null, "metrics"));
+    assertEquals("\"metrics\"", SqlIdentifiers.qualifiedTable("  ", "metrics"));
+  }
+
+  @Test
+  void qualifiedTableValidatesBothParts() {
+    assertThrows(
+        IllegalArgumentException.class, () -> SqlIdentifiers.qualifiedTable("pu\"blic", "metrics"));
+    assertThrows(
+        IllegalArgumentException.class, () -> SqlIdentifiers.qualifiedTable("public", "met\"rics"));
+  }
+}
