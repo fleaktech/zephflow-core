@@ -46,7 +46,7 @@ allprojects {
 
   configurations.all {
     resolutionStrategy.capabilitiesResolution.withCapability('org.lz4:lz4-java') {
-      select('at.yawk.lz4:lz4-java:1.10.3')
+      select('at.yawk.lz4:lz4-java:1.11.3')
     }
   }
 
@@ -259,6 +259,31 @@ subprojects {
   task printVersion {
     doLast {
       println version
+    }
+  }
+}
+
+configure(subprojects.findAll { it.name in ['lib', 'runner', 'sdk', 'clistarter'] }) {
+  dependencies {
+    implementation platform(libs.jetty.bom)
+
+    constraints {
+      implementation(libs.lz4)
+      implementation(libs.zookeeper)
+      implementation(libs.zookeeper.jute)
+      implementation(libs.httpcore5)
+      implementation(libs.httpcore5.h2)
+      implementation(libs.httpclient5)
+
+      implementation(libs.jline)
+      implementation(libs.jline.reader)
+      implementation(libs.jline.terminal)
+      implementation(libs.jline.terminal.jansi)
+      implementation(libs.jline.terminal.jna)
+      implementation(libs.jline.builtins)
+      implementation(libs.jline.style)
+      implementation(libs.jline.remote.ssh)
+      implementation(libs.jline.remote.telnet)
     }
   }
 }
