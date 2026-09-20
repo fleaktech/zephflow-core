@@ -117,6 +117,10 @@ public record DagExecutor(
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
 
+      // Streaming path is long-lived, so time-triggered windows get a background flush thread.
+      // No-op unless the DAG actually contains a windowed node.
+      noSourceDagRunner.startFlushScheduler(jobConfig.getJobId());
+
       sourceCommand.execute(
           jobConfig.getJobId(),
           new SourceEventAcceptor() {
