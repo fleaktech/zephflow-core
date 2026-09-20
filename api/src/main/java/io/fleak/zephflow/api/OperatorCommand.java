@@ -110,6 +110,15 @@ public abstract class OperatorCommand implements Serializable {
     return executionContext;
   }
 
+  /**
+   * @return whether {@link #initialize} has run (and {@link #terminate} has not cleared it). Lets
+   *     callers skip a command that has no state yet instead of tripping {@link
+   *     #getExecutionContext}.
+   */
+  public boolean isInitialized() {
+    return executionContext != null;
+  }
+
   /** Clean up resources */
   public void terminate() throws IOException {
     if (executionContext != null) {

@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
+import io.fleak.zephflow.api.WindowFlushable;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
@@ -29,6 +30,12 @@ import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -36,20 +43,78 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.slf4j.MDC;
 
-/** Created by bolei on 3/4/25 */
+/**
+ * Created by bolei on 3/4/25
+ *
+ * <p>Single-threaded, synchronous DFS over the source-less DAG: each {@link #run} walks the graph
+ * on the caller's thread. For pipelines containing {@link WindowFlushable} nodes (time-triggered
+ * windows), an optional background scheduler periodically fires due windows even when no input
+ * arrives (see {@link #startFlushScheduler}). A single {@link #pipelineLock} serializes {@code run}
+ * against the flush thread so command state is never touched concurrently; when no windowed node is
+ * present the lock is never taken, so ordinary pipelines are unaffected.
+ */
 @Slf4j
-public record NoSourceDagRunner(
-    @NonNull List<Edge> edgesFromSource,
-    Dag<OperatorCommand> compiledDagWithoutSource,
-    MetricClientProvider metricClientProvider,
-    DagRunCounters counters,
-    boolean useDlq) {
+public class NoSourceDagRunner {
+
+  private static final long DEFAULT_FLUSH_TICK_MS = 1000L;
+  private static final DagRunConfig FLUSH_RUN_CONFIG = new DagRunConfig(false, false);
+
+  @NonNull private final List<Edge> edgesFromSource;
+  private final Dag<OperatorCommand> compiledDagWithoutSource;
+  private final MetricClientProvider metricClientProvider;
+  private final DagRunCounters counters;
+  private final boolean useDlq;
+
+  private final List<Node<OperatorCommand>> windowedNodes;
+  private final boolean hasWindowedNodes;
+  private final ReentrantLock pipelineLock = new ReentrantLock();
+  private final AtomicBoolean terminated = new AtomicBoolean(false);
+
+  private volatile ScheduledExecutorService flushScheduler;
+  private volatile ScheduledFuture<?> flushTask;
+  private volatile String flushCallingUser;
+
+  public NoSourceDagRunner(
+      @NonNull List<Edge> edgesFromSource,
+      Dag<OperatorCommand> compiledDagWithoutSource,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters,
+      boolean useDlq) {
+    this.edgesFromSource = edgesFromSource;
+    this.compiledDagWithoutSource = compiledDagWithoutSource;
+    this.metricClientProvider = metricClientProvider;
+    this.counters = counters;
+    this.useDlq = useDlq;
+    this.windowedNodes =
+        compiledDagWithoutSource.getNodes().stream()
+            .filter(n -> n.getNodeContent() instanceof WindowFlushable)
+            .toList();
+    this.hasWindowedNodes = !windowedNodes.isEmpty();
+  }
 
   public DagResult run(
+      List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
+    // Windowed pipelines take the pipeline lock so the background flush thread never overlaps a
+    // run.
+    // Non-windowed pipelines skip the lock entirely (zero overhead, unchanged single-threaded
+    // path).
+    if (!hasWindowedNodes) {
+      return doRun(events, callingUser, runConfig);
+    }
+    pipelineLock.lock();
+    try {
+      return doRun(events, callingUser, runConfig);
+    } finally {
+      pipelineLock.unlock();
+    }
+  }
+
+  private DagResult doRun(
       List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
 
     // Initialize all commands once at the start of the run
     initializeAllCommands();
+    flushCallingUser = callingUser;
 
     // make sure all edges are from the same source
     var sourceNodeIds = edgesFromSource.stream().map(Edge::getFrom).distinct().toList();
@@ -217,7 +282,136 @@ public record NoSourceDagRunner(
     }
   }
 
+  /**
+   * Starts the background flush scheduler for time-triggered windows. No-op when the DAG has no
+   * {@link WindowFlushable} node, so ordinary pipelines never spawn a thread. Meant for the
+   * long-lived streaming path (see {@code DagExecutor}); the request/response path does not call
+   * it.
+   */
+  public void startFlushScheduler(String callingUser) {
+    startFlushScheduler(callingUser, DEFAULT_FLUSH_TICK_MS);
+  }
+
+  public synchronized void startFlushScheduler(String callingUser, long tickMs) {
+    if (terminated.get() || !hasWindowedNodes || flushScheduler != null) {
+      return;
+    }
+    Preconditions.checkArgument(tickMs > 0, "flush tick must be positive, but was: %s", tickMs);
+    // Windowed commands must be initialized before the timer can flush them.
+    pipelineLock.lock();
+    try {
+      initializeAllCommands();
+      flushCallingUser = callingUser;
+    } finally {
+      pipelineLock.unlock();
+    }
+    flushScheduler =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread t = new Thread(r, "zephflow-window-flush");
+              t.setDaemon(true);
+              return t;
+            });
+    flushTask =
+        flushScheduler.scheduleWithFixedDelay(
+            this::tickFlush, tickMs, tickMs, TimeUnit.MILLISECONDS);
+    log.info(
+        "started window flush scheduler with tick {}ms for {} nodes", tickMs, windowedNodes.size());
+  }
+
+  private void tickFlush() {
+    try {
+      flushWindowedNodes(false);
+    } catch (Exception e) {
+      log.error("error during scheduled window flush", e);
+    } catch (Error e) {
+      log.error("fatal error during scheduled window flush - scheduler will stop", e);
+      throw e;
+    }
+  }
+
+  /**
+   * Fires due windows on every {@link WindowFlushable} node and routes their output downstream,
+   * reusing the normal traversal so the records reach sinks exactly like {@code process} output.
+   * Holds the pipeline lock for the whole pass so it never overlaps {@link #run}.
+   */
+  private void flushWindowedNodes(boolean finalFlush) {
+    pipelineLock.lock();
+    try {
+      String callingUser = Objects.requireNonNullElse(flushCallingUser, "");
+      Map<String, String> tags = getCallingUserTagAndEventTags(callingUser, null);
+      for (Node<OperatorCommand> node : windowedNodes) {
+        OperatorCommand command = node.getNodeContent();
+        if (!command.isInitialized()) {
+          continue; // never processed an event, so it holds no window state to flush
+        }
+        List<RecordFleakData> output;
+        try {
+          output =
+              ((WindowFlushable) command)
+                  .flush(callingUser, command.getExecutionContext(), finalFlush);
+        } catch (Exception e) {
+          log.error("window flush failed at node {}", node.getId(), e);
+          continue;
+        }
+        if (CollectionUtils.isEmpty(output)) {
+          continue;
+        }
+        RunContext runContext =
+            RunContext.builder()
+                .callingUser(callingUser)
+                .callingUserTag(tags)
+                .dagResult(new DagResult())
+                .metricClientProvider(metricClientProvider)
+                .runConfig(FLUSH_RUN_CONFIG)
+                .build();
+        routeToDownstream(
+            node.getId(),
+            command.commandName(),
+            output,
+            compiledDagWithoutSource.downstreamEdges(node.getId()),
+            runContext);
+      }
+    } finally {
+      pipelineLock.unlock();
+    }
+  }
+
+  private synchronized void stopFlushScheduler() {
+    if (flushTask != null) {
+      flushTask.cancel(false);
+      flushTask = null;
+    }
+    if (flushScheduler != null) {
+      flushScheduler.shutdown();
+      try {
+        if (!flushScheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+          log.warn("window flush scheduler did not terminate in time, forcing shutdown");
+          flushScheduler.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        log.warn("interrupted while shutting down window flush scheduler");
+        flushScheduler.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
+      flushScheduler = null;
+    }
+  }
+
   public void terminate() {
+    if (!terminated.compareAndSet(false, true)) {
+      return;
+    }
+    // Stop the timer first (no concurrent flush), then drain every remaining window while sinks are
+    // still open, and only then close the commands.
+    stopFlushScheduler();
+    if (hasWindowedNodes) {
+      try {
+        flushWindowedNodes(true);
+      } catch (Exception e) {
+        log.error("final window flush failed", e);
+      }
+    }
     compiledDagWithoutSource.getNodes().stream()
         .map(Node::getNodeContent)
         .forEach(
