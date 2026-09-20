@@ -16,6 +16,7 @@ package io.fleak.zephflow.runner;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.SourceCommand;
+import io.fleak.zephflow.api.WindowFlushable;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.Dag;
@@ -42,6 +43,16 @@ public class DagRunnerService {
     AdjacencyListDagDefinition dagDefinition =
         AdjacencyListDagDefinition.builder().jobContext(jobContext).dag(dag).build();
     Dag<OperatorCommand> compiledDag = dagCompiler.compile(dagDefinition, false);
+    // The request/response backend has no flush scheduler, so time-triggered windows can never
+    // fire and per-key state would leak across requests. Reject windowed commands at build time.
+    for (Node<OperatorCommand> node : compiledDag.getNodes()) {
+      if (node.getNodeContent() instanceof WindowFlushable) {
+        throw new IllegalArgumentException(
+            "api backend doesn't support windowed (time/count-flushed) command node in the dag; "
+                + "windowing requires a streaming source pipeline. Found: "
+                + node.getNodeContent().commandName());
+      }
+    }
     List<Edge> incomingEdges = new ArrayList<>();
     for (Node<OperatorCommand> node : compiledDag.getEntryNodes()) {
       if (node.getNodeContent() instanceof SourceCommand) {

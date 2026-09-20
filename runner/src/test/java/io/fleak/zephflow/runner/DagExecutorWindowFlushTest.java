@@ -15,7 +15,9 @@ package io.fleak.zephflow.runner;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -101,6 +103,22 @@ class DagExecutorWindowFlushTest {
 
     SINK_OUTPUT.sort(Comparator.comparing(r -> r.getPayload().get("host").unwrap().toString()));
     assertEquals(List.of(rollup("a", 3), rollup("b", 2)), SINK_OUTPUT);
+  }
+
+  @Test
+  void createForApiBackend_rejectsWindowedCommandAtBuildTime() {
+    Map<String, CommandFactory> factories = Map.of(WINDOW_CMD, new WindowFactory());
+    DagRunnerService service =
+        new DagRunnerService(
+            new DagCompiler(factories), new MetricClientProvider.NoopMetricClientProvider());
+    List<DagNode> dag =
+        List.of(DagNode.builder().id("w").commandName(WINDOW_CMD).outputs(List.of()).build());
+
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.createForApiBackend(dag, JobContext.builder().build()));
+    assertTrue(ex.getMessage().toLowerCase().contains("window"), ex.getMessage());
   }
 
   private static class SourceFactory extends CommandFactory {

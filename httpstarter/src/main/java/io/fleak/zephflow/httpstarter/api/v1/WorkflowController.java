@@ -57,8 +57,13 @@ public class WorkflowController {
   @PostMapping
   public WorkflowDto.Response createWorkflow(@Valid @RequestBody WorkflowDto.Request request) {
     String id = generateRandomHash();
-    NoSourceDagRunner noSourceDagRunner =
-        dagRunnerService.createForApiBackend(request.getDag(), DEFAULT_JOB_CONTEXT);
+    NoSourceDagRunner noSourceDagRunner;
+    try {
+      noSourceDagRunner =
+          dagRunnerService.createForApiBackend(request.getDag(), DEFAULT_JOB_CONTEXT);
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
     dagMap.put(id, Pair.of(request.getDag(), noSourceDagRunner));
     return WorkflowDto.Response.builder().id(id).dag(request.getDag()).build();
   }
