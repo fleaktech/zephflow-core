@@ -34,6 +34,7 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_KAFKA_SOURCE)
             .add(COMMAND_NAME_KAFKA_SINK)
             .add(COMMAND_NAME_EVAL)
+            .add(COMMAND_NAME_THROTTLE)
             .add(COMMAND_NAME_ASSERTION)
             .add(COMMAND_NAME_FILTER)
             .add(COMMAND_NAME_STDIN)

@@ -1,0 +1,26 @@
+jobContext:
+  otherProperties:
+  metricTags:
+  dlqConfig:
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      "encodingType": "JSON_ARRAY"
+    outputs:
+      - "throttle"
+
+  - id: "throttle"
+    commandName: "throttle"
+    config:
+      keyExpression: 'concat($.host, ":", $.status)'
+      numToAllow: 1
+      periodSeconds: 3600
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      "encodingType": "JSON_OBJECT"

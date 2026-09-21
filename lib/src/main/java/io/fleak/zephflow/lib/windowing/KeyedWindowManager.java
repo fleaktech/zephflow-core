@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.windowing;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,15 +25,15 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * The reusable keyed-windowing substrate: one in-memory window per group key, a pluggable {@link
  * WindowTrigger} (time and/or count), and per-key state bounded by a size cap and idle eviction.
- * Reduction nodes (aggregation, sampling, suppress, ...) build on this rather than re-implementing
- * windowing.
+ * Reduction nodes (aggregation, sampling, ...) build on this rather than re-implementing windowing.
+ * The per-key state map, size cap, and eviction live in the shared {@link KeyedStateStore}.
  *
  * <p>Windows are <b>tumbling</b>: a window is discarded when it fires, and the next event for that
  * key opens a fresh one.
  *
- * <p>Emission carries <b>no cross-key ordering guarantee</b>. Within a single {@link #onTick} /
- * {@link #enforceMaxKeys} pass windows are visited in least-recently-updated order, but callers
- * must not depend on the relative order of different keys' output.
+ * <p>Emission carries <b>no cross-key ordering guarantee</b>. Within a single {@link #onTick} pass
+ * or size-cap eviction windows are visited in least-recently-updated order, but callers must not
+ * depend on the relative order of different keys' output.
  *
  * <p><b>Not thread-safe.</b> The runner serializes {@link #onEvent} (from {@code process}) against
  * {@link #onTick} (from the flush thread) with its pipeline lock, so this class deliberately holds
@@ -49,9 +48,7 @@ public class KeyedWindowManager<ACC> {
   private final WindowTrigger trigger;
   private final int maxKeys; // <= 0 means unlimited
   private final long idleTtlMs; // <= 0 means disabled
-  // access-order so the eldest entry is the genuine least-recently-updated window (deterministic
-  // eviction even when several events share a coarse System.currentTimeMillis() timestamp).
-  private final Map<String, Window<ACC>> windows = new LinkedHashMap<>(16, 0.75f, true);
+  private final KeyedStateStore<WindowState<ACC>> store = new KeyedStateStore<>();
 
   @Builder
   public KeyedWindowManager(
@@ -67,21 +64,20 @@ public class KeyedWindowManager<ACC> {
    * (count trigger) or if enforcing the size cap evicts a window.
    */
   public List<RecordFleakData> onEvent(String key, RecordFleakData event, long nowMs) {
-    Window<ACC> w = windows.get(key);
-    if (w == null) {
-      w = new Window<>(windowFunction.init(), nowMs);
-      windows.put(key, w);
-    }
-    w.acc = windowFunction.add(w.acc, event);
-    w.count++;
-    w.lastUpdatedMs = nowMs;
+    KeyedStateStore.Entry<WindowState<ACC>> e =
+        store.getOrCreate(key, nowMs, () -> new WindowState<>(windowFunction.init()));
+    WindowState<ACC> ws = e.state();
+    ws.acc = windowFunction.add(ws.acc, event);
+    ws.count++;
 
     List<RecordFleakData> out = new ArrayList<>();
-    if (trigger.shouldFire(w.meta(), nowMs)) {
-      windows.remove(key);
-      out.addAll(safeEmit(key, w.acc));
+    if (trigger.shouldFire(new WindowMeta(ws.count, e.createdAtMs(), e.lastUpdatedMs()), nowMs)) {
+      store.remove(key);
+      out.addAll(safeEmit(key, ws.acc));
     }
-    out.addAll(enforceMaxKeys());
+    for (KeyedStateStore.Evicted<WindowState<ACC>> ev : store.evictLruBeyond(maxKeys)) {
+      out.addAll(safeEmit(ev.key(), ev.state().acc));
+    }
     return out;
   }
 
@@ -92,43 +88,27 @@ public class KeyedWindowManager<ACC> {
    */
   public List<RecordFleakData> onTick(long nowMs, boolean finalFlush) {
     List<RecordFleakData> out = new ArrayList<>();
-    Iterator<Map.Entry<String, Window<ACC>>> it = windows.entrySet().iterator();
+    Iterator<Map.Entry<String, KeyedStateStore.Entry<WindowState<ACC>>>> it =
+        store.entryView().iterator();
     while (it.hasNext()) {
-      Map.Entry<String, Window<ACC>> e = it.next();
-      Window<ACC> w = e.getValue();
-      boolean idleExpired = idleTtlMs > 0 && (nowMs - w.lastUpdatedMs) >= idleTtlMs;
-      if (finalFlush || idleExpired || trigger.shouldFire(w.meta(), nowMs)) {
-        String key = e.getKey();
+      Map.Entry<String, KeyedStateStore.Entry<WindowState<ACC>>> en = it.next();
+      KeyedStateStore.Entry<WindowState<ACC>> e = en.getValue();
+      WindowState<ACC> ws = e.state();
+      boolean idleExpired = idleTtlMs > 0 && (nowMs - e.lastUpdatedMs()) >= idleTtlMs;
+      if (finalFlush
+          || idleExpired
+          || trigger.shouldFire(
+              new WindowMeta(ws.count, e.createdAtMs(), e.lastUpdatedMs()), nowMs)) {
+        String key = en.getKey();
         it.remove();
-        out.addAll(safeEmit(key, w.acc));
+        out.addAll(safeEmit(key, ws.acc));
       }
     }
     return out;
   }
 
   public int openWindowCount() {
-    return windows.size();
-  }
-
-  /**
-   * Keeps the number of open windows within {@link #maxKeys} by flushing out the least-recently
-   * updated windows (the eldest entries in the access-ordered map). Eviction emits (rather than
-   * drops) so no accumulated data is lost.
-   */
-  private List<RecordFleakData> enforceMaxKeys() {
-    if (maxKeys <= 0 || windows.size() <= maxKeys) {
-      return List.of();
-    }
-    List<RecordFleakData> out = new ArrayList<>();
-    Iterator<Map.Entry<String, Window<ACC>>> it = windows.entrySet().iterator();
-    while (windows.size() > maxKeys && it.hasNext()) {
-      Map.Entry<String, Window<ACC>> eldest = it.next();
-      String key = eldest.getKey();
-      Window<ACC> w = eldest.getValue();
-      it.remove();
-      out.addAll(safeEmit(key, w.acc));
-    }
-    return out;
+    return store.size();
   }
 
   private List<RecordFleakData> safeEmit(String key, ACC acc) {
@@ -140,21 +120,13 @@ public class KeyedWindowManager<ACC> {
     }
   }
 
-  private static final class Window<A> {
+  private static final class WindowState<A> {
     private A acc;
     private long count;
-    private final long createdAtMs;
-    private long lastUpdatedMs;
 
-    Window(A acc, long createdAtMs) {
+    private WindowState(A acc) {
       this.acc = acc;
       this.count = 0L;
-      this.createdAtMs = createdAtMs;
-      this.lastUpdatedMs = createdAtMs;
-    }
-
-    WindowMeta meta() {
-      return new WindowMeta(count, createdAtMs, lastUpdatedMs);
     }
   }
 }

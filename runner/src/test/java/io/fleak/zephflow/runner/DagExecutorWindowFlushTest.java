@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigParser;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigValidator;
 import io.fleak.zephflow.lib.commands.source.*;
+import io.fleak.zephflow.lib.commands.throttle.ThrottleCommandFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition.DagNode;
@@ -106,6 +107,28 @@ class DagExecutorWindowFlushTest {
   }
 
   @Test
+  void createForApiBackend_rejectsThrottleCommandAtBuildTime() {
+    Map<String, CommandFactory> factories = Map.of("throttle", new ThrottleCommandFactory());
+    DagRunnerService service =
+        new DagRunnerService(
+            new DagCompiler(factories), new MetricClientProvider.NoopMetricClientProvider());
+    List<DagNode> dag =
+        List.of(
+            DagNode.builder()
+                .id("t")
+                .commandName("throttle")
+                .config(Map.of("keyExpression", "$.host"))
+                .outputs(List.of())
+                .build());
+
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.createForApiBackend(dag, JobContext.builder().build()));
+    assertTrue(ex.getMessage().contains("Found: throttle"), ex.getMessage());
+  }
+
+  @Test
   void createForApiBackend_rejectsWindowedCommandAtBuildTime() {
     Map<String, CommandFactory> factories = Map.of(WINDOW_CMD, new WindowFactory());
     DagRunnerService service =
@@ -118,7 +141,7 @@ class DagExecutorWindowFlushTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> service.createForApiBackend(dag, JobContext.builder().build()));
-    assertTrue(ex.getMessage().toLowerCase().contains("window"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("Found: windowcount"), ex.getMessage());
   }
 
   private static class SourceFactory extends CommandFactory {

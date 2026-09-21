@@ -1,0 +1,7 @@
+{
+  "out": [
+    {"seq": 1, "host": "web-1", "status": 500, "msg": "upstream timeout"},
+    {"seq": 4, "host": "web-2", "status": 500, "msg": "upstream timeout"},
+    {"seq": 5, "host": "web-1", "status": 404, "msg": "not found"}
+  ]
+}

@@ -191,6 +191,27 @@ class KeyedWindowManagerTest {
   }
 
   @Test
+  void maxKeys_reTouchedKeyIsRescuedFromEviction() {
+    // Characterizes access-order LRU: re-touching an existing key must move it to
+    // most-recently-used
+    // so the genuinely-oldest-touched key is evicted, not the oldest-created one.
+    KeyedWindowManager<Long> mgr =
+        KeyedWindowManager.<Long>builder()
+            .windowFunction(COUNTING)
+            .trigger(WindowTrigger.count(Long.MAX_VALUE)) // never fires on its own
+            .maxKeys(2)
+            .build();
+
+    assertEquals(List.of(), mgr.onEvent("a", event(), 1));
+    assertEquals(List.of(), mgr.onEvent("b", event(), 2));
+    assertEquals(
+        List.of(), mgr.onEvent("a", event(), 3)); // re-touch a -> a is now MRU, b is eldest
+    // "c" pushes size to 3; eldest is "b" (a was rescued by the re-touch), so "b" is evicted.
+    assertEquals(List.of(rollup("b", 1)), mgr.onEvent("c", event(), 4));
+    assertEquals(2, mgr.openWindowCount());
+  }
+
+  @Test
   void triggerFactories_rejectNonPositiveThresholds() {
     assertThrows(IllegalArgumentException.class, () -> WindowTrigger.count(0));
     assertThrows(IllegalArgumentException.class, () -> WindowTrigger.count(-1));

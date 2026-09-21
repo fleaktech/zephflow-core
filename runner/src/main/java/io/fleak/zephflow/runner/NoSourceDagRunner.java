@@ -19,6 +19,7 @@ import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.ExecutionContext;
+import io.fleak.zephflow.api.KeyedStatefulCommand;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
@@ -47,11 +48,22 @@ import org.slf4j.MDC;
  * Created by bolei on 3/4/25
  *
  * <p>Single-threaded, synchronous DFS over the source-less DAG: each {@link #run} walks the graph
- * on the caller's thread. For pipelines containing {@link WindowFlushable} nodes (time-triggered
- * windows), an optional background scheduler periodically fires due windows even when no input
- * arrives (see {@link #startFlushScheduler}). A single {@link #pipelineLock} serializes {@code run}
- * against the flush thread so command state is never touched concurrently; when no windowed node is
- * present the lock is never taken, so ordinary pipelines are unaffected.
+ * on the caller's thread.
+ *
+ * <p>Two independent, related mechanisms guard keyed reduction commands:
+ *
+ * <ul>
+ *   <li>The {@link #pipelineLock} is taken by {@code run} whenever the DAG contains any {@link
+ *       KeyedStatefulCommand} node (per-key reduction state, keyed by time OR count — e.g. a
+ *       windowed aggregation, or an event-driven throttle). That state is NOT thread-safe, so the
+ *       lock serializes {@code run} both against the flush thread and against any concurrent {@code
+ *       run} caller (e.g. a future multi-threaded source). Stateless pipelines take no lock, so
+ *       they are unaffected.
+ *   <li>The background flush scheduler (see {@link #startFlushScheduler}) is started only when the
+ *       DAG contains a {@link WindowFlushable} node — the narrower subset that must fire a
+ *       time-triggered window even when no input arrives. Count-only keyed commands (e.g. throttle)
+ *       are stateful but not flushable, so they take the lock but spawn no flush thread.
+ * </ul>
  */
 @Slf4j
 public class NoSourceDagRunner {
@@ -67,6 +79,7 @@ public class NoSourceDagRunner {
 
   private final List<Node<OperatorCommand>> windowedNodes;
   private final boolean hasWindowedNodes;
+  private final boolean hasKeyedStatefulNodes;
   private final ReentrantLock pipelineLock = new ReentrantLock();
   private final AtomicBoolean terminated = new AtomicBoolean(false);
 
@@ -90,15 +103,17 @@ public class NoSourceDagRunner {
             .filter(n -> n.getNodeContent() instanceof WindowFlushable)
             .toList();
     this.hasWindowedNodes = !windowedNodes.isEmpty();
+    this.hasKeyedStatefulNodes =
+        compiledDagWithoutSource.getNodes().stream()
+            .anyMatch(n -> n.getNodeContent() instanceof KeyedStatefulCommand);
   }
 
   public DagResult run(
       List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
-    // Windowed pipelines take the pipeline lock so the background flush thread never overlaps a
-    // run.
-    // Non-windowed pipelines skip the lock entirely (zero overhead, unchanged single-threaded
-    // path).
-    if (!hasWindowedNodes) {
+    // Any keyed-stateful node (windowed aggregation or throttle) holds non-thread-safe per-key
+    // state, so take the lock to serialize run() against the flush thread and any concurrent
+    // run() caller. Stateless pipelines skip the lock entirely (zero overhead, single-threaded).
+    if (!hasKeyedStatefulNodes) {
       return doRun(events, callingUser, runConfig);
     }
     pipelineLock.lock();
@@ -412,6 +427,21 @@ public class NoSourceDagRunner {
         log.error("final window flush failed", e);
       }
     }
+    if (hasKeyedStatefulNodes) {
+      // Closing nulls out execution contexts / keyed state; hold the lock so it can't race a
+      // concurrent run() (same contract as the run() lock, for a future multi-threaded source).
+      pipelineLock.lock();
+      try {
+        closeAllCommands();
+      } finally {
+        pipelineLock.unlock();
+      }
+    } else {
+      closeAllCommands();
+    }
+  }
+
+  private void closeAllCommands() {
     compiledDagWithoutSource.getNodes().stream()
         .map(Node::getNodeContent)
         .forEach(

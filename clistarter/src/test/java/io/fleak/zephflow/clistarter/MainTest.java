@@ -75,6 +75,53 @@ class MainTest {
     assertEquals(expected, objects);
   }
 
+  @Test
+  public void testMainThrottleDedup() throws Exception {
+    // End-to-end: drive the throttle command through the real CLI (SPI registry + compiler +
+    // runner). Key = host:status, allow 1 per key; within one batch only the first event per key
+    // passes and the rest are dropped. (Period/reset + throttledCount are time-based and covered by
+    // unit tests; a single batch does not advance the clock.)
+    String output =
+        runMainWithDag(
+            "/test_dag_throttle.yml", MiscUtils.loadStringFromResource("/throttle_input.json"));
+
+    Set<Map<String, Object>> actual =
+        output
+            .lines()
+            .filter(l -> l.startsWith("{\""))
+            .map(l -> fromJsonString(l, new TypeReference<Map<String, Object>>() {}))
+            .collect(Collectors.toSet());
+    //noinspection unchecked
+    Set<Map<String, Object>> expected =
+        new HashSet<>(
+            (List<Map<String, Object>>)
+                ((Map<String, Object>)
+                        fromJsonResource(
+                            "/expected_output_throttle.json", new TypeReference<>() {}))
+                    .get("out"));
+    assertEquals(expected, actual);
+  }
+
+  private static String runMainWithDag(String dagResource, String stdinJson) throws Exception {
+    String dagDefBase64Str =
+        MiscUtils.toBase64String(MiscUtils.loadStringFromResource(dagResource).getBytes());
+    String[] args = {"-d", dagDefBase64Str, "-id", "test_job", "-s", "my_service", "-e", "my_env"};
+
+    InputStream originalIn = System.in;
+    PrintStream originalOut = System.out;
+    try (InputStream in = new ByteArrayInputStream(stdinJson.getBytes());
+        ByteArrayOutputStream testOut = new ByteArrayOutputStream();
+        PrintStream psOut = new PrintStream(testOut)) {
+      System.setIn(in);
+      System.setOut(psOut);
+      Main.main(args);
+      return testOut.toString();
+    } finally {
+      System.setIn(originalIn);
+      System.setOut(originalOut);
+    }
+  }
+
   private static String runMainWithStdioDag() throws Exception {
     String dagDefStr = MiscUtils.loadStringFromResource("/test_dag_stdio.yml");
     String dagDefBase64Str = MiscUtils.toBase64String(dagDefStr.getBytes());

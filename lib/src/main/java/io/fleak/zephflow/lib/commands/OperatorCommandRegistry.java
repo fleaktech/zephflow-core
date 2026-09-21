@@ -61,6 +61,7 @@ import io.fleak.zephflow.lib.commands.sqssource.SqsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.stdin.StdInCommandFactory;
 import io.fleak.zephflow.lib.commands.stdout.StdOutSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.syslogudp.SyslogUdpCommandFactory;
+import io.fleak.zephflow.lib.commands.throttle.ThrottleCommandFactory;
 import io.fleak.zephflow.lib.commands.timescaledbsink.TimescaleDbSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.zerobussink.ZerobusSinkCommandFactory;
 import java.util.Map;
@@ -77,6 +78,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_KAFKA_SOURCE, new KafkaSourceCommandFactory())
           .put(COMMAND_NAME_KAFKA_SINK, new KafkaSinkCommandFactory())
           .put(COMMAND_NAME_EVAL, new EvalCommandFactory())
+          .put(COMMAND_NAME_THROTTLE, new ThrottleCommandFactory())
           .put(COMMAND_NAME_ASSERTION, new AssertionCommandFactory(true))
           .put(COMMAND_NAME_FILTER, new AssertionCommandFactory(false))
           .put(COMMAND_NAME_STDIN, new StdInCommandFactory())
