@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.runner;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -23,6 +25,8 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigParser;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigValidator;
+import io.fleak.zephflow.lib.commands.throttle.ThrottleCommand;
+import io.fleak.zephflow.lib.commands.throttle.ThrottleCommandFactory;
 import io.fleak.zephflow.lib.windowing.KeyedWindowManager;
 import io.fleak.zephflow.lib.windowing.WindowFunction;
 import io.fleak.zephflow.lib.windowing.WindowTrigger;
@@ -34,6 +38,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -164,6 +171,113 @@ class WindowFlushIntegrationTest {
     runner.terminate(); // second call: guarded, no re-flush, no write to closed sink
 
     assertEquals(List.of(rollup("a", 3)), sink.captured);
+  }
+
+  @Test
+  void throttleNode_allowedOnRunnerPath_passesFirstDropsRest() {
+    JobContext jobContext =
+        JobContext.builder()
+            .metricTags(Map.of(METRIC_TAG_SERVICE, "t", METRIC_TAG_ENV, "t"))
+            .build();
+    ThrottleCommand throttle =
+        (ThrottleCommand) new ThrottleCommandFactory().createCommand(WIN, jobContext);
+    throttle.parseAndValidateArg(
+        Map.of("keyExpression", "$.host", "numToAllow", 1, "periodSeconds", 3600));
+    CapturingSinkCommand sink = new CapturingSinkCommand(SINK, null);
+
+    Node<OperatorCommand> throttleNode =
+        Node.<OperatorCommand>builder().id(WIN).nodeContent(throttle).build();
+    Node<OperatorCommand> sinkNode =
+        Node.<OperatorCommand>builder().id(SINK).nodeContent(sink).build();
+    Dag<OperatorCommand> dag =
+        new Dag<>(
+            List.of(throttleNode, sinkNode), List.of(Edge.builder().from(WIN).to(SINK).build()));
+    NoSourceDagRunner runner =
+        new NoSourceDagRunner(
+            List.of(Edge.builder().from(SOURCE).to(WIN).build()),
+            dag,
+            new MetricClientProvider.NoopMetricClientProvider(),
+            mock(DagRunCounters.class),
+            false);
+
+    try {
+      runner.run(
+          List.of(event("a"), event("a"), event("a"), event("b"), event("b")), USER, RUN_CONFIG);
+    } finally {
+      runner.terminate();
+    }
+    // first a and first b pass, the rest are throttled within the batch
+    assertEquals(List.of(event("a"), event("b")), sink.captured);
+  }
+
+  @Test
+  void throttleOnlyDag_concurrentRunsAreSerializedByPipelineLock() throws Exception {
+    JobContext jobContext =
+        JobContext.builder()
+            .metricTags(Map.of(METRIC_TAG_SERVICE, "t", METRIC_TAG_ENV, "t"))
+            .build();
+    ThrottleCommand throttle =
+        (ThrottleCommand) new ThrottleCommandFactory().createCommand(WIN, jobContext);
+    throttle.parseAndValidateArg(
+        Map.of("keyExpression", "$.host", "numToAllow", 1, "periodSeconds", 3600));
+    CapturingSinkCommand sink = new CapturingSinkCommand(SINK, null);
+    Node<OperatorCommand> throttleNode =
+        Node.<OperatorCommand>builder().id(WIN).nodeContent(throttle).build();
+    Node<OperatorCommand> sinkNode =
+        Node.<OperatorCommand>builder().id(SINK).nodeContent(sink).build();
+    Dag<OperatorCommand> dag =
+        new Dag<>(
+            List.of(throttleNode, sinkNode), List.of(Edge.builder().from(WIN).to(SINK).build()));
+    NoSourceDagRunner runner =
+        new NoSourceDagRunner(
+            List.of(Edge.builder().from(SOURCE).to(WIN).build()),
+            dag,
+            new MetricClientProvider.NoopMetricClientProvider(),
+            mock(DagRunCounters.class),
+            false);
+
+    // Simulate a (hypothetical) multi-threaded source hammering run() concurrently, all threads
+    // touching the SAME set of keys so the access-order LinkedHashMap in KeyedStateStore is
+    // relinked concurrently. The pipeline lock must serialize them; without it the map corrupts
+    // (hang -> get() timeout) or the create races lose updates (-> more than `keys` passes).
+    int keys = 50;
+    int threads = 8;
+    int roundsPerThread = 20;
+    ExecutorService pool = Executors.newFixedThreadPool(threads);
+    CountDownLatch start = new CountDownLatch(1);
+    List<Future<?>> futures = new ArrayList<>();
+    try {
+      for (int t = 0; t < threads; t++) {
+        futures.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  for (int r = 0; r < roundsPerThread; r++) {
+                    for (int k = 0; k < keys; k++) {
+                      runner.run(List.of(event("k" + k)), USER, RUN_CONFIG);
+                    }
+                  }
+                  return null;
+                }));
+      }
+      start.countDown();
+      for (Future<?> f : futures) {
+        f.get(30, TimeUnit.SECONDS); // 30s doubles as a hang detector if the map corrupts
+      }
+    } finally {
+      pool.shutdownNow();
+      runner.terminate();
+    }
+
+    // M=1 + huge period: each key passes exactly its first event, so exactly `keys` events reach
+    // the sink. Without the lock, a lost create-race would pass a key more than once (size > keys).
+    assertEquals(keys, sink.captured.size());
+    long distinctHosts =
+        sink.captured.stream()
+            .map(r -> r.getPayload().get("host").unwrap().toString())
+            .distinct()
+            .count();
+    assertEquals(keys, distinctHosts);
   }
 
   private static long flushThreadCount() {

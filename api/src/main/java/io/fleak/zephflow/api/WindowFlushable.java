@@ -39,7 +39,7 @@ import java.util.List;
  * exactly like {@code process} output and must obey the same contract — do not mutate shared input
  * records in place.
  */
-public interface WindowFlushable {
+public interface WindowFlushable extends KeyedStatefulCommand {
 
   /**
    * Emits output for windows that are due.

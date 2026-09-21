@@ -81,6 +81,7 @@ public interface MiscUtils {
   String COMMAND_NAME_KAFKA_SOURCE = "kafkasource";
   String COMMAND_NAME_KAFKA_SINK = "kafkasink";
   String COMMAND_NAME_EVAL = "eval";
+  String COMMAND_NAME_THROTTLE = "throttle";
   String COMMAND_NAME_ASSERTION = "assertion";
   String COMMAND_NAME_FILTER = "filter";
   String COMMAND_NAME_STDIN = "stdin";
