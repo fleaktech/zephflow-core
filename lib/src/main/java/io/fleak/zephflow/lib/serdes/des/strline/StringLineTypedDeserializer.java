@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.des.strline;
 
+import io.fleak.zephflow.lib.serdes.des.IncrementalSupport;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsTypedDeserializer;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -20,9 +21,28 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Created by bolei on 10/16/24 */
 public class StringLineTypedDeserializer extends MultipleEventsTypedDeserializer<String> {
+  @Override
+  public void deserializeIncrementally(
+      byte[] value, Consumer<TypedOutcome<String>> consumer, BooleanSupplier stop) {
+    int[] index = {0};
+    try {
+      IncrementalSupport.forEachLine(
+          value,
+          line ->
+              consumer.accept(
+                  new TypedOutcome<>(
+                      line.text(value), ++index[0], line.offset(), line.length(), null)),
+          stop);
+    } catch (IncrementalSupport.Stopped ignored) {
+      // Stop does not represent a parse error.
+    }
+  }
+
   @Override
   protected List<String> deserializeToMultipleTypedEvent(byte[] value) throws Exception {
     List<String> lines = new ArrayList<>();

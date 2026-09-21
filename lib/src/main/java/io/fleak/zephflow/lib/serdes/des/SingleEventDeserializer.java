@@ -19,6 +19,8 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.TypedEventContainer;
 import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Created by bolei on 9/16/24 */
 public class SingleEventDeserializer<T> extends FleakDeserializer<T> {
@@ -38,5 +40,30 @@ public class SingleEventDeserializer<T> extends FleakDeserializer<T> {
     TypedEventContainer<T> typedEvent = singleEventTypedDeserializer.deserialize(serializedEvent);
     RecordFleakData recordFleakData = typedEventConverter.typedEventToFleakData(typedEvent);
     return List.of(recordFleakData);
+  }
+
+  @Override
+  public void deserializeIncrementally(
+      SerializedEvent event, Consumer<IncrementalRecord> consumer, BooleanSupplier stopRequested) {
+    if (stopRequested.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+      return;
+    }
+    if (event.value() == null) {
+      consumer.accept(
+          new IncrementalRecord(
+              null, null, -1, -1, -1, new IllegalArgumentException("Transport payload is absent")));
+      return;
+    }
+    IncrementalRecord outcome;
+    try {
+      var typed = singleEventTypedDeserializer.deserialize(event);
+      var record = typedEventConverter.typedEventToFleakData(typed);
+      outcome = new IncrementalRecord(record, event.value(), 1, 0, event.value().length, null);
+    } catch (Exception e) {
+      outcome = new IncrementalRecord(null, event.value(), -1, 0, event.value().length, e);
+    }
+    if (!stopRequested.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
+      consumer.accept(outcome);
+    }
   }
 }

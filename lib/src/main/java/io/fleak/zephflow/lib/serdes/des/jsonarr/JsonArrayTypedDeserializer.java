@@ -17,11 +17,20 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonBytes;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.lib.serdes.des.IncrementalSupport;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsTypedDeserializer;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Created by bolei on 9/18/24 */
 public class JsonArrayTypedDeserializer extends MultipleEventsTypedDeserializer<ObjectNode> {
+  @Override
+  public void deserializeIncrementally(
+      byte[] value, Consumer<TypedOutcome<ObjectNode>> consumer, BooleanSupplier stop) {
+    IncrementalSupport.visitJson(value, 0, value.length, false, false, consumer, stop);
+  }
+
   @Override
   protected List<ObjectNode> deserializeToMultipleTypedEvent(byte[] value) {
     return fromJsonBytes(value, new TypeReference<>() {});

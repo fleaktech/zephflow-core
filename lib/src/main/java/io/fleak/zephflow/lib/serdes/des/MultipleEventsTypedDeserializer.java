@@ -17,9 +17,22 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.TypedEventContainer;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Created by bolei on 9/16/24 */
 public abstract class MultipleEventsTypedDeserializer<T> {
+  /** Typed decoding outcome; raw ranges refer to the unchanged input bytes. */
+  public record TypedOutcome<T>(
+      T value, int index, int rawOffset, int rawLength, Exception error) {}
+
+  /** Legacy third-party subclasses remain compatible; incremental support must be explicit. */
+  public void deserializeIncrementally(
+      byte[] value, Consumer<TypedOutcome<T>> consumer, BooleanSupplier stopRequested) {
+    throw new UnsupportedOperationException(
+        "Incremental decoding is not implemented for this format");
+  }
+
   public List<TypedEventContainer<T>> deserializeMultiple(SerializedEvent serializedEvent)
       throws Exception {
     Map<String, String> metadata = SerializedEvent.metadataWithKey(serializedEvent);

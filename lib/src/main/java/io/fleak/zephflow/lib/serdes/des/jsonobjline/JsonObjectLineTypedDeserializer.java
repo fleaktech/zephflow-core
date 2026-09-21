@@ -18,9 +18,12 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.lib.serdes.des.IncrementalSupport;
 import io.fleak.zephflow.lib.serdes.des.LineOrientedTypedDeserializer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
  * Reads one JSON value per line. A line holding an object yields one event; a line holding an array
@@ -37,6 +40,16 @@ import java.util.List;
  * <p>Created by bolei on 3/17/25
  */
 public class JsonObjectLineTypedDeserializer extends LineOrientedTypedDeserializer<ObjectNode> {
+
+  @Override
+  protected void deserializeLineIncrementally(
+      byte[] value,
+      int offset,
+      int length,
+      Consumer<TypedOutcome<ObjectNode>> consumer,
+      BooleanSupplier stop) {
+    IncrementalSupport.visitJson(value, offset, length, true, true, consumer, stop);
+  }
 
   @Override
   protected List<ObjectNode> deserializeLine(String line) {
