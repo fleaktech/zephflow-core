@@ -17,6 +17,8 @@ import io.fleak.zephflow.lib.commands.source.Fetcher;
 import java.io.IOException;
 import java.sql.*;
 import java.util.*;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -135,6 +137,43 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
     return exhausted;
   }
 
+  /**
+   * Reads one query directly into a bounded consumer. SQL failures propagate, including after
+   * delivered rows; the caller owns partial-result accounting. This opt-in API does not apply the
+   * runtime poll/retry policy. Stop is cooperative and does not interrupt a blocking driver call.
+   */
+  public long fetchStrict(Consumer<Map<String, Object>> consumer, BooleanSupplier stopRequested)
+      throws SQLException {
+    Objects.requireNonNull(consumer);
+    Objects.requireNonNull(stopRequested);
+    if (shouldStop(stopRequested)) {
+      return 0;
+    }
+    if (!streaming && batchFetchDone) {
+      exhausted = true;
+      return 0;
+    }
+    try {
+      ensureConnection();
+      if (shouldStop(stopRequested)) {
+        return 0;
+      }
+      long delivered = executeQuery(buildQuery(), consumer, () -> shouldStop(stopRequested));
+      if (!streaming) {
+        batchFetchDone = true;
+        exhausted = delivered == 0 && !stopRequested.getAsBoolean();
+      }
+      return delivered;
+    } catch (SQLException e) {
+      closeConnection();
+      throw e;
+    }
+  }
+
+  private static boolean shouldStop(BooleanSupplier stopRequested) {
+    return stopRequested.getAsBoolean() || Thread.currentThread().isInterrupted();
+  }
+
   @Override
   public void close() throws IOException {
     closeConnection();
@@ -199,6 +238,15 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
 
   private List<Map<String, Object>> executeQuery(PreparedQuery query) throws SQLException {
     List<Map<String, Object>> results = new ArrayList<>();
+    executeQuery(query, results::add, () -> false);
+    log.debug("Fetched {} rows from JDBC source", results.size());
+    return results;
+  }
+
+  private long executeQuery(
+      PreparedQuery query, Consumer<Map<String, Object>> consumer, BooleanSupplier stopRequested)
+      throws SQLException {
+    long delivered = 0;
     try (PreparedStatement stmt = connection.prepareStatement(query.sql())) {
       stmt.setFetchSize(fetchSize);
       if (!streaming) {
@@ -211,25 +259,28 @@ public class JdbcSourceFetcher implements Fetcher<Map<String, Object>> {
         ResultSetMetaData metaData = rs.getMetaData();
         int columnCount = metaData.getColumnCount();
         String resolvedWatermarkColumn = resolveWatermarkColumn(metaData, columnCount);
-        while (rs.next()) {
+        while (!stopRequested.getAsBoolean() && rs.next()) {
+          if (stopRequested.getAsBoolean()) {
+            break;
+          }
           Map<String, Object> row = new LinkedHashMap<>();
           for (int i = 1; i <= columnCount; i++) {
             String columnName = metaData.getColumnLabel(i);
             Object value = rs.getObject(i);
             row.put(columnName, value);
           }
+          consumer.accept(row);
+          delivered++;
           if (resolvedWatermarkColumn != null) {
             Object watermarkValue = row.get(resolvedWatermarkColumn);
             if (watermarkValue != null) {
               lastWatermarkValue = watermarkValue;
             }
           }
-          results.add(row);
         }
       }
     }
-    log.debug("Fetched {} rows from JDBC source", results.size());
-    return results;
+    return delivered;
   }
 
   private String resolveWatermarkColumn(ResultSetMetaData metaData, int columnCount)

@@ -22,6 +22,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Created by bolei on 9/16/24 */
 public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
@@ -40,6 +42,50 @@ public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
     List<TypedEventContainer<T>> typedEvents =
         multipleEventsTypedDeserializer.deserializeMultiple(serializedEvent);
     return typedEvents.stream().map(typedEventConverter::typedEventToFleakData).toList();
+  }
+
+  @Override
+  public void deserializeIncrementally(
+      SerializedEvent event, Consumer<IncrementalRecord> consumer, BooleanSupplier stopRequested) {
+    if (stopRequested.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+      return;
+    }
+    if (event.value() == null) {
+      consumer.accept(
+          new IncrementalRecord(
+              null, null, -1, -1, -1, new IllegalArgumentException("Transport payload is absent")));
+      return;
+    }
+    Map<String, String> metadata = SerializedEvent.metadataWithKey(event);
+    multipleEventsTypedDeserializer.deserializeIncrementally(
+        event.value(),
+        typed -> {
+          if (stopRequested.getAsBoolean()) {
+            return;
+          }
+          RecordFleakData record = null;
+          Exception error = typed.error();
+          if (error == null) {
+            try {
+              record =
+                  typedEventConverter.typedEventToFleakData(
+                      new TypedEventContainer<>(typed.value(), metadata));
+            } catch (Exception e) {
+              error = e;
+            }
+          }
+          if (!stopRequested.getAsBoolean()) {
+            consumer.accept(
+                new IncrementalRecord(
+                    record,
+                    event.value(),
+                    typed.index(),
+                    typed.rawOffset(),
+                    typed.rawLength(),
+                    error));
+          }
+        },
+        stopRequested);
   }
 
   @Override

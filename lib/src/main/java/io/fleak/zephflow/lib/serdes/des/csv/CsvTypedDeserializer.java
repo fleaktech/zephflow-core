@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.des.csv;
 
+import io.fleak.zephflow.lib.serdes.des.IncrementalSupport;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsTypedDeserializer;
 import java.io.ByteArrayInputStream;
 import java.io.InputStreamReader;
@@ -21,12 +22,65 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 
 /** Created by bolei on 9/16/24 */
 public class CsvTypedDeserializer extends MultipleEventsTypedDeserializer<Map<String, Object>> {
+
+  @Override
+  public void deserializeIncrementally(
+      byte[] value, Consumer<TypedOutcome<Map<String, Object>>> consumer, BooleanSupplier stop) {
+    try {
+      // Legacy CSV is an atomic payload on error. Validate before emitting, but retain no rows.
+      scan(value, ignored -> {}, stop);
+      int[] index = {0};
+      scan(
+          value,
+          row ->
+              IncrementalSupport.deliver(
+                  consumer, new TypedOutcome<>(row, ++index[0], -1, -1, null)),
+          stop);
+    } catch (IncrementalSupport.Stopped ignored) {
+      // Cancellation is not a malformed record.
+    } catch (IncrementalSupport.SinkFailure e) {
+      throw e.failure;
+    } catch (Exception e) {
+      if (!stop.getAsBoolean() && !Thread.currentThread().isInterrupted()) {
+        consumer.accept(new TypedOutcome<>(null, -1, 0, value.length, e));
+      }
+    }
+  }
+
+  private void scan(byte[] value, Consumer<Map<String, Object>> consumer, BooleanSupplier stop)
+      throws Exception {
+    IncrementalSupport.checkStop(stop);
+    try (InputStreamReader reader =
+            new InputStreamReader(new ByteArrayInputStream(value), StandardCharsets.UTF_8);
+        CSVParser parser = CSV_FORMAT.parse(reader)) {
+      var iterator = parser.iterator();
+      while (true) {
+        IncrementalSupport.checkStop(stop);
+        if (!iterator.hasNext()) {
+          break;
+        }
+        CSVRecord record = iterator.next();
+        Map<String, Object> row = new HashMap<>();
+        for (String header : parser.getHeaderNames()) {
+          IncrementalSupport.checkStop(stop);
+          String cell = record.get(header);
+          if (cell != null) {
+            row.put(header, cell);
+          }
+        }
+        IncrementalSupport.checkStop(stop);
+        consumer.accept(row);
+      }
+    }
+  }
 
   private static final CSVFormat CSV_FORMAT =
       CSVFormat.DEFAULT

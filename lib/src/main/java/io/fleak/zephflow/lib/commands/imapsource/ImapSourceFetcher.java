@@ -28,6 +28,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -156,6 +158,114 @@ public class ImapSourceFetcher implements Fetcher<EmailMessage> {
       Thread.currentThread().interrupt();
     }
     return batch;
+  }
+
+  public enum OneShotStatus {
+    COMPLETED,
+    CANCELLED,
+    TIMED_OUT,
+    FAILED
+  }
+
+  /** Error is an internal diagnostic and must not be serialized into a provider-facing response. */
+  public record OneShotResult(OneShotStatus status, long delivered, Exception error) {}
+
+  /**
+   * Completes one read-only folder query without a scheduler/queue. Long.MAX_VALUE disables the
+   * monotonic nanoTime deadline. A stopped blocking provider call is acknowledged only on return.
+   * Message conversion/provider failures retain the delivered count; consumer failures propagate.
+   * Use a separate fetcher instance from the runtime scheduled poller.
+   */
+  public OneShotResult fetchOnce(
+      Consumer<EmailMessage> consumer, BooleanSupplier cancelled, long deadlineNanos) {
+    Objects.requireNonNull(consumer);
+    Objects.requireNonNull(cancelled);
+    if (running) {
+      throw new IllegalStateException("One-shot read cannot share a scheduled poller");
+    }
+    Folder readFolder = null;
+    boolean opened = false;
+    long delivered = 0;
+    Exception error = null;
+    OneShotStatus status = stopStatus(cancelled, deadlineNanos);
+    if (status != null) {
+      return new OneShotResult(status, 0, null);
+    }
+    status = OneShotStatus.COMPLETED;
+    try {
+      readFolder = store.getFolder(folderName);
+      readFolder.open(Folder.READ_ONLY);
+      opened = true;
+      Message[] messages = findMessages(readFolder);
+      int limit = Math.min(messages.length, maxMessages);
+      for (int i = 0; i < limit; i++) {
+        OneShotStatus stopped = stopStatus(cancelled, deadlineNanos);
+        if (stopped != null) {
+          status = stopped;
+          break;
+        }
+        EmailMessage email = convertMessage(messages[i]);
+        stopped = stopStatus(cancelled, deadlineNanos);
+        if (stopped != null) {
+          status = stopped;
+          break;
+        }
+        try {
+          consumer.accept(email);
+        } catch (RuntimeException e) {
+          throw new ConsumerFailure(e);
+        }
+        delivered++;
+      }
+      if (status == OneShotStatus.COMPLETED) {
+        OneShotStatus stopped = stopStatus(cancelled, deadlineNanos);
+        if (stopped != null) {
+          status = stopped;
+        }
+      }
+    } catch (ConsumerFailure e) {
+      throw e.failure;
+    } catch (Exception e) {
+      status = OneShotStatus.FAILED;
+      error = e;
+    } finally {
+      if (opened) {
+        try {
+          readFolder.close(false);
+        } catch (MessagingException e) {
+          if (error != null) {
+            error.addSuppressed(e);
+          } else {
+            error = e;
+            status = OneShotStatus.FAILED;
+          }
+        }
+      }
+    }
+    return new OneShotResult(status, delivered, error);
+  }
+
+  private Message[] findMessages(Folder readFolder) throws MessagingException {
+    SearchTerm term = parseSearchCriteria(searchCriteria);
+    return term == null ? readFolder.getMessages() : readFolder.search(term);
+  }
+
+  private static OneShotStatus stopStatus(BooleanSupplier cancelled, long deadlineNanos) {
+    if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+      return OneShotStatus.CANCELLED;
+    }
+    if (deadlineNanos != Long.MAX_VALUE && System.nanoTime() - deadlineNanos >= 0) {
+      return OneShotStatus.TIMED_OUT;
+    }
+    return null;
+  }
+
+  private static final class ConsumerFailure extends RuntimeException {
+    private final RuntimeException failure;
+
+    private ConsumerFailure(RuntimeException failure) {
+      this.failure = failure;
+    }
   }
 
   private SearchTerm buildSearchTerm() {

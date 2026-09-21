@@ -19,6 +19,8 @@ import io.fleak.zephflow.lib.serdes.FleakSerdes;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Created by bolei on 9/16/24 */
 public abstract class FleakDeserializer<T> extends FleakSerdes<T> {
@@ -30,6 +32,17 @@ public abstract class FleakDeserializer<T> extends FleakSerdes<T> {
 
   public abstract List<RecordFleakData> deserialize(SerializedEvent serializedEvent)
       throws Exception;
+
+  /**
+   * Emits ordered outcomes without collecting a multi-record payload. Stop is checked before the
+   * next parse/output. Consumer exceptions propagate and are never classified as decoding failures.
+   * Multi-record implementations must override this entry point rather than call their list API.
+   */
+  public void deserializeIncrementally(
+      SerializedEvent event, Consumer<IncrementalRecord> consumer, BooleanSupplier stopRequested) {
+    throw new UnsupportedOperationException(
+        "Incremental decoding requires an explicit implementation");
+  }
 
   /**
    * Deserializes without throwing on malformed input: returns the records that parsed plus an error

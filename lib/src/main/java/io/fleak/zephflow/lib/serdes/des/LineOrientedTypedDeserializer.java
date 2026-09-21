@@ -16,6 +16,8 @@ package io.fleak.zephflow.lib.serdes.des;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
  * Base for formats where each line of the payload is an independent record. Subclasses only parse a
@@ -26,6 +28,47 @@ import java.util.List;
  * <p>Blank lines are ignored rather than treated as malformed records.
  */
 public abstract class LineOrientedTypedDeserializer<T> extends MultipleEventsTypedDeserializer<T> {
+
+  protected void deserializeLineIncrementally(
+      byte[] value,
+      int offset,
+      int length,
+      Consumer<TypedOutcome<T>> consumer,
+      BooleanSupplier stop) {
+    throw new UnsupportedOperationException("Incremental line decoding is not implemented");
+  }
+
+  @Override
+  public final void deserializeIncrementally(
+      byte[] value, Consumer<TypedOutcome<T>> consumer, BooleanSupplier stop) {
+    int[] index = {0};
+    try {
+      IncrementalSupport.forEachLine(
+          value,
+          line -> {
+            if (!line.text(value).isBlank()) {
+              deserializeLineIncrementally(
+                  value,
+                  line.offset(),
+                  line.length(),
+                  outcome -> {
+                    IncrementalSupport.checkStop(stop);
+                    consumer.accept(
+                        new TypedOutcome<>(
+                            outcome.value(),
+                            ++index[0],
+                            outcome.rawOffset(),
+                            outcome.rawLength(),
+                            outcome.error()));
+                  },
+                  stop);
+            }
+          },
+          stop);
+    } catch (IncrementalSupport.Stopped ignored) {
+      // A stopped operation must not invent an error record.
+    }
+  }
 
   /** Parses a single non-blank line into zero or more typed events. */
   protected abstract List<T> deserializeLine(String line);
