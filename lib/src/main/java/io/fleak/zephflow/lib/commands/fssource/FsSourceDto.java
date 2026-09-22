@@ -36,5 +36,14 @@ public interface FsSourceDto {
     private String exactObjectKey;
     private EncodingType encodingType;
     private Map<String, Object> backendConfig;
+
+    /** Cap on a single whole-document payload, in decompressed bytes. Null uses the default. */
+    private Long maxFileBytes;
+
+    /** Target size of one streamed chunk, in decompressed bytes. Null uses the default. */
+    private Integer chunkSizeBytes;
+
+    /** Cap on how many files one run processes. Null uses the default. */
+    private Integer maxFilesPerRun;
   }
 }

@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
+import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -113,7 +114,12 @@ class FsSourceCommandResumeTest {
     List<RecordFleakData> first = runOnce(tempDir);
     assertEquals(
         List.of("a", "b"), first.stream().map(record -> record.unwrap().get("v")).toList());
-    assertEquals(1, store.size(), "exactly one checkpoint entry should have been POSTed");
+    // Checkpoints are per virtual bucket now, so the number of ids POSTed is however many
+    // distinct buckets the emitted files happened to hash into, not a fixed literal.
+    assertEquals(
+        distinctBuckets(tempDir, "evt_1.log", "evt_2.log").size(),
+        store.size(),
+        "one checkpoint entry per distinct bucket the emitted files hashed into");
 
     // No new files; resume from the same HTTP-backed checkpoint store.
     List<RecordFleakData> second = runOnce(tempDir);
@@ -176,7 +182,25 @@ class FsSourceCommandResumeTest {
         List.of("a", "b", "c", "d"),
         emittedValues(otherWorkflow),
         "a workflow that has never read this folder must not inherit another workflow's progress");
-    assertEquals(2, store.size(), "each checkpoint scope keeps its own checkpoint entry");
+    // Each scope hashes to its own ids even for buckets both workflows touch, so the checkpoint
+    // count adds up rather than being shared -- and it is however many distinct buckets each
+    // workflow's files hashed into, not a fixed literal.
+    int expectedEntries =
+        distinctBuckets(tempDir, "evt_1.log", "evt_2.log").size()
+            + distinctBuckets(tempDir, "evt_1.log", "evt_2.log", "evt_3.log", "evt_4.log").size();
+    assertEquals(
+        expectedEntries,
+        store.size(),
+        "each checkpoint scope keeps its own checkpoints, and they do not share ids across scopes");
+  }
+
+  /** The distinct virtual buckets that {@code fileNames} (under {@code tempDir}) hash into. */
+  private static Set<Integer> distinctBuckets(Path tempDir, String... fileNames) {
+    Set<Integer> buckets = new HashSet<>();
+    for (String fileName : fileNames) {
+      buckets.add(Partitioner.virtualBucket(tempDir.resolve(fileName).toUri().toString()));
+    }
+    return buckets;
   }
 
   @Test

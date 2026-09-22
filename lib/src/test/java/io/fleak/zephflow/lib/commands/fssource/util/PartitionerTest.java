@@ -18,78 +18,55 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class PartitionerTest {
 
-  private static List<String> sampleUrns(int size) {
-    List<String> urns = new ArrayList<>();
-    for (int index = 0; index < size; index++) {
-      urns.add("s3://bucket/logs/2026/06/app-" + index + ".json");
-    }
-    return urns;
+  @Test
+  void aUrnsBucketDoesNotDependOnTheReplicaLayout() {
+    int bucket = Partitioner.virtualBucket("s3://bucket/a/b.json");
+
+    assertTrue(bucket >= 0 && bucket < Partitioner.VIRTUAL_BUCKET_COUNT);
+    assertEquals(bucket, Partitioner.virtualBucket("s3://bucket/a/b.json"), "the hash is stable");
   }
 
   @Test
-  void singleReplicaOwnsEverything() {
-    for (String urn : sampleUrns(50)) {
-      assertTrue(Partitioner.owns(urn, 0, 1));
-    }
+  void aSingleReplicaOwnsEveryBucket() {
+    assertEquals(Partitioner.VIRTUAL_BUCKET_COUNT, Partitioner.ownedBuckets(0, 1).size());
   }
 
   @Test
-  void zeroOrNegativeCountOwnsEverything() {
-    assertTrue(Partitioner.owns("s3://bucket/x.json", 0, 0));
+  void aZeroReplicaCountAlsoOwnsEveryBucket() {
+    // The replicaCount <= 1 short-circuit covers 0 as well as 1 -- pin it explicitly.
+    assertEquals(Partitioner.VIRTUAL_BUCKET_COUNT, Partitioner.ownedBuckets(0, 0).size());
   }
 
   @Test
-  void deterministicForSameInput() {
-    String urn = "s3://bucket/logs/app-42.json";
-    assertEquals(Partitioner.owns(urn, 1, 3), Partitioner.owns(urn, 1, 3));
-  }
-
-  @Test
-  void everyUrnOwnedByExactlyOneReplica_noGapsNoOverlap() {
-    int replicaCount = 4;
-    List<String> urns = sampleUrns(500);
-    for (String urn : urns) {
-      int owners = 0;
+  void everyBucketIsOwnedByExactlyOneReplica() {
+    for (int replicaCount = 1; replicaCount <= 10; replicaCount++) {
+      List<Integer> all = new ArrayList<>();
       for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
-        if (Partitioner.owns(urn, replicaIndex, replicaCount)) owners++;
+        all.addAll(Partitioner.ownedBuckets(replicaIndex, replicaCount));
       }
-      assertEquals(1, owners, "urn must be owned by exactly one replica: " + urn);
+      assertEquals(
+          Partitioner.VIRTUAL_BUCKET_COUNT,
+          all.size(),
+          "no bucket may be owned twice at replicaCount=" + replicaCount);
+      assertEquals(
+          Partitioner.VIRTUAL_BUCKET_COUNT,
+          new HashSet<>(all).size(),
+          "no bucket may be unowned at replicaCount=" + replicaCount);
     }
   }
 
   @Test
-  void unionOfReplicaSubsetsIsFullSet() {
-    int replicaCount = 3;
-    List<String> urns = sampleUrns(300);
-    Set<String> covered = new HashSet<>();
-    for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
-      for (String urn : urns) {
-        if (Partitioner.owns(urn, replicaIndex, replicaCount)) covered.add(urn);
-      }
-    }
-    assertEquals(new HashSet<>(urns), covered);
-  }
+  void rescalingMovesBucketsBetweenReplicasWithoutChangingAFilesBucket() {
+    String urn = "s3://bucket/a/b.json";
+    int bucket = Partitioner.virtualBucket(urn);
 
-  @Test
-  void distributionIsRoughlyEven() {
-    int replicaCount = 4;
-    int[] bucketSizes = new int[replicaCount];
-    List<String> urns = sampleUrns(4000);
-    for (String urn : urns) {
-      for (int replicaIndex = 0; replicaIndex < replicaCount; replicaIndex++) {
-        if (Partitioner.owns(urn, replicaIndex, replicaCount)) bucketSizes[replicaIndex]++;
-      }
-    }
-    int expectedPerBucket = urns.size() / replicaCount;
-    for (int bucketSize : bucketSizes) {
-      assertTrue(
-          bucketSize > expectedPerBucket * 0.6 && bucketSize < expectedPerBucket * 1.4,
-          "bucket skew: " + bucketSize);
-    }
+    assertTrue(Partitioner.ownedBuckets(bucket % 3, 3).contains(bucket));
+    assertTrue(Partitioner.ownedBuckets(bucket % 7, 7).contains(bucket));
+    assertEquals(
+        bucket, Partitioner.virtualBucket(urn), "the file's identity is layout-independent");
   }
 }

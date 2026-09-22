@@ -25,7 +25,10 @@ import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.sftp.SftpBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpointStore;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
+import io.fleak.zephflow.lib.commands.fssource.util.PendingFile;
+import io.fleak.zephflow.lib.commands.fssource.util.PendingFileSelector;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -33,14 +36,11 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializationOutcome;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
-import io.fleak.zephflow.lib.utils.CompressionUtils;
-import io.fleak.zephflow.lib.utils.JsonUtils;
-import java.io.InputStream;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +50,13 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 public final class FsSourceCommand extends SourceCommand {
 
   static final String DEFAULT_CHECKPOINT_SCOPE = "local";
+  static final String SKIP_REASON_READ_ERROR = "read_error";
+  static final String SKIP_REASON_DOWNSTREAM_ERROR = "downstream_error";
+  static final String SKIP_REASON_NOTHING_DESERIALIZED = "nothing_deserialized";
+  static final long DEFAULT_MAX_FILE_BYTES = 256L * 1024 * 1024;
+  static final int DEFAULT_CHUNK_SIZE_BYTES = 16 * 1024 * 1024;
+  static final int DEFAULT_MAX_FILES_PER_RUN = 10_000;
+  static final String SKIP_REASON_FILE_TOO_LARGE = "file_too_large";
 
   private volatile boolean terminated = false;
 
@@ -80,6 +87,13 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.backendConfig = backendConfig;
     executionContext.lister = executionContext.backend.createLister(backendConfig);
     executionContext.reader = executionContext.backend.createReader(backendConfig);
+    executionContext.payloadReader =
+        new FsPayloadReader(
+            executionContext.reader,
+            config.getMaxFileBytes() == null ? DEFAULT_MAX_FILE_BYTES : config.getMaxFileBytes(),
+            config.getChunkSizeBytes() == null
+                ? DEFAULT_CHUNK_SIZE_BYTES
+                : config.getChunkSizeBytes());
     executionContext.checkpointClient = buildCheckpointClient(jobContext);
     executionContext.checkpointScope = checkpointScope(jobContext);
     executionContext.replicaIndex = parseIntProperty(jobContext, JobContext.REPLICA_INDEX, 0);
@@ -92,6 +106,8 @@ public final class FsSourceCommand extends SourceCommand {
         metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags);
     executionContext.deserializeFailureCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
+    executionContext.skippedFileCounter =
+        metricClientProvider.counter(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT, metricTags);
     executionContext.dlqWriter = buildDlqWriter(jobContext);
     return executionContext;
   }
@@ -240,22 +256,31 @@ public final class FsSourceCommand extends SourceCommand {
     FsSourceExecutionContext executionContext = (FsSourceExecutionContext) getExecutionContext();
     FsSourceDto.Config config = (FsSourceDto.Config) commandConfig;
 
-    String sourceId =
-        SourceIdHasher.compute(
-            executionContext.checkpointScope,
-            nodeId,
-            config.getBackend(),
-            config.getRoot(),
-            config.getFileNameRegex(),
-            config.getExactObjectKey(),
-            executionContext.replicaIndex,
-            executionContext.replicaCount);
-    FsCheckpoint checkpoint = loadCheckpoint(executionContext.checkpointClient, sourceId);
+    List<Integer> ownedBuckets =
+        Partitioner.ownedBuckets(executionContext.replicaIndex, executionContext.replicaCount);
+    Map<Integer, String> sourceIdByBucket = new HashMap<>();
+    Map<Integer, FsCheckpoint> checkpointByBucket = new HashMap<>();
+    for (int bucket : ownedBuckets) {
+      String bucketSourceId =
+          SourceIdHasher.compute(
+              executionContext.checkpointScope,
+              nodeId,
+              config.getBackend(),
+              config.getRoot(),
+              config.getFileNameRegex(),
+              config.getExactObjectKey(),
+              bucket);
+      sourceIdByBucket.put(bucket, bucketSourceId);
+      checkpointByBucket.put(
+          bucket, FsCheckpointStore.load(executionContext.checkpointClient, bucketSourceId));
+    }
+
     log.info(
-        "fs_source open: sourceId={} checkpointScope={} watermark={}",
-        sourceId,
+        "fs_source open: checkpointScope={} replica={}/{} buckets={}",
         executionContext.checkpointScope,
-        checkpoint.watermark());
+        executionContext.replicaIndex,
+        executionContext.replicaCount,
+        ownedBuckets.size());
 
     Pattern fileNamePattern =
         config.getFileNameRegex() == null ? null : Pattern.compile(config.getFileNameRegex());
@@ -265,68 +290,217 @@ public final class FsSourceCommand extends SourceCommand {
 
     ListRequest listRequest =
         new ListRequest(config.getRoot(), fileNamePattern, config.getExactObjectKey());
-    List<Pending> pendingFiles = new ArrayList<>();
+    PendingFileSelector selector =
+        new PendingFileSelector(
+            config.getMaxFilesPerRun() == null
+                ? DEFAULT_MAX_FILES_PER_RUN
+                : config.getMaxFilesPerRun());
+    long[] listedCount = {0};
     try (var stream = executionContext.lister.list(listRequest)) {
       stream
-          .map(fileEntry -> new Pending(fileEntry, timestampFromName(fileEntry, fileNamePattern)))
+          // Counted before any filter: this is whether the root matched anything at all, not
+          // whether anything was left to do. A run that lists files and filters every one of them
+          // out as already-completed is the normal idle case and must stay silent.
+          .peek(fileEntry -> listedCount[0]++)
+          .map(
+              fileEntry ->
+                  new PendingFile(fileEntry, timestampFromName(fileEntry, fileNamePattern)))
+          .filter(pending -> checkpointByBucket.containsKey(bucketOf(pending)))
+          // Files older than their bucket's resume watermark are intentionally skipped.
           .filter(
               pending ->
-                  Partitioner.owns(
-                      pending.entry().key().urn(),
-                      executionContext.replicaIndex,
-                      executionContext.replicaCount))
-          // Files older than the resume watermark are intentionally skipped on later runs.
-          .filter(pending -> pending.timestamp().compareTo(checkpoint.watermark()) >= 0)
-          .filter(pending -> !checkpoint.isCompleted(pending.entry().key().urn()))
-          .sorted(
-              Comparator.comparing(Pending::timestamp)
-                  .thenComparing(pending -> pending.entry().key().urn()))
-          .forEach(pendingFiles::add);
+                  pending
+                          .timestamp()
+                          .compareTo(checkpointByBucket.get(bucketOf(pending)).watermark())
+                      >= 0)
+          .filter(
+              pending ->
+                  !checkpointByBucket
+                      .get(bucketOf(pending))
+                      .isCompleted(pending.entry().key().urn()))
+          .forEach(selector::offer);
+    }
+    if (listedCount[0] == 0) {
+      log.warn(
+          "fs_source: listing root={} matched no objects; check the root prefix and any"
+              + " fileNameRegex/exactObjectKey filters",
+          config.getRoot());
+    }
+    List<PendingFile> pendingFiles = selector.oldestFirst();
+    if (selector.capped()) {
+      log.info(
+          "fs_source: listing exceeded maxFilesPerRun; processing the oldest {} file(s), the rest"
+              + " follow on the next run",
+          pendingFiles.size());
     }
 
-    FsCheckpoint currentCheckpoint = checkpoint;
-    for (Pending pending : pendingFiles) {
+    Map<Integer, Instant> ceilingByBucket = new HashMap<>();
+    int emittedFileCount = 0;
+    int skippedFileCount = 0;
+
+    for (PendingFile pending : pendingFiles) {
       if (terminated) break;
       FileEntry fileEntry = pending.entry();
-      String urn = fileEntry.key().urn();
+      int bucket = bucketOf(pending);
 
-      byte[] bytes;
-      try (InputStream inputStream = executionContext.reader.open(fileEntry.key(), 0)) {
-        bytes = maybeGunzip(inputStream.readAllBytes());
-      } catch (Exception exception) {
-        // Transient: leave the file uncheckpointed so a later run retries it.
-        log.error("fs_source skip file urn={} due to read error", urn, exception);
-        continue;
-      }
-      executionContext.dataSizeCounter.increase(bytes.length, Map.of());
-
-      DeserializationOutcome outcome =
-          deserializer.deserializeWithErrors(new SerializedEvent(null, bytes, Map.of()));
-      boolean quarantined = reportDeserializationErrors(executionContext, urn, outcome);
-
-      try {
-        if (!outcome.records().isEmpty()) {
-          executionContext.inputEventCounter.increase(outcome.records().size(), Map.of());
-          eventAcceptor.accept(outcome.records());
-        }
-      } catch (Exception exception) {
-        // Downstream failure, not a data problem: don't checkpoint, so the file is retried.
-        log.error("fs_source skip file urn={} due to downstream error", urn, exception);
-        continue;
-      }
-
-      if (outcome.records().isEmpty() && !quarantined) {
-        // Nothing parsed and nowhere to quarantine it: leave uncheckpointed so a retry is possible.
-        log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
+      String skipReason = readAndEmit(executionContext, deserializer, eventAcceptor, fileEntry);
+      if (skipReason != null) {
+        ceilingByBucket.merge(bucket, pending.timestamp(), FsSourceCommand::holdWatermark);
+        skippedFileCount += countSkip(executionContext, skipReason);
         continue;
       }
 
       // Records that did parse were emitted, and malformed ones were quarantined, so the file is
       // done. Checkpointing is what keeps a retry from re-emitting the records already emitted.
-      currentCheckpoint = currentCheckpoint.withEmitted(urn, pending.timestamp());
-      saveCheckpoint(executionContext.checkpointClient, sourceId, currentCheckpoint);
+      FsCheckpoint updated =
+          checkpointByBucket
+              .get(bucket)
+              .withEmitted(
+                  fileEntry.key().urn(),
+                  pending.timestamp(),
+                  ceilingByBucket.getOrDefault(bucket, Instant.MAX));
+      checkpointByBucket.put(bucket, updated);
+      FsCheckpointStore.save(
+          executionContext.checkpointClient, sourceIdByBucket.get(bucket), updated);
+      emittedFileCount++;
+    }
+
+    if (skippedFileCount > 0) {
+      // ceilingByBucket holds one entry per bucket that had an unresolved file this run: that
+      // bucket's watermark cannot advance past it, so a file that can never be resolved pins it
+      // forever and completedSinceWatermark stops pruning. There's no longer a single ceiling to
+      // report (it's per bucket), so report its shape: how many buckets are stuck, and how old the
+      // oldest stuck one is.
+      Optional<Instant> earliestHeldWatermark =
+          ceilingByBucket.values().stream().min(Instant::compareTo);
+      log.warn(
+          "fs_source run summary: scope={} replica={}/{} emitted={} skipped={} heldWatermarkBuckets={}"
+              + " earliestHeldWatermark={}",
+          executionContext.checkpointScope,
+          executionContext.replicaIndex,
+          executionContext.replicaCount,
+          emittedFileCount,
+          skippedFileCount,
+          ceilingByBucket.size(),
+          earliestHeldWatermark.map(Instant::toString).orElse("n/a"));
+    }
+    if (emittedFileCount == 0 && skippedFileCount > 0) {
+      // Reporting success here would tell the scheduler the batch is done when nothing was read.
+      throw new IllegalStateException(
+          "fs_source read no files: all "
+              + skippedFileCount
+              + " candidate file(s) were skipped; see the preceding errors");
     }
     eventAcceptor.terminate();
+  }
+
+  /**
+   * Reads one file and emits its records.
+   *
+   * @return null when the file is fully handled, or the skip reason when it is not
+   */
+  private String readAndEmit(
+      FsSourceExecutionContext executionContext,
+      FleakDeserializer<?> deserializer,
+      SourceEventAcceptor eventAcceptor,
+      FileEntry fileEntry) {
+    String urn = fileEntry.key().urn();
+    try {
+      return deserializer.supportsChunkedPayloads()
+          ? emitChunked(executionContext, deserializer, eventAcceptor, fileEntry)
+          : emitWholePayload(executionContext, deserializer, eventAcceptor, fileEntry);
+    } catch (FsPayloadReader.PayloadTooLargeException payloadTooLargeException) {
+      log.error("fs_source skip file urn={}: {}", urn, payloadTooLargeException.getMessage());
+      return SKIP_REASON_FILE_TOO_LARGE;
+    } catch (DownstreamFailure downstreamFailure) {
+      log.error(
+          "fs_source skip file urn={} due to downstream error", urn, downstreamFailure.getCause());
+      return SKIP_REASON_DOWNSTREAM_ERROR;
+    } catch (Exception exception) {
+      log.error("fs_source skip file urn={} due to read error", urn, exception);
+      return SKIP_REASON_READ_ERROR;
+    }
+  }
+
+  /** Whole-document formats: one capped read, one parse, one emit. */
+  private String emitWholePayload(
+      FsSourceExecutionContext executionContext,
+      FleakDeserializer<?> deserializer,
+      SourceEventAcceptor eventAcceptor,
+      FileEntry fileEntry)
+      throws Exception {
+    String urn = fileEntry.key().urn();
+    byte[] bytes = executionContext.payloadReader.readWhole(fileEntry.key());
+    executionContext.dataSizeCounter.increase(bytes.length, Map.of());
+
+    DeserializationOutcome outcome =
+        deserializer.deserializeWithErrors(new SerializedEvent(null, bytes, Map.of()));
+    boolean quarantined = reportDeserializationErrors(executionContext, urn, outcome);
+    emit(executionContext, eventAcceptor, outcome);
+
+    if (outcome.records().isEmpty() && !quarantined) {
+      log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
+      return SKIP_REASON_NOTHING_DESERIALIZED;
+    }
+    return null;
+  }
+
+  /** Line-delimited formats: parse and emit one newline-aligned chunk at a time. */
+  private String emitChunked(
+      FsSourceExecutionContext executionContext,
+      FleakDeserializer<?> deserializer,
+      SourceEventAcceptor eventAcceptor,
+      FileEntry fileEntry)
+      throws Exception {
+    String urn = fileEntry.key().urn();
+    // Arrays because the lambda needs to mutate them; the consumer is called on this thread only.
+    long[] recordCount = {0};
+    boolean[] unrecordedFailures = {false};
+
+    executionContext.payloadReader.forEachChunk(
+        fileEntry.key(),
+        chunk -> {
+          executionContext.dataSizeCounter.increase(chunk.length, Map.of());
+          DeserializationOutcome outcome =
+              deserializer.deserializeWithErrors(new SerializedEvent(null, chunk, Map.of()));
+          // Unconditional: it returns true (nothing to record) when the chunk had no failures.
+          if (!reportDeserializationErrors(executionContext, urn, outcome)) {
+            unrecordedFailures[0] = true;
+          }
+          recordCount[0] += outcome.records().size();
+          emit(executionContext, eventAcceptor, outcome);
+        });
+
+    if (recordCount[0] == 0 && unrecordedFailures[0]) {
+      log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
+      return SKIP_REASON_NOTHING_DESERIALIZED;
+    }
+    return null;
+  }
+
+  /**
+   * Emits one batch, tagging a downstream failure so the caller can tell it from a read failure.
+   */
+  private static void emit(
+      FsSourceExecutionContext executionContext,
+      SourceEventAcceptor eventAcceptor,
+      DeserializationOutcome outcome) {
+    if (outcome.records().isEmpty()) {
+      return;
+    }
+    executionContext.inputEventCounter.increase(outcome.records().size(), Map.of());
+    try {
+      eventAcceptor.accept(outcome.records());
+    } catch (Exception exception) {
+      throw new DownstreamFailure(exception);
+    }
+  }
+
+  /** A failure from the downstream DAG rather than from reading or parsing the file. */
+  private static class DownstreamFailure extends RuntimeException {
+    DownstreamFailure(Exception cause) {
+      super(cause);
+    }
   }
 
   /**
@@ -366,27 +540,24 @@ public final class FsSourceCommand extends SourceCommand {
     return true;
   }
 
-  private static FsCheckpoint loadCheckpoint(CheckpointClient checkpointClient, String sourceId) {
-    return checkpointClient
-        .loadCheckpoint(sourceId)
-        .map(checkpointData -> JsonUtils.fromJsonString(checkpointData.data(), FsCheckpoint.class))
-        .orElse(FsCheckpoint.empty());
+  /**
+   * Lowers the watermark ceiling to {@code timestamp} when it is older. Files are processed oldest
+   * first, so the first skip already carries the oldest unresolved timestamp, but taking the
+   * minimum keeps this correct regardless of iteration order.
+   */
+  private static Instant holdWatermark(Instant watermarkCeiling, Instant timestamp) {
+    return timestamp.isBefore(watermarkCeiling) ? timestamp : watermarkCeiling;
   }
 
-  private static void saveCheckpoint(
-      CheckpointClient checkpointClient, String sourceId, FsCheckpoint checkpoint) {
-    checkpointClient.checkpoint(sourceId, JsonUtils.toJsonString(checkpoint));
+  private static int bucketOf(PendingFile pending) {
+    return Partitioner.virtualBucket(pending.entry().key().urn());
   }
 
-  /** Auto-detect gzip by magic bytes (0x1f 0x8b) and decompress; otherwise pass through. */
-  static byte[] maybeGunzip(byte[] data) {
-    if (data.length >= 2 && (data[0] & 0xff) == 0x1f && (data[1] & 0xff) == 0x8b) {
-      return CompressionUtils.gunzip(data);
-    }
-    return data;
+  /** Counts one skipped file against {@code reason} and returns 1, for the caller's tally. */
+  private static int countSkip(FsSourceExecutionContext executionContext, String reason) {
+    executionContext.skippedFileCounter.increase(1, Map.of(METRIC_TAG_SKIP_REASON, reason));
+    return 1;
   }
-
-  private record Pending(FileEntry entry, Instant timestamp) {}
 
   @Override
   public void terminate() throws java.io.IOException {

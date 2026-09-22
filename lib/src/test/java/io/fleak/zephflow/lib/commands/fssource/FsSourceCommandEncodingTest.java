@@ -116,12 +116,6 @@ class FsSourceCommandEncodingTest {
     assertEquals(List.of("a", "b"), out.stream().map(record -> record.unwrap().get("v")).toList());
   }
 
-  @Test
-  void nonGzipBytesPassThrough() {
-    byte[] plain = "{\"v\":1}".getBytes(StandardCharsets.UTF_8);
-    assertArrayEquals(plain, FsSourceCommand.maybeGunzip(plain));
-  }
-
   /**
    * A corrupt file (malformed JSON) must NOT abort the whole scan. The valid file's records must
    * still be emitted and out.terminate() must be called.

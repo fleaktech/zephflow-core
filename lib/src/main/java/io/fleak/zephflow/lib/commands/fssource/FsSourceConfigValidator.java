@@ -42,10 +42,23 @@ public final class FsSourceConfigValidator implements ConfigValidator {
             "invalid fileNameRegex: " + exception.getMessage(), exception);
       }
     }
+    validatePositiveSize("maxFileBytes", fsSourceConfig.getMaxFileBytes());
+    validatePositiveSize("chunkSizeBytes", longValueOf(fsSourceConfig.getChunkSizeBytes()));
+    validatePositiveSize("maxFilesPerRun", longValueOf(fsSourceConfig.getMaxFilesPerRun()));
     if (fsSourceConfig.getEncodingType() == null) {
       throw new IllegalArgumentException("encodingType is required");
     }
     DeserializerFactory.validateEncodingType(fsSourceConfig.getEncodingType());
+  }
+
+  private static Long longValueOf(Integer value) {
+    return value == null ? null : value.longValue();
+  }
+
+  private static void validatePositiveSize(String fieldName, Long value) {
+    if (value != null && value <= 0) {
+      throw new IllegalArgumentException(fieldName + " must be greater than 0, got " + value);
+    }
   }
 
   private static void validateExactObjectKey(FsSourceDto.Config config) {

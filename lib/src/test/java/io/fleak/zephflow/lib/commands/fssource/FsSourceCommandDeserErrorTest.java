@@ -165,7 +165,7 @@ class FsSourceCommandDeserErrorTest {
   }
 
   @Test
-  void whollyUnparseableFileWithNoDlq_isLeftForRetryRatherThanCheckpointed(@TempDir Path tempDir)
+  void whollyUnparseableFileWithNoDlq_isRetriedRatherThanCheckpointed(@TempDir Path tempDir)
       throws Exception {
     Files.writeString(tempDir.resolve("evt_1.jsonl"), "not json at all\n");
 
@@ -178,17 +178,21 @@ class FsSourceCommandDeserErrorTest {
             "encodingType", "JSON_OBJECT_LINE"));
     command.initialize(new RecordingMetricClientProvider());
 
-    List<RecordFleakData> firstRun = new ArrayList<>();
-    command.execute("user", acceptorInto(firstRun));
-    assertTrue(firstRun.isEmpty());
+    // The lone candidate file resolves nothing, so the run must fail loudly instead of reporting
+    // an empty success.
+    assertThrows(
+        IllegalStateException.class,
+        () -> command.execute("user", acceptorInto(new ArrayList<>())));
     assertEquals(1, counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get());
 
-    List<RecordFleakData> secondRun = new ArrayList<>();
-    command.execute("user", acceptorInto(secondRun));
+    assertThrows(
+        IllegalStateException.class,
+        () -> command.execute("user", acceptorInto(new ArrayList<>())),
+        "with nowhere to quarantine it, the file should be retried rather than silently dropped");
     assertEquals(
         2,
         counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get(),
-        "with nowhere to quarantine it, the file should be retried rather than silently dropped");
+        "the retry must actually re-read the file, not just re-fail on a stale checkpoint");
   }
 
   private static SourceEventAcceptor acceptorInto(List<RecordFleakData> sink) {

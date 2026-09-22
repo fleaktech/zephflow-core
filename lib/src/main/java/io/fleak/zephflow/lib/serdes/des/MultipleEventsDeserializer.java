@@ -114,4 +114,9 @@ public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
     }
     return new DeserializationOutcome(records, errors);
   }
+
+  @Override
+  public boolean supportsChunkedPayloads() {
+    return multipleEventsTypedDeserializer instanceof LineOrientedTypedDeserializer;
+  }
 }
