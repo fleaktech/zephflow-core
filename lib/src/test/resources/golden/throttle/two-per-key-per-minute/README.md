@@ -19,7 +19,7 @@ Sequence (host a, window = [first event, first event + 60s)):
   until 100000 and would drop seq5.
 - seq6 t=61000 → passes, allowed 2/2 of window [61000,121000)
 - seq7 t=61000 → dropped, dropped 1
-- `_advance` 60s → seq8 t=122000 → new window, passes, stamped `throttledCount: 1`
+- `_advance` 60s → seq8 t=121000 → new window, passes, stamped `throttledCount: 1`
 
 **Expected reviewed by:** _pending_ — `expected.jsonl` was generated with
 `-Dgolden.update=true` after implementing the fixed-period (first-event-anchored) semantics

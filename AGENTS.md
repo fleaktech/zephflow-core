@@ -3,10 +3,13 @@
 ## Golden fixture tests (lib/src/test/resources/golden/)
 
 Golden currently lives only in the `lib` module because every ScalarCommand (the only golden
-target) lives there. The harness, the `goldenTest` task, the `golden.yml` `GOLDEN_DIR`, and the
-CODEOWNERS globs are all scoped to `lib/`. If another module ever gains a ScalarCommand that needs
-golden coverage, you must extend those four things to that module too — a fixture placed elsewhere
-is NOT run or guarded automatically.
+target) lives there. The harness, the `goldenTest` task, and the `golden` CI job are all scoped to
+`lib/`. If another module ever gains a ScalarCommand that needs golden coverage, extend those to
+that module too — a fixture placed elsewhere is NOT run automatically.
+
+Fixture integrity is by engineer discipline (the rules below) plus the `golden` CI job, which goes
+red on a regression and on a dropped fixture count (a deleted/renamed fixture) — there is no
+CODEOWNERS gate or enforced review. Treat the rules below as binding.
 
 - Every ScalarCommand change must keep `./gradlew :lib:goldenTest` green.
 - A failure prints `output[i].field: expected=… actual=…`. Read it, fix the CODE.

@@ -32,7 +32,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Drives one fixture through a real command, single-threaded, with an injected clock. */
+/**
+ * Drives one fixture through a real command, single-threaded, with an injected clock.
+ *
+ * <p>Limitation: events are fed one per {@code process} call and only the per-call output is
+ * captured — output a command would emit from {@code terminate()} (an end-of-stream flush) is NOT
+ * seen. Fine for the current per-event commands (parser, throttle); a windowed/aggregating command
+ * that flushes on end-of-stream needs a flush-capture hook added here before it can be
+ * golden-tested.
+ */
 final class GoldenRunner {
 
   record Result(List<ObjectNode> output, List<ObjectNode> errors) {}
@@ -52,8 +60,9 @@ final class GoldenRunner {
     }
 
     long[] now = {0L};
-    if (cmd instanceof ClockAware ca) {
-      ca.setClock(() -> now[0]);
+    boolean clockAware = cmd instanceof ClockAware;
+    if (clockAware) {
+      ((ClockAware) cmd).setClock(() -> now[0]);
     }
 
     scalar.parseAndValidateArg(config);
@@ -68,12 +77,20 @@ final class GoldenRunner {
       if (line.isBlank()) continue;
       ObjectNode node = (ObjectNode) JsonUtils.OBJECT_MAPPER.readTree(line);
 
-      if (node.has("_advance") && node.size() == 1) {
-        now[0] += node.get("_advance").asLong();
-        continue;
+      // _t / _advance are clock controls; they only mean anything for a ClockAware command.
+      // For any other command they stay part of the record so real data named _t survives.
+      if (clockAware) {
+        if (node.has("_advance")) {
+          if (node.size() != 1) {
+            throw new IllegalArgumentException(
+                "control record carrying _advance must have no other field: " + line);
+          }
+          now[0] += node.get("_advance").asLong();
+          continue;
+        }
+        JsonNode t = node.remove("_t");
+        if (t != null) now[0] = t.asLong();
       }
-      JsonNode t = node.remove("_t");
-      if (t != null) now[0] = t.asLong();
 
       RecordFleakData event = JsonUtils.fromJsonPayload(node);
       ScalarCommand.ProcessResult r = scalar.process(List.of(event), "golden", ctx);

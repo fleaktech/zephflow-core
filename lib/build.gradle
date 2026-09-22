@@ -134,7 +134,7 @@ tasks.named('spotlessJava') {
 
 tasks.named('test') {
   // Ordinary unit tests exclude golden; golden runs as its own task (see goldenTest below).
-  useJUnitPlatform { excludeTags 'golden', 'infra', 'slow' }
+  useJUnitPlatform { excludeTags 'golden' }
   testLogging.showStandardStreams = true
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
@@ -171,12 +171,6 @@ tasks.register('goldenTest', Test) {
   }
   outputs.upToDateWhen { false }   // fixtures are inputs; never skip
   testLogging { exceptionFormat 'full'; events 'failed' }
-}
-
-tasks.register('infraTest', Test) {
-  testClassesDirs = sourceSets.test.output.classesDirs
-  classpath = sourceSets.test.runtimeClasspath
-  useJUnitPlatform { includeTags 'infra' }
 }
 
 tasks.named('check') { dependsOn 'goldenTest' }

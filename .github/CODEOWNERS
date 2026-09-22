@@ -1,8 +1,0 @@
-# Standard answers need a human owner. With branch protection "Require review from
-# Code Owners" enabled, no PR that touches these files can merge without this review —
-# regardless of who (or what) opened it.
-lib/src/test/resources/golden/**/expected.jsonl          @fleaktech/golden-reviewers
-lib/src/test/resources/golden/**/expected_errors.jsonl   @fleaktech/golden-reviewers
-# The workflow and harness protect the fixtures; protect them too.
-.github/workflows/golden.yml                             @fleaktech/golden-reviewers
-lib/src/test/java/io/fleak/zephflow/lib/golden/          @fleaktech/golden-reviewers

@@ -50,9 +50,12 @@ class GoldenTest {
     String filter = System.getProperty("golden.filter", "");
     List<GoldenCase> cases = discover();
     if (cases.isEmpty()) fail("no golden fixtures found under " + ROOT.toAbsolutePath());
-    return cases.stream()
-        .filter(c -> c.displayName().contains(filter))
-        .map(c -> DynamicTest.dynamicTest(c.displayName(), () -> runOne(c)));
+    List<GoldenCase> selected =
+        cases.stream().filter(c -> c.displayName().contains(filter)).toList();
+    if (!filter.isEmpty() && selected.isEmpty()) {
+      fail("golden.filter='" + filter + "' matched no fixtures (of " + cases.size() + ")");
+    }
+    return selected.stream().map(c -> DynamicTest.dynamicTest(c.displayName(), () -> runOne(c)));
   }
 
   private static List<GoldenCase> discover() throws IOException {
