@@ -133,7 +133,8 @@ tasks.named('spotlessJava') {
 }
 
 tasks.named('test') {
-  useJUnitPlatform()
+  // Ordinary unit tests exclude golden; golden runs as its own task (see goldenTest below).
+  useJUnitPlatform { excludeTags 'golden' }
   testLogging.showStandardStreams = true
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
@@ -156,3 +157,20 @@ tasks.named('sourcesJar') {
   dependsOn 'generateGrammarSource'
   duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
+
+// Golden fixture tests run as their own task so CI can parallelise and the fast layer runs first.
+tasks.register('goldenTest', Test) {
+  description = 'Golden fixture tests (src/test/resources/golden/**)'
+  group = 'verification'
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform { includeTags 'golden' }
+  // pass -D flags from the command line into the forked test JVM
+  ['golden.update', 'golden.filter', 'golden.dir'].each { k ->
+    if (System.getProperty(k) != null) systemProperty k, System.getProperty(k)
+  }
+  outputs.upToDateWhen { false }   // fixtures are inputs; never skip
+  testLogging { exceptionFormat 'full'; events 'failed' }
+}
+
+tasks.named('check') { dependsOn 'goldenTest' }

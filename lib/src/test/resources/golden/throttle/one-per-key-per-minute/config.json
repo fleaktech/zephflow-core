@@ -1,0 +1,5 @@
+{
+  "keyExpression": "$.host",
+  "numToAllow": 1,
+  "periodSeconds": 60
+}

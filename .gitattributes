@@ -1,0 +1,2 @@
+*.jsonl text eol=lf
+lib/src/test/resources/golden/** text eol=lf

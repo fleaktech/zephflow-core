@@ -1,0 +1,22 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "syslog",
+    "componentList": [
+      "PRIORITY",
+      "TIMESTAMP",
+      "DEVICE"
+    ],
+    "timestampPattern": "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+  },
+  "dispatchConfig": {
+    "dispatchField": "content",
+    "defaultConfig": {
+      "targetField": "content",
+      "removeTargetField": true,
+      "extractionConfig": {
+        "type": "cef"
+      }
+    }
+  }
+}

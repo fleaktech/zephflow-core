@@ -1,0 +1,49 @@
+# Golden fixture tests. Goes red on any golden regression.
+# Fixture integrity (no hand-edited expected) is by engineer discipline — see AGENTS.md —
+# not by enforced review or CODEOWNERS. One automated tripwire is kept: if the fixture count
+# drops (a deleted/renamed fixture) the job fails, so an accidental removal is visible.
+name: golden
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GOLDEN_DIR: lib/src/test/resources/golden
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the fixture-count check diffs against the base branch
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run golden tests
+        run: ./gradlew :lib:goldenTest --no-daemon
+        env:
+          GRADLE_OPTS: -Xmx2g
+
+      # A golden fixture may be added, never silently dropped. No labels, no CODEOWNERS:
+      # deleting or renaming a fixture is deliberate — this just makes it visible (red).
+      - name: Fixture count must not drop
+        if: github.event_name == 'pull_request'
+        run: |
+          base=$(git ls-tree -r --name-only "origin/${{ github.base_ref }}" -- "$GOLDEN_DIR" | grep -c '/input\.jsonl$' || true)
+          head=$(git ls-tree -r --name-only HEAD -- "$GOLDEN_DIR" | grep -c '/input\.jsonl$' || true)
+          echo "golden fixtures — base: $base, this PR: $head"
+          if [ "$head" -lt "$base" ]; then
+            echo "::error::Golden fixture count dropped $base -> $head. Deleting or renaming a golden fixture is deliberate — do it consciously and say why in the PR."
+            exit 1
+          fi

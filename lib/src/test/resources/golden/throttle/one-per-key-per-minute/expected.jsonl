@@ -1,0 +1,4 @@
+{"host":"a","status":200}
+{"host":"b","status":200}
+{"host":"a","status":200,"throttledCount":2}
+{"host":"a","status":404,"throttledCount":1}

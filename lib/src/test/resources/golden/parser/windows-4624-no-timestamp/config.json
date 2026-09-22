@@ -1,0 +1,7 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "windows_multiline",
+    "timestampLocationType": "NO_TIMESTAMP"
+  }
+}

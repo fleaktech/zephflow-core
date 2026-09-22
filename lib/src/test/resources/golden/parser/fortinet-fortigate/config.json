@@ -1,0 +1,8 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "kv_pair",
+    "kvSeparator": "=",
+    "pairSeparator": " "
+  }
+}

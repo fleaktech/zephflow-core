@@ -1,0 +1,6 @@
+{"host":"a","seq":1}
+{"host":"a","seq":2}
+{"host":"b","seq":4}
+{"host":"a","seq":5,"throttledCount":1}
+{"host":"a","seq":6}
+{"host":"a","seq":8,"throttledCount":1}
