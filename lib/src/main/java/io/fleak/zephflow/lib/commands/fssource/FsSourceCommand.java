@@ -410,7 +410,14 @@ public final class FsSourceCommand extends SourceCommand {
           ? emitChunked(executionContext, deserializer, eventAcceptor, fileEntry)
           : emitWholePayload(executionContext, deserializer, eventAcceptor, fileEntry);
     } catch (FsPayloadReader.PayloadTooLargeException payloadTooLargeException) {
-      log.error("fs_source skip file urn={}: {}", urn, payloadTooLargeException.getMessage());
+      // Size is the single most common reason a file is skipped, and the one an operator can act
+      // on directly, so name the reason and the listed object size rather than only the exception.
+      log.error(
+          "fs_source skip file urn={} reason={} listedSizeBytes={}: {}",
+          urn,
+          SKIP_REASON_FILE_TOO_LARGE,
+          fileEntry.size(),
+          payloadTooLargeException.getMessage());
       return SKIP_REASON_FILE_TOO_LARGE;
     } catch (DownstreamFailure downstreamFailure) {
       log.error(

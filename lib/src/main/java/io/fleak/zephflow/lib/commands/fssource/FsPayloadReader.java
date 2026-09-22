@@ -61,7 +61,8 @@ public final class FsPayloadReader {
       int bytesRead;
       while ((bytesRead = inputStream.read(buffer)) != -1) {
         if ((long) payload.size() + bytesRead > maxFileBytes) {
-          throw new PayloadTooLargeException(key.urn(), maxFileBytes);
+          throw PayloadTooLargeException.wholePayload(
+              (long) payload.size() + bytesRead, maxFileBytes);
         }
         payload.write(buffer, 0, bytesRead);
       }
@@ -89,7 +90,7 @@ public final class FsPayloadReader {
             // chunk. The bytes already scanned for a newline are remembered so the next read only
             // scans what it newly contributes, instead of rescanning everything buffered so far.
             if (pending.size() > maxFileBytes) {
-              throw new PayloadTooLargeException(key.urn(), maxFileBytes);
+              throw PayloadTooLargeException.singleLine(pending.size(), maxFileBytes);
             }
             break;
           }
@@ -178,10 +179,36 @@ public final class FsPayloadReader {
     }
   }
 
-  /** The payload exceeded the configured ceiling; the file is skipped, not retried in place. */
+  /**
+   * The payload exceeded the configured ceiling; the file is skipped, not retried in place.
+   *
+   * <p>The two factory methods describe genuinely different situations that need different operator
+   * responses, so they say so rather than sharing one message. The urn is left out: every caller
+   * already logs it alongside.
+   */
   public static class PayloadTooLargeException extends IOException {
-    public PayloadTooLargeException(String urn, long maxFileBytes) {
-      super("payload for " + urn + " exceeds maxFileBytes=" + maxFileBytes);
+    private PayloadTooLargeException(String message) {
+      super(message);
+    }
+
+    /** A whole-document format whose payload passed the cap while being buffered. */
+    static PayloadTooLargeException wholePayload(long bytesRead, long maxFileBytes) {
+      return new PayloadTooLargeException(
+          String.format(
+              "file is too large to read as a whole document: exceeded the %,d byte maxFileBytes"
+                  + " limit after reading %,d bytes. Raise maxFileBytes, or switch to a"
+                  + " line-delimited encoding so the file can be streamed instead of buffered.",
+              maxFileBytes, bytesRead));
+    }
+
+    /** A line-delimited format where one line grew past the cap with no newline to split on. */
+    static PayloadTooLargeException singleLine(long bytesBuffered, long maxFileBytes) {
+      return new PayloadTooLargeException(
+          String.format(
+              "a single line is too large to split: buffered %,d bytes with no newline, past the"
+                  + " %,d byte maxFileBytes limit. A line must fit in memory to be emitted; raise"
+                  + " maxFileBytes, or check the file really is newline-delimited.",
+              bytesBuffered, maxFileBytes));
     }
   }
 }
