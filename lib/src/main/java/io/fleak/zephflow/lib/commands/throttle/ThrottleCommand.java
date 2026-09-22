@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.ClockAware;
 import io.fleak.zephflow.lib.windowing.GroupKeyEvaluator;
 import io.fleak.zephflow.lib.windowing.GroupKeyEvaluator.GroupKey;
 import io.fleak.zephflow.lib.windowing.KeyedStateStore;
@@ -28,16 +29,16 @@ import java.util.Map;
 import java.util.function.LongSupplier;
 
 /**
- * Per-key rate limiter (duty cycle): allows M events per key, then drops for T seconds after the
- * M-th allowed event, and stamps the first passing event after a drop-phase with {@code
- * throttledCount}. Event-driven (no flush scheduler). Fail-open: events whose key expression yields
- * no usable scalar pass through unthrottled.
+ * Per-key rate limiter (fixed period): allows M events per key within a T-second period anchored at
+ * the period's first event, drops the rest, and stamps the first passing event of the next period
+ * with {@code throttledCount}. Event-driven (no flush scheduler). Fail-open: events whose key
+ * expression yields no usable scalar pass through unthrottled.
  *
  * <p>Per-key state is not thread-safe and relies on single-threaded event delivery from the source
  * (or serialization by the runner's pipeline lock when the DAG also has a windowed node). It is
  * rejected on the request/response path (see {@code DagRunnerService}).
  */
-public class ThrottleCommand extends ScalarCommand implements KeyedStatefulCommand {
+public class ThrottleCommand extends ScalarCommand implements KeyedStatefulCommand, ClockAware {
 
   private static final String THROTTLE_DROPPED_COUNT = "throttle_dropped_count";
   static final String THROTTLED_COUNT_FIELD = "throttledCount";
@@ -58,7 +59,8 @@ public class ThrottleCommand extends ScalarCommand implements KeyedStatefulComma
     return COMMAND_NAME_THROTTLE;
   }
 
-  void setClock(LongSupplier clock) {
+  @Override
+  public void setClock(LongSupplier clock) {
     this.clock = clock;
   }
 

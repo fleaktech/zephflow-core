@@ -1,0 +1,8 @@
+{"_t": 0,      "host": "a", "status": 200}
+{"_t": 100,    "host": "a", "status": 200}
+{"_t": 200,    "host": "a", "status": 500}
+{"_t": 250,    "host": "b", "status": 200}
+{"_t": 60000,  "host": "a", "status": 200}
+{"_t": 60050,  "host": "a", "status": 200}
+{"_advance": 60000}
+{"host": "a", "status": 404}

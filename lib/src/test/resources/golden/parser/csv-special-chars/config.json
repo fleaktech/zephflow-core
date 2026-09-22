@@ -1,0 +1,22 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "delimited_text",
+    "delimiter": ",",
+    "columns": [
+      "product_id",
+      "sku",
+      "mpn",
+      "name",
+      "description",
+      "brand",
+      "price",
+      "availability",
+      "image",
+      "price_original",
+      "rating",
+      "review_count",
+      "special, field"
+    ]
+  }
+}

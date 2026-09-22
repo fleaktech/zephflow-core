@@ -48,11 +48,25 @@ class ThrottleStateTest {
   @Test
   void m2_allowsTwoThenSuppresses_stampsOnlyFirstPostDropEvent() {
     ThrottleState s = new ThrottleState();
-    assertEquals(pass(), s.decide(0, 2, T)); // allowed 1
-    assertEquals(pass(), s.decide(1, 2, T)); // allowed 2 -> drop-phase until 1+T
-    assertEquals(drop(), s.decide(2, 2, T)); // dropped 1
-    assertEquals(passStamped(1), s.decide(1 + T, 2, T)); // exits, stamps 1, allowed 1
-    assertEquals(pass(), s.decide(1 + T + 1, 2, T)); // allowed 2 again, no stamp
+    assertEquals(pass(), s.decide(0, 2, T)); // window [0, T), allowed 1
+    assertEquals(pass(), s.decide(1, 2, T)); // still in [0, T), allowed 2
+    assertEquals(drop(), s.decide(2, 2, T)); // over M within the window -> dropped 1
+    assertEquals(passStamped(1), s.decide(1 + T, 2, T)); // past T: new window, stamps 1, allowed 1
+    assertEquals(pass(), s.decide(1 + T + 1, 2, T)); // still in new window, allowed 2, no stamp
+  }
+
+  @Test
+  void m2_windowAnchoredAtFirstEvent_lateSecondAllowedDoesNotExtendWindow() {
+    ThrottleState s = new ThrottleState();
+    // The window is anchored at the period's FIRST event, so it ends at first-event + T (= T),
+    // NOT at the second allowed event + T. This is the model-A (duty cycle) vs model-B (fixed
+    // period, Cribl-style) divergence point.
+    assertEquals(pass(), s.decide(0, 2, T)); // window [0, T), allowed 1
+    assertEquals(pass(), s.decide(T - 5_000, 2, T)); // still in [0, T), allowed 2 (arrives late)
+    assertEquals(drop(), s.decide(T - 1_000, 2, T)); // over M within the window -> dropped 1
+    // A duty cycle anchored at the 2nd event would suppress until 2T-5000 and DROP here; anchored
+    // at the first event the window has ended at T, so this passes and opens the next period.
+    assertEquals(passStamped(1), s.decide(T, 2, T));
   }
 
   @Test

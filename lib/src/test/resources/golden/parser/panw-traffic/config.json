@@ -1,0 +1,22 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "syslog",
+    "componentList": [
+      "PRIORITY",
+      "TIMESTAMP",
+      "DEVICE"
+    ],
+    "timestampPattern": "MMM dd HH:mm:ss"
+  },
+  "dispatchConfig": {
+    "dispatchField": "content",
+    "defaultConfig": {
+      "targetField": "content",
+      "removeTargetField": true,
+      "extractionConfig": {
+        "type": "panw_traffic"
+      }
+    }
+  }
+}

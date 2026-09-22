@@ -1,0 +1,72 @@
+# Golden fixture tests + two guardrails.
+# Make the "golden" job a REQUIRED status check in branch protection, otherwise it's advisory.
+name: golden
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write   # needed by guardrail 1 to add a label
+
+env:
+  GOLDEN_DIR: lib/src/test/resources/golden
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # guardrails diff against the base branch
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run golden tests
+        run: ./gradlew :lib:goldenTest --no-daemon
+        env:
+          GRADLE_OPTS: -Xmx2g
+
+      # ---------------------------------------------------------------------
+      # Guardrail 1: changing a standard answer is a behaviour change.
+      # Label the PR so reviewers see it; CODEOWNERS makes the review mandatory.
+      # Skipped on fork PRs (token has no write access there) — CODEOWNERS still applies.
+      # ---------------------------------------------------------------------
+      - name: Label PRs that change expected output
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          changed=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- "$GOLDEN_DIR" | grep -E '/expected(_errors)?\.jsonl$' || true)
+          if [ -n "$changed" ]; then
+            echo "Expected output changed:"; echo "$changed"
+            gh pr edit ${{ github.event.number }} --add-label "golden: behaviour change"
+          fi
+
+      # ---------------------------------------------------------------------
+      # Guardrail 2: fixtures can be added, not removed.
+      # Escape hatch: a human adds the label "golden: removal approved" to the PR.
+      # ---------------------------------------------------------------------
+      - name: Fixture count must not drop
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(git ls-tree -r --name-only origin/${{ github.base_ref }} -- "$GOLDEN_DIR" | grep -c '/input\.jsonl$' || true)
+          head=$(git ls-tree -r --name-only HEAD -- "$GOLDEN_DIR" | grep -c '/input\.jsonl$' || true)
+          echo "fixtures on base: $base, on this PR: $head"
+          if [ "$head" -lt "$base" ]; then
+            if gh pr view ${{ github.event.number }} --json labels -q '.labels[].name' | grep -qx 'golden: removal approved'; then
+              echo "removal approved by label — allowing"
+            else
+              echo "::error::Fixture count dropped $base -> $head. Deleting golden fixtures requires the label 'golden: removal approved' from a maintainer, with the reason in the PR description."
+              exit 1
+            fi
+          fi

@@ -14,44 +14,48 @@
 package io.fleak.zephflow.lib.commands.throttle;
 
 /**
- * Per-key throttle state and its pure decision logic (duty cycle): allow up to {@code numToAllow}
- * events, then drop for {@code periodMs} after the M-th allowed event; the first event after a
- * drop-phase carries the previous phase's drop count. Time is an explicit parameter (no clock read
- * here) so the logic is deterministically unit-testable.
+ * Per-key throttle state and its pure decision logic (fixed period): allow up to {@code numToAllow}
+ * events within a {@code periodMs} window <b>anchored at the first event of the period</b>, drop
+ * the rest, then open a fresh window on the first event at or after the window end. That first
+ * event of the next period carries the previous period's drop count. Time is an explicit parameter
+ * (no clock read here) so the logic is deterministically unit-testable.
+ *
+ * <p>The window is anchored at the period's first event, not at the M-th allowed one, mirroring
+ * Cribl's Suppress function (allow M per key per period). For {@code numToAllow == 1} this is
+ * indistinguishable from a duty cycle; the two diverge only when the M-th allowed event arrives
+ * late within the window (see FLE-2792).
  */
 public final class ThrottleState {
 
   private int allowed;
   private int dropped;
-  private long suppressUntilMs; // 0 = not currently throttling
+  private long windowEndMs; // 0 = no active window yet
 
   /**
    * @param pass whether this event is allowed through
-   * @param stamp whether to stamp the drop count (only on the first event after a drop-phase)
-   * @param droppedCount number of events dropped in the just-ended drop-phase (valid when stamp)
+   * @param stamp whether to stamp the drop count (only on the first event of a period that follows
+   *     a period in which events were dropped)
+   * @param droppedCount number of events dropped in the just-ended period (valid when stamp)
    */
   public record Decision(boolean pass, boolean stamp, long droppedCount) {}
 
   public Decision decide(long nowMs, int numToAllow, long periodMs) {
-    if (suppressUntilMs != 0 && nowMs < suppressUntilMs) {
-      dropped++;
-      return new Decision(false, false, 0);
-    }
     boolean stamp = false;
     long stampCount = 0;
-    if (suppressUntilMs != 0) { // drop-phase just expired
-      if (dropped > 0) {
+    if (windowEndMs == 0 || nowMs >= windowEndMs) { // open a new period (half-open [start, end))
+      if (windowEndMs != 0 && dropped > 0) { // the previous period ended with drops
         stamp = true;
         stampCount = dropped;
       }
-      suppressUntilMs = 0;
+      windowEndMs = nowMs + periodMs;
       allowed = 0;
       dropped = 0;
     }
-    allowed++;
-    if (allowed >= numToAllow) {
-      suppressUntilMs = nowMs + periodMs;
+    if (allowed < numToAllow) {
+      allowed++;
+      return new Decision(true, stamp, stampCount);
     }
-    return new Decision(true, stamp, stampCount);
+    dropped++;
+    return new Decision(false, false, 0);
   }
 }

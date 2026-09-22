@@ -1,0 +1,10 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "windows_multiline",
+    "timestampLocationType": "FROM_FIELD",
+    "config": {
+      "target_field": "Date"
+    }
+  }
+}
