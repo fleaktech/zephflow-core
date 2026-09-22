@@ -64,7 +64,7 @@ azureCoreHttpOkHttp = "1.12.6"
 azureMessagingEventhubs = "5.20.3"
 azureMessagingEventhubsCheckpointstoreBlob = "1.20.7"
 azureIdentity = "1.16.2"
-sshj = "0.40.0"
+sshj = "0.41.1"
 chronicle = "2026.2"
 
 nebulaDependencyLock = "17.0.1"
