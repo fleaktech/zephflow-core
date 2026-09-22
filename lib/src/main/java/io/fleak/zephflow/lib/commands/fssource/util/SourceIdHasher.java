@@ -20,6 +20,11 @@ public final class SourceIdHasher {
 
   private SourceIdHasher() {}
 
+  /**
+   * The checkpoint id for one virtual bucket of a source. Deliberately free of the replica layout:
+   * the id must not change when the replica count does, or a rescale orphans every checkpoint and
+   * the whole source is re-read.
+   */
   public static String compute(
       String checkpointScope,
       String nodeId,
@@ -27,9 +32,8 @@ public final class SourceIdHasher {
       String root,
       String fileNameRegex,
       String exactObjectKey,
-      int replicaIndex,
-      int replicaCount) {
-    String canonicalIdentity =
+      int virtualBucket) {
+    return hash(
         String.join(
             "\n",
             checkpointScope,
@@ -38,8 +42,10 @@ public final class SourceIdHasher {
             root,
             fileNameRegex == null ? "" : fileNameRegex,
             exactObjectKey == null ? "" : exactObjectKey,
-            String.valueOf(replicaIndex),
-            String.valueOf(replicaCount));
+            "bucket-" + virtualBucket));
+  }
+
+  private static String hash(String canonicalIdentity) {
     return Hashing.sha256()
         .hashString(canonicalIdentity, StandardCharsets.UTF_8)
         .toString()

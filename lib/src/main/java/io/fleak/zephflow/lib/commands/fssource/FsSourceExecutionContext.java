@@ -29,6 +29,7 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   FsBackendConfig backendConfig;
   FileLister lister;
   FileReader reader;
+  FsPayloadReader payloadReader;
   CheckpointClient checkpointClient;
   String checkpointScope;
   int replicaIndex;
@@ -36,6 +37,7 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   FleakCounter dataSizeCounter;
   FleakCounter inputEventCounter;
   FleakCounter deserializeFailureCounter;
+  FleakCounter skippedFileCounter;
 
   /** null when the job has no dlq configured. */
   DlqWriter dlqWriter;

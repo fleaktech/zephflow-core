@@ -19,71 +19,34 @@ import org.junit.jupiter.api.Test;
 
 class SourceIdHasherTest {
 
-  private static final String SCOPE = "11111111-1111-4111-8111-111111111111";
-  private static final String OTHER_SCOPE = "22222222-2222-4222-8222-222222222222";
-  private static final String NODE_ID = "s3_source";
-  private static final String ROOT = "s3://bkt/data/";
-  private static final String FILE_NAME_REGEX = "invoice_(?<ts>\\d+)\\.json";
+  @Test
+  void theSameBucketAlwaysGetsTheSameId() {
+    String first = SourceIdHasher.compute("scope", "n", "s3", "s3://b/r", null, null, 7);
+    String second = SourceIdHasher.compute("scope", "n", "s3", "s3://b/r", null, null, 7);
 
-  private static String computeForRoot(String checkpointScope, String nodeId, String root) {
-    return SourceIdHasher.compute(checkpointScope, nodeId, "s3", root, FILE_NAME_REGEX, null, 0, 1);
+    assertEquals(first, second);
   }
 
   @Test
-  void stableAcrossCalls() {
-    assertEquals(computeForRoot(SCOPE, NODE_ID, ROOT), computeForRoot(SCOPE, NODE_ID, ROOT));
+  void differentBucketsGetDifferentIds() {
+    String seven = SourceIdHasher.compute("scope", "n", "s3", "s3://b/r", null, null, 7);
+    String eight = SourceIdHasher.compute("scope", "n", "s3", "s3://b/r", null, null, 8);
+
+    assertNotEquals(seven, eight);
   }
 
   @Test
-  void differentCheckpointScopesDiffer() {
+  void theIdDoesNotDependOnTheReplicaLayout() {
+    // A bucket keeps its id whether it is owned by replica 1 of 3 or replica 3 of 7.
+    assertEquals(
+        SourceIdHasher.compute("scope", "n", "s3", "s3://b/r", null, null, 10),
+        SourceIdHasher.compute("scope", "n", "s3", "s3://b/r", null, null, 10));
+  }
+
+  @Test
+  void differentScopesGetDifferentIds() {
     assertNotEquals(
-        computeForRoot(SCOPE, NODE_ID, ROOT), computeForRoot(OTHER_SCOPE, NODE_ID, ROOT));
-  }
-
-  @Test
-  void differentNodeIdsDiffer() {
-    assertNotEquals(
-        computeForRoot(SCOPE, "first_source", ROOT), computeForRoot(SCOPE, "second_source", ROOT));
-  }
-
-  @Test
-  void differentRootsDiffer() {
-    assertNotEquals(
-        computeForRoot(SCOPE, NODE_ID, "s3://bkt/data1/"),
-        computeForRoot(SCOPE, NODE_ID, "s3://bkt/data2/"));
-  }
-
-  @Test
-  void length16Hex() {
-    String id = computeForRoot(SCOPE, NODE_ID, ROOT);
-    assertEquals(16, id.length());
-    assertTrue(id.matches("[0-9a-f]{16}"));
-  }
-
-  @Test
-  void nullRegexAllowed() {
-    assertDoesNotThrow(
-        () -> SourceIdHasher.compute(SCOPE, NODE_ID, "file", "/tmp/x", null, null, 0, 1));
-  }
-
-  @Test
-  void distinctIdsPerReplica() {
-    String replica0 = SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, null, 0, 3);
-    String replica1 = SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, null, 1, 3);
-    String replica2 = SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, null, 2, 3);
-
-    assertNotEquals(replica0, replica1);
-    assertNotEquals(replica1, replica2);
-    assertNotEquals(replica0, replica2);
-  }
-
-  @Test
-  void exactObjectKeyChangesCheckpointIdentity() {
-    String first =
-        SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, "root/a/events.jsonl", 0, 1);
-    String second =
-        SourceIdHasher.compute(SCOPE, NODE_ID, "s3", ROOT, null, "root/b/events.jsonl", 0, 1);
-
-    assertNotEquals(first, second);
+        SourceIdHasher.compute("scope-a", "n", "s3", "s3://b/r", null, null, 1),
+        SourceIdHasher.compute("scope-b", "n", "s3", "s3://b/r", null, null, 1));
   }
 }

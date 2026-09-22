@@ -141,4 +141,73 @@ class S3BackendIntegrationTest {
       assertEquals("second", new String(inputStream.readAllBytes()));
     }
   }
+
+  @Test
+  void aRootWithoutATrailingSlashDoesNotMatchASiblingPrefix() {
+    try (S3Client s3Client = s3()) {
+      s3Client.putObject(
+          PutObjectRequest.builder().bucket("test-bkt").key("logs/a.json").build(),
+          RequestBody.fromString("{}"));
+      s3Client.putObject(
+          PutObjectRequest.builder().bucket("test-bkt").key("logs-archive/b.json").build(),
+          RequestBody.fromString("{}"));
+    }
+
+    S3BackendConfig config =
+        new S3BackendConfig(
+            LOCALSTACK.getRegion(),
+            null,
+            null,
+            LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.S3).toString());
+    S3Backend backend = new S3Backend();
+
+    List<String> urns;
+    try (FileLister lister = backend.createLister(config)) {
+      urns =
+          lister
+              .list(new ListRequest("s3://test-bkt/logs", null))
+              .map(entry -> entry.key().urn())
+              .toList();
+    }
+
+    assertEquals(List.of("s3://test-bkt/logs/a.json"), urns);
+  }
+
+  @Test
+  void statOnABucketRootUrnFailsWithAClearMessage() {
+    S3BackendConfig config =
+        new S3BackendConfig(
+            LOCALSTACK.getRegion(),
+            null,
+            null,
+            LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.S3).toString());
+    S3Backend backend = new S3Backend();
+
+    try (FileLister lister = backend.createLister(config)) {
+      IllegalArgumentException thrown =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> lister.stat(new FileKey("s3", "s3://test-bkt")));
+      assertTrue(thrown.getMessage().contains("object key"), thrown.getMessage());
+    }
+  }
+
+  @Test
+  void openOnABucketRootUrnFailsWithAClearMessage() {
+    S3BackendConfig config =
+        new S3BackendConfig(
+            LOCALSTACK.getRegion(),
+            null,
+            null,
+            LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.S3).toString());
+    S3Backend backend = new S3Backend();
+
+    try (FileReader reader = backend.createReader(config)) {
+      IllegalArgumentException thrown =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> reader.open(new FileKey("s3", "s3://test-bkt"), 0));
+      assertTrue(thrown.getMessage().contains("object key"), thrown.getMessage());
+    }
+  }
 }

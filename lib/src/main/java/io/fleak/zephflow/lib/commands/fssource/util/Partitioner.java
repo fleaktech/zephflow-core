@@ -15,17 +15,34 @@ package io.fleak.zephflow.lib.commands.fssource.util;
 
 import com.google.common.hash.Hashing;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.stream.IntStream;
 
 public final class Partitioner {
 
+  /**
+   * How many virtual buckets files are hashed into. Fixed forever: it is baked into every stored
+   * checkpoint id, so changing it orphans every checkpoint. Replicas are assigned buckets, not
+   * files, which is what lets the replica count change without invalidating progress.
+   */
+  public static final int VIRTUAL_BUCKET_COUNT = 64;
+
   private Partitioner() {}
 
-  public static boolean owns(String urn, int replicaIndex, int replicaCount) {
+  /** The bucket a file belongs to. Depends only on the urn, never on the replica layout. */
+  public static int virtualBucket(String urn) {
+    return Math.floorMod(hash(urn), VIRTUAL_BUCKET_COUNT);
+  }
+
+  /** The buckets this replica is responsible for. Every bucket is owned by exactly one replica. */
+  public static List<Integer> ownedBuckets(int replicaIndex, int replicaCount) {
     if (replicaCount <= 1) {
-      return true;
+      return IntStream.range(0, VIRTUAL_BUCKET_COUNT).boxed().toList();
     }
-    int bucket = Math.floorMod(hash(urn), replicaCount);
-    return bucket == replicaIndex;
+    return IntStream.range(0, VIRTUAL_BUCKET_COUNT)
+        .filter(bucket -> bucket % replicaCount == replicaIndex)
+        .boxed()
+        .toList();
   }
 
   private static int hash(String urn) {

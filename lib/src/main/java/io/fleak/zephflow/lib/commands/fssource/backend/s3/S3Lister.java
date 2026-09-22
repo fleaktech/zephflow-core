@@ -28,51 +28,79 @@ public final class S3Lister implements FileLister {
     this.client = client;
   }
 
+  /** A bucket and an object key, split out of an {@code s3://bucket/key} urn. */
+  record S3Location(String bucket, String key) {
+
+    static S3Location ofObject(String urn) {
+      String stripped = urn.substring("s3://".length());
+      int slash = stripped.indexOf('/');
+      if (slash < 0 || slash == stripped.length() - 1) {
+        throw new IllegalArgumentException("s3 urn names no object key: " + urn);
+      }
+      return new S3Location(stripped.substring(0, slash), stripped.substring(slash + 1));
+    }
+
+    /**
+     * Splits a root urn, normalizing a non-empty prefix to end with {@code /} so it matches a
+     * folder rather than every sibling key that merely starts with the same characters.
+     */
+    static S3Location ofRoot(String urn) {
+      String stripped = urn.substring("s3://".length());
+      int slash = stripped.indexOf('/');
+      if (slash < 0) {
+        return new S3Location(stripped, "");
+      }
+      String prefix = stripped.substring(slash + 1);
+      if (!prefix.isEmpty() && !prefix.endsWith("/")) {
+        prefix = prefix + "/";
+      }
+      return new S3Location(stripped.substring(0, slash), prefix);
+    }
+  }
+
   @Override
   public Stream<FileEntry> list(ListRequest req) {
-    String urn = req.root();
-    String stripped = urn.substring("s3://".length());
-    int slash = stripped.indexOf('/');
-    String bucket = slash < 0 ? stripped : stripped.substring(0, slash);
-    String prefix = slash < 0 ? "" : stripped.substring(slash + 1);
-    String listPrefix = req.exactObjectKey() == null ? prefix : req.exactObjectKey();
+    S3Location root = S3Location.ofRoot(req.root());
+    String listPrefix = req.exactObjectKey() == null ? root.key() : req.exactObjectKey();
 
-    var iter =
+    var pages =
         client.listObjectsV2Paginator(
-            ListObjectsV2Request.builder().bucket(bucket).prefix(listPrefix).build());
-    return StreamSupport.stream(iter.contents().spliterator(), false)
-        .filter(o -> req.exactObjectKey() == null || req.exactObjectKey().equals(o.key()))
+            ListObjectsV2Request.builder().bucket(root.bucket()).prefix(listPrefix).build());
+    return StreamSupport.stream(pages.contents().spliterator(), false)
         .filter(
-            o ->
+            s3Object -> req.exactObjectKey() == null || req.exactObjectKey().equals(s3Object.key()))
+        .filter(
+            s3Object ->
                 req.fileNameRegex() == null
-                    || req.fileNameRegex().matcher(filename(o.key())).matches())
-        .map(o -> toEntry(bucket, o));
+                    || req.fileNameRegex().matcher(filename(s3Object.key())).matches())
+        .map(s3Object -> toEntry(root.bucket(), s3Object));
   }
 
   private static String filename(String key) {
-    int i = key.lastIndexOf('/');
-    return i < 0 ? key : key.substring(i + 1);
+    int slashIndex = key.lastIndexOf('/');
+    return slashIndex < 0 ? key : key.substring(slashIndex + 1);
   }
 
-  private static FileEntry toEntry(String bucket, S3Object o) {
-    String urn = "s3://" + bucket + "/" + o.key();
+  private static FileEntry toEntry(String bucket, S3Object s3Object) {
+    String urn = "s3://" + bucket + "/" + s3Object.key();
     return new FileEntry(
         new FileKey("s3", urn),
-        o.size(),
-        Instant.ofEpochMilli(o.lastModified().toEpochMilli()),
+        s3Object.size(),
+        Instant.ofEpochMilli(s3Object.lastModified().toEpochMilli()),
         urn);
   }
 
   @Override
   public FileEntry stat(FileKey key) {
-    String stripped = key.urn().substring("s3://".length());
-    int slash = stripped.indexOf('/');
-    String bucket = stripped.substring(0, slash);
-    String objectKey = stripped.substring(slash + 1);
-    HeadObjectResponse h =
-        client.headObject(HeadObjectRequest.builder().bucket(bucket).key(objectKey).build());
+    S3Location location = S3Location.ofObject(key.urn());
+    HeadObjectResponse headResponse =
+        client.headObject(
+            HeadObjectRequest.builder().bucket(location.bucket()).key(location.key()).build());
     return new FileEntry(
-        key, h.contentLength(), Instant.ofEpochMilli(h.lastModified().toEpochMilli()), key.urn());
+        key,
+        headResponse.contentLength(),
+        Instant.ofEpochMilli(headResponse.lastModified().toEpochMilli()),
+        key.urn());
   }
 
   @Override

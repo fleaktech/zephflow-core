@@ -29,13 +29,11 @@ public final class S3Reader implements FileReader {
 
   @Override
   public InputStream open(FileKey key, long offset) {
-    String stripped = key.urn().substring("s3://".length());
-    int slash = stripped.indexOf('/');
-    String bucket = stripped.substring(0, slash);
-    String objectKey = stripped.substring(slash + 1);
-    GetObjectRequest.Builder b = GetObjectRequest.builder().bucket(bucket).key(objectKey);
-    if (offset > 0) b.range("bytes=" + offset + "-");
-    return client.getObject(b.build());
+    S3Lister.S3Location location = S3Lister.S3Location.ofObject(key.urn());
+    GetObjectRequest.Builder requestBuilder =
+        GetObjectRequest.builder().bucket(location.bucket()).key(location.key());
+    if (offset > 0) requestBuilder.range("bytes=" + offset + "-");
+    return client.getObject(requestBuilder.build());
   }
 
   @Override

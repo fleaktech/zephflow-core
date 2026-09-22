@@ -58,4 +58,13 @@ public abstract class FleakDeserializer<T> extends FleakSerdes<T> {
       return DeserializationOutcome.wholePayloadFailure(serializedEvent.value(), e);
     }
   }
+
+  /**
+   * Whether this format can be deserialized one newline-delimited chunk at a time. Only formats
+   * where a line is an independent record can; whole-document formats (json array, xml, csv) need
+   * the entire payload at once.
+   */
+  public boolean supportsChunkedPayloads() {
+    return false;
+  }
 }
