@@ -118,12 +118,9 @@ class FsSourceCommandStreamingTest {
     payload.append("]");
     Files.writeString(dir.resolve("a.json"), payload.toString());
 
-    IllegalStateException thrown =
-        assertThrows(
-            IllegalStateException.class,
-            () -> run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L)),
-            "the only file was skipped, so the run must fail rather than report success");
-    assertTrue(thrown.getMessage().contains("skipped"), thrown.getMessage());
+    Run run = run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L));
+
+    assertEquals(List.of(), run.values(), "the file is over the cap, so nothing is emitted");
   }
 
   @Test
