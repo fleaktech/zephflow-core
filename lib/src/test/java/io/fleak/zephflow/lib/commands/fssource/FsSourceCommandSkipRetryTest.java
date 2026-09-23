@@ -23,7 +23,9 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -31,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,16 +111,21 @@ class FsSourceCommandSkipRetryTest {
   }
 
   private List<Object> run(Path dir) throws Exception {
+    return run(dir, "JSON_OBJECT_LINE", Map.of());
+  }
+
+  private List<Object> run(Path dir, String encodingType, Map<String, Object> extraConfig)
+      throws Exception {
     JobContext jobContext =
         JobContext.builder()
             .otherProperties(new HashMap<>(Map.of(JobContext.CHECKPOINT_URL, baseUrl)))
             .build();
-    Map<String, Object> rawConfig =
-        Map.of(
-            "backend", "file",
-            "root", dir.toUri().toString(),
-            "fileNameRegex", "evt_(?<ts>\\d+)\\.log",
-            "encodingType", "JSON_OBJECT_LINE");
+    Map<String, Object> rawConfig = new HashMap<>();
+    rawConfig.put("backend", "file");
+    rawConfig.put("root", dir.toUri().toString());
+    rawConfig.put("fileNameRegex", "evt_(?<ts>\\d+)\\.(log|json)");
+    rawConfig.put("encodingType", encodingType);
+    rawConfig.putAll(extraConfig);
     List<RecordFleakData> emitted = new ArrayList<>();
     SourceEventAcceptor acceptor =
         new SourceEventAcceptor() {
@@ -177,6 +185,62 @@ class FsSourceCommandSkipRetryTest {
     assertTrue(
         thrown.getMessage().contains("2"),
         "the failure must say how many files were skipped: " + thrown.getMessage());
+  }
+
+  @Test
+  void anOversizedFileIsNotRetriedOnLaterRuns(@TempDir Path dir) throws Exception {
+    Files.writeString(dir.resolve("evt_1.json"), oversizedJsonArray("a"));
+    Files.writeString(dir.resolve("evt_2.json"), "[{\"v\":\"b\"}]");
+    Map<String, Object> smallCap = Map.of("maxFileBytes", 64L);
+
+    assertEquals(List.of("b"), run(dir, "JSON_ARRAY", smallCap), "run 1: evt_1 is too large");
+
+    // Shrinking the file shows whether run 2 looks at it again: a retry would now emit it.
+    Files.writeString(dir.resolve("evt_1.json"), "[{\"v\":\"a\"}]");
+    Files.writeString(dir.resolve("evt_3.json"), "[{\"v\":\"c\"}]");
+
+    assertEquals(
+        List.of("c"),
+        run(dir, "JSON_ARRAY", smallCap),
+        "an oversized file cannot succeed on retry, so it is completed rather than retried");
+  }
+
+  @Test
+  void anOversizedFileDoesNotHoldTheWatermark(@TempDir Path dir) throws Exception {
+    // The watermark is per bucket, so the newer file must share the oversized file's bucket.
+    Files.writeString(dir.resolve("evt_1.log"), oversizedJsonArray("a"));
+    String newerFileName = sameBucketFileName(dir, "evt_1.log");
+    Files.writeString(dir.resolve(newerFileName), "[{\"v\":\"b\"}]");
+
+    run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L));
+
+    String newerUrn = dir.resolve(newerFileName).toUri().toString();
+    FsCheckpoint checkpoint =
+        store.values().stream()
+            .map(body -> JsonUtils.fromJsonString(body, CheckpointClient.CheckpointData.class))
+            .map(envelope -> JsonUtils.fromJsonString(envelope.data(), FsCheckpoint.class))
+            .filter(candidate -> candidate.isCompleted(newerUrn))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        checkpoint.completedSinceWatermark().get(newerUrn),
+        checkpoint.watermark(),
+        "the watermark must advance past the oversized evt_1 to the newer file");
+  }
+
+  @Test
+  void aRunWhoseOnlyFilesAreOversizedSucceeds(@TempDir Path dir) throws Exception {
+    Files.writeString(dir.resolve("evt_1.json"), oversizedJsonArray("a"));
+
+    assertEquals(
+        List.of(),
+        run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L)),
+        "the oversized file is resolved, so there is nothing left for a retry to do");
+  }
+
+  /** A JSON array comfortably over a 64-byte cap. */
+  private static String oversizedJsonArray(String value) {
+    return "[" + String.join(",", Collections.nCopies(10, "{\"v\":\"" + value + "\"}")) + "]";
   }
 
   @Test

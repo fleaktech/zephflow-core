@@ -337,6 +337,7 @@ public final class FsSourceCommand extends SourceCommand {
     Map<Integer, Instant> ceilingByBucket = new HashMap<>();
     int emittedFileCount = 0;
     int skippedFileCount = 0;
+    int abandonedFileCount = 0;
 
     for (PendingFile pending : pendingFiles) {
       if (terminated) break;
@@ -344,10 +345,18 @@ public final class FsSourceCommand extends SourceCommand {
       int bucket = bucketOf(pending);
 
       String skipReason = readAndEmit(executionContext, deserializer, eventAcceptor, fileEntry);
-      if (skipReason != null) {
+      if (SKIP_REASON_FILE_TOO_LARGE.equals(skipReason)) {
+        // Unlike the other skips, a retry reads the same bytes against the same cap and fails the
+        // same way. Holding the watermark for it would re-read it every run and pin the bucket
+        // forever, so it is checkpointed as done: the file is dropped, not retried.
+        countSkip(executionContext, skipReason);
+        abandonedFileCount++;
+      } else if (skipReason != null) {
         ceilingByBucket.merge(bucket, pending.timestamp(), FsSourceCommand::holdWatermark);
         skippedFileCount += countSkip(executionContext, skipReason);
         continue;
+      } else {
+        emittedFileCount++;
       }
 
       // Records that did parse were emitted, and malformed ones were quarantined, so the file is
@@ -362,9 +371,18 @@ public final class FsSourceCommand extends SourceCommand {
       checkpointByBucket.put(bucket, updated);
       FsCheckpointStore.save(
           executionContext.checkpointClient, sourceIdByBucket.get(bucket), updated);
-      emittedFileCount++;
     }
 
+    if (abandonedFileCount > 0) {
+      log.error(
+          "fs_source run summary: scope={} replica={}/{} dropped {} file(s) over maxFileBytes;"
+              + " they will not be retried. See the preceding {} errors",
+          executionContext.checkpointScope,
+          executionContext.replicaIndex,
+          executionContext.replicaCount,
+          abandonedFileCount,
+          SKIP_REASON_FILE_TOO_LARGE);
+    }
     if (skippedFileCount > 0) {
       // ceilingByBucket holds one entry per bucket that had an unresolved file this run: that
       // bucket's watermark cannot advance past it, so a file that can never be resolved pins it
@@ -386,6 +404,7 @@ public final class FsSourceCommand extends SourceCommand {
     }
     if (emittedFileCount == 0 && skippedFileCount > 0) {
       // Reporting success here would tell the scheduler the batch is done when nothing was read.
+      // Dropped oversized files don't count: they are done, and a retry would find nothing to do.
       throw new IllegalStateException(
           "fs_source read no files: all "
               + skippedFileCount
@@ -413,7 +432,8 @@ public final class FsSourceCommand extends SourceCommand {
       // Size is the single most common reason a file is skipped, and the one an operator can act
       // on directly, so name the reason and the listed object size rather than only the exception.
       log.error(
-          "fs_source skip file urn={} reason={} listedSizeBytes={}: {}",
+          "fs_source drop file urn={} reason={} listedSizeBytes={}: {}. It is checkpointed as"
+              + " done and will not be retried; any records already emitted from it stand",
           urn,
           SKIP_REASON_FILE_TOO_LARGE,
           fileEntry.size(),
