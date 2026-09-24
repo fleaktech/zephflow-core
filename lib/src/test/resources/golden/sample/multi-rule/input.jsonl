@@ -1,0 +1,13 @@
+{"id": 1, "path": "/health", "status": 200, "ok": true}
+{"id": 2, "level": "debug", "status": 200, "ok": true}
+{"id": 3, "status": 200, "ok": true}
+{"id": 4, "status": 200, "ok": 1}
+{"id": 5, "status": 404, "rate": 7, "__sampled__": 4}
+{"id": 6, "level": "debug", "path": "/health"}
+{"id": 7, "status": 200, "ok": true}
+{"id": 8, "level": "debug"}
+{"id": 9, "status": 200}
+{"id": 10, "status": 200, "ok": true}
+{"id": 11, "path": "/health"}
+{"id": 12, "status": 200, "ok": true}
+{"id": 13, "level": "info", "status": 500}

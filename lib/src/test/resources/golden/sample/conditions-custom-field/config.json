@@ -1,0 +1,11 @@
+{
+  "sampleRateField": "rate",
+  "rules": [
+    {"condition": "($.a / $.b) > 1", "sampleRate": 2},
+    {"condition": "($.a % $.b) > 100", "sampleRate": 2},
+    {"condition": "$.flag", "sampleRate": 2},
+    {"condition": "$.code != 404", "sampleRate": 2},
+    {"sampleRate": 3},
+    {"condition": "$.x == 1", "sampleRate": 1}
+  ]
+}
