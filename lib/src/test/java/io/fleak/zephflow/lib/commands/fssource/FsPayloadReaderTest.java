@@ -154,6 +154,50 @@ class FsPayloadReaderTest {
   }
 
   @Test
+  void streamCountsDecompressedBytes() throws Exception {
+    FsPayloadReader payloadReader = new FsPayloadReader(readerOf(gzip("hello world")), 1024, 8);
+    long[] bytesRead = {0};
+
+    payloadReader.stream(
+        KEY,
+        input -> {
+          input.readAllBytes();
+          bytesRead[0] = input.bytesRead();
+        });
+
+    assertEquals(11, bytesRead[0]);
+  }
+
+  @Test
+  void streamRejectsOneRecordThatGrowsPastTheCap() {
+    byte[] payload = "a".repeat(200 * 1024).getBytes(StandardCharsets.UTF_8);
+    FsPayloadReader payloadReader = new FsPayloadReader(readerOf(payload), 1024, 8);
+
+    assertThrows(
+        FsPayloadReader.PayloadTooLargeException.class,
+        () -> payloadReader.stream(KEY, input -> input.readAllBytes()));
+  }
+
+  @Test
+  void streamReadsFarPastTheCapWhileRecordsKeepEnding() throws Exception {
+    byte[] payload = "a".repeat(1024 * 1024).getBytes(StandardCharsets.UTF_8);
+    FsPayloadReader payloadReader = new FsPayloadReader(readerOf(payload), 1024, 8);
+    long[] bytesRead = {0};
+
+    payloadReader.stream(
+        KEY,
+        input -> {
+          byte[] record = new byte[100];
+          while (input.readNBytes(record, 0, record.length) > 0) {
+            input.recordBoundary();
+          }
+          bytesRead[0] = input.bytesRead();
+        });
+
+    assertEquals(payload.length, bytesRead[0], "the cap bounds one record, not the stream");
+  }
+
+  @Test
   void openClosesTheUnderlyingStreamWhenMagicByteDetectionFails() {
     TrackingFailingStream failingStream = new TrackingFailingStream();
     FileReader reader = (key, offset) -> failingStream;

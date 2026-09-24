@@ -37,7 +37,12 @@ public interface FsSourceDto {
     private EncodingType encodingType;
     private Map<String, Object> backendConfig;
 
-    /** Cap on a single whole-document payload, in decompressed bytes. Null uses the default. */
+    /**
+     * Cap, in decompressed bytes, on what has to be held in memory at once: the whole payload for
+     * single-document encodings (JSON_OBJECT, TEXT, XML), one line for line-delimited ones
+     * (JSON_OBJECT_LINE, STRING_LINE) and one record for streamed ones (CSV, JSON_ARRAY). Null uses
+     * the default.
+     */
     private Long maxFileBytes;
 
     /** Target size of one streamed chunk, in decompressed bytes. Null uses the default. */

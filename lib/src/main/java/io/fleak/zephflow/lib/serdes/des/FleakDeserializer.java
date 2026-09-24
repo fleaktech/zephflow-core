@@ -18,6 +18,8 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.FleakSerdes;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -61,10 +63,35 @@ public abstract class FleakDeserializer<T> extends FleakSerdes<T> {
 
   /**
    * Whether this format can be deserialized one newline-delimited chunk at a time. Only formats
-   * where a line is an independent record can; whole-document formats (json array, xml, csv) need
-   * the entire payload at once.
+   * where a line is an independent record can (json object line, string line).
    */
   public boolean supportsChunkedPayloads() {
     return false;
+  }
+
+  /**
+   * Whether this format can be parsed record by record straight from a stream with {@link
+   * #deserializeStream}. These are the record-sequence formats whose records are not simply lines
+   * (json array, csv). Single-document formats (json object, text, xml) need the whole payload.
+   */
+  public boolean supportsStreamedPayloads() {
+    return false;
+  }
+
+  /**
+   * Parses records one at a time from {@code input}, handing each to {@code onRecord}, so the
+   * payload never has to fit in memory.
+   *
+   * <p>Malformed input goes to {@code onError} instead of being thrown: a bad record is reported
+   * and skipped, and input the parser cannot recover from is reported once and ends the parse,
+   * keeping the records already delivered. A failure reading {@code input} is thrown, and so is
+   * anything either consumer throws.
+   */
+  public void deserializeStream(
+      InputStream input,
+      Consumer<RecordFleakData> onRecord,
+      Consumer<DeserializationOutcome.RecordError> onError)
+      throws IOException {
+    throw new UnsupportedOperationException("Streamed decoding is not implemented for this format");
   }
 }
