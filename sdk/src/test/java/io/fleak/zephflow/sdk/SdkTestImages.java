@@ -18,7 +18,7 @@ import org.testcontainers.utility.DockerImageName;
 public final class SdkTestImages {
 
   public static final DockerImageName MINIO_IMAGE =
-      DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
+      DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z")
           .asCompatibleSubstituteFor("minio/minio");
 
   private SdkTestImages() {}
