@@ -44,13 +44,13 @@ public class DagRunnerService {
         AdjacencyListDagDefinition.builder().jobContext(jobContext).dag(dag).build();
     Dag<OperatorCommand> compiledDag = dagCompiler.compile(dagDefinition, false);
     // The request/response backend has no flush scheduler and reuses the runner across requests, so
-    // keyed reduction state (windowed aggregation, throttle, ...) can't fire on time and would leak
-    // across requests. Reject these keyed-stateful commands at build time.
+    // keyed reduction state (windowed aggregation, throttle, sample, ...) can't fire on time and
+    // would leak across requests. Reject these keyed-stateful commands at build time.
     for (Node<OperatorCommand> node : compiledDag.getNodes()) {
       if (node.getNodeContent() instanceof KeyedStatefulCommand) {
         throw new IllegalArgumentException(
-            "api backend doesn't support keyed stateful command node in the dag (windowed or "
-                + "throttle); it requires a streaming source pipeline. Found: "
+            "api backend doesn't support keyed stateful command node in the dag (windowed, "
+                + "throttle or sample); it requires a streaming source pipeline. Found: "
                 + node.getNodeContent().commandName());
       }
     }

@@ -26,8 +26,10 @@ that **throws** doesn't match: the walk continues to the next rule.
 
 **Validation (parse time).** `rules` non-empty. `sampleRate` a JSON integer, 1 ≤ N ≤ 2³¹−1, checked
 on the raw value's type, so `3.0` and `"3"` are rejected (throttle's parser coerces them; see
-FLE-2842). `condition`, if present, must compile. `sampleRateField`, if set, a non-blank string (empty or whitespace-only is rejected). A
-rule without `condition` before other rules is allowed; the rules after it are unreachable.
+FLE-2842). `condition`, if present, must compile. `sampleRateField`, if set, a non-blank string
+(empty or whitespace-only is rejected). Unknown keys, top-level or inside a rule (e.g. a
+misspelled `conditon`, which would otherwise turn the rule into a catch-all), are rejected with a
+message naming the key. A rule without `condition` before other rules is allowed; the rules after it are unreachable.
 
 ## Behaviour
 
@@ -114,7 +116,7 @@ rule without `condition` before other rules is allowed; the rules after it are u
      message names the offending parameter: missing or empty `rules`; missing or null `sampleRate`;
      `sampleRate` of `0`, 2³¹, `3.0` and `"3"`; a `condition` that doesn't compile (the compile
      error is wrapped so the message names `condition`); an empty, whitespace-only or
-     non-string `sampleRateField`. Valid configs are accepted, including `sampleRate` of `1` and
+     non-string `sampleRateField`; an unknown key, top-level or in a rule. Valid configs are accepted, including `sampleRate` of `1` and
      2³¹−1 and a rule without `condition`.
    - **Seed injection:** inject a scripted `RandomGenerator` stub through `RandomAware.setRandom`
      before `parseAndValidateArg`/`initialize` and assert the exact output of at least two batches

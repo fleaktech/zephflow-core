@@ -25,6 +25,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigParser;
 import io.fleak.zephflow.lib.commands.noop.NoopConfigValidator;
+import io.fleak.zephflow.lib.commands.sample.SampleCommandFactory;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.commands.throttle.ThrottleCommandFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -126,6 +127,31 @@ class DagExecutorWindowFlushTest {
             IllegalArgumentException.class,
             () -> service.createForApiBackend(dag, JobContext.builder().build()));
     assertTrue(ex.getMessage().contains("Found: throttle"), ex.getMessage());
+  }
+
+  @Test
+  void createForApiBackend_rejectsSampleCommandAtBuildTime() {
+    Map<String, CommandFactory> factories = Map.of("sample", new SampleCommandFactory());
+    DagRunnerService service =
+        new DagRunnerService(
+            new DagCompiler(factories), new MetricClientProvider.NoopMetricClientProvider());
+    List<DagNode> dag =
+        List.of(
+            DagNode.builder()
+                .id("s")
+                .commandName("sample")
+                .config(Map.of("rules", List.of(Map.of("sampleRate", 10))))
+                .outputs(List.of())
+                .build());
+
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.createForApiBackend(dag, JobContext.builder().build()));
+    assertEquals(
+        "api backend doesn't support keyed stateful command node in the dag (windowed, throttle or"
+            + " sample); it requires a streaming source pipeline. Found: sample",
+        ex.getMessage());
   }
 
   @Test
