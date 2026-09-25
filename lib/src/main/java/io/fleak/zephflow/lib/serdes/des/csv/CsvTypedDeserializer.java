@@ -16,14 +16,19 @@ package io.fleak.zephflow.lib.serdes.des.csv;
 import io.fleak.zephflow.lib.serdes.des.IncrementalSupport;
 import io.fleak.zephflow.lib.serdes.des.MultipleEventsTypedDeserializer;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import org.apache.commons.csv.CSVException;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -53,6 +58,80 @@ public class CsvTypedDeserializer extends MultipleEventsTypedDeserializer<Map<St
         consumer.accept(new TypedOutcome<>(null, -1, 0, value.length, e));
       }
     }
+  }
+
+  @Override
+  public boolean supportsStreaming() {
+    return true;
+  }
+
+  /**
+   * Reads one row at a time, so only the current row is held in memory. The parser, not a newline
+   * split, finds row boundaries, which keeps a quoted field that spans lines intact. A short row is
+   * reported on its own and the read continues; malformed quoting leaves the parser with no way to
+   * find the next row, so it ends the read.
+   */
+  @Override
+  public void deserializeStream(
+      InputStream input, Consumer<StreamedOutcome<Map<String, Object>>> consumer)
+      throws IOException {
+    CSVParser parser;
+    try {
+      parser = CSV_FORMAT.parse(new InputStreamReader(input, StandardCharsets.UTF_8));
+    } catch (CSVException | IllegalArgumentException malformedHeader) {
+      consumer.accept(malformed(-1, malformedHeader));
+      return;
+    }
+    try (parser) {
+      Iterator<CSVRecord> records = parser.iterator();
+      int index = 0;
+      while (true) {
+        CSVRecord record;
+        try {
+          if (!records.hasNext()) {
+            return;
+          }
+          record = records.next();
+        } catch (UncheckedIOException e) {
+          // The iterator wraps every failure; only a CSVException means the content is malformed.
+          if (e.getCause() instanceof CSVException malformedInput) {
+            consumer.accept(malformed(index + 1, malformedInput));
+            return;
+          }
+          throw e.getCause();
+        }
+        index++;
+        Map<String, Object> row;
+        try {
+          row = toRow(parser.getHeaderNames(), record);
+        } catch (IllegalArgumentException shortRow) {
+          consumer.accept(
+              new StreamedOutcome<>(
+                  null,
+                  index,
+                  CSVFormat.DEFAULT.format(record.values()).getBytes(StandardCharsets.UTF_8),
+                  shortRow));
+          continue;
+        }
+        consumer.accept(new StreamedOutcome<>(row, index, null, null));
+      }
+    }
+  }
+
+  private static StreamedOutcome<Map<String, Object>> malformed(int index, Exception error) {
+    return new StreamedOutcome<>(null, index, new byte[0], error);
+  }
+
+  /** Throws {@link IllegalArgumentException} when the row has fewer values than the header. */
+  private static Map<String, Object> toRow(List<String> headerNames, CSVRecord record) {
+    Map<String, Object> row = new HashMap<>(headerNames.size());
+    for (String header : headerNames) {
+      String cell = record.get(header);
+      if (cell != null) {
+        row.put(header, cell);
+      }
+    }
+    return row;
   }
 
   private void scan(byte[] value, Consumer<Map<String, Object>> consumer, BooleanSupplier stop)
