@@ -184,7 +184,8 @@ class BatchDatabricksFlusherTest {
       assertEquals(2, result.successCount());
       assertTrue(result.errorOutputList().isEmpty());
 
-      verify(parquetWriter).writeParquetFiles(anyList(), eq(tempDir));
+      verify(parquetWriter)
+          .writeParquetFiles(anyList(), argThat(path -> path.getParent().equals(tempDir)));
       verify(volumeUploader).uploadFile(eq(mockFile), contains("test.parquet"));
       verify(sqlExecutor).executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap());
     }
@@ -384,7 +385,15 @@ class BatchDatabricksFlusherTest {
           .thenReturn(List.of(mockFile));
 
       when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
-          .thenThrow(new RuntimeException("COPY INTO failed"));
+          .thenThrow(
+              new DatabricksSqlExecutor.StatementExecutionException(
+                  "statement",
+                  com.databricks.sdk.service.sql.StatementState.FAILED,
+                  "42501",
+                  "PERMISSION_DENIED",
+                  "COPY INTO failed",
+                  false,
+                  null));
 
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
           new SimpleSinkCommand.PreparedInputEvents<>();
@@ -399,7 +408,9 @@ class BatchDatabricksFlusherTest {
       assertTrue(result.errorOutputList().get(0).errorMessage().contains("COPY INTO failed"));
 
       verify(volumeUploader).uploadFile(any(File.class), anyString());
-      verify(volumeUploader).deleteDirectory(anyString());
+      verify(volumeUploader, never()).deleteDirectory(anyString());
+      assertTrue(result.errorOutputList().get(0).errorMessage().contains("outcome unknown"));
+      verify(sqlExecutor).validateCopyInto(anyString(), anyString(), anyMap(), anyMap());
     }
   }
 
@@ -463,7 +474,8 @@ class BatchDatabricksFlusherTest {
 
     flusher.close();
 
-    verify(parquetWriter).writeParquetFiles(anyList(), eq(tempDir));
+    verify(parquetWriter)
+        .writeParquetFiles(anyList(), argThat(path -> path.getParent().equals(tempDir)));
     verify(volumeUploader).uploadFile(any(File.class), anyString());
     verify(sqlExecutor).executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap());
   }
@@ -631,12 +643,11 @@ class BatchDatabricksFlusherTest {
     events.add((RecordFleakData) FleakData.wrap(validData), validData);
     events.add((RecordFleakData) FleakData.wrap(invalidData), invalidData);
 
-    when(parquetWriter.writeParquetFiles(argThat(l -> l != null && l.size() == 2), any()))
-        .thenThrow(new RuntimeException("Batch write failed"));
-
-    File mockFile = createMockFile("recovery.parquet");
-    when(parquetWriter.writeParquetFiles(argThat(l -> l != null && l.size() == 1), any()))
-        .thenReturn(List.of(mockFile));
+    when(parquetWriter.writeParquetFiles(anyList(), any()))
+        .thenAnswer(
+            invocation ->
+                new DatabricksParquetWriter(schema)
+                    .writeParquetFiles(invocation.getArgument(0), invocation.getArgument(1)));
 
     CopyIntoStats stats = new CopyIntoStats(1, 1, 1, List.of());
     when(sqlExecutor.executeCopyIntoWithStats(any(), any(), any(), any())).thenReturn(stats);
@@ -646,7 +657,7 @@ class BatchDatabricksFlusherTest {
     assertEquals(1, result.successCount(), "Should successfully recover the valid record");
     assertEquals(1, result.errorOutputList().size(), "Should report the invalid record as error");
     assertTrue(
-        result.errorOutputList().get(0).errorMessage().contains("validation error"),
+        result.errorOutputList().get(0).errorMessage().contains("Parquet conversion failed"),
         "Error message should indicate validation failure in recovery mode");
   }
 }

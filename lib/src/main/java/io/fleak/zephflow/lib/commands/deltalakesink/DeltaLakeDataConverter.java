@@ -17,6 +17,7 @@ import io.delta.kernel.data.ArrayValue;
 import io.delta.kernel.data.ColumnVector;
 import io.delta.kernel.data.ColumnarBatch;
 import io.delta.kernel.data.FilteredColumnarBatch;
+import io.delta.kernel.data.MapValue;
 import io.delta.kernel.types.*;
 import io.delta.kernel.utils.CloseableIterator;
 import io.fleak.zephflow.api.structure.ArrayFleakData;
@@ -26,6 +27,7 @@ import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -68,7 +70,7 @@ public class DeltaLakeDataConverter {
         Object value = data.get(i).get(fieldName);
 
         if (value == null && !field.isNullable()) {
-          throw new IllegalArgumentException(
+          throw new InvalidRecordException(
               String.format(
                   "Cannot write NULL to non-nullable field '%s'. "
                       + "Please ensure the input data contains this required field. "
@@ -133,34 +135,43 @@ public class DeltaLakeDataConverter {
   /** Set value at the given row index */
   private static void setValue(ColumnVector vector, int rowId, Object value, DataType dataType) {
     switch (vector) {
-      case ByteColumnVector v -> v.set(rowId, ((Number) value).byteValue());
-      case ShortColumnVector v -> v.set(rowId, ((Number) value).shortValue());
-      case IntColumnVector v -> v.set(rowId, ((Number) value).intValue());
+      case ByteColumnVector v -> v.set(rowId, numberValue(value, dataType).byteValue());
+      case ShortColumnVector v -> v.set(rowId, numberValue(value, dataType).shortValue());
+      case IntColumnVector v -> v.set(rowId, numberValue(value, dataType).intValue());
       case LongColumnVector v -> {
         if (value instanceof java.sql.Timestamp ts) {
           java.time.Instant inst = ts.toInstant();
           v.set(rowId, inst.getEpochSecond() * 1_000_000 + inst.getNano() / 1000);
         } else {
-          v.set(rowId, ((Number) value).longValue());
+          v.set(rowId, numberValue(value, dataType).longValue());
         }
       }
-      case FloatColumnVector v -> v.set(rowId, ((Number) value).floatValue());
-      case DoubleColumnVector v -> v.set(rowId, ((Number) value).doubleValue());
-      case BooleanColumnVector v -> v.set(rowId, (Boolean) value);
+      case FloatColumnVector v -> v.set(rowId, numberValue(value, dataType).floatValue());
+      case DoubleColumnVector v -> v.set(rowId, numberValue(value, dataType).doubleValue());
+      case BooleanColumnVector v -> {
+        if (!(value instanceof Boolean bool)) {
+          throw new InvalidRecordException("Expected Boolean value for " + dataType);
+        }
+        v.set(rowId, bool);
+      }
       case StringColumnVector v -> v.set(rowId, value.toString());
-      case BinaryColumnVector v -> v.set(rowId, (byte[]) value);
-      case DecimalColumnVector v -> {
-        if (value instanceof BigDecimal bd) {
-          v.set(rowId, bd);
-        } else if (value instanceof Number n) {
-          v.set(rowId, BigDecimal.valueOf(n.doubleValue()));
-        } else {
-          v.set(rowId, new BigDecimal(value.toString()));
+      case BinaryColumnVector v -> {
+        if (!(value instanceof byte[] bytes)) {
+          throw new InvalidRecordException("Expected byte[] value for " + dataType);
         }
+        v.set(rowId, bytes);
       }
+      case DecimalColumnVector v -> v.set(rowId, convertToDecimal(value));
       case ObjectColumnVector v -> v.set(rowId, value);
       default -> {}
     }
+  }
+
+  private static Number numberValue(Object value, DataType type) {
+    if (value instanceof Number number) {
+      return number;
+    }
+    throw new InvalidRecordException("Expected Number value for " + type);
   }
 
   /** Infer schema from the first record in the data */
@@ -245,23 +256,14 @@ public class DeltaLakeDataConverter {
 
     return switch (targetType) {
       case StringType t -> unwrappedValue.toString();
-      case ByteType t ->
-          unwrappedValue instanceof Number n
-              ? n.byteValue()
-              : Byte.parseByte(unwrappedValue.toString());
-      case ShortType t ->
-          unwrappedValue instanceof Number n
-              ? n.shortValue()
-              : Short.parseShort(unwrappedValue.toString());
+      case ByteType t -> convertToByte(unwrappedValue);
+      case ShortType t -> convertToShort(unwrappedValue);
       case IntegerType t -> convertToInt(unwrappedValue, fieldName);
       case DateType t -> convertToInt(unwrappedValue, fieldName);
       case LongType t -> convertToLong(unwrappedValue, fieldName);
       case TimestampType t -> convertToTimestamp(unwrappedValue, fieldName);
       case TimestampNTZType t -> convertToTimestamp(unwrappedValue, fieldName);
-      case FloatType t ->
-          unwrappedValue instanceof Number n
-              ? n.floatValue()
-              : Float.parseFloat(unwrappedValue.toString());
+      case FloatType t -> convertToFloat(unwrappedValue);
       case DoubleType t -> convertToDouble(unwrappedValue, fieldName);
       case BooleanType t ->
           unwrappedValue instanceof Boolean b ? b : Boolean.parseBoolean(unwrappedValue.toString());
@@ -278,16 +280,25 @@ public class DeltaLakeDataConverter {
           }
           yield convertedList;
         }
-        throw new IllegalArgumentException(
+        throw new InvalidRecordException(
             String.format(
                 "Expected array for field '%s' but got %s",
+                fieldName, unwrappedValue.getClass().getSimpleName()));
+      }
+      case MapType t -> {
+        if (unwrappedValue instanceof Map<?, ?>) {
+          yield unwrappedValue;
+        }
+        throw new InvalidRecordException(
+            String.format(
+                "Expected map for field '%s' but got %s",
                 fieldName, unwrappedValue.getClass().getSimpleName()));
       }
       case StructType t -> {
         if (unwrappedValue instanceof Map) {
           yield unwrappedValue;
         }
-        throw new IllegalArgumentException(
+        throw new InvalidRecordException(
             String.format(
                 "Expected map/struct for field '%s' but got %s",
                 fieldName, unwrappedValue.getClass().getSimpleName()));
@@ -299,12 +310,39 @@ public class DeltaLakeDataConverter {
     };
   }
 
+  private static byte convertToByte(Object value) {
+    if (value instanceof Number number) return number.byteValue();
+    try {
+      return Byte.parseByte(value.toString());
+    } catch (NumberFormatException e) {
+      throw new InvalidRecordException("Cannot convert value to byte", e);
+    }
+  }
+
+  private static short convertToShort(Object value) {
+    if (value instanceof Number number) return number.shortValue();
+    try {
+      return Short.parseShort(value.toString());
+    } catch (NumberFormatException e) {
+      throw new InvalidRecordException("Cannot convert value to short", e);
+    }
+  }
+
+  private static float convertToFloat(Object value) {
+    if (value instanceof Number number) return number.floatValue();
+    try {
+      return Float.parseFloat(value.toString());
+    } catch (NumberFormatException e) {
+      throw new InvalidRecordException("Cannot convert value to float", e);
+    }
+  }
+
   private static Object convertToInt(Object unwrappedValue, String fieldName) {
     if (unwrappedValue instanceof Number n) return n.intValue();
     try {
       return Integer.parseInt(unwrappedValue.toString());
     } catch (NumberFormatException e) {
-      throw new IllegalArgumentException(
+      throw new InvalidRecordException(
           String.format(
               "Cannot convert value '%s' to integer for field '%s'", unwrappedValue, fieldName),
           e);
@@ -316,7 +354,7 @@ public class DeltaLakeDataConverter {
     try {
       return Long.parseLong(unwrappedValue.toString());
     } catch (NumberFormatException e) {
-      throw new IllegalArgumentException(
+      throw new InvalidRecordException(
           String.format(
               "Cannot convert value '%s' to long for field '%s'", unwrappedValue, fieldName),
           e);
@@ -332,7 +370,7 @@ public class DeltaLakeDataConverter {
         try {
           yield new java.sql.Timestamp(Long.parseLong(unwrappedValue.toString()));
         } catch (NumberFormatException e) {
-          throw new IllegalArgumentException(
+          throw new InvalidRecordException(
               String.format(
                   "Cannot convert value '%s' to timestamp for field '%s'",
                   unwrappedValue, fieldName),
@@ -347,7 +385,7 @@ public class DeltaLakeDataConverter {
     try {
       return Double.parseDouble(unwrappedValue.toString());
     } catch (NumberFormatException e) {
-      throw new IllegalArgumentException(
+      throw new InvalidRecordException(
           String.format(
               "Cannot convert value '%s' to double for field '%s'", unwrappedValue, fieldName),
           e);
@@ -355,11 +393,15 @@ public class DeltaLakeDataConverter {
   }
 
   private static BigDecimal convertToDecimal(Object unwrappedValue) {
-    return switch (unwrappedValue) {
-      case BigDecimal bd -> bd;
-      case Number n -> BigDecimal.valueOf(n.doubleValue());
-      default -> new BigDecimal(unwrappedValue.toString());
-    };
+    try {
+      return switch (unwrappedValue) {
+        case BigDecimal bd -> bd;
+        case Number n -> BigDecimal.valueOf(n.doubleValue());
+        default -> new BigDecimal(unwrappedValue.toString());
+      };
+    } catch (NumberFormatException e) {
+      throw new InvalidRecordException("Cannot convert value to decimal", e);
+    }
   }
 
   private static Object unwrapFleakData(Object value) {
@@ -891,9 +933,16 @@ public class DeltaLakeDataConverter {
   static final class DecimalColumnVector implements ColumnVector {
     private final BigDecimal[] data;
     private final DataType type;
+    private final int fixedWidthBytes;
 
     DecimalColumnVector(DataType type, int size) {
       this.type = type;
+      this.fixedWidthBytes =
+          type instanceof DecimalType decimalType && decimalType.getPrecision() > 18
+              ? (BigInteger.TEN.pow(decimalType.getPrecision()).subtract(BigInteger.ONE).bitLength()
+                      + 8)
+                  / 8
+              : 0;
       this.data = new BigDecimal[size];
     }
 
@@ -922,7 +971,21 @@ public class DeltaLakeDataConverter {
 
     @Override
     public BigDecimal getDecimal(int rowId) {
-      return data[rowId];
+      BigDecimal value = data[rowId];
+      if (value != null && type instanceof DecimalType decimal && decimal.getPrecision() <= 18) {
+        try {
+          value.movePointRight(decimal.getScale());
+        } catch (ArithmeticException failure) {
+          throw new InvalidRecordException("Decimal value cannot be encoded for " + type, failure);
+        }
+      }
+      if (value != null
+          && fixedWidthBytes > 0
+          && value.unscaledValue().toByteArray().length > fixedWidthBytes) {
+        throw new InvalidRecordException(
+            "Decimal value exceeds the Parquet fixed width for " + type);
+      }
+      return value;
     }
 
     @Override
@@ -1016,11 +1079,25 @@ public class DeltaLakeDataConverter {
         case List<?> list -> {
           @SuppressWarnings("unchecked")
           List<Object> objectList = (List<Object>) list;
-          yield new SimpleArrayValue(objectList, arrayType.getElementType());
+          yield new SimpleArrayValue(objectList, arrayType);
         }
         default ->
-            throw new IllegalStateException(
+            throw new InvalidRecordException(
                 "Expected List for array type but got: " + data[rowId].getClass());
+      };
+    }
+
+    @Override
+    public MapValue getMap(int rowId) {
+      if (!(type instanceof MapType mapType)) {
+        throw new UnsupportedOperationException("getMap() is only supported for map types");
+      }
+      return switch (data[rowId]) {
+        case null -> null;
+        case Map<?, ?> map -> new SimpleMapValue(map, mapType);
+        default ->
+            throw new InvalidRecordException(
+                "Expected Map for map type but got: " + data[rowId].getClass());
       };
     }
 
@@ -1047,11 +1124,19 @@ public class DeltaLakeDataConverter {
             Map<String, Object> map = (Map<String, Object>) value;
             Object fieldValue = map.get(fieldName);
             if (fieldValue == null) {
+              if (!field.isNullable()) {
+                throw new InvalidRecordException(
+                    "Cannot write NULL to non-nullable struct field " + fieldName);
+              }
               setNull(childVector, i);
             } else {
               setValue(childVector, i, fieldValue, fieldType);
             }
           } else {
+            if (!field.isNullable()) {
+              throw new InvalidRecordException(
+                  "Expected Map for non-nullable struct field " + fieldName);
+            }
             log.warn(
                 "Expected Map for struct field {} at row {} but got {}",
                 fieldName,
@@ -1082,6 +1167,10 @@ public class DeltaLakeDataConverter {
             List<Object> list = (List<Object>) value;
             for (Object element : list) {
               if (element == null) {
+                if (!arrayType.containsNull()) {
+                  throw new InvalidRecordException(
+                      "Cannot write NULL to non-nullable array element");
+                }
                 setNull(childVector, idx);
               } else {
                 setValue(childVector, idx, element, elementType);
@@ -1143,15 +1232,63 @@ public class DeltaLakeDataConverter {
     public void close() {}
   }
 
+  private static final class SimpleMapValue implements MapValue {
+    private final ColumnVector keys;
+    private final ColumnVector values;
+
+    SimpleMapValue(Map<?, ?> map, MapType type) {
+      if (!(type.getKeyType() instanceof StringType)) {
+        throw new UnsupportedOperationException("Only STRING map keys are supported");
+      }
+      List<Map.Entry<?, ?>> entries = new ArrayList<>(map.entrySet());
+      keys = allocateVector(type.getKeyType(), entries.size());
+      values = allocateVector(type.getValueType(), entries.size());
+      for (int i = 0; i < entries.size(); i++) {
+        Map.Entry<?, ?> entry = entries.get(i);
+        if (!(entry.getKey() instanceof String key)) {
+          throw new InvalidRecordException("Map keys must be non-null strings");
+        }
+        setValue(keys, i, key, type.getKeyType());
+        Object value =
+            convertValueToSchemaType(entry.getValue(), type.getValueType(), "[map value]");
+        if (value == null) {
+          if (!type.isValueContainsNull()) {
+            throw new InvalidRecordException("Cannot write NULL to non-nullable map value");
+          }
+          setNull(values, i);
+        } else {
+          setValue(values, i, value, type.getValueType());
+        }
+      }
+    }
+
+    @Override
+    public int getSize() {
+      return keys.getSize();
+    }
+
+    @Override
+    public ColumnVector getKeys() {
+      return keys;
+    }
+
+    @Override
+    public ColumnVector getValues() {
+      return values;
+    }
+  }
+
   /** Simple implementation of ArrayValue for Delta Kernel API with lazy caching */
   private static final class SimpleArrayValue implements ArrayValue {
     private final List<Object> elements;
     private final DataType elementType;
+    private final boolean containsNull;
     private ColumnVector cachedElements;
 
-    SimpleArrayValue(List<Object> elements, DataType elementType) {
+    SimpleArrayValue(List<Object> elements, ArrayType type) {
       this.elements = elements;
-      this.elementType = elementType;
+      this.elementType = type.getElementType();
+      this.containsNull = type.containsNull();
     }
 
     @Override
@@ -1168,6 +1305,9 @@ public class DeltaLakeDataConverter {
       for (int i = 0; i < elements.size(); i++) {
         Object element = elements.get(i);
         if (element == null) {
+          if (!containsNull) {
+            throw new InvalidRecordException("Cannot write NULL to non-nullable array element");
+          }
           setNull(vector, i);
         } else {
           setValue(vector, i, element, elementType);

@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.compression.GzipDetectingDecompressor;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.*;
@@ -113,7 +114,9 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     FleakDeserializer<?> deserializer =
         DeserializerFactory.createDeserializerFactory(config.getEncodingType())
             .createDeserializer();
-    return new BytesRawDataConverter(deserializer);
+    // Payloads are gunzipped when they carry the gzip magic bytes (e.g. OTLP from a collector), so
+    // compressed and plain messages on the same topic both deserialize without a setting.
+    return new BytesRawDataConverter(deserializer, new GzipDetectingDecompressor());
   }
 
   private static void initializeKafkaConsumer(
