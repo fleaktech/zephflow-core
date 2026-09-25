@@ -16,35 +16,67 @@ package io.fleak.zephflow.lib.commands.throttle;
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import java.math.BigInteger;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class ThrottleConfigParser implements ConfigParser {
+
+  private static final String KEY_EXPRESSION = "keyExpression";
+  private static final String NUM_TO_ALLOW = "numToAllow";
+  private static final String PERIOD_SECONDS = "periodSeconds";
+  private static final String CACHE_SIZE_LIMIT = "cacheSizeLimit";
+  private static final Set<String> CONFIG_KEYS =
+      new TreeSet<>(Set.of(KEY_EXPRESSION, NUM_TO_ALLOW, PERIOD_SECONDS, CACHE_SIZE_LIMIT));
+  private static final long MAX_PERIOD_SECONDS = 365L * 24 * 60 * 60;
 
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
     Preconditions.checkArgument(config != null, "throttle command requires configuration");
-    Object keyExpression = config.get("keyExpression");
+    for (Object key : config.keySet()) {
+      Preconditions.checkArgument(
+          key instanceof String name && CONFIG_KEYS.contains(name),
+          "unknown parameter '%s'; allowed: %s",
+          key,
+          CONFIG_KEYS);
+    }
+    Object keyExpression = config.get(KEY_EXPRESSION);
     Preconditions.checkArgument(
         keyExpression instanceof String && !((String) keyExpression).isBlank(),
         "throttle command requires 'keyExpression' to be configured");
     return new ThrottleCommandDto.Config(
         (String) keyExpression,
-        toInt(config.get("numToAllow"), 1),
-        toLong(config.get("periodSeconds"), 30L),
-        toInt(config.get("cacheSizeLimit"), 50_000));
+        (int) parseInteger(config, NUM_TO_ALLOW, 1, Integer.MAX_VALUE),
+        parseInteger(config, PERIOD_SECONDS, 30, MAX_PERIOD_SECONDS),
+        (int) parseInteger(config, CACHE_SIZE_LIMIT, 50_000, Integer.MAX_VALUE));
   }
 
-  private static int toInt(Object value, int defaultValue) {
-    if (value == null) {
+  private static long parseInteger(
+      Map<String, Object> config, String name, long defaultValue, long max) {
+    if (!config.containsKey(name)) {
       return defaultValue;
     }
-    return value instanceof Number n ? n.intValue() : Integer.parseInt(value.toString().trim());
-  }
-
-  private static long toLong(Object value, long defaultValue) {
-    if (value == null) {
-      return defaultValue;
-    }
-    return value instanceof Number n ? n.longValue() : Long.parseLong(value.toString().trim());
+    Object value = config.get(name);
+    BigInteger n =
+        switch (value) {
+          case Integer i -> BigInteger.valueOf(i);
+          case Long l -> BigInteger.valueOf(l);
+          case Short s -> BigInteger.valueOf(s);
+          case Byte b -> BigInteger.valueOf(b);
+          case BigInteger b -> b;
+          case null, default ->
+              throw new IllegalArgumentException(
+                  String.format(
+                      "'%s' must be an integer, got: %s",
+                      name, value instanceof String str ? "\"" + str + "\"" : value));
+        };
+    Preconditions.checkArgument(
+        n.signum() > 0 && n.compareTo(BigInteger.valueOf(max)) <= 0,
+        "'%s' must be between 1 and %s, got: %s",
+        name,
+        max,
+        n);
+    return n.longValueExact();
   }
 }
