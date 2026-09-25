@@ -25,15 +25,18 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.ClockAware;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
+import io.fleak.zephflow.lib.commands.RandomAware;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
- * Drives one fixture through a real command, single-threaded, with an injected clock.
+ * Drives one fixture through a real command, single-threaded, with an injected clock and a seeded
+ * random generator ({@link #GOLDEN_SEED}).
  *
  * <p>Limitation: events are fed one per {@code process} call and only the per-call output is
  * captured — output a command would emit from {@code terminate()} (an end-of-stream flush) is NOT
@@ -42,6 +45,8 @@ import java.util.Map;
  * golden-tested.
  */
 final class GoldenRunner {
+
+  static final long GOLDEN_SEED = 42L;
 
   record Result(List<ObjectNode> output, List<ObjectNode> errors) {}
 
@@ -63,6 +68,10 @@ final class GoldenRunner {
     boolean clockAware = cmd instanceof ClockAware;
     if (clockAware) {
       ((ClockAware) cmd).setClock(() -> now[0]);
+    }
+
+    if (cmd instanceof RandomAware randomAware) {
+      randomAware.setRandom(new Random(GOLDEN_SEED));
     }
 
     scalar.parseAndValidateArg(config);

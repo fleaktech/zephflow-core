@@ -1,0 +1,8 @@
+{
+  "sampleRateField": "rate",
+  "rules": [
+    {"condition": "$.path == \"/health\"", "sampleRate": 2},
+    {"condition": "$.level == \"debug\"", "sampleRate": 1},
+    {"condition": "$.status == 200 and $.ok", "sampleRate": 3}
+  ]
+}

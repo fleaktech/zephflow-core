@@ -1,0 +1,9 @@
+{"id":2,"status":500}
+{"__sampled__":3,"id":4,"status":200}
+{"id":6,"status":"200"}
+{"id":7}
+{"__sampled__":7,"id":8,"status":500}
+{"__sampled__":3,"id":5,"req":{"ms":7,"path":"/b"},"status":200,"tags":["x","y"]}
+{"id":13,"status":201}
+{"__sampled__":3,"id":12,"status":200.0}
+{"id":17,"status":500}

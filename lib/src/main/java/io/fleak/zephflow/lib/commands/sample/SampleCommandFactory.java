@@ -11,15 +11,22 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.sdk;
+package io.fleak.zephflow.lib.commands.sample;
 
-import org.testcontainers.utility.DockerImageName;
+import io.fleak.zephflow.api.CommandFactory;
+import io.fleak.zephflow.api.CommandType;
+import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.OperatorCommand;
 
-public final class SdkTestImages {
+public class SampleCommandFactory extends CommandFactory {
+  @Override
+  public OperatorCommand createCommand(String nodeId, JobContext jobContext) {
+    return new SampleCommand(
+        nodeId, jobContext, new SampleConfigParser(), new SampleConfigValidator());
+  }
 
-  public static final DockerImageName MINIO_IMAGE =
-      DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z")
-          .asCompatibleSubstituteFor("minio/minio");
-
-  private SdkTestImages() {}
+  @Override
+  public CommandType commandType() {
+    return CommandType.INTERMEDIATE_COMMAND;
+  }
 }

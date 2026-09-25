@@ -1,0 +1,5 @@
+{
+  "rules": [
+    {"condition": "$.status == 200", "sampleRate": 3}
+  ]
+}

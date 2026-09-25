@@ -32,7 +32,7 @@ import org.testcontainers.utility.DockerImageName;
 public class TestUtils {
 
   public static final DockerImageName MINIO_IMAGE =
-      DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z")
+      DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z")
           .asCompatibleSubstituteFor("minio/minio");
 
   public static final UsernamePasswordCredential USERNAME_PASSWORD_CREDENTIAL =

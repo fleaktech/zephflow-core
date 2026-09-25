@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.databrickssink;
 
 import com.databricks.sdk.WorkspaceClient;
+import com.databricks.sdk.service.sql.StatementState;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.delta.kernel.types.StructType;
@@ -23,6 +24,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
+import io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -110,7 +112,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   @Override
   protected SimpleSinkCommand.FlushResult doFlush(
       List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-    return doFlushBatch(batch);
+    return doFlushWithRecovery(batch);
   }
 
   @Override
@@ -153,184 +155,217 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     return "BatchDatabricksFlusher-Flush";
   }
 
-  // ===== CUSTOM RECOVERY LOGIC =====
-
   @Override
   protected SimpleSinkCommand.FlushResult doFlushWithRecovery(
       List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-    // Use custom Parquet-aware recovery instead of base class filterAndFlush
-    String batchId = UUID.randomUUID().toString();
-    log.info("Starting flush of {} records with batchId: {}", batch.size(), batchId);
-
-    List<ErrorOutput> allErrors;
-
-    ParquetGenerationResult parquetResult;
-    try {
-      parquetResult = generateParquetWithErrorTracking(batch);
-      allErrors = new ArrayList<>(parquetResult.errors);
-
-      if (parquetResult.generatedFiles.isEmpty()) {
-        log.error("No Parquet files generated, all {} records failed", batch.size());
-        return new SimpleSinkCommand.FlushResult(0, 0, allErrors);
-      }
-
-      log.info(
-          "Parquet generation: {} files created, {} records succeeded, {} failed",
-          parquetResult.generatedFiles.size(),
-          parquetResult.successfulRecordCount,
-          parquetResult.errors.size());
-
-    } catch (Exception e) {
-      log.error("Critical error during Parquet generation", e);
-      return createCompleteFailureResult(batch, "Parquet generation failed: " + e.getMessage());
+    List<IndexedRecord> records = new ArrayList<>(batch.size());
+    for (int index = 0; index < batch.size(); index++) {
+      records.add(new IndexedRecord(index, batch.get(index)));
     }
-
-    UploadResult uploadResult;
-    try {
-      uploadResult = uploadFilesWithRetry(parquetResult.generatedFiles, batchId);
-
-      if (!uploadResult.failedFiles.isEmpty()) {
-        log.error(
-            "Partial upload failure: {} of {} files failed. Aborting batch to prevent data gaps.",
-            uploadResult.failedFiles.size(),
-            parquetResult.generatedFiles.size());
-        cleanupTempFiles(parquetResult.generatedFiles);
-        cleanupRemoteBatchDirectory(batchId);
-        String uploadFailMsg =
-            uploadResult.lastErrorMessage() != null
-                ? "Databricks upload failed: " + uploadResult.lastErrorMessage()
-                : "Databricks upload failed";
-        return createCompleteFailureResult(batch, uploadFailMsg);
-      }
-
-      log.info(
-          "Upload: {} files succeeded to batch subdirectory: {}",
-          uploadResult.uploadedPaths.size(),
-          batchId);
-
-    } catch (Exception e) {
-      log.error("Critical error during file upload", e);
-      cleanupTempFiles(parquetResult.generatedFiles);
-      cleanupRemoteBatchDirectory(batchId);
-      return createCompleteFailureResult(batch, "Upload failed: " + e.getMessage());
+    FlushAccumulator accumulator = new FlushAccumulator(batch.size());
+    if (!writeAndDeliver(records, UUID.randomUUID().toString(), accumulator)) {
+      accumulator.fail(records, "Delivery not attempted after an operational failure");
     }
+    return accumulator.result();
+  }
 
-    CopyIntoResult copyResult;
+  private boolean writeAndDeliver(
+      List<IndexedRecord> records, String batchId, FlushAccumulator accumulator) {
+    if (records.isEmpty()) {
+      return true;
+    }
+    List<PreparedFiles> prepared = new ArrayList<>();
     try {
-      copyResult = executeCopyIntoWithErrorParsing(batchId);
-
-      if (!copyResult.success) {
-        log.error("COPY INTO failed: {}", copyResult.errorMessage);
-        if (copyResult.recordsLoaded > 0) {
-          log.warn("Partial success: {} records loaded before error", copyResult.recordsLoaded);
-        }
-        return createCompleteFailureResult(batch, "COPY INTO failed: " + copyResult.errorMessage);
-      }
-
-      log.info(
-          "COPY INTO: {} records loaded into {}", copyResult.recordsLoaded, config.getTableName());
-
-    } catch (Exception e) {
-      log.error("Critical error during COPY INTO", e);
-      return createCompleteFailureResult(batch, "COPY INTO failed: " + e.getMessage());
+      generateParquet(records, prepared, accumulator);
+      List<IndexedRecord> validRecords =
+          prepared.stream().flatMap(files -> files.records().stream()).toList();
+      return validRecords.isEmpty()
+          || deliverPrepared(validRecords, prepared, batchId, accumulator);
+    } catch (Exception failure) {
+      log.error("Parquet generation failed for batch {}", batchId, failure);
+      accumulator.fail(records, "Parquet generation failed: " + failure.getMessage());
+      return false;
     } finally {
-      cleanupTempFiles(parquetResult.generatedFiles);
-      cleanupRemoteBatchDirectory(batchId);
+      cleanupPreparedFiles(prepared);
     }
-
-    long totalFlushedBytes = parquetResult.generatedFiles.stream().mapToLong(File::length).sum();
-
-    int successCount = (int) copyResult.recordsLoaded;
-
-    if (copyResult.recordsLoaded != parquetResult.successfulRecordCount) {
-      log.warn(
-          "Metrics discrepancy: {} records written to Parquet, {} records loaded by COPY INTO",
-          parquetResult.successfulRecordCount,
-          copyResult.recordsLoaded);
-    }
-
-    log.info(
-        "Flush completed: {} records succeeded, {} errors, {} bytes, batchId: {}",
-        successCount,
-        allErrors.size(),
-        totalFlushedBytes,
-        batchId);
-
-    return new SimpleSinkCommand.FlushResult(successCount, totalFlushedBytes, allErrors);
   }
 
-  // ===== DATABRICKS-SPECIFIC LOGIC =====
-
-  private SimpleSinkCommand.FlushResult doFlushBatch(
-      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-    // This is called from doFlushWithRetry in base class, but we override doFlushWithRecovery
-    // to use our custom Parquet-aware recovery logic. This method is kept for completeness
-    // but the main path goes through doFlushWithRecovery.
-    return doFlushWithRecovery(batch);
-  }
-
-  private ParquetGenerationResult generateParquetWithErrorTracking(
-      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-
-    if (batch.isEmpty()) {
-      return new ParquetGenerationResult(List.of(), List.of(), 0);
-    }
-
-    // Optimistic path: try writing entire batch
-    List<Map<String, Object>> records = batch.stream().map(Pair::getRight).toList();
+  private void generateParquet(
+      List<IndexedRecord> records, List<PreparedFiles> prepared, FlushAccumulator accumulator)
+      throws Exception {
+    Files.createDirectories(tempDirectory);
+    Path attemptDirectory = Files.createTempDirectory(tempDirectory, "attempt-");
     try {
-      List<File> files = parquetWriter.writeParquetFiles(records, tempDirectory);
-      log.info("Generated {} Parquet files from {} records", files.size(), batch.size());
-      return new ParquetGenerationResult(files, List.of(), batch.size());
-    } catch (Exception e) {
-      log.warn("Batch write failed, entering recovery mode: {}", e.getMessage());
-      return filterAndBulkWrite(batch);
-    }
-  }
-
-  private ParquetGenerationResult filterAndBulkWrite(
-      List<Pair<RecordFleakData, Map<String, Object>>> batch) {
-
-    List<ErrorOutput> errors = new ArrayList<>();
-    List<Pair<RecordFleakData, Map<String, Object>>> goodRecords = new ArrayList<>();
-
-    // Phase 1: Filter - identify good vs bad records by testing each individually
-    for (int i = 0; i < batch.size(); i++) {
-      Pair<RecordFleakData, Map<String, Object>> pair = batch.get(i);
+      List<Map<String, Object>> values =
+          records.stream().map(record -> record.pair().getRight()).toList();
+      List<File> files = List.copyOf(parquetWriter.writeParquetFiles(values, attemptDirectory));
+      if (files.isEmpty()) {
+        throw new IOException("Parquet writer produced no files for a nonempty group");
+      }
+      long bytes = 0;
+      for (File file : files) {
+        bytes += Files.size(file.toPath());
+      }
+      prepared.add(new PreparedFiles(attemptDirectory, files, records, bytes));
+      return;
+    } catch (Exception failure) {
       try {
-        ensureCanWriteRecord(pair.getRight());
-        goodRecords.add(pair);
-      } catch (Exception e) {
-        log.warn("Record {} failed validation in recovery mode", i, e);
-        errors.add(
-            new ErrorOutput(
-                pair.getLeft(),
-                "Parquet conversion failed: record validation error" + e.getMessage()));
+        deleteLocalDirectory(attemptDirectory);
+      } catch (Exception cleanupFailure) {
+        failure.addSuppressed(cleanupFailure);
+      }
+      if (!isRecordFailure(failure)) {
+        throw failure;
+      }
+      if (records.size() == 1) {
+        accumulator.fail(records, "Parquet conversion failed: " + failure.getMessage());
+        return;
       }
     }
+    int midpoint = records.size() / 2;
+    generateParquet(records.subList(0, midpoint), prepared, accumulator);
+    generateParquet(records.subList(midpoint, records.size()), prepared, accumulator);
+  }
 
-    if (goodRecords.isEmpty()) {
-      log.warn("Recovery mode: all {} records failed validation", batch.size());
-      return new ParquetGenerationResult(List.of(), errors, 0);
+  private static boolean isRecordFailure(Throwable failure) {
+    Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+    Deque<Throwable> pending = new ArrayDeque<>();
+    pending.add(failure);
+    boolean invalidRecord = false;
+    while (!pending.isEmpty()) {
+      Throwable current = pending.removeFirst();
+      if (!seen.add(current)) {
+        continue;
+      }
+      if (current instanceof IOException || current instanceof java.io.UncheckedIOException) {
+        return false;
+      }
+      invalidRecord |= current instanceof InvalidRecordException;
+      if (current.getCause() != null) {
+        pending.add(current.getCause());
+      }
+      Collections.addAll(pending, current.getSuppressed());
     }
+    return invalidRecord;
+  }
 
-    // Phase 2: Bulk-write all good records to a single Parquet file
-    List<Map<String, Object>> goodData = goodRecords.stream().map(Pair::getRight).toList();
+  private boolean deliverPrepared(
+      List<IndexedRecord> records,
+      List<PreparedFiles> prepared,
+      String batchId,
+      FlushAccumulator accumulator) {
+    String attemptId = batchId + "-" + UUID.randomUUID();
+    AttemptPhase phase = AttemptPhase.UPLOAD;
+    boolean preserveRemoteFiles = false;
+    String rejection;
     try {
-      List<File> files = parquetWriter.writeParquetFiles(goodData, tempDirectory);
-      log.info(
-          "Recovery mode completed: {} records succeeded, {} failed, {} files created",
-          goodRecords.size(),
-          errors.size(),
-          files.size());
-      return new ParquetGenerationResult(files, errors, goodRecords.size());
-    } catch (Exception e) {
-      log.error("Bulk write of validated records failed unexpectedly: {}", e.getMessage());
-      // All records that passed validation still failed - add them to errors
-      for (Pair<RecordFleakData, Map<String, Object>> pair : goodRecords) {
-        errors.add(new ErrorOutput(pair.getLeft(), "Parquet bulk write failed: " + e.getMessage()));
+      List<File> files = prepared.stream().flatMap(group -> group.files().stream()).toList();
+      UploadResult upload = uploadFilesWithRetry(files, attemptId);
+      if (!upload.failedFiles().isEmpty()) {
+        accumulator.fail(records, "Databricks upload failed: " + upload.lastErrorMessage());
+        return false;
       }
-      return new ParquetGenerationResult(List.of(), errors, 0);
+      phase = AttemptPhase.VALIDATE;
+      sqlExecutor.validateCopyInto(
+          config.getTableName(),
+          buildBatchDirectoryPath(attemptId) + "/*.parquet",
+          config.getCopyOptions(),
+          config.getFormatOptions());
+      phase = AttemptPhase.COPY;
+      CopyIntoStats stats =
+          sqlExecutor.executeCopyIntoWithStats(
+              config.getTableName(),
+              buildBatchDirectoryPath(attemptId) + "/*.parquet",
+              config.getCopyOptions(),
+              config.getFormatOptions());
+      long bytes = prepared.stream().mapToLong(PreparedFiles::bytes).sum();
+      accumulator.commit(records, stats, bytes);
+      if (!stats.rowsLoadedKnown()) {
+        log.warn(
+            "COPY INTO committed for batch {}, attempt {}, but row count is unavailable",
+            batchId,
+            attemptId);
+      }
+      return true;
+    } catch (DatabricksSqlExecutor.StatementExecutionException failure) {
+      if (phase != AttemptPhase.VALIDATE
+          || failure.state() != StatementState.FAILED
+          || failure.outcomeUnknown()) {
+        preserveRemoteFiles = phase == AttemptPhase.COPY;
+        accumulator.fail(records, failureMessagePrefix(phase) + failure.getMessage());
+        if (preserveRemoteFiles) {
+          log.warn(
+              "Preserving COPY source: batch={}, attempt={}, statement={}, path={}",
+              batchId,
+              attemptId,
+              failure.statementId(),
+              buildBatchDirectoryPath(attemptId));
+        }
+        return false;
+      }
+      rejection = failure.getMessage();
+    } catch (Exception failure) {
+      preserveRemoteFiles = phase == AttemptPhase.COPY;
+      accumulator.fail(records, failureMessagePrefix(phase) + failure.getMessage());
+      if (preserveRemoteFiles) {
+        log.warn(
+            "Preserving COPY source after unknown outcome: batch={}, attempt={}, path={}",
+            batchId,
+            attemptId,
+            buildBatchDirectoryPath(attemptId));
+      }
+      return false;
+    } finally {
+      cleanupPreparedFiles(prepared);
+      if (!preserveRemoteFiles) {
+        cleanupRemoteBatchDirectory(attemptId);
+      }
+    }
+
+    if (records.size() == 1) {
+      accumulator.fail(records, "COPY INTO validation rejected record: " + rejection);
+      return true;
+    }
+    int midpoint = records.size() / 2;
+    return writeAndDeliver(records.subList(0, midpoint), batchId, accumulator)
+        && writeAndDeliver(records.subList(midpoint, records.size()), batchId, accumulator);
+  }
+
+  private enum AttemptPhase {
+    UPLOAD,
+    VALIDATE,
+    COPY
+  }
+
+  private static String failureMessagePrefix(AttemptPhase phase) {
+    return switch (phase) {
+      case UPLOAD -> "Databricks upload failed: ";
+      case VALIDATE -> "COPY INTO validation failed: ";
+      case COPY -> "COPY INTO delivery outcome unknown: ";
+    };
+  }
+
+  private void cleanupPreparedFiles(List<PreparedFiles> prepared) {
+    if (!config.isCleanupAfterCopy()) {
+      return;
+    }
+    for (PreparedFiles files : prepared) {
+      try {
+        deleteLocalDirectory(files.directory());
+      } catch (Exception failure) {
+        log.warn("Failed to clean local attempt directory {}", files.directory(), failure);
+      }
+    }
+  }
+
+  private static void deleteLocalDirectory(Path directory) throws IOException {
+    if (!Files.exists(directory)) {
+      return;
+    }
+    try (var paths = Files.walk(directory)) {
+      for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+        Files.deleteIfExists(path);
+      }
     }
   }
 
@@ -406,36 +441,6 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     return volumePath + batchId;
   }
 
-  private CopyIntoResult executeCopyIntoWithErrorParsing(String batchId) {
-    String batchDirectory = buildBatchDirectoryPath(batchId);
-    String volumePattern = batchDirectory + "/*.parquet";
-
-    try {
-      CopyIntoStats stats =
-          sqlExecutor.executeCopyIntoWithStats(
-              config.getTableName(),
-              volumePattern,
-              config.getCopyOptions(),
-              config.getFormatOptions());
-
-      if (stats.hasErrors()) {
-        log.warn(
-            "COPY INTO completed with errors: {} files processed, {} files loaded, {} errors",
-            stats.filesProcessed(),
-            stats.filesLoaded(),
-            stats.errorMessages().size());
-
-        stats.errorMessages().forEach(msg -> log.warn("COPY INTO error: {}", msg));
-      }
-
-      return new CopyIntoResult(true, stats.rowsLoaded(), null);
-
-    } catch (Exception e) {
-      log.error("COPY INTO failed", e);
-      return new CopyIntoResult(false, 0, e.getMessage());
-    }
-  }
-
   private void cleanupRemoteBatchDirectory(String batchId) {
     if (!config.isCleanupAfterCopy()) {
       log.debug("Cleanup disabled, keeping remote batch directory: {}", batchId);
@@ -449,32 +454,6 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     } catch (Exception e) {
       log.warn("Failed to cleanup remote batch directory {}: {}", batchId, e.getMessage());
     }
-  }
-
-  private void cleanupTempFiles(List<File> files) {
-    if (!config.isCleanupAfterCopy()) {
-      log.debug("Cleanup disabled, keeping temp files");
-      return;
-    }
-
-    int deletedCount = 0;
-    int failedCount = 0;
-
-    for (File file : files) {
-      try {
-        if (file.delete()) {
-          deletedCount++;
-        } else {
-          log.warn("Failed to delete temp file (file.delete() returned false): {}", file);
-          failedCount++;
-        }
-      } catch (Exception e) {
-        log.warn("Error deleting temp file {}: {}", file, e.getMessage());
-        failedCount++;
-      }
-    }
-
-    log.debug("Cleanup: {} files deleted, {} failed", deletedCount, failedCount);
   }
 
   @Override
@@ -527,11 +506,47 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     log.info("BatchDatabricksFlusher closed successfully");
   }
 
-  private record ParquetGenerationResult(
-      List<File> generatedFiles, List<ErrorOutput> errors, int successfulRecordCount) {}
+  private record IndexedRecord(int index, Pair<RecordFleakData, Map<String, Object>> pair) {}
+
+  private record PreparedFiles(
+      Path directory, List<File> files, List<IndexedRecord> records, long bytes) {}
+
+  private static final class FlushAccumulator {
+    private final boolean[] completed;
+    private final ErrorOutput[] errors;
+    private long rowsLoaded;
+    private long bytes;
+
+    private FlushAccumulator(int size) {
+      completed = new boolean[size];
+      errors = new ErrorOutput[size];
+    }
+
+    private void fail(List<IndexedRecord> records, String message) {
+      for (IndexedRecord record : records) {
+        if (!completed[record.index()]) {
+          completed[record.index()] = true;
+          errors[record.index()] = new ErrorOutput(record.pair().getLeft(), message);
+        }
+      }
+    }
+
+    private void commit(List<IndexedRecord> records, CopyIntoStats stats, long writtenBytes) {
+      for (IndexedRecord record : records) {
+        completed[record.index()] = true;
+      }
+      if (stats.rowsLoadedKnown()) {
+        rowsLoaded += stats.rowsLoaded();
+      }
+      bytes += writtenBytes;
+    }
+
+    private SimpleSinkCommand.FlushResult result() {
+      return new SimpleSinkCommand.FlushResult(
+          (int) rowsLoaded, bytes, Arrays.stream(errors).filter(Objects::nonNull).toList());
+    }
+  }
 
   private record UploadResult(
       List<String> uploadedPaths, List<File> failedFiles, String lastErrorMessage) {}
-
-  private record CopyIntoResult(boolean success, long recordsLoaded, String errorMessage) {}
 }
