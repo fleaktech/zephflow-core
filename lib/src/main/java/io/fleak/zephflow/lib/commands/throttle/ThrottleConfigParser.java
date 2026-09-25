@@ -13,10 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.throttle;
 
+import static io.fleak.zephflow.lib.utils.ConfigValueUtils.checkNoUnknownKeys;
+import static io.fleak.zephflow.lib.utils.ConfigValueUtils.requireInteger;
+
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
-import java.math.BigInteger;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -34,49 +36,20 @@ public class ThrottleConfigParser implements ConfigParser {
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
     Preconditions.checkArgument(config != null, "throttle command requires configuration");
-    for (Object key : config.keySet()) {
-      Preconditions.checkArgument(
-          key instanceof String name && CONFIG_KEYS.contains(name),
-          "unknown parameter '%s'; allowed: %s",
-          key,
-          CONFIG_KEYS);
-    }
+    checkNoUnknownKeys(config, CONFIG_KEYS, "");
     Object keyExpression = config.get(KEY_EXPRESSION);
     Preconditions.checkArgument(
         keyExpression instanceof String && !((String) keyExpression).isBlank(),
         "throttle command requires 'keyExpression' to be configured");
     return new ThrottleCommandDto.Config(
         (String) keyExpression,
-        (int) parseInteger(config, NUM_TO_ALLOW, 1, Integer.MAX_VALUE),
-        parseInteger(config, PERIOD_SECONDS, 30, MAX_PERIOD_SECONDS),
-        (int) parseInteger(config, CACHE_SIZE_LIMIT, 50_000, Integer.MAX_VALUE));
+        (int) integerOrDefault(config, NUM_TO_ALLOW, 1, Integer.MAX_VALUE),
+        integerOrDefault(config, PERIOD_SECONDS, 30, MAX_PERIOD_SECONDS),
+        (int) integerOrDefault(config, CACHE_SIZE_LIMIT, 50_000, Integer.MAX_VALUE));
   }
 
-  private static long parseInteger(
+  private static long integerOrDefault(
       Map<String, Object> config, String name, long defaultValue, long max) {
-    if (!config.containsKey(name)) {
-      return defaultValue;
-    }
-    Object value = config.get(name);
-    BigInteger n =
-        switch (value) {
-          case Integer i -> BigInteger.valueOf(i);
-          case Long l -> BigInteger.valueOf(l);
-          case Short s -> BigInteger.valueOf(s);
-          case Byte b -> BigInteger.valueOf(b);
-          case BigInteger b -> b;
-          case null, default ->
-              throw new IllegalArgumentException(
-                  String.format(
-                      "'%s' must be an integer, got: %s",
-                      name, value instanceof String str ? "\"" + str + "\"" : value));
-        };
-    Preconditions.checkArgument(
-        n.signum() > 0 && n.compareTo(BigInteger.valueOf(max)) <= 0,
-        "'%s' must be between 1 and %s, got: %s",
-        name,
-        max,
-        n);
-    return n.longValueExact();
+    return config.containsKey(name) ? requireInteger(config.get(name), name, 1, max) : defaultValue;
   }
 }
