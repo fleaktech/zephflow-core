@@ -1,0 +1,4 @@
+{"a":1,"b":1,"code":404,"flag":[true],"id":6,"rate":3}
+{"__sampled__":5,"a":4,"b":1,"id":1,"rate":2}
+{"__sampled__":5,"flag":true,"id":8,"rate":2}
+{"code":200,"id":9,"rate":2}

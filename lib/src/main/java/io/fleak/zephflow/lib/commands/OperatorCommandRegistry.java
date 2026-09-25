@@ -52,6 +52,7 @@ import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
 import io.fleak.zephflow.lib.commands.s3filereader.S3FileReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeSourceCommandFactory;
+import io.fleak.zephflow.lib.commands.sample.SampleCommandFactory;
 import io.fleak.zephflow.lib.commands.smtpsink.SmtpSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunksource.SplunkSourceCommandFactory;
@@ -79,6 +80,7 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_KAFKA_SINK, new KafkaSinkCommandFactory())
           .put(COMMAND_NAME_EVAL, new EvalCommandFactory())
           .put(COMMAND_NAME_THROTTLE, new ThrottleCommandFactory())
+          .put(COMMAND_NAME_SAMPLE, new SampleCommandFactory())
           .put(COMMAND_NAME_ASSERTION, new AssertionCommandFactory(true))
           .put(COMMAND_NAME_FILTER, new AssertionCommandFactory(false))
           .put(COMMAND_NAME_STDIN, new StdInCommandFactory())

@@ -11,15 +11,15 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.sdk;
+package io.fleak.zephflow.lib.commands.sample;
 
-import org.testcontainers.utility.DockerImageName;
+import io.fleak.zephflow.api.CommandConfig;
+import java.util.List;
 
-public final class SdkTestImages {
+public interface SampleCommandDto {
+  String DEFAULT_SAMPLE_RATE_FIELD = "__sampled__";
 
-  public static final DockerImageName MINIO_IMAGE =
-      DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z")
-          .asCompatibleSubstituteFor("minio/minio");
+  record Rule(String condition, int sampleRate) {}
 
-  private SdkTestImages() {}
+  record Config(List<Rule> rules, String sampleRateField) implements CommandConfig {}
 }

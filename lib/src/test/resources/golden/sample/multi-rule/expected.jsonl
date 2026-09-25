@@ -1,0 +1,8 @@
+{"id":2,"level":"debug","ok":true,"rate":1,"status":200}
+{"id":4,"ok":1,"status":200}
+{"__sampled__":4,"id":5,"rate":7,"status":404}
+{"id":1,"ok":true,"path":"/health","rate":2,"status":200}
+{"id":8,"level":"debug","rate":1}
+{"id":9,"status":200}
+{"id":10,"ok":true,"rate":3,"status":200}
+{"id":13,"level":"info","status":500}

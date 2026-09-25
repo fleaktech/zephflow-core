@@ -1,0 +1,11 @@
+{"id": 1, "a": 4, "b": 1, "__sampled__": 5, "rate": 0}
+{"id": 2, "a": 4, "b": 0}
+{"id": 3, "a": "x", "b": 1, "flag": true}
+{"id": 4, "flag": 1, "code": 404}
+{"id": 5, "flag": "true", "code": 404, "x": 1}
+{"id": 6, "a": 1, "b": 1, "flag": [true], "code": 404}
+{"id": 7, "a": 6, "b": 2}
+{"id": 8, "flag": true, "__sampled__": 5}
+{"id": 9, "code": 200}
+{"id": 10, "x": 1}
+{"id": 11, "b": 2, "flag": false, "code": 404}

@@ -11,15 +11,10 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.sdk;
+package io.fleak.zephflow.lib.commands;
 
-import org.testcontainers.utility.DockerImageName;
+import java.util.random.RandomGenerator;
 
-public final class SdkTestImages {
-
-  public static final DockerImageName MINIO_IMAGE =
-      DockerImageName.parse("pgsty/minio:RELEASE.2026-08-04T00-00-00Z")
-          .asCompatibleSubstituteFor("minio/minio");
-
-  private SdkTestImages() {}
+public interface RandomAware {
+  void setRandom(RandomGenerator rng);
 }

@@ -1,0 +1,17 @@
+{"id": 1, "status": 200, "req": {"path": "/a", "ms": 12}}
+{"id": 2, "status": 500}
+{"id": 3, "status": 200}
+{"id": 4, "status": 200, "__sampled__": 99}
+{"id": 5, "status": 200, "req": {"path": "/b", "ms": 7}, "tags": ["x", "y"]}
+{"id": 6, "status": "200"}
+{"id": 7}
+{"id": 8, "status": 500, "__sampled__": 7}
+{"id": 9, "status": 200}
+{"id": 10, "status": 200}
+{"id": 11, "status": 200}
+{"id": 12, "status": 200.0}
+{"id": 13, "status": 201}
+{"id": 14, "status": 200}
+{"id": 15, "status": 200}
+{"id": 16, "status": 200}
+{"id": 17, "status": 500}
