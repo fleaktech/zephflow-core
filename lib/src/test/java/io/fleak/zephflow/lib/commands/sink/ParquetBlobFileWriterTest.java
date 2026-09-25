@@ -22,6 +22,9 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.hadoop.ParquetReader;
+import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -104,6 +107,49 @@ class ParquetBlobFileWriterTest {
     for (File parquetFile : parquetFiles) {
       assertTrue(parquetFile.exists());
       assertTrue(parquetFile.length() > 0);
+    }
+  }
+
+  @Test
+  void mapValuesRoundTripThroughSharedParquetWriter() throws Exception {
+    Map<String, Object> schema =
+        Map.of(
+            "type",
+            "record",
+            "name",
+            "MapRecord",
+            "fields",
+            List.of(
+                Map.of("name", "id", "type", "int"),
+                Map.of(
+                    "name",
+                    "attributes",
+                    "type",
+                    List.of("null", Map.of("type", "map", "values", List.of("null", "string"))))));
+    ParquetBlobFileWriter mapWriter = new ParquetBlobFileWriter(schema);
+    List<RecordFleakData> records =
+        List.of(
+            (RecordFleakData) FleakData.wrap(Map.of("id", 1, "attributes", Map.of("region", "eu"))),
+            (RecordFleakData) FleakData.wrap(Map.of("id", 2, "attributes", Map.of())),
+            (RecordFleakData) FleakData.wrap(Map.of("id", 3)));
+    List<File> files = mapWriter.writeToTempFiles(records, tempDir);
+    assertEquals(1, files.size());
+    try (ParquetReader<Group> reader =
+        ParquetReader.builder(
+                new GroupReadSupport(), new org.apache.hadoop.fs.Path(files.getFirst().toURI()))
+            .build()) {
+      Group first = reader.read();
+      assertEquals(1, first.getInteger("id", 0));
+      Group entry = first.getGroup("attributes", 0).getGroup("key_value", 0);
+      assertEquals("region", entry.getString("key", 0));
+      assertEquals("eu", entry.getString("value", 0));
+      Group second = reader.read();
+      assertEquals(2, second.getInteger("id", 0));
+      assertEquals(0, second.getGroup("attributes", 0).getFieldRepetitionCount("key_value"));
+      Group third = reader.read();
+      assertEquals(3, third.getInteger("id", 0));
+      assertEquals(0, third.getFieldRepetitionCount("attributes"));
+      assertNull(reader.read());
     }
   }
 }

@@ -40,6 +40,7 @@ import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkDto.Config;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -47,6 +48,9 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.hadoop.ParquetReader;
+import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -1007,5 +1011,75 @@ class DeltaLakeWriterTest {
 
     verify(mockDlqWriter).writeToDlq(anyLong(), any(), any(String.class), eq("delta-test-node"));
     writer.close();
+  }
+
+  @Test
+  void mapValuesCommitAndRoundTripThroughSharedDeltaWriter() throws Exception {
+    String path = tablePath + "_map_roundtrip";
+    StructType schema =
+        new StructType()
+            .add("id", IntegerType.INTEGER, false)
+            .add("attributes", new MapType(StringType.STRING, StringType.STRING, true), true);
+    createDeltaTableWithSchema(path, schema);
+    Map<String, Object> avro =
+        Map.of(
+            "type",
+            "record",
+            "name",
+            "MapRecord",
+            "fields",
+            List.of(
+                Map.of("name", "id", "type", "int"),
+                Map.of(
+                    "name",
+                    "attributes",
+                    "type",
+                    List.of("null", Map.of("type", "map", "values", List.of("null", "string"))))));
+    DeltaLakeWriter mapWriter =
+        createWriter(Config.builder().tablePath(path).batchSize(3).avroSchema(avro).build());
+    mapWriter.initialize();
+    try {
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      List<Map<String, Object>> inputs =
+          List.of(
+              Map.of("id", 1, "attributes", Map.of("region", "eu")),
+              Map.of("id", 2, "attributes", Map.of()),
+              Map.of("id", 3));
+      for (Map<String, Object> input : inputs)
+        events.add((RecordFleakData) FleakData.wrap(input), input);
+      SimpleSinkCommand.FlushResult result = mapWriter.flush(events, Map.of());
+      assertEquals(3, result.successCount());
+      assertTrue(result.errorOutputList().isEmpty());
+      assertEquals(
+          1,
+          Table.forPath(DefaultEngine.create(new Configuration()), path)
+              .getLatestSnapshot(DefaultEngine.create(new Configuration()))
+              .getVersion());
+      List<Path> files;
+      try (var paths = Files.walk(Path.of(path))) {
+        files = paths.filter(file -> file.toString().endsWith(".parquet")).toList();
+      }
+      assertEquals(1, files.size());
+      try (ParquetReader<Group> reader =
+          ParquetReader.builder(
+                  new GroupReadSupport(), new org.apache.hadoop.fs.Path(files.getFirst().toUri()))
+              .build()) {
+        Group first = reader.read();
+        assertEquals(1, first.getInteger("id", 0));
+        Group entry = first.getGroup("attributes", 0).getGroup("key_value", 0);
+        assertEquals("region", entry.getString("key", 0));
+        assertEquals("eu", entry.getString("value", 0));
+        Group second = reader.read();
+        assertEquals(2, second.getInteger("id", 0));
+        assertEquals(0, second.getGroup("attributes", 0).getFieldRepetitionCount("key_value"));
+        Group third = reader.read();
+        assertEquals(3, third.getInteger("id", 0));
+        assertEquals(0, third.getFieldRepetitionCount("attributes"));
+        assertNull(reader.read());
+      }
+    } finally {
+      mapWriter.close();
+    }
   }
 }
