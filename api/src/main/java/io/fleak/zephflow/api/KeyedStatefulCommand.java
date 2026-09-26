@@ -16,10 +16,11 @@ package io.fleak.zephflow.api;
 /**
  * Marker for commands that keep per-key in-memory reduction state (windowed aggregation, throttle,
  * sample, ...). Such state assumes a long-lived streaming pipeline: it accumulates across events
- * and, on the request/response path, would leak across independent requests on the reused runner.
- * The runner rejects these commands on the request/response path (see {@code DagRunnerService}).
+ * and, on a reused request/response runner, would leak across independent requests. {@code
+ * DagRunnerService#createForApiBackend} rejects these commands; the one-shot test-run runner
+ * ({@code createForTestRun}) allows them.
  *
- * <p>{@link WindowFlushable} extends this (windowed commands are keyed-stateful and also need the
- * flush hook); event-driven keyed commands implement this directly without being flushable.
+ * <p>{@link EndOfInputFlushable} extends this for commands holding pending output at end of input
+ * (sampling, and {@link WindowFlushable} windowed commands); throttle implements this directly.
  */
 public interface KeyedStatefulCommand {}

@@ -35,8 +35,8 @@ import java.util.function.LongSupplier;
  * expression yields no usable scalar pass through unthrottled.
  *
  * <p>Per-key state is not thread-safe and relies on single-threaded event delivery from the source
- * (or serialization by the runner's pipeline lock when the DAG also has a windowed node). It is
- * rejected on the request/response path (see {@code DagRunnerService}).
+ * (or serialization by the runner's pipeline lock, taken for any keyed-stateful node). It is
+ * rejected on the reused request/response runner (see {@code DagRunnerService}).
  */
 public class ThrottleCommand extends ScalarCommand implements KeyedStatefulCommand, ClockAware {
 

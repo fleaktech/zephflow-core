@@ -39,7 +39,13 @@ import java.util.List;
  * exactly like {@code process} output and must obey the same contract — do not mutate shared input
  * records in place.
  */
-public interface WindowFlushable extends KeyedStatefulCommand {
+public interface WindowFlushable extends EndOfInputFlushable {
+
+  /** At end of input every remaining window fires, exactly like a final flush. */
+  @Override
+  default List<RecordFleakData> flushAtEndOfInput(String callingUser, ExecutionContext context) {
+    return flush(callingUser, context, true);
+  }
 
   /**
    * Emits output for windows that are due.
