@@ -29,10 +29,12 @@ import java.util.random.RandomGenerator;
 
 /**
  * Keeps one randomly picked event out of every N events matched by a rule and tags it with N;
- * unmatched events pass through. Per-rule state relies on single-threaded delivery (or the runner's
- * pipeline lock) and is rejected on the request/response path (see {@code DagRunnerService}).
+ * unmatched events pass through. At end of input each rule's incomplete group still emits its
+ * picked event, tagged with the group's actual size, so the tags always sum to the matched count.
+ * Per-rule state relies on single-threaded delivery (or the runner's pipeline lock) and is rejected
+ * on the reused request/response runner (see {@code DagRunnerService}).
  */
-public class SampleCommand extends ScalarCommand implements KeyedStatefulCommand, RandomAware {
+public class SampleCommand extends ScalarCommand implements EndOfInputFlushable, RandomAware {
 
   private static final String SAMPLE_DROPPED_COUNT = "sample_dropped_count";
 
@@ -118,11 +120,28 @@ public class SampleCommand extends ScalarCommand implements KeyedStatefulCommand
     if (k < rule.sampleRate) {
       return List.of();
     }
+    return List.of(emit(rule, callingUser, ctx));
+  }
+
+  @Override
+  public List<RecordFleakData> flushAtEndOfInput(String callingUser, ExecutionContext context) {
+    SampleExecutionContext ctx = (SampleExecutionContext) context;
+    List<RecordFleakData> output = new ArrayList<>();
+    for (RuleState rule : ctx.getRules()) {
+      if (rule.count > 0) {
+        output.add(emit(rule, callingUser, ctx));
+      }
+    }
+    return output;
+  }
+
+  private static RecordFleakData emit(
+      RuleState rule, String callingUser, SampleExecutionContext ctx) {
     RecordFleakData kept = rule.candidate;
+    int groupSize = rule.count;
     rule.candidate = null;
     rule.count = 0;
     ctx.getOutputMessageCounter().increase(getCallingUserTagAndEventTags(callingUser, kept));
-    return List.of(
-        kept.copyAndMerge(Map.of(ctx.getSampleRateField(), FleakData.wrap(rule.sampleRate))));
+    return kept.copyAndMerge(Map.of(ctx.getSampleRateField(), FleakData.wrap(groupSize)));
   }
 }

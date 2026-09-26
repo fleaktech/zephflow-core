@@ -1,0 +1,6 @@
+{
+  "rules": [
+    {"condition": "$.level == \"info\"", "sampleRate": 3},
+    {"condition": "$.level == \"warn\"", "sampleRate": 4}
+  ]
+}

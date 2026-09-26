@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.api.EndOfInputFlushable;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
@@ -38,11 +39,10 @@ import java.util.Random;
  * Drives one fixture through a real command, single-threaded, with an injected clock and a seeded
  * random generator ({@link #GOLDEN_SEED}).
  *
- * <p>Limitation: events are fed one per {@code process} call and only the per-call output is
- * captured — output a command would emit from {@code terminate()} (an end-of-stream flush) is NOT
- * seen. Fine for the current per-event commands (parser, throttle); a windowed/aggregating command
- * that flushes on end-of-stream needs a flush-capture hook added here before it can be
- * golden-tested.
+ * <p>Events are fed one per {@code process} call and the per-call output is captured. For an {@link
+ * EndOfInputFlushable} command, a {@code {"_end_of_input": true}} control record captures the
+ * output it emits at end of input. Output a command would emit from {@code terminate()} is not
+ * seen.
  */
 final class GoldenRunner {
 
@@ -85,6 +85,19 @@ final class GoldenRunner {
     for (String line : Files.readAllLines(c.input())) {
       if (line.isBlank()) continue;
       ObjectNode node = (ObjectNode) JsonUtils.OBJECT_MAPPER.readTree(line);
+
+      // _end_of_input only means something for an EndOfInputFlushable command; for any other
+      // command it stays part of the record.
+      if (cmd instanceof EndOfInputFlushable flushable && node.has("_end_of_input")) {
+        if (node.size() != 1 || !node.get("_end_of_input").asBoolean(false)) {
+          throw new IllegalArgumentException(
+              "control record must be exactly {\"_end_of_input\": true}: " + line);
+        }
+        for (RecordFleakData out : flushable.flushAtEndOfInput("golden", ctx)) {
+          output.add(JsonUtils.toJsonPayload(out));
+        }
+        continue;
+      }
 
       // _t / _advance are clock controls; they only mean anything for a ClockAware command.
       // For any other command they stay part of the record so real data named _t survives.

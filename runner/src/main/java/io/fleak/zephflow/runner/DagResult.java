@@ -24,6 +24,7 @@ import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.Data;
@@ -104,7 +105,7 @@ public class DagResult {
       return;
     }
     Map<String, List<T>> upstreamIdAndDebugInfo =
-        debugDataByStep.computeIfAbsent(currentNodeId, k -> new HashMap<>());
+        debugDataByStep.computeIfAbsent(currentNodeId, k -> new LinkedHashMap<>());
     List<T> outputs =
         upstreamIdAndDebugInfo.computeIfAbsent(upstreamNodeId, uId -> new ArrayList<>());
     outputs.addAll(data);
