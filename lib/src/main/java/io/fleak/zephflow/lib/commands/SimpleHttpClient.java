@@ -80,6 +80,26 @@ public class SimpleHttpClient {
     return callHttpEndpointNoSecureCheck(url, method, requestBody, headerEntries);
   }
 
+  public HttpResponse<String> sendHttpBytes(
+      @NonNull String url,
+      @NonNull HttpMethodType method,
+      @NonNull byte[] requestBodyBytes,
+      @NonNull List<String> headerEntries,
+      @NonNull HttpClient.Version version)
+      throws IOException, InterruptedException {
+    if (!SecurityUtils.isUrlAllowed(url)) {
+      throw new SecurityException("Unauthorized URL access: " + url);
+    }
+    HttpRequest.Builder requestBuilder =
+        HttpRequest.newBuilder()
+            .version(version)
+            .uri(URI.create(url))
+            .timeout(DEFAULT_HTTP_TIMEOUT)
+            .method(method.toString(), HttpRequest.BodyPublishers.ofByteArray(requestBodyBytes));
+    parseHeaders(headerEntries).forEach(requestBuilder::header);
+    return httpClient.send(requestBuilder.build(), handler);
+  }
+
   public String callHttpEndpointNoSecureCheck(
       @NonNull String url,
       @NonNull HttpMethodType method,
