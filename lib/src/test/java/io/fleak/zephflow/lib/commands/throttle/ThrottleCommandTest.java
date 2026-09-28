@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -86,6 +87,66 @@ class ThrottleCommandTest {
     now[0] = 31_000L; // past the period: passes and carries the previous phase's drop count
     RecordFleakData stamped = rec(Map.of("host", "a", "throttledCount", 2L));
     assertEquals(List.of(stamped), run(cmd, List.of(a)));
+  }
+
+  @Test
+  void maxPeriod_oneYear_throttlesAcrossTheWholeYear_atRealEpochTime() {
+    ThrottleCommand cmd =
+        command(Map.of("keyExpression", "$.host", "numToAllow", 1, "periodSeconds", 31_536_000));
+    long start = 1_790_000_000_000L;
+    long oneYearMs = 31_536_000_000L;
+    long[] now = {start};
+    cmd.setClock(() -> now[0]);
+    RecordFleakData a = rec(Map.of("host", "a"));
+
+    assertEquals(List.of(a), run(cmd, List.of(a)));
+    now[0] = start + oneYearMs - 1;
+    assertEquals(List.of(), run(cmd, List.of(a)));
+    now[0] = start + oneYearMs;
+    assertEquals(List.of(rec(Map.of("host", "a", "throttledCount", 1L))), run(cmd, List.of(a)));
+  }
+
+  @Test
+  void maxNumToAllowAndCacheSize_allEventsPass() {
+    ThrottleCommand cmd =
+        command(
+            Map.of(
+                "keyExpression",
+                "$.host",
+                "numToAllow",
+                Integer.MAX_VALUE,
+                "periodSeconds",
+                31_536_000,
+                "cacheSizeLimit",
+                Integer.MAX_VALUE));
+    cmd.setClock(() -> 1_790_000_000_000L);
+    RecordFleakData a = rec(Map.of("host", "a"));
+    List<RecordFleakData> events =
+        Collections.nCopies(ThrottleExecutionContext.CLEANUP_EVERY_N + 1, a);
+    assertEquals(events, run(cmd, events));
+  }
+
+  @Test
+  void maxPeriod_idleEvictionRemovesKeysIdleForTwoPeriods() {
+    ThrottleCommand cmd =
+        command(
+            Map.of(
+                "keyExpression", "$.host",
+                "numToAllow", 1,
+                "periodSeconds", 31_536_000,
+                "cacheSizeLimit", 2));
+    long start = 1_790_000_000_000L;
+    long[] now = {start};
+    cmd.setClock(() -> now[0]);
+    RecordFleakData a = rec(Map.of("host", "a"));
+    RecordFleakData b = rec(Map.of("host", "b"));
+    RecordFleakData c = rec(Map.of("host", "c"));
+
+    assertEquals(List.of(b, c), run(cmd, List.of(b, c, c)));
+    now[0] = start + 2 * 31_536_000_000L;
+    int aEvents = ThrottleExecutionContext.CLEANUP_EVERY_N - 3;
+    assertEquals(List.of(a), run(cmd, Collections.nCopies(aEvents, a)));
+    assertEquals(List.of(c), run(cmd, List.of(c)));
   }
 
   @Test

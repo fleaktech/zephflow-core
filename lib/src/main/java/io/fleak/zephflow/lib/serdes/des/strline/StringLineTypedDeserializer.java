@@ -26,6 +26,13 @@ import java.util.function.Consumer;
 
 /** Created by bolei on 10/16/24 */
 public class StringLineTypedDeserializer extends MultipleEventsTypedDeserializer<String> {
+
+  /** Every line, blank ones included, is its own record. */
+  @Override
+  public boolean isLineDelimited() {
+    return true;
+  }
+
   @Override
   public void deserializeIncrementally(
       byte[] value, Consumer<TypedOutcome<String>> consumer, BooleanSupplier stop) {

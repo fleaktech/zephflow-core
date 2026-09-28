@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.EndOfInputFlushable;
 import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.KeyedStatefulCommand;
 import io.fleak.zephflow.api.OperatorCommand;
@@ -64,6 +65,12 @@ import org.slf4j.MDC;
  *       time-triggered window even when no input arrives. Count-only keyed commands (e.g. throttle)
  *       are stateful but not flushable, so they take the lock but spawn no flush thread.
  * </ul>
+ *
+ * <p>At end of input, {@link EndOfInputFlushable} nodes emit their pending output in topological
+ * order, so an upstream node's flushed records reach a downstream stateful node before that node
+ * flushes. A bounded caller (test run, inspection) declares end of input via {@link #run(List,
+ * String, DagRunConfig, boolean)} and gets the output in the returned {@link DagResult}; {@link
+ * #terminate} does the same for a finishing or shutting-down pipeline, routing to still-open sinks.
  */
 @Slf4j
 public class NoSourceDagRunner {
@@ -79,6 +86,8 @@ public class NoSourceDagRunner {
 
   private final List<Node<OperatorCommand>> windowedNodes;
   private final boolean hasWindowedNodes;
+  private final List<Node<OperatorCommand>> endOfInputNodes;
+  private final Map<String, String> endOfInputUpstreams;
   private final boolean hasKeyedStatefulNodes;
   private final ReentrantLock pipelineLock = new ReentrantLock();
   private final AtomicBoolean terminated = new AtomicBoolean(false);
@@ -106,26 +115,72 @@ public class NoSourceDagRunner {
     this.hasKeyedStatefulNodes =
         compiledDagWithoutSource.getNodes().stream()
             .anyMatch(n -> n.getNodeContent() instanceof KeyedStatefulCommand);
+    this.endOfInputNodes =
+        topologicalOrder(compiledDagWithoutSource).stream()
+            .filter(n -> n.getNodeContent() instanceof EndOfInputFlushable)
+            .toList();
+    this.endOfInputUpstreams = new HashMap<>();
+    for (Node<OperatorCommand> node : endOfInputNodes) {
+      endOfInputUpstreams.put(node.getId(), firstUpstream(node.getId()));
+    }
   }
 
   public DagResult run(
       List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
-    // Any keyed-stateful node (windowed aggregation or throttle) holds non-thread-safe per-key
-    // state, so take the lock to serialize run() against the flush thread and any concurrent
-    // run() caller. Stateless pipelines skip the lock entirely (zero overhead, single-threaded).
+    return run(events, callingUser, runConfig, false);
+  }
+
+  /**
+   * Runs {@code events} through the DAG. With {@code endOfInput}, the input is declared finished
+   * after these events: every {@link EndOfInputFlushable} node then emits its pending output into
+   * the returned result.
+   */
+  public DagResult run(
+      List<RecordFleakData> events,
+      String callingUser,
+      NoSourceDagRunner.DagRunConfig runConfig,
+      boolean endOfInput) {
+    return lockedRun(events, callingUser, runConfig, true, endOfInput);
+  }
+
+  /**
+   * Declares end of input without new events, for a caller that fed its input over several {@link
+   * #run} calls: only the {@link EndOfInputFlushable} nodes' pending output is emitted.
+   */
+  public DagResult finishInput(String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
+    if (endOfInputNodes.stream().noneMatch(n -> n.getNodeContent().isInitialized())) {
+      return new DagResult();
+    }
+    return lockedRun(List.of(), callingUser, runConfig, false, true);
+  }
+
+  private DagResult lockedRun(
+      List<RecordFleakData> events,
+      String callingUser,
+      NoSourceDagRunner.DagRunConfig runConfig,
+      boolean routeInput,
+      boolean endOfInput) {
+    // Any keyed-stateful node (windowed aggregation, throttle, sample) holds non-thread-safe
+    // per-key
+    // state, so take the lock to serialize run() against the flush thread and any concurrent run()
+    // caller. Stateless pipelines skip the lock entirely (zero overhead, single-threaded).
     if (!hasKeyedStatefulNodes) {
-      return doRun(events, callingUser, runConfig);
+      return doRun(events, callingUser, runConfig, routeInput, endOfInput);
     }
     pipelineLock.lock();
     try {
-      return doRun(events, callingUser, runConfig);
+      return doRun(events, callingUser, runConfig, routeInput, endOfInput);
     } finally {
       pipelineLock.unlock();
     }
   }
 
   private DagResult doRun(
-      List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
+      List<RecordFleakData> events,
+      String callingUser,
+      NoSourceDagRunner.DagRunConfig runConfig,
+      boolean routeInput,
+      boolean endOfInput) {
 
     // Initialize all commands once at the start of the run
     initializeAllCommands();
@@ -157,7 +212,12 @@ public class NoSourceDagRunner {
             .metricClientProvider(metricClientProvider)
             .runConfig(runConfig)
             .build();
-    routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
+    if (routeInput) {
+      routeToDownstream(sourceNodeId, commandName, events, edgesFromSource, runContext);
+    }
+    if (endOfInput) {
+      flushEndOfInputNodes(runContext);
+    }
     counters.stopStopWatch(tags);
     MDC.clear();
     dagResult.consolidateSinkResult(); // merge all sinkResults and put them into outputEvents
@@ -336,7 +396,7 @@ public class NoSourceDagRunner {
 
   private void tickFlush() {
     try {
-      flushWindowedNodes(false);
+      flushDueWindows();
     } catch (Exception e) {
       log.error("error during scheduled window flush", e);
     } catch (Error e) {
@@ -350,7 +410,7 @@ public class NoSourceDagRunner {
    * reusing the normal traversal so the records reach sinks exactly like {@code process} output.
    * Holds the pipeline lock for the whole pass so it never overlaps {@link #run}.
    */
-  private void flushWindowedNodes(boolean finalFlush) {
+  private void flushDueWindows() {
     pipelineLock.lock();
     try {
       String callingUser = Objects.requireNonNullElse(flushCallingUser, "");
@@ -363,8 +423,7 @@ public class NoSourceDagRunner {
         List<RecordFleakData> output;
         try {
           output =
-              ((WindowFlushable) command)
-                  .flush(callingUser, command.getExecutionContext(), finalFlush);
+              ((WindowFlushable) command).flush(callingUser, command.getExecutionContext(), false);
         } catch (Exception e) {
           log.error("window flush failed at node {}", node.getId(), e);
           continue;
@@ -392,6 +451,90 @@ public class NoSourceDagRunner {
     }
   }
 
+  /**
+   * Emits the pending output of every initialized {@link EndOfInputFlushable} node in topological
+   * order. Each node's output is recorded as its step output, under its first upstream, and routed
+   * downstream within {@code runContext}. A failing node is recorded and skipped, so the others
+   * still flush.
+   */
+  private void flushEndOfInputNodes(RunContext runContext) {
+    for (Node<OperatorCommand> node : endOfInputNodes) {
+      OperatorCommand command = node.getNodeContent();
+      if (!command.isInitialized()) {
+        continue;
+      }
+      String nodeId = node.getId();
+      List<RecordFleakData> output;
+      try {
+        output =
+            ((EndOfInputFlushable) command)
+                .flushAtEndOfInput(runContext.callingUser, command.getExecutionContext());
+      } catch (Exception e) {
+        log.error("end-of-input flush failed at node {}", nodeId, e);
+        runContext.dagResult.recordFailure(nodeId, command.commandName(), e.getMessage());
+        Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
+        tags.put(METRIC_TAG_NODE_ID, nodeId);
+        tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
+        counters.increaseErrorEventCounter(1, tags);
+        continue;
+      }
+      if (CollectionUtils.isEmpty(output)) {
+        continue;
+      }
+      runContext.dagResult.handleNodeResult(
+          runContext.callingUserTag,
+          nodeId,
+          endOfInputUpstreams.get(nodeId),
+          command.commandName(),
+          runContext.runConfig,
+          output,
+          List.of(),
+          counters);
+      routeToDownstream(
+          nodeId,
+          command.commandName(),
+          output,
+          compiledDagWithoutSource.downstreamEdges(nodeId),
+          runContext);
+    }
+  }
+
+  private String firstUpstream(String nodeId) {
+    List<Edge> upstream = compiledDagWithoutSource.upstreamEdges(nodeId);
+    if (!upstream.isEmpty()) {
+      return upstream.getFirst().getFrom();
+    }
+    return edgesFromSource.stream()
+        .filter(e -> e.getTo().equals(nodeId))
+        .map(Edge::getFrom)
+        .findFirst()
+        .orElse(nodeId);
+  }
+
+  private static List<Node<OperatorCommand>> topologicalOrder(Dag<OperatorCommand> dag) {
+    Map<String, Integer> inDegree = new HashMap<>();
+    for (Node<OperatorCommand> node : dag.getNodes()) {
+      inDegree.put(node.getId(), dag.upstreamEdges(node.getId()).size());
+    }
+    Deque<Node<OperatorCommand>> ready = new ArrayDeque<>();
+    for (Node<OperatorCommand> node : dag.getNodes()) {
+      if (inDegree.get(node.getId()) == 0) {
+        ready.add(node);
+      }
+    }
+    List<Node<OperatorCommand>> ordered = new ArrayList<>();
+    while (!ready.isEmpty()) {
+      Node<OperatorCommand> node = ready.poll();
+      ordered.add(node);
+      for (Edge edge : dag.downstreamEdges(node.getId())) {
+        if (inDegree.merge(edge.getTo(), -1, Integer::sum) == 0) {
+          ready.add(dag.lookupNode(edge.getTo()));
+        }
+      }
+    }
+    return ordered;
+  }
+
   private synchronized void stopFlushScheduler() {
     if (flushTask != null) {
       flushTask.cancel(false);
@@ -417,14 +560,14 @@ public class NoSourceDagRunner {
     if (!terminated.compareAndSet(false, true)) {
       return;
     }
-    // Stop the timer first (no concurrent flush), then drain every remaining window while sinks are
-    // still open, and only then close the commands.
+    // Stop the timer first (no concurrent flush), then emit all pending output (remaining windows,
+    // incomplete sample groups) while sinks are still open, and only then close the commands.
     stopFlushScheduler();
-    if (hasWindowedNodes) {
+    if (!endOfInputNodes.isEmpty()) {
       try {
-        flushWindowedNodes(true);
+        flushAtTermination();
       } catch (Exception e) {
-        log.error("final window flush failed", e);
+        log.error("final end-of-input flush failed", e);
       }
     }
     if (hasKeyedStatefulNodes) {
@@ -438,6 +581,31 @@ public class NoSourceDagRunner {
       }
     } else {
       closeAllCommands();
+    }
+  }
+
+  private void flushAtTermination() {
+    pipelineLock.lock();
+    try {
+      String callingUser = Objects.requireNonNullElse(flushCallingUser, "");
+      DagResult dagResult = new DagResult();
+      flushEndOfInputNodes(
+          RunContext.builder()
+              .callingUser(callingUser)
+              .callingUserTag(getCallingUserTagAndEventTags(callingUser, null))
+              .dagResult(dagResult)
+              .metricClientProvider(metricClientProvider)
+              .runConfig(FLUSH_RUN_CONFIG)
+              .build());
+      if (dagResult.hasFailure()) {
+        DagResult.NodeFailure failure = dagResult.getFirstFailure();
+        log.error(
+            "final end-of-input flush lost output at node {}: {}",
+            failure.nodeId(),
+            failure.errorMessage());
+      }
+    } finally {
+      pipelineLock.unlock();
     }
   }
 

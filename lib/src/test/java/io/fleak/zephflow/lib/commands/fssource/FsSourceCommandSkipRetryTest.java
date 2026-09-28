@@ -33,7 +33,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -189,30 +188,30 @@ class FsSourceCommandSkipRetryTest {
 
   @Test
   void anOversizedFileIsNotRetriedOnLaterRuns(@TempDir Path dir) throws Exception {
-    Files.writeString(dir.resolve("evt_1.json"), oversizedJsonArray("a"));
-    Files.writeString(dir.resolve("evt_2.json"), "[{\"v\":\"b\"}]");
+    Files.writeString(dir.resolve("evt_1.json"), oversizedJsonObject("a"));
+    Files.writeString(dir.resolve("evt_2.json"), "{\"v\":\"b\"}");
     Map<String, Object> smallCap = Map.of("maxFileBytes", 64L);
 
-    assertEquals(List.of("b"), run(dir, "JSON_ARRAY", smallCap), "run 1: evt_1 is too large");
+    assertEquals(List.of("b"), run(dir, "JSON_OBJECT", smallCap), "run 1: evt_1 is too large");
 
     // Shrinking the file shows whether run 2 looks at it again: a retry would now emit it.
-    Files.writeString(dir.resolve("evt_1.json"), "[{\"v\":\"a\"}]");
-    Files.writeString(dir.resolve("evt_3.json"), "[{\"v\":\"c\"}]");
+    Files.writeString(dir.resolve("evt_1.json"), "{\"v\":\"a\"}");
+    Files.writeString(dir.resolve("evt_3.json"), "{\"v\":\"c\"}");
 
     assertEquals(
         List.of("c"),
-        run(dir, "JSON_ARRAY", smallCap),
+        run(dir, "JSON_OBJECT", smallCap),
         "an oversized file cannot succeed on retry, so it is completed rather than retried");
   }
 
   @Test
   void anOversizedFileDoesNotHoldTheWatermark(@TempDir Path dir) throws Exception {
     // The watermark is per bucket, so the newer file must share the oversized file's bucket.
-    Files.writeString(dir.resolve("evt_1.log"), oversizedJsonArray("a"));
+    Files.writeString(dir.resolve("evt_1.log"), oversizedJsonObject("a"));
     String newerFileName = sameBucketFileName(dir, "evt_1.log");
-    Files.writeString(dir.resolve(newerFileName), "[{\"v\":\"b\"}]");
+    Files.writeString(dir.resolve(newerFileName), "{\"v\":\"b\"}");
 
-    run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L));
+    run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L));
 
     String newerUrn = dir.resolve(newerFileName).toUri().toString();
     FsCheckpoint checkpoint =
@@ -230,17 +229,20 @@ class FsSourceCommandSkipRetryTest {
 
   @Test
   void aRunWhoseOnlyFilesAreOversizedSucceeds(@TempDir Path dir) throws Exception {
-    Files.writeString(dir.resolve("evt_1.json"), oversizedJsonArray("a"));
+    Files.writeString(dir.resolve("evt_1.json"), oversizedJsonObject("a"));
 
     assertEquals(
         List.of(),
-        run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L)),
+        run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L)),
         "the oversized file is resolved, so there is nothing left for a retry to do");
   }
 
-  /** A JSON array comfortably over a 64-byte cap. */
-  private static String oversizedJsonArray(String value) {
-    return "[" + String.join(",", Collections.nCopies(10, "{\"v\":\"" + value + "\"}")) + "]";
+  /**
+   * A JSON object comfortably over a 64-byte cap. JSON_OBJECT is a single document, so unlike the
+   * streamed formats it is still read whole and capped.
+   */
+  private static String oversizedJsonObject(String value) {
+    return "{\"v\":\"" + value + "\",\"padding\":\"" + "x".repeat(100) + "\"}";
   }
 
   @Test

@@ -109,6 +109,24 @@ class SampleConfigTest {
     assertTrue(e.getMessage().contains(parameter), e.getMessage());
   }
 
+  static Stream<Arguments> invalidSampleRates() {
+    return Stream.of(
+        Arguments.of("\"3\"", "'rules[0].sampleRate' must be an integer, got: \"3\""),
+        Arguments.of("0", "'rules[0].sampleRate' must be between 1 and 2147483647, got: 0"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("invalidSampleRates")
+  void rejectsInvalidSampleRateWithExactMessage(String sampleRate, String expectedMessage) {
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new SampleConfigParser()
+                    .parseConfig(json("{\"rules\": [{\"sampleRate\": " + sampleRate + "}]}")));
+    assertEquals(expectedMessage, e.getMessage());
+  }
+
   @ParameterizedTest
   @MethodSource("validConfigs")
   void acceptsValidConfig(String configJson, Config expected) {

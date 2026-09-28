@@ -265,6 +265,47 @@ class SampleCommandTest {
   }
 
   @Test
+  void endOfInputEmitsEachIncompleteGroupWithItsActualSizeThenResets() {
+    SampleCommand cmd =
+        command(
+            "{\"rules\": [{\"condition\": \"$.id < 10\", \"sampleRate\": 10},"
+                + " {\"condition\": \"$.id >= 10\", \"sampleRate\": 4}]}",
+            ScriptedRandom.always(1));
+
+    assertEquals(
+        List.of(),
+        runOneByOne(
+            cmd,
+            List.of(
+                rec("{\"id\": 1}"), rec("{\"id\": 2}"), rec("{\"id\": 3}"), rec("{\"id\": 11}"))));
+    assertEquals(
+        List.of(rec("{\"id\": 1, \"__sampled__\": 3}"), rec("{\"id\": 11, \"__sampled__\": 1}")),
+        cmd.flushAtEndOfInput(USER, cmd.getExecutionContext()));
+    assertEquals(List.of(), cmd.flushAtEndOfInput(USER, cmd.getExecutionContext()));
+
+    assertEquals(List.of(), run(cmd, List.of(rec("{\"id\": 4}"))));
+    assertEquals(
+        List.of(rec("{\"id\": 4, \"__sampled__\": 1}")),
+        cmd.flushAtEndOfInput(USER, cmd.getExecutionContext()));
+  }
+
+  @Test
+  void endOfInputOutputIsCountedWithTheCandidatesTags() {
+    RecordingMetricClientProvider metrics = new RecordingMetricClientProvider();
+    SampleCommand cmd =
+        command("{\"rules\": [{\"sampleRate\": 5}]}", ScriptedRandom.always(1), metrics);
+    run(
+        cmd,
+        List.of(rec("{\"__tag__\": {\"id\": \"e1\"}}"), rec("{\"__tag__\": {\"id\": \"e2\"}}")));
+    metrics.increments.clear();
+
+    cmd.flushAtEndOfInput(USER, cmd.getExecutionContext());
+
+    assertEquals(
+        List.of(new Increment(METRIC_NAME_OUTPUT_EVENT_COUNT, tags("e1"))), metrics.increments);
+  }
+
+  @Test
   void isKeyedStatefulButNotWindowFlushable() {
     SampleCommand cmd = (SampleCommand) new SampleCommandFactory().createCommand("n1", JOB_CONTEXT);
     assertInstanceOf(KeyedStatefulCommand.class, cmd);

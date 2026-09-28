@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
@@ -37,6 +38,7 @@ import io.fleak.zephflow.lib.serdes.des.DeserializationOutcome;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -425,6 +427,9 @@ public final class FsSourceCommand extends SourceCommand {
       FileEntry fileEntry) {
     String urn = fileEntry.key().urn();
     try {
+      if (deserializer.supportsStreamedPayloads()) {
+        return emitStreamed(executionContext, deserializer, eventAcceptor, fileEntry);
+      }
       return deserializer.supportsChunkedPayloads()
           ? emitChunked(executionContext, deserializer, eventAcceptor, fileEntry)
           : emitWholePayload(executionContext, deserializer, eventAcceptor, fileEntry);
@@ -496,6 +501,79 @@ public final class FsSourceCommand extends SourceCommand {
           }
           recordCount[0] += outcome.records().size();
           emit(executionContext, eventAcceptor, outcome);
+        });
+
+    if (recordCount[0] == 0 && unrecordedFailures[0]) {
+      log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
+      return SKIP_REASON_NOTHING_DESERIALIZED;
+    }
+    return null;
+  }
+
+  /**
+   * Record-sequence formats that are not line-delimited (json array, csv): the parser reads records
+   * straight from the stream, and they are emitted in batches of about {@code chunkSizeBytes}, so
+   * neither the file nor the parsed records are ever held whole.
+   */
+  private String emitStreamed(
+      FsSourceExecutionContext executionContext,
+      FleakDeserializer<?> deserializer,
+      SourceEventAcceptor eventAcceptor,
+      FileEntry fileEntry)
+      throws Exception {
+    String urn = fileEntry.key().urn();
+    int batchSizeBytes = executionContext.payloadReader.chunkSizeBytes();
+    // Arrays because the lambdas need to mutate them; everything here runs on this thread.
+    long[] recordCount = {0};
+    boolean[] unrecordedFailures = {false};
+    long[] flushedThroughBytes = {0};
+    List<RecordFleakData> records = new ArrayList<>();
+    List<DeserializationOutcome.RecordError> errors = new ArrayList<>();
+
+    executionContext.payloadReader.stream(
+        fileEntry.key(),
+        input -> {
+          Runnable flush =
+              () -> {
+                executionContext.dataSizeCounter.increase(
+                    input.bytesRead() - flushedThroughBytes[0], Map.of());
+                flushedThroughBytes[0] = input.bytesRead();
+                DeserializationOutcome outcome =
+                    new DeserializationOutcome(List.copyOf(records), List.copyOf(errors));
+                records.clear();
+                errors.clear();
+                if (!reportDeserializationErrors(executionContext, urn, outcome)) {
+                  unrecordedFailures[0] = true;
+                }
+                recordCount[0] += outcome.records().size();
+                emit(executionContext, eventAcceptor, outcome);
+              };
+          Runnable flushWhenFull =
+              () -> {
+                if (input.bytesRead() - flushedThroughBytes[0] >= batchSizeBytes) {
+                  flush.run();
+                }
+              };
+          try {
+            deserializer.deserializeStream(
+                input,
+                record -> {
+                  input.recordBoundary();
+                  records.add(record);
+                  flushWhenFull.run();
+                },
+                error -> {
+                  input.recordBoundary();
+                  errors.add(error);
+                  flushWhenFull.run();
+                });
+          } catch (FsPayloadReader.PayloadTooLargeException payloadTooLargeException) {
+            // The file is dropped rather than retried, so the records parsed before the oversized
+            // one must still go out, or they are lost along with it.
+            flush.run();
+            throw payloadTooLargeException;
+          }
+          flush.run();
         });
 
     if (recordCount[0] == 0 && unrecordedFailures[0]) {

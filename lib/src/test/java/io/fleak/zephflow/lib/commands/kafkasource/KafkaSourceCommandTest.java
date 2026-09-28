@@ -150,6 +150,11 @@ public class KafkaSourceCommandTest {
       // Verify that messages were consumed
       assertEquals(3, eventConsumer.getReceivedEvents().size());
       assertEquals(2L, eventConsumer.getReceivedEvents().get(0).unwrap().get("batch"));
+      assertEquals(
+          List.of(1L, 2L, 3L),
+          eventConsumer.getReceivedEvents().stream()
+              .map(event -> event.unwrap().get("id"))
+              .toList());
     } finally {
       executor.shutdownNow();
       //noinspection ResultOfMethodCallIgnored
@@ -239,12 +244,26 @@ public class KafkaSourceCommandTest {
           + "}"
     };
 
-    // Send messages to Kafka
-    for (String message : testMessages) {
-      producer.send(
-          new ProducerRecord<>(TOPIC_NAME, null, message.getBytes(StandardCharsets.UTF_8)));
+    // Send messages to Kafka; the second message of each batch after the first is gzipped, so
+    // the topic mixes compressed and plain payloads the way a collector-fed topic can.
+    for (int index = 0; index < testMessages.length; index++) {
+      byte[] payload = testMessages[index].getBytes(StandardCharsets.UTF_8);
+      if (batchCount > 1 && index == 1) {
+        payload = gzip(payload);
+      }
+      producer.send(new ProducerRecord<>(TOPIC_NAME, null, payload));
     }
     producer.flush();
+  }
+
+  private static byte[] gzip(byte[] payload) {
+    var compressed = new java.io.ByteArrayOutputStream();
+    try (var gzip = new java.util.zip.GZIPOutputStream(compressed)) {
+      gzip.write(payload);
+    } catch (java.io.IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+    return compressed.toByteArray();
   }
 
   @Getter

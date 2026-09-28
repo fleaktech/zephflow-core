@@ -13,38 +13,43 @@
  */
 package io.fleak.zephflow.lib.commands.throttle;
 
+import static io.fleak.zephflow.lib.utils.ConfigValueUtils.checkNoUnknownKeys;
+import static io.fleak.zephflow.lib.utils.ConfigValueUtils.requireInteger;
+
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class ThrottleConfigParser implements ConfigParser {
+
+  private static final String KEY_EXPRESSION = "keyExpression";
+  private static final String NUM_TO_ALLOW = "numToAllow";
+  private static final String PERIOD_SECONDS = "periodSeconds";
+  private static final String CACHE_SIZE_LIMIT = "cacheSizeLimit";
+  private static final Set<String> CONFIG_KEYS =
+      new TreeSet<>(Set.of(KEY_EXPRESSION, NUM_TO_ALLOW, PERIOD_SECONDS, CACHE_SIZE_LIMIT));
+  private static final long MAX_PERIOD_SECONDS = 365L * 24 * 60 * 60;
 
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
     Preconditions.checkArgument(config != null, "throttle command requires configuration");
-    Object keyExpression = config.get("keyExpression");
+    checkNoUnknownKeys(config, CONFIG_KEYS, "");
+    Object keyExpression = config.get(KEY_EXPRESSION);
     Preconditions.checkArgument(
         keyExpression instanceof String && !((String) keyExpression).isBlank(),
         "throttle command requires 'keyExpression' to be configured");
     return new ThrottleCommandDto.Config(
         (String) keyExpression,
-        toInt(config.get("numToAllow"), 1),
-        toLong(config.get("periodSeconds"), 30L),
-        toInt(config.get("cacheSizeLimit"), 50_000));
+        (int) integerOrDefault(config, NUM_TO_ALLOW, 1, Integer.MAX_VALUE),
+        integerOrDefault(config, PERIOD_SECONDS, 30, MAX_PERIOD_SECONDS),
+        (int) integerOrDefault(config, CACHE_SIZE_LIMIT, 50_000, Integer.MAX_VALUE));
   }
 
-  private static int toInt(Object value, int defaultValue) {
-    if (value == null) {
-      return defaultValue;
-    }
-    return value instanceof Number n ? n.intValue() : Integer.parseInt(value.toString().trim());
-  }
-
-  private static long toLong(Object value, long defaultValue) {
-    if (value == null) {
-      return defaultValue;
-    }
-    return value instanceof Number n ? n.longValue() : Long.parseLong(value.toString().trim());
+  private static long integerOrDefault(
+      Map<String, Object> config, String name, long defaultValue, long max) {
+    return config.containsKey(name) ? requireInteger(config.get(name), name, 1, max) : defaultValue;
   }
 }

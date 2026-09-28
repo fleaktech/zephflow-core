@@ -20,6 +20,17 @@ import lombok.SneakyThrows;
 
 public class CompressionUtils {
 
+  private static final int GZIP_MAGIC_FIRST_BYTE = 0x1f;
+  private static final int GZIP_MAGIC_SECOND_BYTE = 0x8b;
+
+  /** Whether {@code data} starts with the gzip magic bytes; false for null or short input. */
+  public static boolean isGzip(byte[] data) {
+    return data != null
+        && data.length >= 2
+        && (data[0] & 0xff) == GZIP_MAGIC_FIRST_BYTE
+        && (data[1] & 0xff) == GZIP_MAGIC_SECOND_BYTE;
+  }
+
   @SneakyThrows
   public static byte[] gunzip(byte[] data) {
     try (var bis = new ByteArrayInputStream(data);

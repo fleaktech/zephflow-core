@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import io.fleak.zephflow.lib.commands.fssource.api.FileKey;
 import io.fleak.zephflow.lib.commands.fssource.api.FileReader;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PushbackInputStream;
@@ -35,6 +36,8 @@ import java.util.zip.GZIPInputStream;
  * size limit, only a per-chunk one. Peak memory is bounded by {@code max(chunkSizeBytes, longest
  * line)}: a single line longer than {@code chunkSizeBytes} must be buffered whole before it can be
  * split, up to {@code maxFileBytes}, at which point it is rejected rather than buffered further.
+ * {@link #stream} is for formats a parser reads record by record (json array, csv): it has no total
+ * size limit either, and {@code maxFileBytes} caps a single record instead.
  */
 public final class FsPayloadReader {
 
@@ -42,6 +45,13 @@ public final class FsPayloadReader {
   private static final int GZIP_MAGIC_FIRST_BYTE = 0x1f;
   private static final int GZIP_MAGIC_SECOND_BYTE = 0x8b;
   private static final byte NEWLINE = '\n';
+
+  /**
+   * How far past {@code maxFileBytes} a record may run before {@link #stream} rejects it. Parsers
+   * read ahead in blocks of about 8 KiB, so the stream sees bytes of the next record before the
+   * current one is marked done; the slack keeps that read-ahead from tripping the cap.
+   */
+  static final int RECORD_READ_AHEAD_SLACK_BYTES = 64 * 1024;
 
   private final FileReader fileReader;
   private final long maxFileBytes;
@@ -51,6 +61,11 @@ public final class FsPayloadReader {
     this.fileReader = fileReader;
     this.maxFileBytes = maxFileBytes;
     this.chunkSizeBytes = chunkSizeBytes;
+  }
+
+  /** Target size of one chunk or batch, in decompressed bytes. */
+  public int chunkSizeBytes() {
+    return chunkSizeBytes;
   }
 
   /** Reads the whole decompressed payload, refusing anything over the cap. */
@@ -100,6 +115,82 @@ public final class FsPayloadReader {
       }
       if (pending.size() > 0) {
         chunkConsumer.accept(pending.copyRange(0, pending.size()));
+      }
+    }
+  }
+
+  /** Reads a {@link RecordStream}; may throw what reading it throws. */
+  @FunctionalInterface
+  public interface StreamConsumer {
+    void accept(RecordStream input) throws IOException;
+  }
+
+  /**
+   * Hands {@code consumer} the decompressed payload as a stream, for a parser that reads it record
+   * by record. The consumer calls {@link RecordStream#recordBoundary} after each record; a record
+   * that runs past {@code maxFileBytes} without one fails the read with {@link
+   * PayloadTooLargeException}, since the parser is buffering it whole.
+   */
+  public void stream(FileKey key, StreamConsumer consumer) throws IOException {
+    try (InputStream inputStream = open(key)) {
+      consumer.accept(
+          new RecordStream(
+              inputStream, maxFileBytes + RECORD_READ_AHEAD_SLACK_BYTES, maxFileBytes));
+    }
+  }
+
+  /** A stream that counts the bytes read and refuses one record that outgrows the cap. */
+  public static final class RecordStream extends FilterInputStream {
+    private final long recordLimitBytes;
+    private final long maxFileBytes;
+    private long bytesRead = 0;
+    private long bytesReadAtBoundary = 0;
+
+    private RecordStream(InputStream in, long recordLimitBytes, long maxFileBytes) {
+      super(in);
+      this.recordLimitBytes = recordLimitBytes;
+      this.maxFileBytes = maxFileBytes;
+    }
+
+    /** Total decompressed bytes read so far. */
+    public long bytesRead() {
+      return bytesRead;
+    }
+
+    /** Marks the end of a record: the cap applies to the bytes read after this point. */
+    public void recordBoundary() {
+      bytesReadAtBoundary = bytesRead;
+    }
+
+    @Override
+    public int read() throws IOException {
+      int value = super.read();
+      if (value != -1) {
+        count(1);
+      }
+      return value;
+    }
+
+    @Override
+    public int read(byte[] buffer, int offset, int length) throws IOException {
+      int read = super.read(buffer, offset, length);
+      if (read > 0) {
+        count(read);
+      }
+      return read;
+    }
+
+    @Override
+    public long skip(long n) throws IOException {
+      long skipped = super.skip(n);
+      count(skipped);
+      return skipped;
+    }
+
+    private void count(long read) throws PayloadTooLargeException {
+      bytesRead += read;
+      if (bytesRead - bytesReadAtBoundary > recordLimitBytes) {
+        throw PayloadTooLargeException.singleRecord(bytesRead - bytesReadAtBoundary, maxFileBytes);
       }
     }
   }
@@ -196,8 +287,9 @@ public final class FsPayloadReader {
       return new PayloadTooLargeException(
           String.format(
               "file is too large to read as a whole document: exceeded the %,d byte maxFileBytes"
-                  + " limit after reading %,d bytes. Raise maxFileBytes, or switch to a"
-                  + " line-delimited encoding so the file can be streamed instead of buffered.",
+                  + " limit after reading %,d bytes. Raise maxFileBytes, or switch to an encoding"
+                  + " that is streamed instead of buffered (JSON_OBJECT_LINE, STRING_LINE, CSV or"
+                  + " JSON_ARRAY).",
               maxFileBytes, bytesRead));
     }
 
@@ -209,6 +301,17 @@ public final class FsPayloadReader {
                   + " %,d byte maxFileBytes limit. A line must fit in memory to be emitted; raise"
                   + " maxFileBytes, or check the file really is newline-delimited.",
               bytesBuffered, maxFileBytes));
+    }
+
+    /** A streamed format where one record (an array element, a csv row) grew past the cap. */
+    static PayloadTooLargeException singleRecord(long bytesRead, long maxFileBytes) {
+      return new PayloadTooLargeException(
+          String.format(
+              "a single record is too large to read: read %,d bytes without reaching its end, past"
+                  + " the %,d byte maxFileBytes limit. A record must fit in memory to be emitted;"
+                  + " raise maxFileBytes, or check the file is well formed (an unclosed quote in a"
+                  + " csv file makes the rest of the file one field).",
+              bytesRead, maxFileBytes));
     }
   }
 }

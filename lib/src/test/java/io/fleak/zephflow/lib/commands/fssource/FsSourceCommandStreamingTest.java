@@ -46,7 +46,7 @@ class FsSourceCommandStreamingTest {
     FsBackendRegistry.unregister("file");
   }
 
-  private record Run(List<Object> values, int acceptCalls) {}
+  private record Run(List<Object> values, List<Object> raws, int acceptCalls) {}
 
   private static Run run(Path dir, String encodingType, Map<String, Object> extraConfig)
       throws Exception {
@@ -74,7 +74,9 @@ class FsSourceCommandStreamingTest {
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     command.execute("u", acceptor);
     return new Run(
-        emitted.stream().map(record -> record.unwrap().get("v")).toList(), acceptCalls[0]);
+        emitted.stream().map(record -> record.unwrap().get("v")).toList(),
+        emitted.stream().map(record -> record.unwrap().get("__raw__")).toList(),
+        acceptCalls[0]);
   }
 
   @Test
@@ -111,16 +113,73 @@ class FsSourceCommandStreamingTest {
 
   @Test
   void aWholeDocumentFileOverTheCapIsSkippedRatherThanBuffered(@TempDir Path dir) throws Exception {
-    StringBuilder payload = new StringBuilder("[");
+    Files.writeString(dir.resolve("a.json"), "{\"v\":\"" + "x".repeat(500) + "\"}");
+
+    Run run = run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L));
+
+    assertEquals(List.of(), run.values(), "the file is over the cap, so nothing is emitted");
+  }
+
+  @Test
+  void aStringLineFileStreamsEvenWhenItIsBiggerThanMaxFileBytes(@TempDir Path dir)
+      throws Exception {
+    StringBuilder payload = new StringBuilder();
     for (int value = 0; value < 500; value++) {
+      payload.append("line-").append(value).append("\n");
+    }
+    Files.writeString(dir.resolve("a.log"), payload.toString());
+
+    Run run = run(dir, "STRING_LINE", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
+
+    assertEquals(500, run.raws().size(), "STRING_LINE is line-delimited, so it streams");
+    assertEquals("line-0", run.raws().getFirst());
+    assertEquals("line-499", run.raws().getLast());
+    assertTrue(
+        run.acceptCalls() > 1, "a 500-line file at a 256-byte chunk must stream, not buffer");
+  }
+
+  @Test
+  void aJsonArrayFileStreamsEvenWhenItIsBiggerThanMaxFileBytes(@TempDir Path dir) throws Exception {
+    StringBuilder payload = new StringBuilder("[");
+    for (int value = 0; value < 5000; value++) {
       payload.append(value == 0 ? "" : ",").append("{\"v\":").append(value).append("}");
     }
     payload.append("]");
     Files.writeString(dir.resolve("a.json"), payload.toString());
 
-    Run run = run(dir, "JSON_ARRAY", Map.of("maxFileBytes", 64L));
+    Run run = run(dir, "JSON_ARRAY", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
-    assertEquals(List.of(), run.values(), "the file is over the cap, so nothing is emitted");
+    assertEquals(5000, run.values().size(), "maxFileBytes bounds one element, not the array");
+    assertEquals(4999L, run.values().getLast());
+    assertTrue(run.acceptCalls() > 1, "elements are handed downstream in batches, not all at once");
+  }
+
+  @Test
+  void aCsvFileStreamsEvenWhenItIsBiggerThanMaxFileBytes(@TempDir Path dir) throws Exception {
+    StringBuilder payload = new StringBuilder("v,note\n");
+    for (int value = 0; value < 5000; value++) {
+      payload.append(value).append(",\"row\n").append(value).append("\"\n");
+    }
+    Files.writeString(dir.resolve("a.csv"), payload.toString());
+
+    Run run = run(dir, "CSV", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
+
+    assertEquals(5000, run.values().size(), "maxFileBytes bounds one row, not the file");
+    assertEquals("4999", run.values().getLast());
+    assertTrue(run.acceptCalls() > 1, "rows are handed downstream in batches, not all at once");
+  }
+
+  @Test
+  void aSingleJsonArrayElementOverTheCapDropsTheRestOfTheFile(@TempDir Path dir) throws Exception {
+    String hugeElement = "{\"v\":\"" + "x".repeat(512 * 1024) + "\"}";
+    Files.writeString(dir.resolve("a.json"), "[{\"v\":\"first\"}," + hugeElement + "]");
+
+    Run run = run(dir, "JSON_ARRAY", Map.of("chunkSizeBytes", 64, "maxFileBytes", 1024L));
+
+    assertEquals(
+        List.of("first"),
+        run.values(),
+        "one element past the cap is too large to buffer; the elements before it stand");
   }
 
   @Test

@@ -20,8 +20,9 @@ import java.util.List;
  * Result of a deserialization that reports failures instead of throwing, so callers can emit the
  * records that did parse and quarantine the ones that didn't.
  *
- * <p>Formats that can only be parsed as a whole document (json array, xml, csv) report a single
- * error covering the entire payload. Line-oriented formats report one error per bad line.
+ * <p>Formats parsed as a whole document report a single error covering the entire payload.
+ * Line-oriented formats report one error per bad line, and streamed formats (json array, csv) one
+ * per bad record.
  */
 public record DeserializationOutcome(List<RecordFleakData> records, List<RecordError> errors) {
 

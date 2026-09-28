@@ -14,11 +14,12 @@
 package io.fleak.zephflow.lib.commands.sample;
 
 import static io.fleak.zephflow.lib.commands.sample.SampleCommandDto.DEFAULT_SAMPLE_RATE_FIELD;
+import static io.fleak.zephflow.lib.utils.ConfigValueUtils.checkNoUnknownKeys;
+import static io.fleak.zephflow.lib.utils.ConfigValueUtils.requireInteger;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -64,37 +65,10 @@ public class SampleConfigParser implements ConfigParser {
         (String) condition, parseSampleRate(rule.get(SAMPLE_RATE), index));
   }
 
-  private static void checkNoUnknownKeys(Map<?, ?> map, Set<String> allowed, String prefix) {
-    for (Object key : map.keySet()) {
-      Preconditions.checkArgument(
-          key instanceof String name && allowed.contains(name),
-          "unknown parameter '%s%s'; allowed: %s",
-          prefix,
-          key,
-          allowed);
-    }
-  }
-
   private static int parseSampleRate(Object value, int index) {
-    BigInteger rate =
-        switch (value) {
-          case Integer n -> BigInteger.valueOf(n);
-          case Long n -> BigInteger.valueOf(n);
-          case Short n -> BigInteger.valueOf(n);
-          case Byte n -> BigInteger.valueOf(n);
-          case BigInteger n -> n;
-          case null, default ->
-              throw new IllegalArgumentException(
-                  String.format(
-                      "'rules[%s].sampleRate' must be an integer, got: %s", index, value));
-        };
-    Preconditions.checkArgument(
-        rate.signum() > 0 && rate.compareTo(BigInteger.valueOf(Integer.MAX_VALUE)) <= 0,
-        "'rules[%s].sampleRate' must be between 1 and %s, got: %s",
-        index,
-        Integer.MAX_VALUE,
-        rate);
-    return rate.intValueExact();
+    return (int)
+        requireInteger(
+            value, String.format("rules[%s].%s", index, SAMPLE_RATE), 1, Integer.MAX_VALUE);
   }
 
   private static String parseSampleRateField(Map<String, Object> config) {

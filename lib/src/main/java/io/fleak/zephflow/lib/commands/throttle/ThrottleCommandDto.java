@@ -16,10 +16,6 @@ package io.fleak.zephflow.lib.commands.throttle;
 import io.fleak.zephflow.api.CommandConfig;
 
 public interface ThrottleCommandDto {
-  /**
-   * Boxed fields so an omitted value stays {@code null} for the parser to default (a primitive
-   * would silently become 0).
-   */
   record Config(
       String keyExpression, Integer numToAllow, Long periodSeconds, Integer cacheSizeLimit)
       implements CommandConfig {}

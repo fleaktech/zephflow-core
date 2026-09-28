@@ -40,14 +40,33 @@ public class DagRunnerService {
 
   public NoSourceDagRunner createForApiBackend(
       List<AdjacencyListDagDefinition.DagNode> dag, @NonNull JobContext jobContext) {
+    return create(dag, jobContext, false);
+  }
+
+  /**
+   * Builds a runner for one bounded test input that is discarded afterwards, so keyed-stateful
+   * commands are allowed: their state cannot leak into another request, and the caller declares end
+   * of input via {@link NoSourceDagRunner#run(List, String, NoSourceDagRunner.DagRunConfig,
+   * boolean)}.
+   */
+  public NoSourceDagRunner createForTestRun(
+      List<AdjacencyListDagDefinition.DagNode> dag, @NonNull JobContext jobContext) {
+    return create(dag, jobContext, true);
+  }
+
+  private NoSourceDagRunner create(
+      List<AdjacencyListDagDefinition.DagNode> dag,
+      JobContext jobContext,
+      boolean allowKeyedStateful) {
     AdjacencyListDagDefinition dagDefinition =
         AdjacencyListDagDefinition.builder().jobContext(jobContext).dag(dag).build();
     Dag<OperatorCommand> compiledDag = dagCompiler.compile(dagDefinition, false);
-    // The request/response backend has no flush scheduler and reuses the runner across requests, so
-    // keyed reduction state (windowed aggregation, throttle, sample, ...) can't fire on time and
-    // would leak across requests. Reject these keyed-stateful commands at build time.
+    // The api backend has no flush scheduler and reuses the runner across requests, so keyed
+    // reduction state (windowed aggregation, throttle, sample, ...) can't fire on time and would
+    // leak across requests. Reject these keyed-stateful commands at build time unless the runner is
+    // a one-shot test run.
     for (Node<OperatorCommand> node : compiledDag.getNodes()) {
-      if (node.getNodeContent() instanceof KeyedStatefulCommand) {
+      if (!allowKeyedStateful && node.getNodeContent() instanceof KeyedStatefulCommand) {
         throw new IllegalArgumentException(
             "api backend doesn't support keyed stateful command node in the dag (windowed, "
                 + "throttle or sample); it requires a streaming source pipeline. Found: "

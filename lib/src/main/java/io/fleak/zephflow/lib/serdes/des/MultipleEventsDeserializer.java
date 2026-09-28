@@ -18,6 +18,8 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.TypedEventContainer;
 import io.fleak.zephflow.lib.serdes.converters.TypedEventConverter;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -117,6 +119,44 @@ public class MultipleEventsDeserializer<T> extends FleakDeserializer<T> {
 
   @Override
   public boolean supportsChunkedPayloads() {
-    return multipleEventsTypedDeserializer instanceof LineOrientedTypedDeserializer;
+    return multipleEventsTypedDeserializer.isLineDelimited();
+  }
+
+  @Override
+  public boolean supportsStreamedPayloads() {
+    return multipleEventsTypedDeserializer.supportsStreaming();
+  }
+
+  @Override
+  public void deserializeStream(
+      InputStream input,
+      Consumer<RecordFleakData> onRecord,
+      Consumer<DeserializationOutcome.RecordError> onError)
+      throws IOException {
+    multipleEventsTypedDeserializer.deserializeStream(
+        input,
+        outcome -> {
+          if (outcome.error() != null) {
+            onError.accept(
+                new DeserializationOutcome.RecordError(
+                    outcome.raw(), outcome.index(), outcome.error()));
+            return;
+          }
+          RecordFleakData record;
+          try {
+            record =
+                typedEventConverter.typedEventToFleakData(
+                    new TypedEventContainer<>(outcome.value(), Map.of()));
+          } catch (Exception e) {
+            onError.accept(
+                new DeserializationOutcome.RecordError(
+                    String.valueOf(outcome.value()).getBytes(StandardCharsets.UTF_8),
+                    outcome.index(),
+                    e));
+            return;
+          }
+          // Outside the try: a downstream failure must propagate, not be quarantined as bad data.
+          onRecord.accept(record);
+        });
   }
 }

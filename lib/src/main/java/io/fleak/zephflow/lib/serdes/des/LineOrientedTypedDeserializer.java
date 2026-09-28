@@ -29,6 +29,11 @@ import java.util.function.Consumer;
  */
 public abstract class LineOrientedTypedDeserializer<T> extends MultipleEventsTypedDeserializer<T> {
 
+  @Override
+  public final boolean isLineDelimited() {
+    return true;
+  }
+
   protected void deserializeLineIncrementally(
       byte[] value,
       int offset,
