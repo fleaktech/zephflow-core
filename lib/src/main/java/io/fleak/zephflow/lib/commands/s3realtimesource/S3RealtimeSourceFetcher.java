@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import lombok.extern.slf4j.Slf4j;
-import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
@@ -41,9 +40,7 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
 
   private final SqsClient sqsClient;
-  // Held only so the shared S3 client is closed when this fetcher is closed by the execution
-  // context; the actual S3 reads happen in S3RealtimeRawDataConverter.
-  private final S3Client s3Client;
+  private final S3RegionalClientProvider s3Clients;
   private final String queueUrl;
   private final int maxNumberOfMessages;
   private final int waitTimeSeconds;
@@ -59,7 +56,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
 
   public S3RealtimeSourceFetcher(
       SqsClient sqsClient,
-      S3Client s3Client,
+      S3RegionalClientProvider s3Clients,
       String queueUrl,
       int maxNumberOfMessages,
       int waitTimeSeconds,
@@ -69,7 +66,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
       String nodeId,
       Queue<String> confirmedReceiptHandles) {
     this.sqsClient = sqsClient;
-    this.s3Client = s3Client;
+    this.s3Clients = s3Clients;
     this.queueUrl = queueUrl;
     this.maxNumberOfMessages = maxNumberOfMessages;
     this.waitTimeSeconds = waitTimeSeconds;
@@ -152,13 +149,30 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
 
   @Override
   public void close() {
-    if (sqsClient != null) {
-      sqsClient.close();
+    RuntimeException failure = null;
+    try {
+      if (sqsClient != null) {
+        sqsClient.close();
+      }
+    } catch (RuntimeException e) {
+      failure = new IllegalStateException("failed to close SQS client for node " + nodeId, e);
     }
-    if (s3Client != null) {
-      s3Client.close();
+    try {
+      if (s3Clients != null) {
+        s3Clients.close();
+      }
+    } catch (RuntimeException e) {
+      RuntimeException s3Failure =
+          new IllegalStateException("failed to close S3 clients for node " + nodeId, e);
+      if (failure == null) {
+        failure = s3Failure;
+      } else {
+        failure.addSuppressed(s3Failure);
+      }
     }
-    // The DLQ writer is owned (and closed) by the SourceExecutionContext.
+    if (failure != null) {
+      throw failure;
+    }
   }
 
   private int receiveCount(Message message) {

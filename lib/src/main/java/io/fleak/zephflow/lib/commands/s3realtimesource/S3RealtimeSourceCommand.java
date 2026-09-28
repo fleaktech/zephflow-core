@@ -30,7 +30,6 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.commons.lang3.StringUtils;
-import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sqs.SqsClient;
 
 public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage> {
@@ -64,12 +63,11 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
     UsernamePasswordCredential s3Credential = resolveCredential(jobContext, s3CredentialId);
 
     SqsClient sqsClient = awsClientFactory.createSqsClient(config.getRegionStr(), sqsCredential);
-    String s3Region =
-        StringUtils.trimToNull(config.getS3RegionStr()) != null
-            ? config.getS3RegionStr()
-            : config.getRegionStr();
-    S3Client s3Client =
-        awsClientFactory.createS3Client(s3Region, s3Credential, config.getS3EndpointOverride());
+    S3RegionalClientProvider s3Clients =
+        new S3RegionalClientProvider(
+            region ->
+                awsClientFactory.createS3Client(
+                    region, s3Credential, config.getS3EndpointOverride()));
 
     Map<String, String> metricTags =
         basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
@@ -100,7 +98,7 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
     RawDataEncoder<S3EventMessage> encoder = new S3RealtimeRawDataEncoder();
     RawDataConverter<S3EventMessage> converter =
         new S3RealtimeRawDataConverter(
-            s3Client,
+            s3Clients,
             deserializer,
             config.getCompressionType(),
             orDefault(
@@ -115,7 +113,7 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
     Fetcher<S3EventMessage> fetcher =
         new S3RealtimeSourceFetcher(
             sqsClient,
-            s3Client,
+            s3Clients,
             config.getQueueUrl(),
             orDefault(
                 config.getMaxNumberOfMessages(),
