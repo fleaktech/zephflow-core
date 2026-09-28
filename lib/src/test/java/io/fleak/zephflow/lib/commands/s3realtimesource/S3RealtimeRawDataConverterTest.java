@@ -38,6 +38,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -80,7 +83,7 @@ class S3RealtimeRawDataConverterTest {
     FleakDeserializer<?> deserializer =
         DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
     return new S3RealtimeRawDataConverter(
-        s3Client,
+        new S3RegionalClientProvider(region -> s3Client),
         deserializer,
         compressionType,
         MAX_OBJECT_SIZE,
@@ -110,7 +113,7 @@ class S3RealtimeRawDataConverterTest {
     byte[] body = "{\"msg\":\"a\"}\n{\"msg\":\"b\"}".getBytes(StandardCharsets.UTF_8);
     stubGetObject("b", "k.jsonl", body);
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "k.jsonl")));
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "k.jsonl", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -127,7 +130,8 @@ class S3RealtimeRawDataConverterTest {
     byte[] body = "{\"msg\":\"a\"}".getBytes(StandardCharsets.UTF_8);
     stubGetObject("my-bucket", "dir/k.json", body);
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("my-bucket", "dir/k.json")));
+        new S3EventMessage(
+            "m1", "r1", null, List.of(new S3ObjectRef("my-bucket", "dir/k.json", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, true).convert(msg, ctx);
@@ -148,7 +152,9 @@ class S3RealtimeRawDataConverterTest {
             "m1",
             "r1",
             null,
-            List.of(new S3ObjectRef("b", "k1.jsonl"), new S3ObjectRef("b", "k2.jsonl")));
+            List.of(
+                new S3ObjectRef("b", "k1.jsonl", "us-east-1"),
+                new S3ObjectRef("b", "k2.jsonl", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -166,7 +172,8 @@ class S3RealtimeRawDataConverterTest {
             AbortableInputStream.create(new ByteArrayInputStream(new byte[0])));
     when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(stream);
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "big.json")));
+        new S3EventMessage(
+            "m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "big.json", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -189,7 +196,8 @@ class S3RealtimeRawDataConverterTest {
                 .message("The specified key does not exist.")
                 .build());
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "gone.jsonl")));
+        new S3EventMessage(
+            "m1", "r1", null, List.of(new S3ObjectRef("b", "gone.jsonl", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -206,7 +214,8 @@ class S3RealtimeRawDataConverterTest {
   void convert_deserializeFailureDlqdAndAcknowledged() {
     stubGetObject("b", "bad.jsonl", "not valid json".getBytes(StandardCharsets.UTF_8));
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "bad.jsonl")));
+        new S3EventMessage(
+            "m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "bad.jsonl", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -224,7 +233,8 @@ class S3RealtimeRawDataConverterTest {
     when(s3Client.getObject(any(GetObjectRequest.class)))
         .thenThrow(new RuntimeException("s3 unavailable"));
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "k.json")));
+        new S3EventMessage(
+            "m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "k.json", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -244,7 +254,9 @@ class S3RealtimeRawDataConverterTest {
             "m1",
             "r1",
             "raw-body",
-            List.of(new S3ObjectRef("b", "good.jsonl"), new S3ObjectRef("b", "bad.jsonl")));
+            List.of(
+                new S3ObjectRef("b", "good.jsonl", "us-east-1"),
+                new S3ObjectRef("b", "bad.jsonl", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
@@ -260,7 +272,8 @@ class S3RealtimeRawDataConverterTest {
   void convert_autoDetectsGzip() {
     stubGetObject("b", "data.jsonl.gz", gzip("{\"msg\":\"a\"}\n{\"msg\":\"b\"}"));
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "data.jsonl.gz")));
+        new S3EventMessage(
+            "m1", "r1", null, List.of(new S3ObjectRef("b", "data.jsonl.gz", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false, null).convert(msg, ctx);
@@ -274,12 +287,36 @@ class S3RealtimeRawDataConverterTest {
   void convert_explicitGzip() {
     stubGetObject("b", "data", gzip("{\"msg\":\"a\"}"));
     S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "data")));
+        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "data", "us-east-1")));
 
     ConvertedResult<S3EventMessage> result =
         converter(EncodingType.JSON_OBJECT_LINE, false, CompressionType.GZIP).convert(msg, ctx);
 
     assertEquals(List.of(record(Map.of("msg", "a"))), result.transformedData());
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = {" ", "invalid-region"})
+  void invalidRegionIsDeadLetteredWithoutDiscardingValidSibling(String region) {
+    stubGetObject("b", "good.jsonl", "{\"msg\":\"good\"}".getBytes(StandardCharsets.UTF_8));
+    S3EventMessage message =
+        new S3EventMessage(
+            "m1",
+            "r1",
+            "raw-body",
+            List.of(
+                new S3ObjectRef("b", "invalid.jsonl", region),
+                new S3ObjectRef("b", "good.jsonl", "us-east-1")));
+    ConvertedResult<S3EventMessage> result =
+        converter(EncodingType.JSON_OBJECT_LINE, false).convert(message, ctx);
+    assertEquals(List.of(record(Map.of("msg", "good"))), result.transformedData());
+    assertEquals(List.of("r1"), List.copyOf(confirmed));
+    assertNull(result.error());
+    verify(s3Client).getObject(argThatMatches("b", "good.jsonl"));
+    verify(s3Client, never()).getObject(argThatMatches("b", "invalid.jsonl"));
+    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("failed to find region"), eq("node"));
+    verify(ctx.deserializeFailureCounter()).increase(Map.of());
   }
 
   private static RecordFleakData record(Map<String, Object> payload) {

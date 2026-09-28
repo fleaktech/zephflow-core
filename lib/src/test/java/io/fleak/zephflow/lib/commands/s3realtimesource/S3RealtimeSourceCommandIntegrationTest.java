@@ -14,19 +14,20 @@
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.source.*;
+import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -201,55 +202,55 @@ class S3RealtimeSourceCommandIntegrationTest {
       CapturingDlqWriter dlq,
       SourceEventAcceptor acceptor)
       throws Exception {
-    Queue<String> confirmed = new ConcurrentLinkedQueue<>();
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
-    // Command-owned clients: terminate() closes these via the fetcher, leaving the test's own
-    // control-plane clients (s3/sqs) untouched for setup and assertions.
-    S3Client commandS3 = newS3Client();
-    SqsClient commandSqs = newSqsClient();
-    S3RealtimeRawDataEncoder encoder = new S3RealtimeRawDataEncoder();
-    RawDataConverter<S3EventMessage> converter =
-        new S3RealtimeRawDataConverter(
-            commandS3,
-            deserializer,
-            null,
-            256L * 1024 * 1024,
-            false,
-            confirmed,
-            dlq,
-            encoder,
+    JobContext job = TestUtils.buildJobContext(new HashMap<>());
+    job.getOtherProperties()
+        .put(
+            "localstack",
+            new HashMap<>(
+                Map.of(
+                    "username", LOCALSTACK.getAccessKey(), "password", LOCALSTACK.getSecretKey())));
+    job.setDlqConfig(JobContext.S3DlqConfig.builder().build());
+    AwsClientFactory factory = spy(new AwsClientFactory());
+    doAnswer(invocation -> newSqsClient()).when(factory).createSqsClient(any(), any());
+    S3RealtimeSourceCommand command =
+        new S3RealtimeSourceCommand(
             "node",
-            mock(FleakCounter.class));
-    Fetcher<S3EventMessage> fetcher =
-        new S3RealtimeSourceFetcher(
-            commandSqs,
-            commandS3,
+            job,
+            new JsonConfigParser<>(S3RealtimeSourceDto.Config.class),
+            new S3RealtimeSourceConfigValidator(),
+            factory);
+    command.parseAndValidateArg(
+        Map.of(
+            "queueUrl",
             queueUrl,
-            10,
+            "regionStr",
+            LOCALSTACK.getRegion(),
+            "encodingType",
+            encodingType.name(),
+            "credentialId",
+            "localstack",
+            "s3EndpointOverride",
+            LOCALSTACK.getEndpointOverride(LocalStackContainer.Service.S3).toString(),
+            "waitTimeSeconds",
             1,
-            visibilityTimeout,
+            "maxRetries",
             maxRetries,
-            dlq,
-            "node",
-            confirmed);
-    // Mirror production: the framework DLQ is restored (downstream accept() failures are captured),
-    // while convert failures are dead-lettered terminally by the converter itself.
-    SourceExecutionContext<S3EventMessage> ctx =
-        new SourceExecutionContext<>(
-            fetcher,
-            converter,
-            encoder,
-            mock(FleakCounter.class),
-            mock(FleakCounter.class),
-            mock(FleakCounter.class),
-            dlq);
-
-    TestS3RealtimeSourceCommand command = new TestS3RealtimeSourceCommand(ctx);
-    command.initialize(mock(MetricClientProvider.class));
+            "visibilityTimeoutSeconds",
+            visibilityTimeout));
+    MetricClientProvider metrics = mock(MetricClientProvider.class);
+    when(metrics.counter(anyString(), anyMap())).thenReturn(mock(FleakCounter.class));
+    try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
+      dlqFactory
+          .when(() -> DlqWriterFactory.createDlqWriter(job.getDlqConfig(), null))
+          .thenReturn(dlq);
+      command.initialize(metrics);
+    }
     executor.submit(
         () -> {
-          try {
+          try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
+            dlqFactory
+                .when(() -> DlqWriterFactory.createSampleWriter(job.getDlqConfig(), null))
+                .thenReturn(mock(DlqWriter.class));
             command.execute("user", acceptor);
           } catch (Exception e) {
             log.error("command execution failed", e);
@@ -260,7 +261,7 @@ class S3RealtimeSourceCommandIntegrationTest {
 
   private void sendNotification(String bucket, String key) {
     String body =
-        "{\"Records\":[{\"eventName\":\"ObjectCreated:Put\",\"s3\":{\"bucket\":{\"name\":\""
+        "{\"Records\":[{\"eventName\":\"ObjectCreated:Put\",\"awsRegion\":\"us-east-1\",\"s3\":{\"bucket\":{\"name\":\""
             + bucket
             + "\"},\"object\":{\"key\":\""
             + key
@@ -336,34 +337,6 @@ class S3RealtimeSourceCommandIntegrationTest {
 
   private static RecordFleakData record(Map<String, Object> payload) {
     return (RecordFleakData) FleakData.wrap(payload);
-  }
-
-  private static class TestS3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage> {
-    private final SourceExecutionContext<S3EventMessage> ctx;
-
-    TestS3RealtimeSourceCommand(SourceExecutionContext<S3EventMessage> ctx) {
-      super("node", io.fleak.zephflow.lib.TestUtils.buildJobContext(new HashMap<>()), null, null);
-      this.ctx = ctx;
-    }
-
-    @Override
-    protected ExecutionContext createExecutionContext(
-        MetricClientProvider metricClientProvider,
-        JobContext jobContext,
-        CommandConfig commandConfig,
-        String nodeId) {
-      return ctx;
-    }
-
-    @Override
-    public String commandName() {
-      return "s3rtsource";
-    }
-
-    @Override
-    public SourceType sourceType() {
-      return SourceType.STREAMING;
-    }
   }
 
   private static class CollectingAcceptor implements SourceEventAcceptor {

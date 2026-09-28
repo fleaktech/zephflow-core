@@ -63,7 +63,9 @@ public final class S3EventNotificationParser {
         continue;
       }
       String key = URLDecoder.decode(keyNode.asText(), StandardCharsets.UTF_8);
-      refs.add(new S3ObjectRef(bucketNode.asText(), key));
+      JsonNode regionNode = record.path("awsRegion");
+      String region = regionNode.isTextual() ? regionNode.textValue() : null;
+      refs.add(new S3ObjectRef(bucketNode.asText(), key, region));
     }
     return refs;
   }

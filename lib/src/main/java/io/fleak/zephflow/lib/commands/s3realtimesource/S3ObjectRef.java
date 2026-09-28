@@ -14,4 +14,4 @@
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 /** A reference to a single S3 object extracted from an S3 event notification. */
-public record S3ObjectRef(String bucket, String key) {}
+public record S3ObjectRef(String bucket, String key, String region) {}
