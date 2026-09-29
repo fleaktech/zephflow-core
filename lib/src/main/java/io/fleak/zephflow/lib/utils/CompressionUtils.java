@@ -34,11 +34,11 @@ public class CompressionUtils {
 
   @SneakyThrows
   public static byte[] gzip(byte[] data) {
-    var bos = new ByteArrayOutputStream();
-    try (var gos = new GZIPOutputStream(bos)) {
-      gos.write(data);
+    var byteArrayOutputStream = new ByteArrayOutputStream();
+    try (var gzipOutputStream = new GZIPOutputStream(byteArrayOutputStream)) {
+      gzipOutputStream.write(data);
     }
-    return bos.toByteArray();
+    return byteArrayOutputStream.toByteArray();
   }
 
   @SneakyThrows

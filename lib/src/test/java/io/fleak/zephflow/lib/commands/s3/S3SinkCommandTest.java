@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
-import static io.fleak.zephflow.lib.utils.CompressionUtils.isGzip;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -309,19 +308,21 @@ public class S3SinkCommandTest {
       command.terminate();
     }
 
-    var resp = s3Client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET_NAME).build());
-    assertEquals(1, resp.contents().size());
-    String objectKey = resp.contents().get(0).key();
+    var listObjectsResponse =
+        s3Client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET_NAME).build());
+    assertEquals(1, listObjectsResponse.contents().size());
+    String objectKey = listObjectsResponse.contents().get(0).key();
     assertTrue(objectKey.endsWith(".jsonl.gz"), "Key should end with .jsonl.gz: " + objectKey);
 
-    byte[] data =
+    byte[] compressedObjectBytes =
         s3Client
             .getObjectAsBytes(GetObjectRequest.builder().bucket(BUCKET_NAME).key(objectKey).build())
             .asByteArray();
-    assertTrue(isGzip(data));
-    var deser = DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
-    var actual = deser.deserialize(new SerializedEvent(null, gunzip(data), null));
-    assertEquals(inputEvents, actual);
+    var deserializer =
+        DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
+    var actualEvents =
+        deserializer.deserialize(new SerializedEvent(null, gunzip(compressedObjectBytes), null));
+    assertEquals(inputEvents, actualEvents);
   }
 
   private List<Map<String, Object>> readParquetRecords(File parquetFile, StructType schema)

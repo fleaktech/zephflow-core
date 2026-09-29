@@ -210,9 +210,9 @@ class S3FlusherTest {
 
     assertTrue(putObjectRequestCaptor.getValue().key().endsWith(".jsonl.gz"));
 
-    byte[] uploaded =
+    byte[] uploadedBytes =
         requestBodyCaptor.getValue().contentStreamProvider().newStream().readAllBytes();
-    String[] lines = new String(gunzip(uploaded), StandardCharsets.UTF_8).split("\n");
+    String[] lines = new String(gunzip(uploadedBytes), StandardCharsets.UTF_8).split("\n");
     assertEquals(2, lines.length);
     assertEquals(
         JsonUtils.OBJECT_MAPPER.readTree("{\"name\":\"Alice\",\"age\":30}"),
@@ -222,6 +222,6 @@ class S3FlusherTest {
         JsonUtils.OBJECT_MAPPER.readTree(lines[1]));
 
     assertEquals(events.size(), result.successCount());
-    assertEquals(uploaded.length, result.flushedDataSize());
+    assertEquals(uploadedBytes.length, result.flushedDataSize());
   }
 }

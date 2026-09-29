@@ -26,7 +26,7 @@ import java.util.UUID;
 
 /**
  * BlobFileWriter implementation for text-based formats (CSV, JSON, JSONL, TEXT, XML). Uses
- * FleakSerializer to serialize records to byte arrays, then applies the configured Compressor.
+ * FleakSerializer to serialize records to byte arrays.
  */
 public class TextBlobFileWriter implements BlobFileWriter<RecordFleakData> {
 

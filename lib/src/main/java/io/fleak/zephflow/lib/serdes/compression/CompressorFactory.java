@@ -16,11 +16,11 @@ package io.fleak.zephflow.lib.serdes.compression;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 
 public class CompressorFactory {
-  private static final NoopCompressor DEFAULT = new NoopCompressor();
+  private static final NoopCompressor NOOP_COMPRESSOR = new NoopCompressor();
 
   public static Compressor getCompressor(CompressionType compressionType) {
     if (compressionType == null) {
-      return DEFAULT;
+      return NOOP_COMPRESSOR;
     }
     return switch (compressionType) {
       case GZIP -> new GzipCompressor();
