@@ -14,6 +14,8 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
+import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
+import static io.fleak.zephflow.lib.utils.CompressionUtils.isGzip;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -34,6 +36,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.dlq.S3DlqWriterTest;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -45,6 +48,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -265,6 +270,58 @@ public class S3SinkCommandTest {
     assertFalse(objectKey.contains("//"), "S3 key should not contain double slash: " + objectKey);
     String expectedPattern = "my-prefix/year=\\d{4}/month=\\d{2}/day=\\d{2}/[0-9a-f-]+\\.jsonl";
     assertTrue(objectKey.matches(expectedPattern), "Key should match pattern: " + objectKey);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testWriteGzipCompressedIntoS3(boolean batching) throws Exception {
+    EncodingType encodingType = EncodingType.JSON_OBJECT_LINE;
+
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName("gzip-test")
+            .encodingType(encodingType.toString())
+            .compressionType(CompressionType.GZIP)
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .batching(batching)
+            .build();
+
+    JobContext jobContext = JobContext.builder().metricTags(JOB_CONTEXT.getMetricTags()).build();
+
+    S3SinkCommand command =
+        (S3SinkCommand) new S3SinkCommandFactory().createCommand("myNodeId", jobContext);
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+
+    List<RecordFleakData> inputEvents =
+        List.of(
+            ((RecordFleakData)
+                Objects.requireNonNull(FleakData.wrap(Map.of("key1", "101", "key2", "a string")))),
+            ((RecordFleakData)
+                Objects.requireNonNull(
+                    FleakData.wrap(Map.of("key1", "102", "key2", "another string")))));
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = command.getExecutionContext();
+      command.writeToSink(inputEvents, "test_user", context);
+    } finally {
+      command.terminate();
+    }
+
+    var resp = s3Client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET_NAME).build());
+    assertEquals(1, resp.contents().size());
+    String objectKey = resp.contents().get(0).key();
+    assertTrue(objectKey.endsWith(".jsonl.gz"), "Key should end with .jsonl.gz: " + objectKey);
+
+    byte[] data =
+        s3Client
+            .getObjectAsBytes(GetObjectRequest.builder().bucket(BUCKET_NAME).key(objectKey).build())
+            .asByteArray();
+    assertTrue(isGzip(data));
+    var deser = DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
+    var actual = deser.deserialize(new SerializedEvent(null, gunzip(data), null));
+    assertEquals(inputEvents, actual);
   }
 
   private List<Map<String, Object>> readParquetRecords(File parquetFile, StructType schema)

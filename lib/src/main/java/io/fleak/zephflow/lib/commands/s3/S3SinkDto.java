@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import java.util.Map;
 import lombok.*;
 
@@ -34,5 +35,6 @@ public interface S3SinkDto {
     @Builder.Default private int batchSize = 10_000;
     @Builder.Default private long flushIntervalMillis = 10_000;
     private Map<String, Object> avroSchema;
+    private CompressionType compressionType;
   }
 }

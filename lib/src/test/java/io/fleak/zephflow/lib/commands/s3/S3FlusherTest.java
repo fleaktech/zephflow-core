@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.s3;
 
+import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -20,7 +21,10 @@ import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
+import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.utils.JsonUtils;
@@ -69,7 +73,7 @@ class S3FlusherTest {
         SerializerFactory.createSerializerFactory(EncodingType.JSON_ARRAY).createSerializer();
 
     S3Commiter<RecordFleakData> commiter =
-        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
+        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer, new NoopCompressor());
     s3Flusher = new S3Flusher(commiter);
 
     SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
@@ -107,7 +111,7 @@ class S3FlusherTest {
     FleakSerializer<?> serializer =
         SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE).createSerializer();
     S3Commiter<RecordFleakData> commiter =
-        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
+        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer, new NoopCompressor());
     s3Flusher = new S3Flusher(commiter);
 
     SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
@@ -149,7 +153,7 @@ class S3FlusherTest {
     FleakSerializer<?> serializer =
         SerializerFactory.createSerializerFactory(EncodingType.CSV).createSerializer();
     S3Commiter<RecordFleakData> commiter =
-        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer);
+        new OnDemandS3Commiter(s3Client, bucketName, keyName, serializer, new NoopCompressor());
     s3Flusher = new S3Flusher(commiter);
 
     SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
@@ -181,5 +185,43 @@ class S3FlusherTest {
     assertEquals(expectedContent, capturedContent);
 
     assertEquals(events.size(), result.successCount());
+  }
+
+  @Test
+  void testFlush_AsGzippedJsonl() throws Exception {
+    FleakSerializer<?> serializer =
+        SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE).createSerializer();
+    S3Commiter<RecordFleakData> commiter =
+        new OnDemandS3Commiter(
+            s3Client,
+            bucketName,
+            keyName,
+            serializer,
+            CompressorFactory.getCompressor(CompressionType.GZIP));
+    s3Flusher = new S3Flusher(commiter);
+
+    SimpleSinkCommand.FlushResult result = s3Flusher.flush(preparedInputEvents, Map.of());
+
+    ArgumentCaptor<PutObjectRequest> putObjectRequestCaptor =
+        ArgumentCaptor.forClass(PutObjectRequest.class);
+    ArgumentCaptor<RequestBody> requestBodyCaptor = ArgumentCaptor.forClass(RequestBody.class);
+    verify(s3Client, times(1))
+        .putObject(putObjectRequestCaptor.capture(), requestBodyCaptor.capture());
+
+    assertTrue(putObjectRequestCaptor.getValue().key().endsWith(".jsonl.gz"));
+
+    byte[] uploaded =
+        requestBodyCaptor.getValue().contentStreamProvider().newStream().readAllBytes();
+    String[] lines = new String(gunzip(uploaded), StandardCharsets.UTF_8).split("\n");
+    assertEquals(2, lines.length);
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree("{\"name\":\"Alice\",\"age\":30}"),
+        JsonUtils.OBJECT_MAPPER.readTree(lines[0]));
+    assertEquals(
+        JsonUtils.OBJECT_MAPPER.readTree("{\"name\":\"Bob\",\"city\":\"New, York\"}"),
+        JsonUtils.OBJECT_MAPPER.readTree(lines[1]));
+
+    assertEquals(events.size(), result.successCount());
+    assertEquals(uploaded.length, result.flushedDataSize());
   }
 }

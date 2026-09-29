@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.utils;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 import lombok.SneakyThrows;
 
 public class CompressionUtils {
@@ -29,6 +30,15 @@ public class CompressionUtils {
         && data.length >= 2
         && (data[0] & 0xff) == GZIP_MAGIC_FIRST_BYTE
         && (data[1] & 0xff) == GZIP_MAGIC_SECOND_BYTE;
+  }
+
+  @SneakyThrows
+  public static byte[] gzip(byte[] data) {
+    var bos = new ByteArrayOutputStream();
+    try (var gos = new GZIPOutputStream(bos)) {
+      gos.write(data);
+    }
+    return bos.toByteArray();
   }
 
   @SneakyThrows

@@ -72,6 +72,10 @@ public class S3SinkConfigValidator implements ConfigValidator {
       if (config.getAvroSchema() == null || config.getAvroSchema().isEmpty()) {
         throw new IllegalArgumentException("avroSchema is required for PARQUET encoding type");
       }
+      if (config.getCompressionType() != null) {
+        throw new IllegalArgumentException(
+            "compressionType is not supported for PARQUET encoding, which is compressed internally");
+      }
     }
   }
 }

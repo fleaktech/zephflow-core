@@ -47,6 +47,7 @@ import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
 import io.fleak.zephflow.lib.commands.timescaledbsink.TimescaleDbSinkDto;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.runner.*;
@@ -440,6 +441,34 @@ public class ZephFlow {
       EncodingType encodingType,
       UsernamePasswordCredential credential,
       String s3EndpointOverride) {
+    return s3Sink(region, bucket, folder, encodingType, credential, s3EndpointOverride, null);
+  }
+
+  /**
+   * Appends an S3 sink node to the flow with optional AWS credentials, endpoint override and output
+   * compression.
+   *
+   * @param region The AWS region.
+   * @param bucket The S3 bucket name.
+   * @param folder The target folder/prefix within the bucket.
+   * @param encodingType The encoding for the output data.
+   * @param credential Optional AWS credentials for S3 access (null to use default credential
+   *     chain).
+   * @param s3EndpointOverride Optional S3 endpoint override (e.g., for MinIO, null for default AWS
+   *     endpoint).
+   * @param compressionType Optional compression applied to each output file (null for none). Not
+   *     supported for PARQUET encoding.
+   * @return A new ZephFlow instance representing the flow with the S3 sink appended.
+   */
+  @SuppressWarnings("unused") // Part of the public API
+  public ZephFlow s3Sink(
+      String region,
+      String bucket,
+      String folder,
+      EncodingType encodingType,
+      UsernamePasswordCredential credential,
+      String s3EndpointOverride,
+      CompressionType compressionType) {
 
     String credentialId = null;
     if (credential != null) {
@@ -456,6 +485,7 @@ public class ZephFlow {
             .encodingType(encodingType.toString())
             .credentialId(credentialId)
             .s3EndpointOverride(s3EndpointOverride)
+            .compressionType(compressionType)
             .build();
     return appendNode(COMMAND_NAME_S3_SINK, config);
   }

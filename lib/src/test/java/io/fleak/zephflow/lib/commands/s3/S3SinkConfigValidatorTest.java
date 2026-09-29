@@ -154,4 +154,42 @@ class S3SinkConfigValidatorTest {
             () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
     assertTrue(exception.getMessage().contains("JSON_OBJECT encoding does not support batching"));
   }
+
+  @Test
+  void validateGzipCompressionWithTextEncoding_success() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "JSON_OBJECT_LINE");
+    configMap.put("compressionType", "GZIP");
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    assertDoesNotThrow(() -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+  }
+
+  @Test
+  void validateGzipCompressionWithParquet_fails() {
+    Map<String, Object> avroSchema =
+        Map.of(
+            "type", "record",
+            "name", "TestRecord",
+            "fields", List.of(Map.of("name", "id", "type", "int")));
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "PARQUET");
+    configMap.put("avroSchema", avroSchema);
+    configMap.put("compressionType", "GZIP");
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertTrue(exception.getMessage().contains("compressionType"));
+  }
 }

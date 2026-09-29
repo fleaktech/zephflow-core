@@ -29,6 +29,7 @@ import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.HashMap;
 import java.util.List;
@@ -107,7 +108,8 @@ class BatchS3FlusherTest {
         new TextBlobFileWriter(
             SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE)
                 .createSerializer(),
-            EncodingType.JSON_OBJECT_LINE);
+            EncodingType.JSON_OBJECT_LINE,
+            new NoopCompressor());
 
     return new BatchS3Flusher(
         s3TransferResources,
