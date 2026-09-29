@@ -20,6 +20,8 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import java.net.http.HttpClient;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -30,6 +32,8 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEvent> {
+
+  static final long FLUSH_INTERVAL_MS = 10_000;
 
   protected SplunkHecSinkCommand(
       String nodeId,
@@ -61,8 +65,22 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
     boolean verifySsl = config.getVerifySsl() == null || config.getVerifySsl();
     HttpClient httpClient = buildHttpClient(verifySsl);
 
-    SimpleSinkCommand.Flusher<SplunkHecOutboundEvent> flusher =
-        new SplunkHecSinkFlusher(config.getHecUrl(), hecToken, httpClient);
+    int batchSize =
+        config.getBatchSize() != null ? config.getBatchSize() : SplunkHecSinkDto.DEFAULT_BATCH_SIZE;
+    SplunkHecSinkFlusher flusher =
+        new SplunkHecSinkFlusher(
+            config.getHecUrl(),
+            hecToken,
+            httpClient,
+            batchSize,
+            FLUSH_INTERVAL_MS,
+            createDlqWriter(jobContext),
+            jobContext,
+            nodeId,
+            counters.sinkOutputCounter(),
+            counters.outputSizeCounter(),
+            counters.sinkErrorCounter());
+    flusher.initialize();
 
     SimpleSinkCommand.SinkMessagePreProcessor<SplunkHecOutboundEvent> messagePreProcessor =
         new SplunkHecSinkMessageProcessor(
@@ -78,12 +96,20 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
         counters.sinkErrorCounter());
   }
 
+  private static DlqWriter createDlqWriter(JobContext jobContext) {
+    JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
+    if (dlqConfig == null) {
+      return null;
+    }
+    String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
+    DlqWriter writer = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    writer.open();
+    return writer;
+  }
+
   @Override
   protected int batchSize() {
-    SplunkHecSinkDto.Config config = (SplunkHecSinkDto.Config) commandConfig;
-    return config.getBatchSize() != null
-        ? config.getBatchSize()
-        : SplunkHecSinkDto.DEFAULT_BATCH_SIZE;
+    return Integer.MAX_VALUE;
   }
 
   /**
