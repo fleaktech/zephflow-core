@@ -1,0 +1,244 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.fleak.zephflow.lib.commands.eval;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import io.fleak.zephflow.api.structure.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+class DictFlattenFunctionTest extends FeelFunctionTestBase {
+
+  private static final FleakData NESTED = FleakData.wrap(Map.of("a", Map.of("b", Map.of("c", 1))));
+
+  @Test
+  public void testFlattenArraysOfRecords() {
+    FleakData testData =
+        FleakData.wrap(
+            Map.of(
+                "accounting",
+                List.of(Map.of("firstName", "John"), Map.of("firstName", "Mary")),
+                "host",
+                "h1"));
+
+    testFunctionExecution(
+        testData,
+        "dict_flatten($)",
+        Map.of("accounting_0_firstName", "John", "accounting_1_firstName", "Mary", "host", "h1"));
+  }
+
+  @Test
+  public void testFlattenCustomDelimiter() {
+    testFunctionExecution(NESTED, "dict_flatten($, \".\")", Map.of("a.b.c", 1L));
+  }
+
+  @Test
+  public void testFlattenDepth() {
+    testFunctionExecution(NESTED, "dict_flatten($, \"_\", 1)", Map.of("a_b", Map.of("c", 1L)));
+    testFunctionExecution(NESTED, "dict_flatten($, \"_\", 2)", Map.of("a_b_c", 1L));
+
+    FleakData deep =
+        FleakData.wrap(
+            Map.of(
+                "l1",
+                Map.of(
+                    "l2", Map.of("l3", Map.of("l4", Map.of("l5", Map.of("l6", Map.of("v", 1))))))));
+    testFunctionExecution(deep, "dict_flatten($)", Map.of("l1_l2_l3_l4_l5_l6", Map.of("v", 1L)));
+  }
+
+  @Test
+  public void testFlattenArrays() {
+    testFunctionExecution(
+        FleakData.wrap(Map.of("t", List.of("a", "b"))),
+        "dict_flatten($)",
+        Map.of("t_0", "a", "t_1", "b"));
+    testFunctionExecution(
+        FleakData.wrap(Map.of("m", List.of(List.of(1, 2), List.of(3)))),
+        "dict_flatten($)",
+        Map.of("m_0_0", 1L, "m_0_1", 2L, "m_1_0", 3L));
+    testFunctionExecution(
+        FleakData.wrap(Map.of("m", List.of(List.of(1, 2), List.of(3)))),
+        "dict_flatten($, \"_\", 1)",
+        Map.of("m_0", List.of(1L, 2L), "m_1", List.of(3L)));
+  }
+
+  @Test
+  public void testFlattenKeepsEmptiesAndNullsAsLeaves() {
+    Map<String, Object> nested = new HashMap<>();
+    nested.put("e", null);
+    Map<String, Object> input = new HashMap<>();
+    input.put("a", Map.of());
+    input.put("b", List.of());
+    input.put("c", null);
+    input.put("d", nested);
+
+    Map<String, Object> expected = new HashMap<>();
+    expected.put("a", Map.of());
+    expected.put("b", List.of());
+    expected.put("c", null);
+    expected.put("d_e", null);
+    testFunctionExecution(FleakData.wrap(input), "dict_flatten($)", expected);
+  }
+
+  @Test
+  public void testFlattenSubpathAndPrefix() {
+    FleakData testData =
+        FleakData.wrap(Map.of("resource", Map.of("a", Map.of("b", 1), "c", 2), "host", "h1"));
+
+    testFunctionExecution(testData, "dict_flatten($.resource)", Map.of("a_b", 1L, "c", 2L));
+    testFunctionExecution(
+        testData, "dict_flatten(dict(res=$.resource))", Map.of("res_a_b", 1L, "res_c", 2L));
+  }
+
+  @Test
+  public void testFlattenCollisionFewerLevelsWins() {
+    // Unrelated keys change HashMap iteration order; the winner must not change with them.
+    for (int unrelated = 0; unrelated <= 60; unrelated++) {
+      Map<String, Object> input = new HashMap<>();
+      input.put("a_b", "literal");
+      input.put("a", Map.of("b", "nested"));
+      Map<String, Object> expected = new HashMap<>(Map.of("a_b", "literal"));
+      for (int i = 0; i < unrelated; i++) {
+        input.put("z" + i, (long) i);
+        expected.put("z" + i, (long) i);
+      }
+      testFunctionExecution(FleakData.wrap(input), "dict_flatten($)", expected);
+    }
+
+    testFunctionExecution(
+        FleakData.wrap(Map.of("a", Map.of("b", Map.of("c", 1), "b_c", 2))),
+        "dict_flatten($)",
+        Map.of("a_b_c", 2L));
+
+    Map<String, Object> nullLiteral = new HashMap<>();
+    nullLiteral.put("a_b", null);
+    nullLiteral.put("a", Map.of("b", 2));
+    Map<String, Object> expected = new HashMap<>();
+    expected.put("a_b", null);
+    testFunctionExecution(FleakData.wrap(nullLiteral), "dict_flatten($)", expected);
+  }
+
+  @Test
+  public void testFlattenCollisionTieGoesToFirstSortedPath() {
+    testFunctionExecution(
+        FleakData.wrap(Map.of("a_b", Map.of("c", 1), "a", Map.of("b_c", 2))),
+        "dict_flatten($)",
+        Map.of("a_b_c", 2L));
+  }
+
+  @Test
+  public void testFlattenDeepInputFailsWithoutStackOverflow() {
+    FleakData deep = FleakData.wrap(1);
+    for (int i = 0; i < 100_000; i++) {
+      deep = new RecordFleakData(Map.of("k", deep));
+    }
+    FleakData input = deep;
+    assertErrorNames("dict_flatten($, \"_\", 1000000000)", input, "10000000");
+
+    FleakData shallower = FleakData.wrap(1);
+    for (int i = 0; i < 2_000; i++) {
+      shallower = new RecordFleakData(Map.of("k", shallower));
+    }
+    FleakData result = evaluateExpression("dict_flatten($, \"_\", 1000000000)", shallower);
+    assertEquals(1, result.getPayload().size());
+  }
+
+  @Test
+  public void testFlattenTotalKeyLengthLimit() {
+    // One long key above many leaves: each leaf repeats it.
+    Map<String, Object> leaves = new HashMap<>();
+    for (int i = 0; i < 250; i++) {
+      leaves.put(String.valueOf(i), i);
+    }
+    FleakData tooLarge = FleakData.wrap(Map.of("x".repeat(50_000), leaves));
+    assertErrorNames("dict_flatten($)", tooLarge, "10000000");
+
+    FleakData belowLimit = FleakData.wrap(Map.of("x".repeat(30_000), leaves));
+    assertEquals(250, evaluateExpression("dict_flatten($)", belowLimit).getPayload().size());
+  }
+
+  @Test
+  public void testFlattenComposition() {
+    FleakData testData = FleakData.wrap(Map.of("id", 7, "nested", Map.of("x", Map.of("y", 1))));
+
+    testFunctionExecution(
+        testData,
+        "dict_merge($, dict_flatten($.nested))",
+        Map.of("id", 7L, "nested", Map.of("x", Map.of("y", 1L)), "x_y", 1L));
+    testFunctionExecution(testData, "size_of(dict_flatten($))", 2L);
+  }
+
+  @Test
+  public void testFlattenDoesNotMutateInput() {
+    evaluateExpression("dict_flatten($)", NESTED);
+    testFunctionExecution(NESTED, "$", Map.of("a", Map.of("b", Map.of("c", 1L))));
+  }
+
+  @Test
+  public void testFlattenNullReturnsNull() {
+    testFunctionExecution(NESTED, "dict_flatten(null)", null);
+    testFunctionExecution(NESTED, "dict_flatten($.nonexistent)", null);
+  }
+
+  @Test
+  public void testFlattenNonDictionaryFails() {
+    FleakData testData = FleakData.wrap(Map.of("a", "text"));
+    assertErrorNames("dict_flatten($.a)", testData, "text");
+  }
+
+  @Test
+  public void testFlattenInvalidDelimiterFails() {
+    assertErrorNames("dict_flatten($, \"\")", NESTED, "delimiter");
+    assertErrorNames("dict_flatten($, 1)", NESTED, "1");
+    assertErrorNames("dict_flatten($, null)", NESTED, "null");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0", "-1", "1.5", "\"2\""})
+  public void testFlattenInvalidDepthFails(String depth) {
+    assertErrorNames("dict_flatten($, \"_\", " + depth + ")", NESTED, depth.replace("\"", ""));
+  }
+
+  @Test
+  public void testFlattenNullDepthFails() {
+    assertErrorNames("dict_flatten($, \"_\", null)", NESTED, "null");
+  }
+
+  @Test
+  public void testFlattenArity() {
+    IllegalArgumentException none =
+        assertThrows(
+            IllegalArgumentException.class, () -> evaluateExpression("dict_flatten()", NESTED));
+    assertEquals("dict_flatten expects 1 to 3 arguments but got 0", none.getMessage());
+
+    IllegalArgumentException four =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> evaluateExpression("dict_flatten($, \"_\", 2, 3)", NESTED));
+    assertEquals("dict_flatten expects 1 to 3 arguments but got 4", four.getMessage());
+  }
+
+  private void assertErrorNames(String expression, FleakData testData, String offendingValue) {
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> evaluateExpression(expression, testData));
+    assertTrue(e.getMessage().startsWith("dict_flatten:"), e.getMessage());
+    assertTrue(e.getMessage().contains(offendingValue), e.getMessage());
+  }
+}
