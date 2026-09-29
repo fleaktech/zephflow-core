@@ -24,23 +24,24 @@ class S3EventNotificationParserTest {
   void parse_directNotification() {
     String body =
         """
-        {"Records":[{"eventName":"ObjectCreated:Put",
+        {"Records":[{"eventName":"ObjectCreated:Put","awsRegion":"us-east-1",
           "s3":{"bucket":{"name":"my-bucket"},"object":{"key":"path/to/file.json","size":42}}}]}
         """;
-    assertEquals(List.of(new S3ObjectRef("my-bucket", "path/to/file.json")), parse(body));
+    assertEquals(
+        List.of(new S3ObjectRef("my-bucket", "path/to/file.json", "us-east-1")), parse(body));
   }
 
   @Test
   void parse_snsWrappedNotification() {
     String inner =
-        "{\"Records\":[{\"eventName\":\"ObjectCreated:Post\","
+        "{\"Records\":[{\"eventName\":\"ObjectCreated:Post\",\"awsRegion\":\"us-east-1\","
             + "\"s3\":{\"bucket\":{\"name\":\"b\"},\"object\":{\"key\":\"k.csv\"}}}]}";
     String body =
         "{\"Type\":\"Notification\",\"TopicArn\":\"arn:aws:sns:us-east-1:123:topic\","
             + "\"Message\":"
             + quote(inner)
             + "}";
-    assertEquals(List.of(new S3ObjectRef("b", "k.csv")), parse(body));
+    assertEquals(List.of(new S3ObjectRef("b", "k.csv", "us-east-1")), parse(body));
   }
 
   @Test
@@ -68,16 +69,16 @@ class S3EventNotificationParserTest {
     String body =
         """
         {"Records":[
-          {"eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"b"},"object":{"key":"a+b.json"}}},
-          {"eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"b"},"object":{"key":"dir/with%20space.json"}}},
-          {"eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"b"},"object":{"key":"100%25.json"}}}
+          {"eventName":"ObjectCreated:Put","awsRegion":"us-east-1","s3":{"bucket":{"name":"b"},"object":{"key":"a+b.json"}}},
+          {"eventName":"ObjectCreated:Put","awsRegion":"us-east-1","s3":{"bucket":{"name":"b"},"object":{"key":"dir/with%20space.json"}}},
+          {"eventName":"ObjectCreated:Put","awsRegion":"us-east-1","s3":{"bucket":{"name":"b"},"object":{"key":"100%25.json"}}}
         ]}
         """;
     assertEquals(
         List.of(
-            new S3ObjectRef("b", "a b.json"),
-            new S3ObjectRef("b", "dir/with space.json"),
-            new S3ObjectRef("b", "100%.json")),
+            new S3ObjectRef("b", "a b.json", "us-east-1"),
+            new S3ObjectRef("b", "dir/with space.json", "us-east-1"),
+            new S3ObjectRef("b", "100%.json", "us-east-1")),
         parse(body));
   }
 
@@ -86,17 +87,63 @@ class S3EventNotificationParserTest {
     String body =
         """
         {"Records":[
-          {"eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"b1"},"object":{"key":"k1"}}},
+          {"eventName":"ObjectCreated:Put","awsRegion":"us-east-1","s3":{"bucket":{"name":"b1"},"object":{"key":"k1"}}},
           {"eventName":"ObjectRemoved:Delete","s3":{"bucket":{"name":"b1"},"object":{"key":"k2"}}},
-          {"eventName":"ObjectCreated:CompleteMultipartUpload","s3":{"bucket":{"name":"b2"},"object":{"key":"k3"}}}
+          {"eventName":"ObjectCreated:CompleteMultipartUpload","awsRegion":"us-east-1","s3":{"bucket":{"name":"b2"},"object":{"key":"k3"}}}
         ]}
         """;
-    assertEquals(List.of(new S3ObjectRef("b1", "k1"), new S3ObjectRef("b2", "k3")), parse(body));
+    assertEquals(
+        List.of(new S3ObjectRef("b1", "k1", "us-east-1"), new S3ObjectRef("b2", "k3", "us-east-1")),
+        parse(body));
   }
 
   @Test
   void parse_malformedThrows() {
     assertThrows(IllegalArgumentException.class, () -> parse("not json"));
+  }
+
+  @Test
+  void preservesRegionForEveryRecordInDirectAndSnsMessages() {
+    String inner =
+        """
+        {"Records":[
+          {"eventName":"ObjectCreated:Put","awsRegion":"eu-central-1","s3":{"bucket":{"name":"b"},"object":{"key":"one"}}},
+          {"eventName":"ObjectCreated:Post","awsRegion":"us-west-2","s3":{"bucket":{"name":"b"},"object":{"key":"two"}}},
+          {"eventName":"ObjectCreated:CompleteMultipartUpload","awsRegion":"eu-central-1","s3":{"bucket":{"name":"b"},"object":{"key":"three"}}}
+        ]}
+        """;
+    List<S3ObjectRef> expected =
+        List.of(
+            new S3ObjectRef("b", "one", "eu-central-1"),
+            new S3ObjectRef("b", "two", "us-west-2"),
+            new S3ObjectRef("b", "three", "eu-central-1"));
+    assertEquals(expected, parse(inner));
+    assertEquals(
+        expected,
+        parse("{\"Type\":\"Notification\",\"Message\":" + quote(inner.replace("\n", "")) + "}"));
+  }
+
+  @Test
+  void invalidRegionStaysOnItsObjectWithoutDiscardingValidSibling() {
+    for (String region :
+        List.of(
+            "",
+            ",\"awsRegion\":null",
+            ",\"awsRegion\":42",
+            ",\"awsRegion\":{}",
+            ",\"awsRegion\":[]")) {
+      String body =
+          """
+          {"Records":[
+            {"eventName":"ObjectCreated:Put"%s,"s3":{"bucket":{"name":"b"},"object":{"key":"bad"}}},
+            {"eventName":"ObjectCreated:Put","awsRegion":"us-west-2","s3":{"bucket":{"name":"b"},"object":{"key":"good"}}}
+          ]}
+          """
+              .formatted(region);
+      assertEquals(
+          List.of(new S3ObjectRef("b", "bad", null), new S3ObjectRef("b", "good", "us-west-2")),
+          parse(body));
+    }
   }
 
   private static List<S3ObjectRef> parse(String body) {

@@ -60,7 +60,6 @@ public interface S3RealtimeSourceDto {
      */
     private String s3CredentialId;
 
-    /** Optional S3 region; defaults to {@code regionStr}. */
     private String s3RegionStr;
 
     /** Optional S3 endpoint override (e.g. MinIO/localstack). */

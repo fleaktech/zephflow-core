@@ -35,7 +35,6 @@ import java.util.Queue;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -58,7 +57,7 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
   static final String S3_METADATA_BUCKET = "__s3_bucket";
   static final String S3_METADATA_KEY = "__s3_key";
 
-  private final S3Client s3Client;
+  private final S3RegionalClientProvider s3Clients;
   private final FleakDeserializer<?> fleakDeserializer;
   // When null, gzip is auto-detected via magic bytes; when GZIP, decompression is forced.
   private final CompressionType compressionType;
@@ -72,7 +71,7 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
   private final FleakCounter skippedObjectCounter;
 
   public S3RealtimeRawDataConverter(
-      S3Client s3Client,
+      S3RegionalClientProvider s3Clients,
       FleakDeserializer<?> fleakDeserializer,
       CompressionType compressionType,
       long maxObjectSizeBytes,
@@ -82,7 +81,7 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
       RawDataEncoder<S3EventMessage> encoder,
       String nodeId,
       FleakCounter skippedObjectCounter) {
-    this.s3Client = s3Client;
+    this.s3Clients = s3Clients;
     this.fleakDeserializer = fleakDeserializer;
     this.compressionType = compressionType;
     this.maxObjectSizeBytes = maxObjectSizeBytes;
@@ -176,8 +175,9 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
 
   private byte[] downloadObject(S3ObjectRef ref) throws IOException {
     try (ResponseInputStream<GetObjectResponse> in =
-        s3Client.getObject(
-            GetObjectRequest.builder().bucket(ref.bucket()).key(ref.key()).build())) {
+        s3Clients
+            .clientFor(ref.region())
+            .getObject(GetObjectRequest.builder().bucket(ref.bucket()).key(ref.key()).build())) {
       long contentLength = in.response().contentLength();
       if (contentLength > maxObjectSizeBytes) {
         // Read the size from the response headers and abort before transferring the body.

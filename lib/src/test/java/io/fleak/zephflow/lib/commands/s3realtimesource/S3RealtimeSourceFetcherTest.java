@@ -37,6 +37,7 @@ class S3RealtimeSourceFetcherTest {
 
   private SqsClient sqsClient;
   private S3Client s3Client;
+  private S3RegionalClientProvider s3Clients;
   private DlqWriter dlqWriter;
   private Queue<String> confirmed;
   private S3RealtimeSourceFetcher fetcher;
@@ -45,6 +46,7 @@ class S3RealtimeSourceFetcherTest {
   void setUp() {
     sqsClient = mock(SqsClient.class);
     s3Client = mock(S3Client.class);
+    s3Clients = new S3RegionalClientProvider(region -> s3Client);
     dlqWriter = mock(DlqWriter.class);
     confirmed = new ConcurrentLinkedQueue<>();
     fetcher = newFetcher(dlqWriter);
@@ -52,7 +54,7 @@ class S3RealtimeSourceFetcherTest {
 
   private S3RealtimeSourceFetcher newFetcher(DlqWriter dlq) {
     return new S3RealtimeSourceFetcher(
-        sqsClient, s3Client, QUEUE_URL, 10, 20, 30, MAX_RETRIES, dlq, "nodeId", confirmed);
+        sqsClient, s3Clients, QUEUE_URL, 10, 20, 30, MAX_RETRIES, dlq, "nodeId", confirmed);
   }
 
   private static Message message(String id, String receipt, int receiveCount, String body) {
@@ -67,7 +69,7 @@ class S3RealtimeSourceFetcherTest {
   }
 
   private static String objectCreated(String bucket, String key) {
-    return "{\"Records\":[{\"eventName\":\"ObjectCreated:Put\",\"s3\":{\"bucket\":{\"name\":\""
+    return "{\"Records\":[{\"eventName\":\"ObjectCreated:Put\",\"awsRegion\":\"us-east-1\",\"s3\":{\"bucket\":{\"name\":\""
         + bucket
         + "\"},\"object\":{\"key\":\""
         + key
@@ -91,7 +93,7 @@ class S3RealtimeSourceFetcherTest {
                 "msg-1",
                 "receipt-1",
                 objectCreated("b", "k.json"),
-                List.of(new S3ObjectRef("b", "k.json")))),
+                List.of(new S3ObjectRef("b", "k.json", "us-east-1")))),
         result);
     verify(sqsClient, never()).deleteMessage(any(DeleteMessageRequest.class));
     verifyNoInteractions(dlqWriter);
@@ -160,11 +162,31 @@ class S3RealtimeSourceFetcherTest {
 
   @Test
   void close_closesClients() throws Exception {
+    s3Clients.clientFor("us-east-1");
     fetcher.close();
     verify(sqsClient).close();
     verify(s3Client).close();
     // The DLQ writer is owned/closed by the execution context, not the fetcher.
     verify(dlqWriter, never()).close();
+  }
+
+  @Test
+  void closeAttemptsS3AfterSqsFailureAndPropagatesBothErrorsWithNodeContext() {
+    RuntimeException sqsFailure = new IllegalStateException("sqs failed");
+    RuntimeException s3Failure = new IllegalStateException("s3 failed");
+    s3Clients.clientFor("us-east-1");
+    doThrow(sqsFailure).when(sqsClient).close();
+    doThrow(s3Failure).when(s3Client).close();
+
+    RuntimeException error = assertThrows(RuntimeException.class, fetcher::close);
+    assertTrue(error.getMessage().contains("nodeId"));
+    assertSame(sqsFailure, error.getCause());
+    assertEquals(1, error.getSuppressed().length);
+    Throwable regionalFailure = error.getSuppressed()[0].getCause();
+    assertTrue(regionalFailure.getMessage().contains("us-east-1"));
+    assertSame(s3Failure, regionalFailure.getCause());
+    verify(sqsClient).close();
+    verify(s3Client).close();
   }
 
   private static DeleteMessageRequest deleteFor(String receiptHandle) {
