@@ -107,13 +107,70 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
   }
 
   @Test
-  public void testFlattenCollisionKeepsOneValue() {
-    FleakData testData = FleakData.wrap(Map.of("a_b", 1, "a", Map.of("b", 2)));
+  public void testFlattenCollisionFewerLevelsWins() {
+    // Unrelated keys change HashMap iteration order; the winner must not change with them.
+    for (int unrelated = 0; unrelated <= 60; unrelated++) {
+      Map<String, Object> input = new HashMap<>();
+      input.put("a_b", "literal");
+      input.put("a", Map.of("b", "nested"));
+      Map<String, Object> expected = new HashMap<>(Map.of("a_b", "literal"));
+      for (int i = 0; i < unrelated; i++) {
+        input.put("z" + i, (long) i);
+        expected.put("z" + i, (long) i);
+      }
+      testFunctionExecution(FleakData.wrap(input), "flatten($)", expected);
+    }
 
-    FleakData result = evaluateExpression("flatten($)", testData);
-    Map<String, FleakData> payload = result.getPayload();
-    assertEquals(1, payload.size());
-    assertTrue(List.of(1L, 2L).contains(payload.get("a_b").unwrap()));
+    testFunctionExecution(
+        FleakData.wrap(Map.of("a", Map.of("b", Map.of("c", 1), "b_c", 2))),
+        "flatten($)",
+        Map.of("a_b_c", 2L));
+
+    Map<String, Object> nullLiteral = new HashMap<>();
+    nullLiteral.put("a_b", null);
+    nullLiteral.put("a", Map.of("b", 2));
+    Map<String, Object> expected = new HashMap<>();
+    expected.put("a_b", null);
+    testFunctionExecution(FleakData.wrap(nullLiteral), "flatten($)", expected);
+  }
+
+  @Test
+  public void testFlattenCollisionTieGoesToFirstSortedPath() {
+    testFunctionExecution(
+        FleakData.wrap(Map.of("a_b", Map.of("c", 1), "a", Map.of("b_c", 2))),
+        "flatten($)",
+        Map.of("a_b_c", 2L));
+  }
+
+  @Test
+  public void testFlattenDeepInputFailsWithoutStackOverflow() {
+    FleakData deep = FleakData.wrap(1);
+    for (int i = 0; i < 100_000; i++) {
+      deep = new RecordFleakData(Map.of("k", deep));
+    }
+    FleakData input = deep;
+    assertErrorNames("flatten($, \"_\", 1000000000)", input, "10000000");
+
+    FleakData shallower = FleakData.wrap(1);
+    for (int i = 0; i < 2_000; i++) {
+      shallower = new RecordFleakData(Map.of("k", shallower));
+    }
+    FleakData result = evaluateExpression("flatten($, \"_\", 1000000000)", shallower);
+    assertEquals(1, result.getPayload().size());
+  }
+
+  @Test
+  public void testFlattenTotalKeyLengthLimit() {
+    // One long key above many leaves: each leaf repeats it.
+    Map<String, Object> leaves = new HashMap<>();
+    for (int i = 0; i < 250; i++) {
+      leaves.put(String.valueOf(i), i);
+    }
+    FleakData tooLarge = FleakData.wrap(Map.of("x".repeat(50_000), leaves));
+    assertErrorNames("flatten($)", tooLarge, "10000000");
+
+    FleakData belowLimit = FleakData.wrap(Map.of("x".repeat(30_000), leaves));
+    assertEquals(250, evaluateExpression("flatten($)", belowLimit).getPayload().size());
   }
 
   @Test

@@ -42,9 +42,11 @@ Behavior:
 - null dictionary returns null
 - a non-dictionary first argument, an empty or non-string delimiter, or a depth that is not
   an integer >= 1 raises an error
+- flattened keys that would total more than 10,000,000 characters raise an error
 - descent stops after depth levels; the value at the cutoff is kept unchanged
 - scalars, nulls, empty dictionaries, and empty arrays are kept as values, never dropped
-- when two flattened keys collide, one value wins with no error
+- when two flattened keys collide, the one with fewer levels wins, so a literal "a_b" key
+  beats a nested a.b; a tie goes to the path that sorts first. No error is raised
 - returns a new dictionary; the input is not mutated
 
 Examples:
@@ -62,6 +64,10 @@ class FlattenFunction implements FeelFunction {
   private static final String DEFAULT_DELIMITER = "_";
   private static final int DEFAULT_DEPTH = 5;
 
+  // Joined keys repeat their prefixes, so key text can grow quadratically with the input: one
+  // 50,000-character key above 100,000 leaves would be 5 billion characters.
+  private static final long MAX_TOTAL_KEY_LENGTH = 10_000_000;
+
   @Override
   public FunctionSignature getSignature() {
     return FunctionSignature.optional("flatten", 1, 3, "dictionary, delimiter, and depth");
@@ -78,7 +84,7 @@ class FlattenFunction implements FeelFunction {
     }
 
     // Not Preconditions: its message argument would deep-unwrap the whole input on every call.
-    if (!(dictData instanceof RecordFleakData)) {
+    if (!(dictData instanceof RecordFleakData record)) {
       throw new IllegalArgumentException(
           "flatten: first argument must be a dictionary but found: " + dictData.unwrap());
     }
@@ -106,42 +112,67 @@ class FlattenFunction implements FeelFunction {
       depth = (int) Math.min(depthData.getNumberValue(), Integer.MAX_VALUE);
     }
 
-    Map<String, FleakData> result = new HashMap<>();
-    for (Map.Entry<String, FleakData> entry : dictData.getPayload().entrySet()) {
-      walk(entry.getKey(), entry.getValue(), depth, delimiter, result);
-    }
-    return new RecordFleakData(result);
+    return new RecordFleakData(new Flattener(delimiter).run(record, depth));
   }
 
-  private static void walk(
-      String key,
-      FleakData value,
-      int remainingDepth,
-      String delimiter,
-      Map<String, FleakData> result) {
-    if (remainingDepth > 0) {
-      switch (value) {
-        case RecordFleakData record when !record.getPayload().isEmpty() -> {
-          for (Map.Entry<String, FleakData> entry : record.getPayload().entrySet()) {
-            walk(
-                key + delimiter + entry.getKey(),
-                entry.getValue(),
-                remainingDepth - 1,
-                delimiter,
-                result);
+  private record Pending(String key, FleakData value, int remainingDepth) {}
+
+  /**
+   * Walks breadth-first over sorted keys, so a key with fewer levels is written first and wins a
+   * collision, and a tie goes to the path that sorts first. Iterative, so deep input cannot
+   * overflow the stack.
+   */
+  private static final class Flattener {
+    private final String delimiter;
+    private final Deque<Pending> queue = new ArrayDeque<>();
+    private final Map<String, FleakData> result = new HashMap<>();
+    private long totalKeyLength;
+
+    Flattener(String delimiter) {
+      this.delimiter = delimiter;
+    }
+
+    Map<String, FleakData> run(RecordFleakData record, int depth) {
+      for (Map.Entry<String, FleakData> entry : sortedEntries(record)) {
+        queue.add(new Pending(entry.getKey(), entry.getValue(), depth));
+      }
+      while (!queue.isEmpty()) {
+        Pending next = queue.poll();
+        boolean expand = next.remainingDepth() > 0;
+        if (expand
+            && next.value() instanceof RecordFleakData child
+            && !child.getPayload().isEmpty()) {
+          for (Map.Entry<String, FleakData> entry : sortedEntries(child)) {
+            enqueue(next, entry.getKey(), entry.getValue());
           }
-          return;
-        }
-        case ArrayFleakData array when !array.getArrayPayload().isEmpty() -> {
+        } else if (expand
+            && next.value() instanceof ArrayFleakData array
+            && !array.getArrayPayload().isEmpty()) {
           List<FleakData> elements = array.getArrayPayload();
           for (int i = 0; i < elements.size(); i++) {
-            walk(key + delimiter + i, elements.get(i), remainingDepth - 1, delimiter, result);
+            enqueue(next, String.valueOf(i), elements.get(i));
           }
-          return;
+        } else if (!result.containsKey(next.key())) {
+          result.put(next.key(), next.value());
         }
-        case null, default -> {}
       }
+      return result;
     }
-    result.put(key, value);
+
+    private void enqueue(Pending parent, String segment, FleakData value) {
+      totalKeyLength += (long) parent.key().length() + delimiter.length() + segment.length();
+      if (totalKeyLength > MAX_TOTAL_KEY_LENGTH) {
+        throw new IllegalArgumentException(
+            "flatten: the flattened keys would exceed "
+                + MAX_TOTAL_KEY_LENGTH
+                + " characters in total; flatten a smaller part of the event or lower the depth");
+      }
+      queue.add(
+          new Pending(parent.key() + delimiter + segment, value, parent.remainingDepth() - 1));
+    }
+
+    private static List<Map.Entry<String, FleakData>> sortedEntries(RecordFleakData record) {
+      return record.getPayload().entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
+    }
   }
 }
