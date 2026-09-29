@@ -82,7 +82,7 @@ public interface FeelFunction {
             .put("dict_remove", new DictRemoveFunction())
             .put("dict_remove_values", new DictRemoveValuesFunction())
             .put("dict_set", new DictSetFunction())
-            .put("flatten", new FlattenFunction())
+            .put("dict_flatten", new DictFlattenFunction())
             .put("floor", new FloorFunction())
             .put("ceil", new CeilFunction())
             .put("now", new NowFunction())

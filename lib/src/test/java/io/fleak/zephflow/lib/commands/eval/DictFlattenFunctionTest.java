@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-class FlattenFunctionTest extends FeelFunctionTestBase {
+class DictFlattenFunctionTest extends FeelFunctionTestBase {
 
   private static final FleakData NESTED = FleakData.wrap(Map.of("a", Map.of("b", Map.of("c", 1))));
 
@@ -39,19 +39,19 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
 
     testFunctionExecution(
         testData,
-        "flatten($)",
+        "dict_flatten($)",
         Map.of("accounting_0_firstName", "John", "accounting_1_firstName", "Mary", "host", "h1"));
   }
 
   @Test
   public void testFlattenCustomDelimiter() {
-    testFunctionExecution(NESTED, "flatten($, \".\")", Map.of("a.b.c", 1L));
+    testFunctionExecution(NESTED, "dict_flatten($, \".\")", Map.of("a.b.c", 1L));
   }
 
   @Test
   public void testFlattenDepth() {
-    testFunctionExecution(NESTED, "flatten($, \"_\", 1)", Map.of("a_b", Map.of("c", 1L)));
-    testFunctionExecution(NESTED, "flatten($, \"_\", 2)", Map.of("a_b_c", 1L));
+    testFunctionExecution(NESTED, "dict_flatten($, \"_\", 1)", Map.of("a_b", Map.of("c", 1L)));
+    testFunctionExecution(NESTED, "dict_flatten($, \"_\", 2)", Map.of("a_b_c", 1L));
 
     FleakData deep =
         FleakData.wrap(
@@ -59,22 +59,22 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
                 "l1",
                 Map.of(
                     "l2", Map.of("l3", Map.of("l4", Map.of("l5", Map.of("l6", Map.of("v", 1))))))));
-    testFunctionExecution(deep, "flatten($)", Map.of("l1_l2_l3_l4_l5_l6", Map.of("v", 1L)));
+    testFunctionExecution(deep, "dict_flatten($)", Map.of("l1_l2_l3_l4_l5_l6", Map.of("v", 1L)));
   }
 
   @Test
   public void testFlattenArrays() {
     testFunctionExecution(
         FleakData.wrap(Map.of("t", List.of("a", "b"))),
-        "flatten($)",
+        "dict_flatten($)",
         Map.of("t_0", "a", "t_1", "b"));
     testFunctionExecution(
         FleakData.wrap(Map.of("m", List.of(List.of(1, 2), List.of(3)))),
-        "flatten($)",
+        "dict_flatten($)",
         Map.of("m_0_0", 1L, "m_0_1", 2L, "m_1_0", 3L));
     testFunctionExecution(
         FleakData.wrap(Map.of("m", List.of(List.of(1, 2), List.of(3)))),
-        "flatten($, \"_\", 1)",
+        "dict_flatten($, \"_\", 1)",
         Map.of("m_0", List.of(1L, 2L), "m_1", List.of(3L)));
   }
 
@@ -93,7 +93,7 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
     expected.put("b", List.of());
     expected.put("c", null);
     expected.put("d_e", null);
-    testFunctionExecution(FleakData.wrap(input), "flatten($)", expected);
+    testFunctionExecution(FleakData.wrap(input), "dict_flatten($)", expected);
   }
 
   @Test
@@ -101,9 +101,9 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
     FleakData testData =
         FleakData.wrap(Map.of("resource", Map.of("a", Map.of("b", 1), "c", 2), "host", "h1"));
 
-    testFunctionExecution(testData, "flatten($.resource)", Map.of("a_b", 1L, "c", 2L));
+    testFunctionExecution(testData, "dict_flatten($.resource)", Map.of("a_b", 1L, "c", 2L));
     testFunctionExecution(
-        testData, "flatten(dict(res=$.resource))", Map.of("res_a_b", 1L, "res_c", 2L));
+        testData, "dict_flatten(dict(res=$.resource))", Map.of("res_a_b", 1L, "res_c", 2L));
   }
 
   @Test
@@ -118,12 +118,12 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
         input.put("z" + i, (long) i);
         expected.put("z" + i, (long) i);
       }
-      testFunctionExecution(FleakData.wrap(input), "flatten($)", expected);
+      testFunctionExecution(FleakData.wrap(input), "dict_flatten($)", expected);
     }
 
     testFunctionExecution(
         FleakData.wrap(Map.of("a", Map.of("b", Map.of("c", 1), "b_c", 2))),
-        "flatten($)",
+        "dict_flatten($)",
         Map.of("a_b_c", 2L));
 
     Map<String, Object> nullLiteral = new HashMap<>();
@@ -131,14 +131,14 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
     nullLiteral.put("a", Map.of("b", 2));
     Map<String, Object> expected = new HashMap<>();
     expected.put("a_b", null);
-    testFunctionExecution(FleakData.wrap(nullLiteral), "flatten($)", expected);
+    testFunctionExecution(FleakData.wrap(nullLiteral), "dict_flatten($)", expected);
   }
 
   @Test
   public void testFlattenCollisionTieGoesToFirstSortedPath() {
     testFunctionExecution(
         FleakData.wrap(Map.of("a_b", Map.of("c", 1), "a", Map.of("b_c", 2))),
-        "flatten($)",
+        "dict_flatten($)",
         Map.of("a_b_c", 2L));
   }
 
@@ -149,13 +149,13 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
       deep = new RecordFleakData(Map.of("k", deep));
     }
     FleakData input = deep;
-    assertErrorNames("flatten($, \"_\", 1000000000)", input, "10000000");
+    assertErrorNames("dict_flatten($, \"_\", 1000000000)", input, "10000000");
 
     FleakData shallower = FleakData.wrap(1);
     for (int i = 0; i < 2_000; i++) {
       shallower = new RecordFleakData(Map.of("k", shallower));
     }
-    FleakData result = evaluateExpression("flatten($, \"_\", 1000000000)", shallower);
+    FleakData result = evaluateExpression("dict_flatten($, \"_\", 1000000000)", shallower);
     assertEquals(1, result.getPayload().size());
   }
 
@@ -167,10 +167,10 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
       leaves.put(String.valueOf(i), i);
     }
     FleakData tooLarge = FleakData.wrap(Map.of("x".repeat(50_000), leaves));
-    assertErrorNames("flatten($)", tooLarge, "10000000");
+    assertErrorNames("dict_flatten($)", tooLarge, "10000000");
 
     FleakData belowLimit = FleakData.wrap(Map.of("x".repeat(30_000), leaves));
-    assertEquals(250, evaluateExpression("flatten($)", belowLimit).getPayload().size());
+    assertEquals(250, evaluateExpression("dict_flatten($)", belowLimit).getPayload().size());
   }
 
   @Test
@@ -179,65 +179,66 @@ class FlattenFunctionTest extends FeelFunctionTestBase {
 
     testFunctionExecution(
         testData,
-        "dict_merge($, flatten($.nested))",
+        "dict_merge($, dict_flatten($.nested))",
         Map.of("id", 7L, "nested", Map.of("x", Map.of("y", 1L)), "x_y", 1L));
-    testFunctionExecution(testData, "size_of(flatten($))", 2L);
+    testFunctionExecution(testData, "size_of(dict_flatten($))", 2L);
   }
 
   @Test
   public void testFlattenDoesNotMutateInput() {
-    evaluateExpression("flatten($)", NESTED);
+    evaluateExpression("dict_flatten($)", NESTED);
     testFunctionExecution(NESTED, "$", Map.of("a", Map.of("b", Map.of("c", 1L))));
   }
 
   @Test
   public void testFlattenNullReturnsNull() {
-    testFunctionExecution(NESTED, "flatten(null)", null);
-    testFunctionExecution(NESTED, "flatten($.nonexistent)", null);
+    testFunctionExecution(NESTED, "dict_flatten(null)", null);
+    testFunctionExecution(NESTED, "dict_flatten($.nonexistent)", null);
   }
 
   @Test
   public void testFlattenNonDictionaryFails() {
     FleakData testData = FleakData.wrap(Map.of("a", "text"));
-    assertErrorNames("flatten($.a)", testData, "text");
+    assertErrorNames("dict_flatten($.a)", testData, "text");
   }
 
   @Test
   public void testFlattenInvalidDelimiterFails() {
-    assertErrorNames("flatten($, \"\")", NESTED, "delimiter");
-    assertErrorNames("flatten($, 1)", NESTED, "1");
-    assertErrorNames("flatten($, null)", NESTED, "null");
+    assertErrorNames("dict_flatten($, \"\")", NESTED, "delimiter");
+    assertErrorNames("dict_flatten($, 1)", NESTED, "1");
+    assertErrorNames("dict_flatten($, null)", NESTED, "null");
   }
 
   @ParameterizedTest
   @ValueSource(strings = {"0", "-1", "1.5", "\"2\""})
   public void testFlattenInvalidDepthFails(String depth) {
-    assertErrorNames("flatten($, \"_\", " + depth + ")", NESTED, depth.replace("\"", ""));
+    assertErrorNames("dict_flatten($, \"_\", " + depth + ")", NESTED, depth.replace("\"", ""));
   }
 
   @Test
   public void testFlattenNullDepthFails() {
-    assertErrorNames("flatten($, \"_\", null)", NESTED, "null");
+    assertErrorNames("dict_flatten($, \"_\", null)", NESTED, "null");
   }
 
   @Test
   public void testFlattenArity() {
     IllegalArgumentException none =
-        assertThrows(IllegalArgumentException.class, () -> evaluateExpression("flatten()", NESTED));
-    assertEquals("flatten expects 1 to 3 arguments but got 0", none.getMessage());
+        assertThrows(
+            IllegalArgumentException.class, () -> evaluateExpression("dict_flatten()", NESTED));
+    assertEquals("dict_flatten expects 1 to 3 arguments but got 0", none.getMessage());
 
     IllegalArgumentException four =
         assertThrows(
             IllegalArgumentException.class,
-            () -> evaluateExpression("flatten($, \"_\", 2, 3)", NESTED));
-    assertEquals("flatten expects 1 to 3 arguments but got 4", four.getMessage());
+            () -> evaluateExpression("dict_flatten($, \"_\", 2, 3)", NESTED));
+    assertEquals("dict_flatten expects 1 to 3 arguments but got 4", four.getMessage());
   }
 
   private void assertErrorNames(String expression, FleakData testData, String offendingValue) {
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class, () -> evaluateExpression(expression, testData));
-    assertTrue(e.getMessage().startsWith("flatten:"), e.getMessage());
+    assertTrue(e.getMessage().startsWith("dict_flatten:"), e.getMessage());
     assertTrue(e.getMessage().contains(offendingValue), e.getMessage());
   }
 }

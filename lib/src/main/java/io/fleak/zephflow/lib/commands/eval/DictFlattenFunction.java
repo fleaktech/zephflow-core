@@ -20,16 +20,16 @@ import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
 import java.util.*;
 
 /*
-flattenFunction:
+dictFlattenFunction:
 Flatten a nested dictionary into a single-level dictionary. Nested dictionary keys are
 joined with a delimiter, and array elements get their zero-based index as a key segment.
 Use arr_flatten instead to remove one level of nesting from an array.
 
 Syntax:
 ```
-flatten(dictionary)
-flatten(dictionary, delimiter)
-flatten(dictionary, delimiter, depth)
+dict_flatten(dictionary)
+dict_flatten(dictionary, delimiter)
+dict_flatten(dictionary, delimiter, depth)
 ```
 
 Parameters:
@@ -51,16 +51,16 @@ Behavior:
 
 Examples:
 ```
-flatten({"a": {"b": {"c": 1}}})              returns {"a_b_c": 1}
-flatten({"a": {"b": {"c": 1}}}, ".")         returns {"a.b.c": 1}
-flatten({"a": {"b": {"c": 1}}}, "_", 1)      returns {"a_b": {"c": 1}}
-flatten({"acc": [{"n": "John"}, {"n": "Mary"}], "host": "h1"})
+dict_flatten({"a": {"b": {"c": 1}}})              returns {"a_b_c": 1}
+dict_flatten({"a": {"b": {"c": 1}}}, ".")         returns {"a.b.c": 1}
+dict_flatten({"a": {"b": {"c": 1}}}, "_", 1)      returns {"a_b": {"c": 1}}
+dict_flatten({"acc": [{"n": "John"}, {"n": "Mary"}], "host": "h1"})
                                              returns {"acc_0_n": "John", "acc_1_n": "Mary", "host": "h1"}
-flatten({"a": {}, "b": [], "c": null})       returns {"a": {}, "b": [], "c": null}
-flatten(dict(res=$.resource))                prefixes every key with "res_"
+dict_flatten({"a": {}, "b": [], "c": null})       returns {"a": {}, "b": [], "c": null}
+dict_flatten(dict(res=$.resource))                prefixes every key with "res_"
 ```
 */
-class FlattenFunction implements FeelFunction {
+class DictFlattenFunction implements FeelFunction {
   private static final String DEFAULT_DELIMITER = "_";
   private static final int DEFAULT_DEPTH = 5;
 
@@ -70,7 +70,7 @@ class FlattenFunction implements FeelFunction {
 
   @Override
   public FunctionSignature getSignature() {
-    return FunctionSignature.optional("flatten", 1, 3, "dictionary, delimiter, and depth");
+    return FunctionSignature.optional("dict_flatten", 1, 3, "dictionary, delimiter, and depth");
   }
 
   @Override
@@ -86,7 +86,7 @@ class FlattenFunction implements FeelFunction {
     // Not Preconditions: its message argument would deep-unwrap the whole input on every call.
     if (!(dictData instanceof RecordFleakData record)) {
       throw new IllegalArgumentException(
-          "flatten: first argument must be a dictionary but found: " + dictData.unwrap());
+          "dict_flatten: first argument must be a dictionary but found: " + dictData.unwrap());
     }
 
     String delimiter = DEFAULT_DELIMITER;
@@ -95,7 +95,7 @@ class FlattenFunction implements FeelFunction {
       Preconditions.checkArgument(
           delimiterData instanceof StringPrimitiveFleakData
               && !delimiterData.getStringValue().isEmpty(),
-          "flatten: delimiter must be a non-empty string but found: %s",
+          "dict_flatten: delimiter must be a non-empty string but found: %s",
           delimiterData == null ? null : delimiterData.unwrap());
       delimiter = delimiterData.getStringValue();
     }
@@ -107,7 +107,7 @@ class FlattenFunction implements FeelFunction {
           depthData instanceof NumberPrimitiveFleakData
               && depthData.getNumberValue() == Math.rint(depthData.getNumberValue())
               && depthData.getNumberValue() >= 1,
-          "flatten: depth must be an integer >= 1 but found: %s",
+          "dict_flatten: depth must be an integer >= 1 but found: %s",
           depthData == null ? null : depthData.unwrap());
       depth = (int) Math.min(depthData.getNumberValue(), Integer.MAX_VALUE);
     }
@@ -163,7 +163,7 @@ class FlattenFunction implements FeelFunction {
       totalKeyLength += (long) parent.key().length() + delimiter.length() + segment.length();
       if (totalKeyLength > MAX_TOTAL_KEY_LENGTH) {
         throw new IllegalArgumentException(
-            "flatten: the flattened keys would exceed "
+            "dict_flatten: the flattened keys would exceed "
                 + MAX_TOTAL_KEY_LENGTH
                 + " characters in total; flatten a smaller part of the event or lower the depth");
       }
