@@ -29,6 +29,7 @@ import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
@@ -142,7 +143,8 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
             s3Client,
             config.getBucketName(),
             StringUtils.stripEnd(config.getKeyName(), "/"),
-            serializer);
+            serializer,
+            CompressorFactory.getCompressor(config.getCompressionType()));
     return new S3Flusher(commiter);
   }
 
@@ -157,7 +159,8 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
       SerializerFactory<?> serializerFactory =
           SerializerFactory.createSerializerFactory(encodingType);
       FleakSerializer<?> serializer = serializerFactory.createSerializer();
-      return new TextBlobFileWriter(serializer, encodingType);
+      return new TextBlobFileWriter(
+          serializer, encodingType, CompressorFactory.getCompressor(config.getCompressionType()));
     }
   }
 

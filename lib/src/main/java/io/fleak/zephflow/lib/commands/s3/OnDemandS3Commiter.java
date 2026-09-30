@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3;
 import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.compression.Compressor;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.time.Instant;
 import java.util.List;
@@ -28,27 +29,34 @@ public class OnDemandS3Commiter extends S3Commiter<RecordFleakData> {
 
   @VisibleForTesting final String keyName;
   @VisibleForTesting final FleakSerializer<?> fleakSerializer;
+  private final Compressor compressor;
 
   public OnDemandS3Commiter(
-      S3Client s3Client, String bucketName, String keyName, FleakSerializer<?> fleakSerializer) {
+      S3Client s3Client,
+      String bucketName,
+      String keyName,
+      FleakSerializer<?> fleakSerializer,
+      Compressor compressor) {
     super(s3Client, bucketName);
     this.keyName = keyName;
     this.fleakSerializer = fleakSerializer;
+    this.compressor = compressor;
   }
 
   @Override
   public long commit(List<RecordFleakData> events) throws Exception {
     SerializedEvent serializedEvent = fleakSerializer.serialize(events);
+    byte[] data = compressor.compress(serializedEvent.value());
     String fileKey =
         String.format(
             "%s/%s.%s",
             keyName,
             Instant.now().toEpochMilli(),
-            fleakSerializer.getEncodingType().getFileExtension());
+            compressor.fileExtension(fleakSerializer.getEncodingType().getFileExtension()));
     PutObjectRequest putObjectRequest =
         PutObjectRequest.builder().bucket(bucketName).key(fileKey).build();
-    s3Client.putObject(putObjectRequest, RequestBody.fromBytes(serializedEvent.value()));
-    return serializedEvent.value().length;
+    s3Client.putObject(putObjectRequest, RequestBody.fromBytes(data));
+    return data.length;
   }
 
   @Override

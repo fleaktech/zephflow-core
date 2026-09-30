@@ -13,14 +13,18 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
+import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
+import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.io.File;
 import java.nio.file.Files;
@@ -51,14 +55,14 @@ class TextBlobFileWriterTest {
   @Test
   void testValidateRecord_nullRecord() {
     TextBlobFileWriter writer =
-        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE, new NoopCompressor());
     assertThrows(IllegalArgumentException.class, () -> writer.validateRecord(null));
   }
 
   @Test
   void testValidateRecord_validRecord() throws Exception {
     TextBlobFileWriter writer =
-        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE, new NoopCompressor());
     RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("key", "value"));
     assertDoesNotThrow(() -> writer.validateRecord(record));
     verify(mockSerializer).serialize(List.of(record));
@@ -71,7 +75,8 @@ class TextBlobFileWriterTest {
         .thenThrow(new RuntimeException("Serialization failed"));
 
     TextBlobFileWriter writer =
-        new TextBlobFileWriter(failingSerializer, EncodingType.JSON_OBJECT_LINE);
+        new TextBlobFileWriter(
+            failingSerializer, EncodingType.JSON_OBJECT_LINE, new NoopCompressor());
     RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("key", "value"));
 
     assertThrows(RuntimeException.class, () -> writer.validateRecord(record));
@@ -83,7 +88,7 @@ class TextBlobFileWriterTest {
     RecordFleakData record2 = (RecordFleakData) FleakData.wrap(Map.of("id", 2, "name", "test2"));
 
     TextBlobFileWriter writer =
-        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE, new NoopCompressor());
     List<File> files = writer.writeToTempFiles(List.of(record1, record2), tempDir);
 
     assertEquals(1, files.size());
@@ -98,31 +103,62 @@ class TextBlobFileWriterTest {
   @Test
   void testGetFileExtension_jsonl() {
     TextBlobFileWriter writer =
-        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE);
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT_LINE, new NoopCompressor());
     assertEquals("jsonl", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_json() {
-    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.JSON_OBJECT, new NoopCompressor());
     assertEquals("json", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_csv() {
-    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.CSV);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.CSV, new NoopCompressor());
     assertEquals("csv", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_txt() {
-    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.TEXT);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.TEXT, new NoopCompressor());
     assertEquals("txt", writer.getFileExtension());
   }
 
   @Test
   void testGetFileExtension_xml() {
-    TextBlobFileWriter writer = new TextBlobFileWriter(mockSerializer, EncodingType.XML);
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(mockSerializer, EncodingType.XML, new NoopCompressor());
     assertEquals("xml", writer.getFileExtension());
+  }
+
+  @Test
+  void testWriteToTempFiles_gzip() throws Exception {
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(
+            mockSerializer,
+            EncodingType.JSON_OBJECT_LINE,
+            CompressorFactory.getCompressor(CompressionType.GZIP));
+    List<File> files = writer.writeToTempFiles(List.of(record), tempDir);
+
+    assertEquals(1, files.size());
+    File outputFile = files.get(0);
+    assertTrue(outputFile.getName().endsWith(".jsonl.gz"));
+    assertArrayEquals(TEST_DATA, gunzip(Files.readAllBytes(outputFile.toPath())));
+  }
+
+  @Test
+  void testGetFileExtension_gzip() {
+    TextBlobFileWriter writer =
+        new TextBlobFileWriter(
+            mockSerializer,
+            EncodingType.CSV,
+            CompressorFactory.getCompressor(CompressionType.GZIP));
+    assertEquals("csv.gz", writer.getFileExtension());
   }
 }

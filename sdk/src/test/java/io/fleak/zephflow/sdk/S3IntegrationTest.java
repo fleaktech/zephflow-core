@@ -13,12 +13,15 @@
  */
 package io.fleak.zephflow.sdk;
 
+import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.sdk.ZephFlowTest.SOURCE_EVENTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
@@ -142,6 +145,42 @@ public class S3IntegrationTest {
     var actual = deser.deserialize(new SerializedEvent(null, data, null));
     var actualUnwrapped = actual.stream().map(FleakData::unwrap).toList();
     assertEquals(SOURCE_EVENTS, actualUnwrapped);
+  }
+
+  @Test
+  public void testS3SinkWithGzipCompression(@TempDir Path tempDir) throws Exception {
+    var inputFile = tempDir.resolve("test_input_gzip.json");
+    FileUtils.copyInputStreamToFile(in, inputFile.toFile());
+    ZephFlow flow = ZephFlow.startFlow();
+    var inputStream = flow.fileSource(inputFile.toString(), EncodingType.JSON_ARRAY);
+    var outputStream =
+        inputStream.s3Sink(
+            REGION_STR,
+            BUCKET_NAME,
+            FOLDER_NAME,
+            EncodingType.JSON_OBJECT_LINE,
+            null,
+            minioContainer.getS3URL(),
+            CompressionType.GZIP);
+    outputStream.execute("test_jobid_gzip", "test_env", "test_service");
+
+    var listObjectsResponse =
+        s3Client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET_NAME).build());
+    assertEquals(1, listObjectsResponse.contents().size());
+    String objectKey = listObjectsResponse.contents().get(0).key();
+    assertTrue(objectKey.endsWith(".jsonl.gz"), "Key should end with .jsonl.gz: " + objectKey);
+
+    byte[] compressedObjectBytes =
+        s3Client
+            .getObjectAsBytes(GetObjectRequest.builder().bucket(BUCKET_NAME).key(objectKey).build())
+            .asByteArray();
+    var deserializer =
+        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT_LINE)
+            .createDeserializer();
+    var actualEvents =
+        deserializer.deserialize(new SerializedEvent(null, gunzip(compressedObjectBytes), null));
+    var actualUnwrappedEvents = actualEvents.stream().map(FleakData::unwrap).toList();
+    assertEquals(SOURCE_EVENTS, actualUnwrappedEvents);
   }
 
   @AfterEach

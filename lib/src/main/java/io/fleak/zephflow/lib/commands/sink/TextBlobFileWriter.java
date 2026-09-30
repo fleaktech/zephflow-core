@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.sink;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.compression.Compressor;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.io.File;
 import java.nio.file.Files;
@@ -31,16 +32,19 @@ public class TextBlobFileWriter implements BlobFileWriter<RecordFleakData> {
 
   private final FleakSerializer<?> serializer;
   private final EncodingType encodingType;
+  private final Compressor compressor;
 
-  public TextBlobFileWriter(FleakSerializer<?> serializer, EncodingType encodingType) {
+  public TextBlobFileWriter(
+      FleakSerializer<?> serializer, EncodingType encodingType, Compressor compressor) {
     this.serializer = serializer;
     this.encodingType = encodingType;
+    this.compressor = compressor;
   }
 
   @Override
   public List<File> writeToTempFiles(List<RecordFleakData> records, Path tempDir) throws Exception {
     SerializedEvent serializedEvent = serializer.serialize(records);
-    byte[] data = serializedEvent.value();
+    byte[] data = compressor.compress(serializedEvent.value());
 
     String filename = UUID.randomUUID() + "." + getFileExtension();
     Path tempFile = tempDir.resolve(filename);
@@ -50,7 +54,7 @@ public class TextBlobFileWriter implements BlobFileWriter<RecordFleakData> {
 
   @Override
   public String getFileExtension() {
-    return encodingType.getFileExtension();
+    return compressor.fileExtension(encodingType.getFileExtension());
   }
 
   @Override

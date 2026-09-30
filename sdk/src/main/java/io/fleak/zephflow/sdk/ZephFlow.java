@@ -47,6 +47,7 @@ import io.fleak.zephflow.lib.commands.stdout.StdOutDto;
 import io.fleak.zephflow.lib.commands.timescaledbsink.TimescaleDbSinkDto;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import io.fleak.zephflow.runner.*;
@@ -440,6 +441,18 @@ public class ZephFlow {
       EncodingType encodingType,
       UsernamePasswordCredential credential,
       String s3EndpointOverride) {
+    return s3Sink(region, bucket, folder, encodingType, credential, s3EndpointOverride, null);
+  }
+
+  @SuppressWarnings("unused") // Part of the public API
+  public ZephFlow s3Sink(
+      String region,
+      String bucket,
+      String folder,
+      EncodingType encodingType,
+      UsernamePasswordCredential credential,
+      String s3EndpointOverride,
+      CompressionType compressionType) {
 
     String credentialId = null;
     if (credential != null) {
@@ -456,6 +469,7 @@ public class ZephFlow {
             .encodingType(encodingType.toString())
             .credentialId(credentialId)
             .s3EndpointOverride(s3EndpointOverride)
+            .compressionType(compressionType)
             .build();
     return appendNode(COMMAND_NAME_S3_SINK, config);
   }
