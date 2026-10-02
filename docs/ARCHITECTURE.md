@@ -13,8 +13,8 @@ or filter it, and sink nodes that write results to external systems. The core
 data type flowing through every node is `RecordFleakData`, a recursive,
 JSON-compatible value model.
 
-The project ships three ways to run a pipeline: a fluent Java SDK, a Spring Boot
-HTTP service, and a CLI runner.
+The project ships two ways to run a pipeline: a fluent Java SDK and a CLI
+runner.
 
 ## Module Map
 
@@ -96,15 +96,6 @@ Fluent API for building and running pipelines programmatically. Depends on
   `execute()` runs a full pipeline with source; `process()` runs a sourceless
   pipeline on pre-fetched events.
 
-### `httpstarter/`
-
-Spring Boot REST service. Depends on `runner/`.
-
-- `WorkflowController` — register/retrieve DAG definitions.
-- `ExecutionController` — execute a registered workflow against a batch of
-  events.
-- Compiles DAGs on registration and caches compiled runners for reuse.
-
 ### `clistarter/`
 
 CLI entry point. Depends on `runner/`.
@@ -158,7 +149,7 @@ through DAG edges at runtime.
 ## Layer Boundaries
 
 ```
-       httpstarter / clistarter            (entry points)
+              clistarter                   (entry point)
                     │
                     ▼
                    sdk                     (fluent builder, optional)
@@ -174,8 +165,8 @@ through DAG edges at runtime.
 ```
 
 `api` has zero internal dependencies. `lib` depends on `api`. `runner` depends
-on `lib` (and transitively on `api`). `sdk` depends on `runner`. The starters
-depend on `runner`.
+on `lib` (and transitively on `api`). `sdk` depends on `runner`. `clistarter`
+depends on `runner`.
 
 ## Cross-Cutting Concerns
 

@@ -13,24 +13,19 @@
  */
 package io.fleak.zephflow.sdk;
 
-import static io.fleak.zephflow.lib.commands.SimpleHttpClient.MAX_RESPONSE_SIZE_BYTES;
 import static io.fleak.zephflow.lib.utils.JsonUtils.*;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
-import static io.fleak.zephflow.runner.Constants.HTTP_STARTER_WORKFLOW_CONTROLLER_PATH;
 import static io.fleak.zephflow.runner.DagExecutor.loadCommands;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.SimpleHttpClient;
 import io.fleak.zephflow.lib.commands.azureeventhubsink.AzureEventHubSinkDto;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceDto;
 import io.fleak.zephflow.lib.commands.azureiothubsource.AzureIotHubSourceDto;
@@ -54,8 +49,6 @@ import io.fleak.zephflow.runner.*;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition.DagNode;
 import java.io.Serializable;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.*;
 import javax.annotation.Nullable;
 import lombok.Getter;
@@ -1041,38 +1034,6 @@ public class ZephFlow {
               dagDefinition.getDag(), dagDefinition.getJobContext());
     }
     return noSourceDagRunner.run(inputData, callingUser, runConfig);
-  }
-
-  /**
-   * Submits the defined DAG to a remote ZephFlow HTTP starter endpoint.
-   *
-   * @param httpStarterHostUrl The base URL of the HTTP starter service.
-   * @return The response body from the submission endpoint.
-   * @throws URISyntaxException if the provided URL is invalid.
-   * @throws RuntimeException wrapping HTTP client errors.
-   */
-  public String submitApiEndpoint(String httpStarterHostUrl) throws URISyntaxException {
-    AdjacencyListDagDefinition adjacencyListDagDefinition = buildDag();
-
-    httpStarterHostUrl =
-        httpStarterHostUrl.endsWith("/")
-            ? httpStarterHostUrl.substring(0, httpStarterHostUrl.length() - 1)
-            : httpStarterHostUrl;
-    URI baseUri = new URI(httpStarterHostUrl);
-    URI resolvedUri = baseUri.resolve(HTTP_STARTER_WORKFLOW_CONTROLLER_PATH);
-
-    JsonNode dagJson = convertToJsonNode(adjacencyListDagDefinition.getDag());
-    ObjectNode requestJson = OBJECT_MAPPER.createObjectNode();
-    requestJson.set("dag", dagJson);
-
-    log.info("Submitting DAG: {}", requestJson);
-
-    SimpleHttpClient simpleHttpClient = SimpleHttpClient.getInstance(MAX_RESPONSE_SIZE_BYTES);
-    return simpleHttpClient.callHttpEndpointNoSecureCheck(
-        resolvedUri.toString(),
-        SimpleHttpClient.HttpMethodType.POST,
-        requestJson.toString(),
-        List.of("Content-Type: application/json"));
   }
 
   public static List<RecordFleakData> convertJsonEventsToFleakData(String jsonEvents)
