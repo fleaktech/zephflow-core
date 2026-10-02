@@ -53,7 +53,6 @@ import java.util.*;
 import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.avro.Schema;
 
 /**
@@ -61,7 +60,6 @@ import org.apache.avro.Schema;
  * directed acyclic graph (DAG) of processing nodes internally. This class is immutable; methods
  * like filter, sink, etc., return new instances.
  */
-@Slf4j
 public class ZephFlow {
 
   // Static map of available command factories, loaded once.
