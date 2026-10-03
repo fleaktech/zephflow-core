@@ -142,8 +142,16 @@ public class DagExecutorTest {
             DagCompilationException.class,
             () -> executeDagWithDiscoveredCommands("/test_dag_invalid_filter.yml"));
     assertEquals(
-        new CompilationFailure(ErrorType.NODE_COMPILATION, "invalid_filter", "filter", null),
-        new CompilationFailure(e.getErrorType(), e.getNodeId(), e.getCommandName(), null));
+        new CompilationFailure(
+            ErrorType.NODE_COMPILATION,
+            "invalid_filter",
+            "filter",
+            "failed to compile DAG node: RawDagNode(commandName=filter, arg={expression=this is not"
+                + " a valid expression}), reason: {\"offendingSymbol\":\"[@1,5:6='is',<32>,1:5]\","
+                + "\"line\":1,\"charPositionInLine\":5,\"message\":\"mismatched input 'is'"
+                + " expecting {<EOF>, 'or', 'and', '==', '!=', '<', '>', '<=', '>=', '+', '-', '*',"
+                + " '/', '%', '.', '['}\"}"),
+        CompilationFailure.of(e));
   }
 
   @Test

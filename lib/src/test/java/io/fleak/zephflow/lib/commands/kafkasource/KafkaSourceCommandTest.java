@@ -290,10 +290,13 @@ public class KafkaSourceCommandTest {
       }
     } finally {
       executor.shutdownNow();
-      //noinspection ResultOfMethodCallIgnored
-      executor.awaitTermination(5, TimeUnit.SECONDS);
-      kafkaSourceCommand.terminate();
-      kafkaSinkCommand.terminate();
+      try {
+        if (executor.awaitTermination(5, TimeUnit.SECONDS)) {
+          kafkaSourceCommand.terminate();
+        }
+      } finally {
+        kafkaSinkCommand.terminate();
+      }
     }
   }
 

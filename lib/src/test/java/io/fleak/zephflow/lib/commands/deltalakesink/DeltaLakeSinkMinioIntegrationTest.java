@@ -209,7 +209,12 @@ class DeltaLakeSinkMinioIntegrationTest {
 
   private record TableContent(long numRecords, List<Map<String, Object>> rows) {}
 
-  private record AddedFile(String path, long size, long modificationTime, long numRecords) {}
+  private record AddedFile(
+      String path,
+      long size,
+      long modificationTime,
+      long numRecords,
+      Map<String, String> partitionValues) {}
 
   private static DeltaLakeSinkDto.Config minimalConfig(Path tableDir) {
     return DeltaLakeSinkDto.Config.builder()
@@ -306,10 +311,10 @@ class DeltaLakeSinkMinioIntegrationTest {
                   addNode.get("path").asText(),
                   addNode.get("size").asLong(),
                   addNode.get("modificationTime").asLong(),
-                  OBJECT_MAPPER
-                      .readTree(addNode.get("stats").asText())
-                      .get("numRecords")
-                      .asLong()));
+                  OBJECT_MAPPER.readTree(addNode.get("stats").asText()).get("numRecords").asLong(),
+                  OBJECT_MAPPER.convertValue(
+                      addNode.path("partitionValues"),
+                      new TypeReference<Map<String, String>>() {})));
         }
       }
     }
@@ -327,7 +332,9 @@ class DeltaLakeSinkMinioIntegrationTest {
         while (batches.hasNext()) {
           try (CloseableIterator<Row> batchRows = batches.next().getRows()) {
             while (batchRows.hasNext()) {
-              rows.add(toMap(batchRows.next()));
+              Map<String, Object> row = toMap(batchRows.next());
+              addedFile.partitionValues().forEach((name, value) -> row.put(name, value));
+              rows.add(row);
             }
           }
         }
