@@ -141,44 +141,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
         if: github.event_name == 'release'
 
-      ##### HTTPSTARTER DOCKER IMAGE #####
-
-      # Build the httpstarter JAR
-      - name: Build httpstarter JAR
-        if: github.event_name == 'release'
-        run: ./gradlew :httpstarter:build
-
-      # Extract metadata for httpstarter Docker
-      - name: Extract httpstarter Docker metadata
-        if: github.event_name == 'release'
-        id: meta-httpstarter
-        uses: docker/metadata-action@v6
-        with:
-          images: fleak/zephflow-httpstarter
-          tags: |
-            type=semver,pattern={{version}}
-            type=ref,event=branch
-            type=sha,format=short
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-
-      # Build and push httpstarter Docker image with attestations
-      - name: Build and push httpstarter Docker image
-        if: github.event_name == 'release'
-        uses: docker/build-push-action@v7
-        with:
-          context: ./httpstarter
-          file: ./httpstarter/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-httpstarter.outputs.tags }}
-          labels: ${{ steps.meta-httpstarter.outputs.labels }}
-          build-args: |
-            COMMIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max  # Add provenance attestation
-          sbom: true            # Add SBOM attestation
-
       ##### CLISTARTER DOCKER IMAGE #####
 
       # Build the clistarter JAR with shadowJar

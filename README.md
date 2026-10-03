@@ -11,7 +11,7 @@ provides an intuitive way to create and execute stateless data processing pipeli
 🚀 **High Performance** - Optimized for low-latency processing  
 🔒 **Reliable** - Robust error handling with dead-letter queue support  
 🧩 **Composable** - Build complex workflows from simple, reusable components  
-🌐 **Flexible Deployment** - Run embedded in applications, as a standalone process, or as an HTTP service  
+🌐 **Flexible Deployment** - Run embedded in applications or as a standalone process  
 🔍 **Data Validation** - Built-in assertion capabilities for data quality control
 
 ## Documentation
