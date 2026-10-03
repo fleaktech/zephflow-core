@@ -66,7 +66,7 @@ jobs:
       # Import GPG key for Maven Central publishing
       - name: Import GPG key
         if: github.event_name == 'release'
-        uses: crazy-max/ghaction-import-gpg@v5
+        uses: crazy-max/ghaction-import-gpg@v7
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
