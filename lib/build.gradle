@@ -87,7 +87,13 @@ dependencies {
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.azure
 
+  api libs.antlr4.runtime
   antlr libs.antlr4
+}
+
+// The antlr plugin makes `api` extend `antlr`, which would ship the ANTLR tool to consumers; only the runtime is needed.
+configurations.api {
+  setExtendsFrom(extendsFrom.findAll { it.name != 'antlr' })
 }
 
 configurations.all {
