@@ -22,14 +22,14 @@ For detailed documentation about ZephFlow, please visit our [doc site](https://d
 Join the Slack Workspace [here](https://join.slack.com/t/fleak-hq/shared_invite/zt-361k9cnhf-9~mmjpOH1IbZfRxeXplfKA).
 
 ## Prerequisites
-Java 17
+Java 21
 
 ## Current Version
-v0.4.1
+v0.4.4
 
 Import Zephflow from Gradle
 ```groovy
-implementation 'io.fleak.zephflow:runner:0.4.1'
+implementation 'io.fleak.zephflow:runner:0.4.4'
 ```
 
 Import Zephflow from Maven
@@ -38,7 +38,7 @@ Import Zephflow from Maven
 <dependency>
   <groupId>io.fleak.zephflow</groupId>
   <artifactId>runner</artifactId>
-  <version>0.4.1</version>
+  <version>0.4.4</version>
 </dependency>
 ```
 
