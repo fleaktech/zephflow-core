@@ -191,7 +191,6 @@ testcontainers-minio = { module = "org.testcontainers:minio", version.ref = "tes
 testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testContainers" }
 testcontainers-localstack = { module = "org.testcontainers:localstack", version.ref = "testContainers" }
 testcontainers-clickhouse = { module = "org.testcontainers:clickhouse", version.ref = "testContainers" }
-testcontainers-gcloud = { module = "org.testcontainers:gcloud", version.ref = "testContainers" }
 testcontainers-azure = { module = "org.testcontainers:azure", version.ref = "testContainers" }
 
 gcs-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "gcs" }
