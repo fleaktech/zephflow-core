@@ -46,7 +46,7 @@ allprojects {
 
   configurations.all {
     resolutionStrategy.capabilitiesResolution.withCapability('org.lz4:lz4-java') {
-      select('at.yawk.lz4:lz4-java:1.11.3')
+      select('at.yawk.lz4:lz4-java:1.12.0')
     }
   }
 

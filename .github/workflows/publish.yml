@@ -147,7 +147,7 @@ jobs:
       # Install cosign for attestation signing
       - name: Install cosign
         if: github.event_name == 'release'
-        uses: sigstore/cosign-installer@v3.3.0
+        uses: sigstore/cosign-installer@v3.10.1
         with:
           cosign-release: 'v2.2.3'  # Specific version that avoids the TUF key issue
 
