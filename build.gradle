@@ -7,12 +7,6 @@ buildscript {
     classpath('org.eclipse.jgit:org.eclipse.jgit:6.10.0.202406032230-r!!') {
       because 'JReleaser 1.21.0 incompatible with JGit 7.x API changes'
     }
-
-    constraints {
-      classpath(libs.spring.core) {
-        because 'The license plugin brings in Spring 3.x, which conflicts with the Spring Boot 3.x plugin.'
-      }
-    }
   }
 }
 
@@ -20,7 +14,6 @@ plugins {
   alias(libs.plugins.nebula.dependency.lock)
   alias(libs.plugins.nebula.maven.publish)
   alias(libs.plugins.nebula.release)
-  id 'idea'
   alias(libs.plugins.spotless)
   alias(libs.plugins.versions)
   id 'jacoco'
@@ -66,7 +59,6 @@ allprojects {
   test {
     environment "AWS_ACCESS_KEY_ID", "test"
     environment "AWS_SECRET_ACCESS_KEY", "test"
-    systemProperty "testcontainers.reuse.enable", "false"
   }
 
   jacocoTestReport {
@@ -101,7 +93,6 @@ jreleaser {
 }
 
 subprojects {
-  apply plugin: 'java-library'
   apply plugin: 'com.netflix.nebula.maven-base-publish'
   apply plugin: 'com.diffplug.spotless'
   apply plugin: 'signing'
@@ -111,13 +102,6 @@ subprojects {
   java {
     withSourcesJar()
     withJavadocJar()
-  }
-
-  idea {
-    module {
-      downloadJavadoc = true
-      downloadSources = true
-    }
   }
 
   publishing {

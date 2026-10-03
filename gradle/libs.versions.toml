@@ -44,7 +44,6 @@ httpcore5 = "5.4.3"
 httpclient5 = "5.6.4"
 lz4 = "1.11.3"
 splunk = "1.9.5"
-springCore = "7.0.1"
 gcs = "2.49.0"
 pubsub = "1.131.0"
 activemqClassic = "6.1.0"
@@ -138,7 +137,6 @@ delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref
 splunk = { module = "com.splunk:splunk", version.ref = "splunk" }
 
 springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
-spring-core = { module = "org.springframework:spring-core", version.ref = "springCore" }
 
 lz4 = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4" }
 zookeeper = { module = "org.apache.zookeeper:zookeeper", version.ref = "zookeeper" }
