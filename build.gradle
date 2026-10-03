@@ -260,14 +260,6 @@ configure(subprojects.findAll { it.name in ['lib', 'runner', 'clistarter'] }) {
       implementation(libs.httpclient5)
 
       implementation(libs.jline)
-      implementation(libs.jline.reader)
-      implementation(libs.jline.terminal)
-      implementation(libs.jline.terminal.jansi)
-      implementation(libs.jline.terminal.jna)
-      implementation(libs.jline.builtins)
-      implementation(libs.jline.style)
-      implementation(libs.jline.remote.ssh)
-      implementation(libs.jline.remote.telnet)
     }
   }
 }

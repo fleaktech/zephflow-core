@@ -138,14 +138,6 @@ lz4 = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4" }
 zookeeper = { module = "org.apache.zookeeper:zookeeper", version.ref = "zookeeper" }
 zookeeper-jute = { module = "org.apache.zookeeper:zookeeper-jute", version.ref = "zookeeper" }
 jline = { module = "org.jline:jline", version.ref = "jline" }
-jline-reader = { module = "org.jline:jline-reader", version.ref = "jline" }
-jline-terminal = { module = "org.jline:jline-terminal", version.ref = "jline" }
-jline-terminal-jansi = { module = "org.jline:jline-terminal-jansi", version.ref = "jline" }
-jline-terminal-jna = { module = "org.jline:jline-terminal-jna", version.ref = "jline" }
-jline-builtins = { module = "org.jline:jline-builtins", version.ref = "jline" }
-jline-style = { module = "org.jline:jline-style", version.ref = "jline" }
-jline-remote-ssh = { module = "org.jline:jline-remote-ssh", version.ref = "jline" }
-jline-remote-telnet = { module = "org.jline:jline-remote-telnet", version.ref = "jline" }
 httpcore5 = { module = "org.apache.httpcomponents.core5:httpcore5", version.ref = "httpcore5" }
 httpcore5-h2 = { module = "org.apache.httpcomponents.core5:httpcore5-h2", version.ref = "httpcore5" }
 httpclient5 = { module = "org.apache.httpcomponents.client5:httpclient5", version.ref = "httpclient5" }

@@ -22,9 +22,7 @@ dependencies {
   implementation libs.clickhouse.client
 
   implementation libs.graalvm.sdk
-  runtimeOnly(libs.graalvm.polyglot.python) {
-    exclude group: 'org.graalvm.truffle', module: 'truffle-enterprise'
-  }
+  runtimeOnly libs.graalvm.polyglot.python
 
   implementation libs.clickhouse.jdbc
 
@@ -97,7 +95,6 @@ dependencies {
 }
 
 configurations.all {
-  exclude group: 'log4j', module: 'log4j'
   exclude group: 'dnsjava', module: 'dnsjava'
 }
 
