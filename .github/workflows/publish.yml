@@ -180,7 +180,7 @@ jobs:
       - name: Extract httpstarter Docker metadata
         if: github.event_name == 'release'
         id: meta-httpstarter
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: fleak/zephflow-httpstarter
           tags: |
@@ -218,7 +218,7 @@ jobs:
       - name: Extract clistarter Docker metadata
         if: github.event_name == 'release'
         id: meta-clistarter
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: fleak/zephflow-clistarter
           tags: |
