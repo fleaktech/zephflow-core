@@ -21,7 +21,7 @@ dependencies {
   implementation libs.kafka.clients
   implementation libs.clickhouse.client
 
-  implementation libs.graalvm.sdk
+  implementation libs.graalvm.polyglot
   runtimeOnly libs.graalvm.polyglot.python
 
   implementation libs.clickhouse.jdbc
