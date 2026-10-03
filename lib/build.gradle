@@ -21,10 +21,8 @@ dependencies {
   implementation libs.kafka.clients
   implementation libs.clickhouse.client
 
-  implementation libs.graalvm.sdk
-  runtimeOnly(libs.graalvm.polyglot.python) {
-    exclude group: 'org.graalvm.truffle', module: 'truffle-enterprise'
-  }
+  implementation libs.graalvm.polyglot
+  runtimeOnly libs.graalvm.polyglot.python
 
   implementation libs.clickhouse.jdbc
 
@@ -86,18 +84,19 @@ dependencies {
   implementation libs.chronicle.queue
 
   testImplementation libs.unboundid.ldapsdk
-  testImplementation libs.jackson.dataformat.yaml
   testImplementation libs.testcontainers.clickhouse
-  testImplementation libs.testcontainers.gcloud
-  testImplementation libs.testcontainers.localstack
   testImplementation libs.testcontainers.azure
-  testImplementation libs.testcontainers.postgresql
 
+  api libs.antlr4.runtime
   antlr libs.antlr4
 }
 
+// The antlr plugin makes `api` extend `antlr`, which would ship the ANTLR tool to consumers; only the runtime is needed.
+configurations.api {
+  setExtendsFrom(extendsFrom.findAll { it.name != 'antlr' })
+}
+
 configurations.all {
-  exclude group: 'log4j', module: 'log4j'
   exclude group: 'dnsjava', module: 'dnsjava'
 }
 
@@ -112,19 +111,6 @@ generateGrammarSource {
 generateAvroJava {
   source('src/main/avro')
   outputDir = project.layout.buildDirectory.dir("generated/sources/main/java").get().asFile
-}
-
-sourceSets {
-  main {
-    java {
-      srcDirs += project.layout.buildDirectory.dir("generated/sources/main/java").get().asFile
-    }
-  }
-}
-
-tasks.named('compileJava') {
-  dependsOn 'generateGrammarSource'
-  dependsOn 'generateAvroJava'
 }
 
 tasks.named('spotlessJava') {
@@ -147,10 +133,6 @@ tasks.named('test') {
     '--add-opens', 'java.base/java.util=ALL-UNNAMED',
     '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
   ]
-}
-
-tasks.named('jar') {
-  duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 tasks.named('sourcesJar') {
