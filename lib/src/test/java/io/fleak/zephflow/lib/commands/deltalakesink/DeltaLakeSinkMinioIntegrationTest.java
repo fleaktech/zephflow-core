@@ -35,6 +35,7 @@ import io.delta.kernel.utils.CloseableIterable;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -146,7 +147,9 @@ class DeltaLakeSinkMinioIntegrationTest {
                     new UsernamePasswordCredential(
                         MINIO_CONTAINER.getUserName(), MINIO_CONTAINER.getPassword()))));
 
-    writeEvents(config, jobContext, TEST_EVENTS);
+    assertEquals(
+        new ScalarSinkCommand.SinkResult(3, 0, List.of()),
+        writeEvents(config, jobContext, TEST_EVENTS));
 
     assertEquals(
         new TableContent(3, TEST_EVENTS),
@@ -158,7 +161,9 @@ class DeltaLakeSinkMinioIntegrationTest {
     Path tableDir = tempDir.resolve("delta-table-local");
     createDeltaTable(new Configuration(), tableDir.toString(), List.of());
 
-    writeEvents(minimalConfig(tableDir), TestUtils.JOB_CONTEXT, TEST_EVENTS);
+    assertEquals(
+        new ScalarSinkCommand.SinkResult(3, 0, List.of()),
+        writeEvents(minimalConfig(tableDir), TestUtils.JOB_CONTEXT, TEST_EVENTS));
 
     assertEquals(
         new TableContent(3, TEST_EVENTS),
@@ -179,12 +184,13 @@ class DeltaLakeSinkMinioIntegrationTest {
             .avroSchema(AVRO_SCHEMA)
             .partitionColumns(List.of("department"))
             .build();
-    writeEvents(config, TestUtils.JOB_CONTEXT, TEST_EVENTS);
+    assertEquals(
+        new ScalarSinkCommand.SinkResult(3, 0, List.of()),
+        writeEvents(config, TestUtils.JOB_CONTEXT, TEST_EVENTS));
 
     assertEquals(
-        3,
-        readTableContent(new Configuration(), tableDir.toString(), localDeltaLogCommits(tableDir))
-            .numRecords());
+        new TableContent(3, TEST_EVENTS),
+        readTableContent(new Configuration(), tableDir.toString(), localDeltaLogCommits(tableDir)));
   }
 
   @Test
@@ -192,7 +198,9 @@ class DeltaLakeSinkMinioIntegrationTest {
     Path tableDir = tempDir.resolve("delta-table-empty");
     createDeltaTable(new Configuration(), tableDir.toString(), List.of());
 
-    writeEvents(minimalConfig(tableDir), TestUtils.JOB_CONTEXT, List.of());
+    assertEquals(
+        new ScalarSinkCommand.SinkResult(0, 0, List.of()),
+        writeEvents(minimalConfig(tableDir), TestUtils.JOB_CONTEXT, List.of()));
 
     assertEquals(
         new TableContent(0, List.of()),
@@ -210,7 +218,7 @@ class DeltaLakeSinkMinioIntegrationTest {
         .build();
   }
 
-  private static void writeEvents(
+  private static ScalarSinkCommand.SinkResult writeEvents(
       DeltaLakeSinkDto.Config config, JobContext jobContext, List<Map<String, Object>> events)
       throws Exception {
     DeltaLakeSinkCommand command =
@@ -219,7 +227,7 @@ class DeltaLakeSinkMinioIntegrationTest {
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
     try {
       command.initialize(new MetricClientProvider.NoopMetricClientProvider());
-      command.writeToSink(
+      return command.writeToSink(
           events.stream().map(e -> (RecordFleakData) FleakData.wrap(e)).toList(),
           "test_user",
           command.getExecutionContext());

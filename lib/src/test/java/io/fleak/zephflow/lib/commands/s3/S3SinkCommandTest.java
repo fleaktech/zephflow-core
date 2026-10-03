@@ -328,20 +328,22 @@ public class S3SinkCommandTest {
 
   // The default credential chain is pointed at bogus keys, so the write only succeeds when the sink
   // resolves the MinIO credential from jobContext.otherProperties via credentialId.
-  @Test
-  public void testWriteIntoS3WithCredentialId() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testWriteIntoS3WithCredentialId(boolean batching) throws Exception {
     EncodingType encodingType = EncodingType.JSON_OBJECT_LINE;
     String credentialId = "minio_credential";
+    String keyName = "test-credentials-batching-" + batching;
 
     S3SinkDto.Config config =
         S3SinkDto.Config.builder()
             .regionStr(REGION_STR)
             .bucketName(BUCKET_NAME)
-            .keyName("test-credentials-folder")
+            .keyName(keyName)
             .encodingType(encodingType.toString())
             .credentialId(credentialId)
             .s3EndpointOverride(minioContainer.getS3URL())
-            .batching(false)
+            .batching(batching)
             .build();
 
     JobContext jobContext =
@@ -376,14 +378,11 @@ public class S3SinkCommandTest {
       System.setProperty("aws.secretAccessKey", minioContainer.getPassword());
     }
 
-    assertEquals(new ScalarSinkCommand.SinkResult(2, 2, List.of()), sinkResult);
+    assertEquals(new ScalarSinkCommand.SinkResult(2, batching ? 0 : 2, List.of()), sinkResult);
 
     var listObjectsResponse =
         s3Client.listObjectsV2(
-            ListObjectsV2Request.builder()
-                .bucket(BUCKET_NAME)
-                .prefix("test-credentials-folder/")
-                .build());
+            ListObjectsV2Request.builder().bucket(BUCKET_NAME).prefix(keyName + "/").build());
     assertEquals(1, listObjectsResponse.contents().size());
     byte[] data =
         s3Client

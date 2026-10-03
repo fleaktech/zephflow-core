@@ -292,6 +292,7 @@ public class KafkaSourceCommandTest {
       executor.shutdownNow();
       //noinspection ResultOfMethodCallIgnored
       executor.awaitTermination(5, TimeUnit.SECONDS);
+      kafkaSourceCommand.terminate();
       kafkaSinkCommand.terminate();
     }
   }
