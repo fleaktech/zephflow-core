@@ -1,6 +1,5 @@
 plugins {
   alias(libs.plugins.shadow)
-  id 'java'
   id 'application'
 }
 
@@ -16,9 +15,7 @@ shadowJar {
 
   // Exclude POM-only GraalVM artifacts (no JARs) while keeping actual implementation JARs
   dependencies {
-    exclude(dependency('org.graalvm.polyglot:python'))
     exclude(dependency('org.graalvm.python:python'))
-    exclude(dependency('org.graalvm.python:python-community'))
     exclude(dependency('ch.qos.logback:logback-classic'))
     exclude(dependency('ch.qos.logback:logback-core'))
   }

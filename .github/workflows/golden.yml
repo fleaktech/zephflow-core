@@ -32,8 +32,6 @@ jobs:
 
       - name: Run golden tests
         run: ./gradlew :lib:goldenTest --no-daemon
-        env:
-          GRADLE_OPTS: -Xmx2g
 
       # A golden fixture may be added, never silently dropped. No labels, no CODEOWNERS:
       # deleting or renaming a fixture is deliberate — this just makes it visible (red).

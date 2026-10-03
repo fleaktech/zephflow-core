@@ -21,7 +21,6 @@ awsKinesis = "3.1.1"
 opensearchGrok = "2.19.4"
 kafka = "4.1.1"
 testContainers = "1.21.4"
-springdoc = "3.0.0"
 hamcrest = "3.0"
 log4j2 = "2.26.1"
 graalvm = "25.0.1"
@@ -44,7 +43,6 @@ httpcore5 = "5.4.3"
 httpclient5 = "5.6.4"
 lz4 = "1.11.3"
 splunk = "1.9.5"
-springCore = "7.0.1"
 gcs = "2.49.0"
 pubsub = "1.131.0"
 activemqClassic = "6.1.0"
@@ -75,8 +73,6 @@ versionsPlugin = "0.64.0"
 jreleaser = "1.21.0"
 avroPlugin = "1.9.1"
 shadow = "9.2.2"
-springBoot = "4.0.0"
-springDependencyManagement = "1.1.7"
 googleJavaFormat = "1.22.0"
 
 [libraries]
@@ -121,7 +117,7 @@ kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafk
 clickhouse-client = { module = "com.clickhouse:client-v2", version.ref = "clickhouse" }
 clickhouse-jdbc = { module = "com.clickhouse:clickhouse-jdbc", version.ref = "clickhouse" }
 
-graalvm-sdk = { module = "org.graalvm.sdk:graal-sdk", version.ref = "graalvm" }
+graalvm-polyglot = { module = "org.graalvm.polyglot:polyglot", version.ref = "graalvm" }
 graalvm-polyglot-python = { module = "org.graalvm.polyglot:python", version.ref = "graalvm" }
 
 hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "hadoop" }
@@ -137,21 +133,11 @@ delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref
 
 splunk = { module = "com.splunk:splunk", version.ref = "splunk" }
 
-springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
-spring-core = { module = "org.springframework:spring-core", version.ref = "springCore" }
 
 lz4 = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4" }
 zookeeper = { module = "org.apache.zookeeper:zookeeper", version.ref = "zookeeper" }
 zookeeper-jute = { module = "org.apache.zookeeper:zookeeper-jute", version.ref = "zookeeper" }
 jline = { module = "org.jline:jline", version.ref = "jline" }
-jline-reader = { module = "org.jline:jline-reader", version.ref = "jline" }
-jline-terminal = { module = "org.jline:jline-terminal", version.ref = "jline" }
-jline-terminal-jansi = { module = "org.jline:jline-terminal-jansi", version.ref = "jline" }
-jline-terminal-jna = { module = "org.jline:jline-terminal-jna", version.ref = "jline" }
-jline-builtins = { module = "org.jline:jline-builtins", version.ref = "jline" }
-jline-style = { module = "org.jline:jline-style", version.ref = "jline" }
-jline-remote-ssh = { module = "org.jline:jline-remote-ssh", version.ref = "jline" }
-jline-remote-telnet = { module = "org.jline:jline-remote-telnet", version.ref = "jline" }
 httpcore5 = { module = "org.apache.httpcomponents.core5:httpcore5", version.ref = "httpcore5" }
 httpcore5-h2 = { module = "org.apache.httpcomponents.core5:httpcore5-h2", version.ref = "httpcore5" }
 httpclient5 = { module = "org.apache.httpcomponents.client5:httpclient5", version.ref = "httpclient5" }
@@ -189,6 +175,7 @@ netty-transport-native-unix-common = { module = "io.netty:netty-transport-native
 lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
 
 antlr4 = { module = "org.antlr:antlr4", version.ref = "antlr" }
+antlr4-runtime = { module = "org.antlr:antlr4-runtime", version.ref = "antlr" }
 
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
@@ -205,7 +192,6 @@ testcontainers-minio = { module = "org.testcontainers:minio", version.ref = "tes
 testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testContainers" }
 testcontainers-localstack = { module = "org.testcontainers:localstack", version.ref = "testContainers" }
 testcontainers-clickhouse = { module = "org.testcontainers:clickhouse", version.ref = "testContainers" }
-testcontainers-gcloud = { module = "org.testcontainers:gcloud", version.ref = "testContainers" }
 testcontainers-azure = { module = "org.testcontainers:azure", version.ref = "testContainers" }
 
 gcs-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "gcs" }
@@ -241,5 +227,3 @@ versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin
 jreleaser = { id = "org.jreleaser", version.ref = "jreleaser" }
 avro = { id = "com.github.davidmc24.gradle.plugin.avro", version.ref = "avroPlugin" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
-spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
-spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }
