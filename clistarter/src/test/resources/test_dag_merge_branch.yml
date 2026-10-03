@@ -1,0 +1,63 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "process_a"
+      - "process_b"
+
+  - id: "process_a"
+    commandName: "eval"
+    config:
+      expression: "dict(source='A', value=$.num * 2 + 1)"
+    outputs:
+      - "high_score_filter"
+      - "low_score_filter"
+
+  - id: "process_b"
+    commandName: "eval"
+    config:
+      expression: "dict(source='B', value=$.num * 2)"
+    outputs:
+      - "high_score_filter"
+      - "low_score_filter"
+
+  - id: "high_score_filter"
+    commandName: "filter"
+    config:
+      expression: "$.value > 10"
+    outputs:
+      - "high_priority"
+
+  - id: "low_score_filter"
+    commandName: "filter"
+    config:
+      expression: "$.value <= 10"
+    outputs:
+      - "low_priority"
+
+  - id: "high_priority"
+    commandName: "eval"
+    config:
+      expression: "dict(source=$.source, value=$.value, highPriority=true)"
+    outputs:
+      - "out"
+
+  - id: "low_priority"
+    commandName: "eval"
+    config:
+      expression: "dict(source=$.source, value=$.value, highPriority=false)"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

@@ -1,0 +1,22 @@
+[
+  {
+    "doubled": 12,
+    "description": "High value",
+    "original": 6
+  },
+  {
+    "doubled": 14,
+    "description": "High value",
+    "original": 7
+  },
+  {
+    "doubled": 16,
+    "description": "High value",
+    "original": 8
+  },
+  {
+    "doubled": 18,
+    "description": "High value",
+    "original": 9
+  }
+]

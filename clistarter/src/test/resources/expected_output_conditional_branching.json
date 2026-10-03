@@ -1,0 +1,52 @@
+[
+  {
+    "category": "low",
+    "original": 0,
+    "adjusted": 0.0
+  },
+  {
+    "category": "low",
+    "original": 1,
+    "adjusted": 1.1
+  },
+  {
+    "category": "low",
+    "original": 2,
+    "adjusted": 2.2
+  },
+  {
+    "category": "high",
+    "original": 7,
+    "adjusted": 14.0
+  },
+  {
+    "category": "high",
+    "original": 8,
+    "adjusted": 16.0
+  },
+  {
+    "category": "high",
+    "original": 9,
+    "adjusted": 18.0
+  },
+  {
+    "category": "medium",
+    "original": 3,
+    "adjusted": 4.5
+  },
+  {
+    "category": "medium",
+    "original": 4,
+    "adjusted": 6.0
+  },
+  {
+    "category": "medium",
+    "original": 5,
+    "adjusted": 7.5
+  },
+  {
+    "category": "medium",
+    "original": 6,
+    "adjusted": 9.0
+  }
+]

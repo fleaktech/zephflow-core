@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.kafkasource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,21 +25,30 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommand;
+import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
+import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.Getter;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -212,6 +222,124 @@ public class KafkaSourceCommandTest {
       //noinspection ResultOfMethodCallIgnored
       executor.awaitTermination(5, TimeUnit.SECONDS);
     }
+  }
+
+  // Source with default consumer properties (earliest offset reset) piped into the Kafka sink:
+  // messages produced both before and after the source starts must all reach the output topic.
+  @Test
+  public void testSourceWithDefaultPropertiesPipedIntoSink() throws Exception {
+    String inputTopic = "source_to_sink_in";
+    String outputTopic = "source_to_sink_out";
+    adminClient
+        .createTopics(
+            List.of(
+                new NewTopic(inputTopic, 1, (short) 1), new NewTopic(outputTopic, 1, (short) 1)))
+        .all()
+        .get(30, TimeUnit.SECONDS);
+
+    KafkaSinkCommand kafkaSinkCommand =
+        (KafkaSinkCommand)
+            new KafkaSinkCommandFactory().createCommand("sink_node", TestUtils.JOB_CONTEXT);
+    KafkaSinkDto.Config sinkConfig =
+        KafkaSinkDto.Config.builder()
+            .broker(KAFKA_CONTAINER.getBootstrapServers())
+            .topic(outputTopic)
+            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .build();
+    kafkaSinkCommand.parseAndValidateArg(
+        OBJECT_MAPPER.convertValue(sinkConfig, new TypeReference<>() {}));
+    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    SourceEventAcceptor sinkAcceptor =
+        new SourceEventAcceptor() {
+          @Override
+          public void terminate() {}
+
+          @Override
+          public void accept(List<RecordFleakData> events) {
+            kafkaSinkCommand.writeToSink(
+                events, "test_user", kafkaSinkCommand.getExecutionContext());
+          }
+        };
+    KafkaSourceCommand kafkaSourceCommand = createCommand(inputTopic, null);
+
+    List<String> firstBatch = sourceToSinkMessages(1);
+    List<String> secondBatch = sourceToSinkMessages(2);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try (KafkaConsumer<byte[], byte[]> outputConsumer = createOutputConsumer(outputTopic)) {
+      sendMessages(inputTopic, firstBatch);
+      Future<?> future =
+          executor.submit(
+              () -> {
+                kafkaSourceCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+                kafkaSourceCommand.execute("test_user", sinkAcceptor);
+                return null;
+              });
+      try {
+        List<Map<String, Object>> received =
+            new ArrayList<>(pollValues(outputConsumer, firstBatch.size()));
+        sendMessages(inputTopic, secondBatch);
+        received.addAll(pollValues(outputConsumer, secondBatch.size()));
+
+        List<Map<String, Object>> expected =
+            Stream.concat(firstBatch.stream(), secondBatch.stream())
+                .map(m -> fromJsonString(m, new TypeReference<Map<String, Object>>() {}))
+                .toList();
+        assertEquals(expected, received);
+      } finally {
+        future.cancel(true);
+      }
+    } finally {
+      executor.shutdownNow();
+      //noinspection ResultOfMethodCallIgnored
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+      kafkaSinkCommand.terminate();
+    }
+  }
+
+  private static List<String> sourceToSinkMessages(int batch) {
+    return IntStream.rangeClosed(1, 3)
+        .mapToObj(id -> "{\"id\":%d,\"value\":\"test%d\",\"batch\":%d}".formatted(id, id, batch))
+        .toList();
+  }
+
+  private static void sendMessages(String topic, List<String> messages) {
+    messages.forEach(
+        message ->
+            producer.send(
+                new ProducerRecord<>(topic, null, message.getBytes(StandardCharsets.UTF_8))));
+    producer.flush();
+  }
+
+  private static KafkaConsumer<byte[], byte[]> createOutputConsumer(String topic) {
+    Properties consumerProps = new Properties();
+    consumerProps.put(
+        ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA_CONTAINER.getBootstrapServers());
+    consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "output-verifier-" + topic);
+    consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    consumerProps.put(
+        ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+    consumerProps.put(
+        ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+    KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps);
+    consumer.subscribe(List.of(topic));
+    return consumer;
+  }
+
+  private static List<Map<String, Object>> pollValues(
+      KafkaConsumer<byte[], byte[]> consumer, int count) {
+    List<Map<String, Object>> values = new ArrayList<>();
+    long deadline = System.currentTimeMillis() + 30_000;
+    while (values.size() < count && System.currentTimeMillis() < deadline) {
+      consumer
+          .poll(Duration.ofMillis(500))
+          .forEach(
+              r ->
+                  values.add(
+                      fromJsonString(
+                          new String(r.value(), StandardCharsets.UTF_8),
+                          new TypeReference<Map<String, Object>>() {})));
+    }
+    return values;
   }
 
   private static KafkaSourceCommand createCommand(String topic, Map<String, String> properties) {

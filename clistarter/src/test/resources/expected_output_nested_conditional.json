@@ -1,0 +1,72 @@
+[
+  {
+    "metadata": {
+      "category": "B",
+      "valueRange": "low"
+    },
+    "original": 1
+  },
+  {
+    "metadata": {
+      "category": "B",
+      "valueRange": "low"
+    },
+    "original": 3
+  },
+  {
+    "metadata": {
+      "category": "A",
+      "valueRange": "low"
+    },
+    "original": 0
+  },
+  {
+    "metadata": {
+      "category": "A",
+      "valueRange": "low"
+    },
+    "original": 2
+  },
+  {
+    "metadata": {
+      "category": "A",
+      "valueRange": "low"
+    },
+    "original": 4
+  },
+  {
+    "metadata": {
+      "category": "D",
+      "valueRange": "high"
+    },
+    "original": 5
+  },
+  {
+    "metadata": {
+      "category": "D",
+      "valueRange": "high"
+    },
+    "original": 7
+  },
+  {
+    "metadata": {
+      "category": "D",
+      "valueRange": "high"
+    },
+    "original": 8
+  },
+  {
+    "metadata": {
+      "category": "C",
+      "valueRange": "high"
+    },
+    "original": 6
+  },
+  {
+    "metadata": {
+      "category": "C",
+      "valueRange": "high"
+    },
+    "original": 9
+  }
+]

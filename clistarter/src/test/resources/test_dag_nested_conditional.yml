@@ -1,0 +1,98 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "low_range"
+      - "high_range"
+
+  - id: "low_range"
+    commandName: "filter"
+    config:
+      expression: "$.num < 5"
+    outputs:
+      - "low_even_filter"
+      - "low_odd_filter"
+
+  - id: "high_range"
+    commandName: "filter"
+    config:
+      expression: "$.num >= 5"
+    outputs:
+      - "high_div3_filter"
+      - "high_not_div3_filter"
+
+  - id: "low_even_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num % 2 == 0"
+    outputs:
+      - "low_even"
+
+  - id: "low_odd_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num % 2 == 1"
+    outputs:
+      - "low_odd"
+
+  - id: "high_div3_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num % 3 == 0"
+    outputs:
+      - "high_div3"
+
+  - id: "high_not_div3_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num % 3 != 0"
+    outputs:
+      - "high_not_div3"
+
+  - id: "low_even"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, valueRange='low', category='A')"
+    outputs:
+      - "finalize"
+
+  - id: "low_odd"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, valueRange='low', category='B')"
+    outputs:
+      - "finalize"
+
+  - id: "high_div3"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, valueRange='high', category='C')"
+    outputs:
+      - "finalize"
+
+  - id: "high_not_div3"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, valueRange='high', category='D')"
+    outputs:
+      - "finalize"
+
+  - id: "finalize"
+    commandName: "eval"
+    config:
+      expression: "dict(original=$.value, metadata=dict(valueRange=$.valueRange, category=$.category))"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

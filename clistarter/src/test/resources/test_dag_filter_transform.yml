@@ -1,0 +1,32 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "high_value"
+
+  - id: "high_value"
+    commandName: "filter"
+    config:
+      expression: "$.num > 5"
+    outputs:
+      - "transform"
+
+  - id: "transform"
+    commandName: "eval"
+    config:
+      expression: "dict(original=$.num, doubled=$.num*2, description='High value')"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"
