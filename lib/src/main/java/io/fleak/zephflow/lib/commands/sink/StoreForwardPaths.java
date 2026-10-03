@@ -29,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <p>Base directory precedence: explicit {@code localStorePath} config, then the durable directory
  * injected by the scheduler under {@link JobContext#STORE_FORWARD_DIR}, then a tmpdir fallback for
- * local/SDK runs.
+ * local runs.
  */
 @Slf4j
 public final class StoreForwardPaths {

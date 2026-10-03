@@ -1,0 +1,25 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "even_assertion"
+
+  - id: "even_assertion"
+    commandName: "assertion"
+    config:
+      expression: "$.num%2==0"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

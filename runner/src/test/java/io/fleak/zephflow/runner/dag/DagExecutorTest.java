@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonResource;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlResource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.*;
@@ -31,10 +32,17 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.runner.DagCompilationException;
+import io.fleak.zephflow.runner.DagCompilationException.ErrorType;
 import io.fleak.zephflow.runner.DagExecutor;
 import io.fleak.zephflow.runner.JobConfig;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.PrintStream;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -77,6 +85,128 @@ public class DagExecutorTest {
    * */
   void testExecuteDag3() throws Exception {
     executeDag("/test_dag_linear_dag.yml", "/expected_output_linear_dag.json");
+  }
+
+  @Test
+  void testSinkAfterSinkIsRejected() {
+    DagCompilationException e =
+        assertThrows(
+            DagCompilationException.class,
+            () -> executeDagWithDiscoveredCommands("/test_dag_sink_after_sink.yml"));
+    assertEquals(
+        new CompilationFailure(
+            ErrorType.VALIDATION_FAILED,
+            null,
+            null,
+            "Dag validation failed: Invalid DAG: Sink node 'first_sink' has outgoing connections"
+                + " to node 'second_sink'. Sink nodes must be terminal nodes."),
+        CompilationFailure.of(e));
+  }
+
+  @Test
+  void testSourceAfterSourceIsRejected() {
+    DagCompilationException e =
+        assertThrows(
+            DagCompilationException.class,
+            () -> executeDagWithDiscoveredCommands("/test_dag_source_after_source.yml"));
+    assertEquals(
+        new CompilationFailure(
+            ErrorType.VALIDATION_FAILED,
+            null,
+            null,
+            "Dag validation failed: Invalid DAG: Source node 'second_source' has incoming"
+                + " connections from node 'first_source'. Source nodes cannot have incoming"
+                + " connections."),
+        CompilationFailure.of(e));
+  }
+
+  @Test
+  void testEmptyDagIsRejected() {
+    DagCompilationException e =
+        assertThrows(
+            DagCompilationException.class,
+            () -> executeDagWithDiscoveredCommands("/test_dag_empty.yml"));
+    assertEquals(
+        new CompilationFailure(
+            ErrorType.VALIDATION_FAILED,
+            null,
+            null,
+            "Dag validation failed: Graph nodes must not be empty"),
+        CompilationFailure.of(e));
+  }
+
+  @Test
+  void testInvalidFilterExpressionIsRejected() {
+    DagCompilationException e =
+        assertThrows(
+            DagCompilationException.class,
+            () -> executeDagWithDiscoveredCommands("/test_dag_invalid_filter.yml"));
+    assertEquals(
+        new CompilationFailure(
+            ErrorType.NODE_COMPILATION,
+            "invalid_filter",
+            "filter",
+            "failed to compile DAG node: RawDagNode(commandName=filter, arg={expression=this is not"
+                + " a valid expression}), reason: {\"offendingSymbol\":\"[@1,5:6='is',<32>,1:5]\","
+                + "\"line\":1,\"charPositionInLine\":5,\"message\":\"mismatched input 'is'"
+                + " expecting {<EOF>, 'or', 'and', '==', '!=', '<', '>', '<=', '>=', '+', '-', '*',"
+                + " '/', '%', '.', '['}\"}"),
+        CompilationFailure.of(e));
+  }
+
+  @Test
+  void testMultipleEntryPointsAreRejected() {
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> executeDagWithDiscoveredCommands("/test_dag_multiple_entry_points.yml"));
+    assertEquals("dag executor only supports dag with exactly one entry node", e.getMessage());
+  }
+
+  @Test
+  void testSingleSourceProducesNoOutput() throws Exception {
+    List<Map<String, Object>> sourceEvents =
+        LongStream.range(0, 10).<Map<String, Object>>mapToObj(i -> Map.of("num", i)).toList();
+    InputStream originalIn = System.in;
+    PrintStream originalOut = System.out;
+    String output;
+    try (InputStream in =
+            new ByteArrayInputStream(
+                Objects.requireNonNull(toJsonString(sourceEvents)).getBytes());
+        ByteArrayOutputStream testOut = new ByteArrayOutputStream();
+        PrintStream psOut = new PrintStream(testOut)) {
+      System.setIn(in);
+      System.setOut(psOut);
+      executeDagWithDiscoveredCommands("/test_dag_single_source.yml");
+      psOut.flush();
+      output = testOut.toString();
+    } finally {
+      System.setIn(originalIn);
+      System.setOut(originalOut);
+    }
+    assertEquals(List.of(), output.lines().filter(l -> l.startsWith("{")).toList());
+  }
+
+  private record CompilationFailure(
+      ErrorType errorType, String nodeId, String commandName, String message) {
+    static CompilationFailure of(DagCompilationException e) {
+      return new CompilationFailure(
+          e.getErrorType(), e.getNodeId(), e.getCommandName(), e.getMessage());
+    }
+  }
+
+  private static void executeDagWithDiscoveredCommands(String dagResource) throws Exception {
+    AdjacencyListDagDefinition adjacencyListDagDefinition =
+        fromYamlResource(dagResource, new TypeReference<>() {});
+    DagExecutor.createDagExecutor(
+            JobConfig.builder()
+                .dagDefinition(adjacencyListDagDefinition)
+                .jobId("test_job")
+                .environment("test_env")
+                .service("test_service")
+                .build(),
+            new MetricClientProvider.NoopMetricClientProvider())
+        .executeDag();
   }
 
   private void executeDag(String dagResource, String expectedOutputResource) throws Exception {

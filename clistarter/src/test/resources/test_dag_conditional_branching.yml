@@ -1,0 +1,69 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "low_filter"
+      - "medium_filter"
+      - "high_filter"
+
+  - id: "low_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num < 3"
+    outputs:
+      - "low_tag"
+
+  - id: "medium_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num >= 3 and $.num < 7"
+    outputs:
+      - "medium_tag"
+
+  - id: "high_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num >= 7"
+    outputs:
+      - "high_tag"
+
+  - id: "low_tag"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, category='low', factor=1.1)"
+    outputs:
+      - "adjust"
+
+  - id: "medium_tag"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, category='medium', factor=1.5)"
+    outputs:
+      - "adjust"
+
+  - id: "high_tag"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, category='high', factor=2.0)"
+    outputs:
+      - "adjust"
+
+  - id: "adjust"
+    commandName: "eval"
+    config:
+      expression: "dict(original=$.value, category=$.category, adjusted=$.value * $.factor)"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

@@ -34,6 +34,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.S3DlqWriterTest;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -323,6 +324,77 @@ public class S3SinkCommandTest {
     var actualEvents =
         deserializer.deserialize(new SerializedEvent(null, gunzip(compressedObjectBytes), null));
     assertEquals(inputEvents, actualEvents);
+  }
+
+  // The default credential chain is pointed at bogus keys, so the write only succeeds when the sink
+  // resolves the MinIO credential from jobContext.otherProperties via credentialId.
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testWriteIntoS3WithCredentialId(boolean batching) throws Exception {
+    EncodingType encodingType = EncodingType.JSON_OBJECT_LINE;
+    String credentialId = "minio_credential";
+    String keyName = "test-credentials-batching-" + batching;
+
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName(keyName)
+            .encodingType(encodingType.toString())
+            .credentialId(credentialId)
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .batching(batching)
+            .build();
+
+    JobContext jobContext =
+        TestUtils.buildJobContext(
+            new HashMap<>(
+                Map.of(
+                    credentialId,
+                    new UsernamePasswordCredential(
+                        minioContainer.getUserName(), minioContainer.getPassword()))));
+
+    S3SinkCommand command =
+        (S3SinkCommand) new S3SinkCommandFactory().createCommand("myNodeId", jobContext);
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+
+    List<RecordFleakData> inputEvents =
+        List.of(
+            ((RecordFleakData)
+                Objects.requireNonNull(FleakData.wrap(Map.of("key1", "101", "key2", "a string")))),
+            ((RecordFleakData)
+                Objects.requireNonNull(
+                    FleakData.wrap(Map.of("key1", "102", "key2", "another string")))));
+    ScalarSinkCommand.SinkResult sinkResult;
+    System.setProperty("aws.accessKeyId", "wrong-access-key");
+    System.setProperty("aws.secretAccessKey", "wrong-secret-key");
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = command.getExecutionContext();
+      sinkResult = command.writeToSink(inputEvents, "test_user", context);
+    } finally {
+      command.terminate();
+      System.setProperty("aws.accessKeyId", minioContainer.getUserName());
+      System.setProperty("aws.secretAccessKey", minioContainer.getPassword());
+    }
+
+    assertEquals(new ScalarSinkCommand.SinkResult(2, batching ? 0 : 2, List.of()), sinkResult);
+
+    var listObjectsResponse =
+        s3Client.listObjectsV2(
+            ListObjectsV2Request.builder().bucket(BUCKET_NAME).prefix(keyName + "/").build());
+    assertEquals(1, listObjectsResponse.contents().size());
+    byte[] data =
+        s3Client
+            .getObjectAsBytes(
+                GetObjectRequest.builder()
+                    .bucket(BUCKET_NAME)
+                    .key(listObjectsResponse.contents().get(0).key())
+                    .build())
+            .asByteArray();
+    var deserializer =
+        DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
+    assertEquals(inputEvents, deserializer.deserialize(new SerializedEvent(null, data, null)));
   }
 
   private List<Map<String, Object>> readParquetRecords(File parquetFile, StructType schema)

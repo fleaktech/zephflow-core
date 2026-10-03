@@ -1,0 +1,38 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "above_5"
+      - "at_most_8"
+
+  - id: "above_5"
+    commandName: "filter"
+    config:
+      expression: "$.num > 5"
+    outputs:
+      - "out_above_5"
+
+  - id: "at_most_8"
+    commandName: "filter"
+    config:
+      expression: "$.num <= 8"
+    outputs:
+      - "out_at_most_8"
+
+  - id: "out_above_5"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"
+
+  - id: "out_at_most_8"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

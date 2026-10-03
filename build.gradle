@@ -263,7 +263,7 @@ subprojects {
   }
 }
 
-configure(subprojects.findAll { it.name in ['lib', 'runner', 'sdk', 'clistarter'] }) {
+configure(subprojects.findAll { it.name in ['lib', 'runner', 'clistarter'] }) {
   dependencies {
     implementation platform(libs.jetty.bom)
 

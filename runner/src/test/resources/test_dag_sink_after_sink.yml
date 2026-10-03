@@ -1,0 +1,25 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "first_sink"
+
+  - id: "first_sink"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"
+    outputs:
+      - "second_sink"
+
+  - id: "second_sink"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"
