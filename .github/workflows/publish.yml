@@ -71,40 +71,13 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      # Build SDK fat jar for releases
-      - name: Build SDK fat jar
-        if: github.event_name == 'release'
-        id: build_jar
-        run: |
-          echo "Building SDK fat jar for release ${{ github.event.release.tag_name }}..."
-          ./gradlew clean :sdk:shadowJar -Prelease.useLastTag=true
-          
-          # Get version for logging
-          VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
-          echo "Version: $VERSION"
-          
-          # List the built artifacts
-          echo "=== Built artifacts ==="
-          ls -la sdk/build/libs/
-          
-          # Find the fat jar
-          JAR_FILE=$(find sdk/build/libs/ -name "*-all.jar" -type f | head -1)
-          if [ -z "$JAR_FILE" ]; then
-            echo "ERROR: No fat jar found!"
-            exit 1
-          fi
-          
-          echo "jar_path=$JAR_FILE" >> $GITHUB_OUTPUT
-          echo "jar_name=$(basename $JAR_FILE)" >> $GITHUB_OUTPUT
-          echo "✅ Successfully built: $JAR_FILE"
-
       # Build clistarter fat jar for releases
       - name: Build clistarter fat jar
         if: github.event_name == 'release'
         id: build_cli_jar
         run: |
           echo "Building clistarter fat jar for release ${{ github.event.release.tag_name }}..."
-          ./gradlew :clistarter:shadowJar -Prelease.useLastTag=true
+          ./gradlew clean :clistarter:shadowJar -Prelease.useLastTag=true
 
           # List the built artifacts
           echo "=== Built clistarter artifacts ==="
@@ -121,20 +94,19 @@ jobs:
           echo "cli_jar_name=$(basename $CLI_JAR_FILE)" >> $GITHUB_OUTPUT
           echo "✅ Successfully built: $CLI_JAR_FILE"
 
-      # Upload fat jars to the existing GitHub release
-      - name: Upload Fat JARs to Release
+      # Upload the clistarter fat jar to the existing GitHub release
+      - name: Upload Fat JAR to Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ${{ steps.build_jar.outputs.jar_path }}
             ${{ steps.build_cli_jar.outputs.cli_jar_path }}
           tag_name: ${{ github.event.release.tag_name }}
 
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew clean -Prelease.useLastTag=true sdk:publish runner:publish lib:publish api:publish jreleaserDeploy
+        run: ./gradlew clean -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy
         env:
           GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}

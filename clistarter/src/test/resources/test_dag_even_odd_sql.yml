@@ -1,0 +1,48 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "even_filter"
+      - "odd_filter"
+      - "out"
+
+  - id: "even_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num%2 == 0"
+    outputs:
+      - "even_tag"
+
+  - id: "odd_filter"
+    commandName: "filter"
+    config:
+      expression: "$.num%2 == 1"
+    outputs:
+      - "odd_tag"
+
+  - id: "even_tag"
+    commandName: "eval"
+    config:
+      expression: "dict(type='even', num=$.num)"
+    outputs:
+      - "out"
+
+  - id: "odd_tag"
+    commandName: "sqleval"
+    config:
+      sql: "SELECT num, 'odd' AS type FROM records;"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"

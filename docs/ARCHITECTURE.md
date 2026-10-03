@@ -13,8 +13,7 @@ or filter it, and sink nodes that write results to external systems. The core
 data type flowing through every node is `RecordFleakData`, a recursive,
 JSON-compatible value model.
 
-The project ships two ways to run a pipeline: a fluent Java SDK and a CLI
-runner.
+The project ships a CLI runner for running pipelines.
 
 ## Module Map
 
@@ -86,16 +85,6 @@ Subpackages of note:
 - `lib/pathselect/` — `PathExpression` and `ValueExtractor` for navigating
   `FleakData` via JSON-path-like syntax.
 
-### `sdk/`
-
-Fluent API for building and running pipelines programmatically. Depends on
-`runner/`.
-
-- `ZephFlow` — immutable builder; each chained method returns a new instance.
-  `buildDag()` walks the builder tree and emits an `AdjacencyListDagDefinition`.
-  `execute()` runs a full pipeline with source; `process()` runs a sourceless
-  pipeline on pre-fetched events.
-
 ### `clistarter/`
 
 CLI entry point. Depends on `runner/`.
@@ -152,9 +141,6 @@ through DAG edges at runtime.
               clistarter                   (entry point)
                     │
                     ▼
-                   sdk                     (fluent builder, optional)
-                    │
-                    ▼
                   runner                   (DAG compile + execute)
                     │
                     ▼
@@ -165,8 +151,7 @@ through DAG edges at runtime.
 ```
 
 `api` has zero internal dependencies. `lib` depends on `api`. `runner` depends
-on `lib` (and transitively on `api`). `sdk` depends on `runner`. `clistarter`
-depends on `runner`.
+on `lib` (and transitively on `api`). `clistarter` depends on `runner`.
 
 ## Cross-Cutting Concerns
 

@@ -1,0 +1,18 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "first_source"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "second_source"
+
+  - id: "second_source"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"

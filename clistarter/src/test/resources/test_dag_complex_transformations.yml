@@ -1,0 +1,39 @@
+jobContext:
+  otherProperties: {}
+  metricTags:
+    service: "default_service"
+    env: "default_env"
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      encodingType: "JSON_ARRAY"
+    outputs:
+      - "categorize"
+
+  - id: "categorize"
+    commandName: "eval"
+    config:
+      expression: "dict(value=$.num, category=case($.num%2==0 => 'even', _ => 'odd'))"
+    outputs:
+      - "range"
+
+  - id: "range"
+    commandName: "eval"
+    config:
+      expression: "dict(origValue=$.value, category=$.category, valueRange=case($.value<3 => 'low', $.value<7 => 'medium', _ => 'high'))"
+    outputs:
+      - "summarize"
+
+  - id: "summarize"
+    commandName: "eval"
+    config:
+      expression: "dict(summary=dict(value=$.origValue, category=$.category, valueRange=$.valueRange), meta=dict(processed=true))"
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encodingType: "JSON_OBJECT"
