@@ -21,7 +21,6 @@ awsKinesis = "3.1.1"
 opensearchGrok = "2.19.4"
 kafka = "4.1.1"
 testContainers = "1.21.4"
-springdoc = "3.0.0"
 hamcrest = "3.0"
 log4j2 = "2.26.1"
 graalvm = "25.0.1"
@@ -74,8 +73,6 @@ versionsPlugin = "0.64.0"
 jreleaser = "1.21.0"
 avroPlugin = "1.9.1"
 shadow = "9.2.2"
-springBoot = "4.0.0"
-springDependencyManagement = "1.1.7"
 googleJavaFormat = "1.22.0"
 
 [libraries]
@@ -136,7 +133,6 @@ delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref
 
 splunk = { module = "com.splunk:splunk", version.ref = "splunk" }
 
-springdoc-openapi = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 
 lz4 = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4" }
 zookeeper = { module = "org.apache.zookeeper:zookeeper", version.ref = "zookeeper" }
@@ -239,5 +235,3 @@ versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin
 jreleaser = { id = "org.jreleaser", version.ref = "jreleaser" }
 avro = { id = "com.github.davidmc24.gradle.plugin.avro", version.ref = "avroPlugin" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
-spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
-spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }
