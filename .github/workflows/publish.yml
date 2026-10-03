@@ -28,18 +28,8 @@ jobs:
           java-version: '21'
           distribution: 'oracle'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
       - name: Build with Gradle
-        env:
-          GRADLE_OPTS: -Xmx2g -Xms1g -XX:MaxMetaspaceSize=512m
         run: ./gradlew build
-
-      - name: Run tests
-        env:
-          GRADLE_OPTS: -Xmx2g -Xms1g -XX:MaxMetaspaceSize=512m
-        run: ./gradlew test
 
       - name: Test Report
         uses: dorny/test-reporter@v1
@@ -61,6 +51,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       # Import GPG key for Maven Central publishing
@@ -126,12 +117,12 @@ jobs:
       # Set up QEMU for multi-architecture builds
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
 
       # Set up Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-        if: github.event_name == 'release' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
+        if: github.event_name == 'release'
 
       # Login to Docker Hub
       - name: Login to Docker Hub
