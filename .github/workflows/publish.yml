@@ -192,7 +192,7 @@ jobs:
       # Build and push httpstarter Docker image with attestations
       - name: Build and push httpstarter Docker image
         if: github.event_name == 'release'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./httpstarter
           file: ./httpstarter/Dockerfile
@@ -230,7 +230,7 @@ jobs:
       # Build and push clistarter Docker image with attestations
       - name: Build and push clistarter Docker image
         if: github.event_name == 'release'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./clistarter
           file: ./clistarter/Dockerfile
