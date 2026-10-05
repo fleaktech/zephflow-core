@@ -14,7 +14,11 @@
 package io.fleak.zephflow.lib.commands.kinesis;
 
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -25,6 +29,7 @@ import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
@@ -129,6 +134,120 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
       }
       return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
     }
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events,
+      Map<String, String> metricTags,
+      ExecutionHooks hooks) {
+    List<PutRecordsRequestEntry> entries = new ArrayList<>();
+    List<RecordFleakData> submitted = new ArrayList<>();
+    List<Integer> sizes = new ArrayList<>();
+    List<ErrorOutput> errors = new ArrayList<>();
+    for (var pair : events.rawAndPreparedList()) {
+      try {
+        var serialized = fleakSerializer.serialize(List.of(pair.getRight()));
+        if (serialized.value() == null)
+          throw new IllegalArgumentException("Serialization produced no record bytes");
+        String key =
+            partitionKeyPathExpression == null
+                ? UUID.randomUUID().toString()
+                : partitionKeyPathExpression.getStringValueFromEventOrDefault(
+                    pair.getRight(), UUID.randomUUID().toString());
+        var entry =
+            PutRecordsRequestEntry.builder()
+                .partitionKey(key)
+                .data(SdkBytes.fromByteArray(serialized.value()))
+                .build();
+        entries.add(entry);
+        submitted.add(pair.getLeft());
+        sizes.add(serialized.value().length);
+      } catch (Exception failure) {
+        errors.add(
+            new ErrorOutput(pair.getLeft(), "Failed to process record: " + failure.getMessage()));
+      }
+    }
+    long notAttempted = events.rawAndPreparedList().size() - entries.size();
+    if (entries.isEmpty()) return boundedResult(0, 0, notAttempted, 0, notAttempted, 0, errors);
+    try {
+      hooks.control().checkpoint();
+    } catch (ExecutionStoppedException stopped) {
+      throw new BoundedFlushException(
+          boundedResult(0, 0, notAttempted, 0, events.rawAndPreparedList().size(), 0, errors),
+          stopped);
+    }
+    int acknowledged = 0, rejected = 0, observed = 0;
+    long bytes = 0;
+    try {
+      var response =
+          kinesisClient.putRecords(
+              PutRecordsRequest.builder().streamName(streamName).records(entries).build());
+      if (response == null)
+        throw new IllegalStateException("Received null response from Kinesis client");
+      for (int index = 0; index < Math.min(response.records().size(), submitted.size()); index++) {
+        var receipt = response.records().get(index);
+        if (receipt != null && StringUtils.isNotBlank(receipt.errorCode())) {
+          rejected++;
+          errors.add(new ErrorOutput(submitted.get(index), receipt.errorMessage()));
+        } else if (receipt != null
+            && StringUtils.isNotBlank(receipt.sequenceNumber())
+            && StringUtils.isNotBlank(receipt.shardId())) {
+          acknowledged++;
+          bytes += sizes.get(index);
+        } else {
+          errors.add(
+              new ErrorOutput(
+                  submitted.get(index), "Kinesis delivery acknowledgement unavailable"));
+        }
+        observed++;
+      }
+      for (int index = observed; index < submitted.size(); index++)
+        errors.add(
+            new ErrorOutput(submitted.get(index), "Kinesis delivery acknowledgement unavailable"));
+    } catch (Exception failure) {
+      for (int index = observed; index < submitted.size(); index++)
+        errors.add(
+            new ErrorOutput(submitted.get(index), "Kinesis client error: " + failure.getMessage()));
+    }
+    return boundedResult(
+        entries.size(),
+        acknowledged,
+        rejected + notAttempted,
+        entries.size() - acknowledged - rejected,
+        notAttempted,
+        bytes,
+        errors);
+  }
+
+  private static SimpleSinkCommand.FlushResult boundedResult(
+      long attempted,
+      long acknowledged,
+      long rejected,
+      long unknown,
+      long notAttempted,
+      long bytes,
+      List<ErrorOutput> errors) {
+    EffectOutcome.Delivery delivery =
+        attempted == 0
+            ? rejected > 0 ? EffectOutcome.Delivery.FAILED : EffectOutcome.Delivery.NOT_ATTEMPTED
+            : acknowledged == attempted && notAttempted == 0
+                ? EffectOutcome.Delivery.ACKNOWLEDGED
+                : acknowledged > 0
+                    ? EffectOutcome.Delivery.PARTIAL
+                    : unknown > 0 ? EffectOutcome.Delivery.UNKNOWN : EffectOutcome.Delivery.FAILED;
+    return new SimpleSinkCommand.FlushResult(
+        (int) acknowledged,
+        bytes,
+        errors,
+        new EffectOutcome(
+            attempted,
+            acknowledged,
+            rejected,
+            unknown,
+            notAttempted,
+            "kinesis_put_records_receipt",
+            delivery));
   }
 
   @Override

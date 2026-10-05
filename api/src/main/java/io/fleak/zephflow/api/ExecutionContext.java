@@ -30,4 +30,9 @@ public interface ExecutionContext extends AutoCloseable {
   /** Releases any resources held by this context. Called when the command is terminated. */
   @Override
   void close() throws IOException;
+
+  /** Discards pending, unsent work before releasing resources after a bounded execution stops. */
+  default void abort() throws IOException {
+    close();
+  }
 }

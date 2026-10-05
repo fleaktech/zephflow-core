@@ -17,6 +17,8 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.execution.*;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -68,11 +70,64 @@ public class ElasticsearchSinkFlusher
       SimpleSinkCommand.PreparedInputEvents<ElasticsearchOutboundDoc> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, null);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<ElasticsearchOutboundDoc> events,
+      Map<String, String> tags,
+      ExecutionHooks hooks)
+      throws Exception {
+    return flushInternal(events, hooks);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<ElasticsearchOutboundDoc> preparedInputEvents,
+      ExecutionHooks hooks)
+      throws Exception {
     List<ElasticsearchOutboundDoc> docs = preparedInputEvents.preparedList();
     if (docs.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
+    BulkPayload payload = prepareBulkPayload(docs);
+    HttpRequest.Builder builder = buildBulkRequest(payload.bodyBytes());
+
+    if (hooks != null) {
+      try {
+        hooks.control().checkpoint();
+      } catch (ExecutionStoppedException stopped) {
+        throw new BoundedFlushException(
+            new SimpleSinkCommand.FlushResult(
+                0,
+                0,
+                List.of(),
+                new EffectOutcome(
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    (long) docs.size(),
+                    "none",
+                    EffectOutcome.Delivery.NOT_ATTEMPTED)),
+            stopped);
+      }
+    }
+    HttpResponse<String> response =
+        httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+
+    if (response.statusCode() != 200) {
+      return failedBulkResponse(preparedInputEvents, response, hooks != null);
+    }
+
+    JsonNode bulkResponse = OBJECT_MAPPER.readTree(response.body());
+    return hooks != null
+        ? boundedItems(preparedInputEvents, bulkResponse, payload.docBytes())
+        : ordinaryBulkResult(preparedInputEvents, bulkResponse, payload);
+  }
+
+  private BulkPayload prepareBulkPayload(List<ElasticsearchOutboundDoc> docs) throws Exception {
     var metaNode = OBJECT_MAPPER.createObjectNode();
     metaNode.putObject("index").put("_index", index);
     String actionMeta = OBJECT_MAPPER.writeValueAsString(metaNode);
@@ -89,6 +144,10 @@ public class ElasticsearchSinkFlusher
     }
 
     byte[] bodyBytes = ndjson.toString().getBytes(StandardCharsets.UTF_8);
+    return new BulkPayload(bodyBytes, docBytes);
+  }
+
+  private HttpRequest.Builder buildBulkRequest(byte[] bodyBytes) {
     String url = host + "/_bulk" + buildQueryString(extraQueryParams);
 
     HttpRequest.Builder builder =
@@ -102,33 +161,55 @@ public class ElasticsearchSinkFlusher
       builder.header("Authorization", authHeader);
     }
 
-    HttpResponse<String> response =
-        httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    return builder;
+  }
 
-    if (response.statusCode() != 200) {
+  private static SimpleSinkCommand.FlushResult failedBulkResponse(
+      SimpleSinkCommand.PreparedInputEvents<ElasticsearchOutboundDoc> preparedInputEvents,
+      HttpResponse<String> response,
+      boolean bounded) {
+    if (!bounded)
       log.error(
           "Elasticsearch bulk request failed with status {}: {}",
           response.statusCode(),
           response.body());
-      List<ErrorOutput> errors =
-          preparedInputEvents.rawAndPreparedList().stream()
-              .map(
-                  p ->
-                      new ErrorOutput(
-                          p.getLeft(),
-                          "Elasticsearch bulk error "
-                              + response.statusCode()
-                              + ": "
-                              + response.body()))
-              .toList();
-      return new SimpleSinkCommand.FlushResult(0, 0, errors);
+    List<ErrorOutput> errors =
+        preparedInputEvents.rawAndPreparedList().stream()
+            .map(
+                p ->
+                    new ErrorOutput(
+                        p.getLeft(),
+                        "Elasticsearch bulk error "
+                            + response.statusCode()
+                            + ": "
+                            + response.body()))
+            .toList();
+    if (bounded) {
+      boolean rejected =
+          response.statusCode() >= 400
+              && response.statusCode() < 500
+              && response.statusCode() != 408;
+      return boundedReceipt(
+          preparedInputEvents.preparedList().size(),
+          0,
+          rejected ? preparedInputEvents.preparedList().size() : 0,
+          0,
+          errors);
     }
+    return new SimpleSinkCommand.FlushResult(0, 0, errors);
+  }
 
-    JsonNode bulkResponse = OBJECT_MAPPER.readTree(response.body());
+  private static SimpleSinkCommand.FlushResult ordinaryBulkResult(
+      SimpleSinkCommand.PreparedInputEvents<ElasticsearchOutboundDoc> preparedInputEvents,
+      JsonNode bulkResponse,
+      BulkPayload payload) {
     boolean hasErrors = bulkResponse.path("errors").asBoolean(false);
     if (!hasErrors) {
-      log.debug("Successfully indexed {} documents to Elasticsearch", docs.size());
-      return new SimpleSinkCommand.FlushResult(docs.size(), bodyBytes.length, List.of());
+      log.debug(
+          "Successfully indexed {} documents to Elasticsearch",
+          preparedInputEvents.preparedList().size());
+      return new SimpleSinkCommand.FlushResult(
+          preparedInputEvents.preparedList().size(), payload.bodyBytes().length, List.of());
     }
 
     List<ErrorOutput> errors = new ArrayList<>();
@@ -142,8 +223,8 @@ public class ElasticsearchSinkFlusher
       int status = indexResult.path("status").asInt(200);
       if (status >= 200 && status < 300) {
         successCount++;
-        if (i < docBytes.length) {
-          flushedDataSize += docBytes[i];
+        if (i < payload.docBytes().length) {
+          flushedDataSize += payload.docBytes()[i];
         }
       } else {
         String errorReason = indexResult.path("error").path("reason").asText("unknown error");
@@ -155,6 +236,69 @@ public class ElasticsearchSinkFlusher
 
     log.debug("Elasticsearch bulk: {} succeeded, {} failed", successCount, errors.size());
     return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, errors);
+  }
+
+  private record BulkPayload(byte[] bodyBytes, long[] docBytes) {}
+
+  private static SimpleSinkCommand.FlushResult boundedItems(
+      SimpleSinkCommand.PreparedInputEvents<ElasticsearchOutboundDoc> events,
+      JsonNode response,
+      long[] docBytes) {
+    List<ErrorOutput> errors = new ArrayList<>();
+    int acknowledged = 0;
+    int rejected = 0;
+    long bytes = 0;
+    JsonNode items = response.path("items");
+    for (int i = 0; i < events.rawAndPreparedList().size(); i++) {
+      JsonNode item = items.isArray() && i < items.size() ? items.get(i).path("index") : null;
+      JsonNode status = item == null ? null : item.get("status");
+      if (status != null
+          && status.isIntegralNumber()
+          && status.intValue() >= 200
+          && status.intValue() < 300) {
+        acknowledged++;
+        bytes += docBytes[i];
+      } else if (status != null
+          && status.isIntegralNumber()
+          && status.intValue() >= 400
+          && status.intValue() < 600) {
+        rejected++;
+        errors.add(
+            new ErrorOutput(
+                events.rawAndPreparedList().get(i).getLeft(),
+                item.path("error").path("reason").asText("Elasticsearch rejected the document")));
+      } else {
+        errors.add(
+            new ErrorOutput(
+                events.rawAndPreparedList().get(i).getLeft(),
+                "Elasticsearch delivery acknowledgement unavailable"));
+      }
+    }
+    return boundedReceipt(
+        events.rawAndPreparedList().size(), acknowledged, rejected, bytes, errors);
+  }
+
+  private static SimpleSinkCommand.FlushResult boundedReceipt(
+      int attempted, int acknowledged, int rejected, long bytes, List<ErrorOutput> errors) {
+    long unknown = attempted - acknowledged - rejected;
+    return new SimpleSinkCommand.FlushResult(
+        acknowledged,
+        bytes,
+        errors,
+        new EffectOutcome(
+            (long) attempted,
+            (long) acknowledged,
+            (long) rejected,
+            unknown,
+            0L,
+            "elasticsearch_bulk_receipt",
+            acknowledged == attempted
+                ? EffectOutcome.Delivery.ACKNOWLEDGED
+                : acknowledged > 0
+                    ? EffectOutcome.Delivery.PARTIAL
+                    : unknown > 0
+                        ? EffectOutcome.Delivery.UNKNOWN
+                        : EffectOutcome.Delivery.FAILED));
   }
 
   @Override

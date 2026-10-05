@@ -48,7 +48,8 @@ public class NoopCommand extends ScalarCommand {
   @Override
   public List<RecordFleakData> processOneEvent(
       RecordFleakData event, String callingUser, ExecutionContext context) {
-    System.out.printf("noop nodeId: %s, event: %s%n", nodeId, toJsonString(event));
+    if (executionHooks == null)
+      System.out.printf("noop nodeId: %s, event: %s%n", nodeId, toJsonString(event));
     return Collections.singletonList(event);
   }
 

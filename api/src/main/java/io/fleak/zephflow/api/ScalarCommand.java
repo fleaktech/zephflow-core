@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.api;
 
+import io.fleak.zephflow.api.execution.ExecutionProgressStoppedException;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,15 +51,29 @@ public abstract class ScalarCommand extends OperatorCommand {
   public ProcessResult process(
       List<RecordFleakData> events, String callingUser, ExecutionContext context) {
     ProcessResult processResult = new ProcessResult();
-    for (RecordFleakData event : events) {
-      try {
-        List<RecordFleakData> oneOutput = processOneEvent(event, callingUser, context);
-        processResult.output.addAll(oneOutput);
-      } catch (Exception e) {
-        ErrorOutput errorOutput = new ErrorOutput(event, e.getMessage());
-        log.debug("process failure: {}", errorOutput, e);
-        processResult.failureEvents.add(errorOutput);
+    try {
+      for (RecordFleakData event : events) {
+        executionCheckpoint();
+        try {
+          List<RecordFleakData> oneOutput = processOneEvent(event, callingUser, context);
+          processResult.output.addAll(oneOutput);
+        } catch (ExecutionStoppedException e) {
+          throw e;
+        } catch (Exception e) {
+          ErrorOutput errorOutput = new ErrorOutput(event, e.getMessage());
+          if (executionHooks == null) log.debug("process failure: {}", errorOutput, e);
+          else
+            log.debug(
+                "Bounded record processing failed at node {}: {}",
+                nodeId,
+                e.getClass().getSimpleName());
+          processResult.failureEvents.add(errorOutput);
+        }
+        executionCheckpoint();
       }
+    } catch (ExecutionStoppedException stopped) {
+      throw new ExecutionProgressStoppedException(
+          stopped, processResult.output, processResult.failureEvents);
     }
     return processResult;
   }
@@ -85,5 +101,10 @@ public abstract class ScalarCommand extends OperatorCommand {
   public static class ProcessResult {
     List<RecordFleakData> output = new ArrayList<>();
     List<ErrorOutput> failureEvents = new ArrayList<>();
+    Throwable invocationFailure;
+
+    public ProcessResult(List<RecordFleakData> output, List<ErrorOutput> failureEvents) {
+      this(output, failureEvents, null);
+    }
   }
 }

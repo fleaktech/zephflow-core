@@ -14,6 +14,7 @@
 package io.fleak.zephflow.api;
 
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import java.io.IOException;
 import java.io.Serializable;
@@ -31,6 +32,7 @@ public abstract class OperatorCommand implements Serializable {
 
   // Explicit initialization approach
   protected transient volatile ExecutionContext executionContext;
+  protected transient ExecutionHooks executionHooks;
   private final transient Object initLock = new Object();
 
   protected OperatorCommand(
@@ -72,7 +74,13 @@ public abstract class OperatorCommand implements Serializable {
       synchronized (initLock) {
         if (executionContext == null) {
           executionContext =
-              createExecutionContext(metricClientProvider, jobContext, commandConfig, nodeId);
+              createExecutionContext(
+                  metricClientProvider,
+                  executionHooks == null
+                      ? jobContext
+                      : jobContext.withExecutionHooks(executionHooks),
+                  commandConfig,
+                  nodeId);
         }
       }
     }
@@ -117,6 +125,26 @@ public abstract class OperatorCommand implements Serializable {
    */
   public boolean isInitialized() {
     return executionContext != null;
+  }
+
+  /** Installs the bounded run hooks before any resources are initialized. */
+  public void setExecutionHooks(ExecutionHooks hooks) {
+    Preconditions.checkState(!isInitialized(), "Cannot replace hooks on an initialized operator");
+    this.executionHooks = hooks;
+  }
+
+  protected final void executionCheckpoint() {
+    if (executionHooks != null) {
+      executionHooks.control().checkpoint();
+    }
+  }
+
+  /** Closes resources without flushing work discarded by an aborted bounded execution. */
+  public void abort() throws IOException {
+    if (executionContext != null) {
+      executionContext.abort();
+      executionContext = null;
+    }
   }
 
   /** Clean up resources */

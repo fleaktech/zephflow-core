@@ -21,24 +21,30 @@ import java.nio.file.Files;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public record DatabricksVolumeUploader(WorkspaceClient workspaceClient) {
+public record DatabricksVolumeUploader(WorkspaceClient workspaceClient, boolean bounded) {
+  public DatabricksVolumeUploader(WorkspaceClient workspaceClient) {
+    this(workspaceClient, false);
+  }
 
   public void uploadFile(File file, String remotePath) throws IOException {
-    log.info("Uploading {} ({} bytes) to {}", file.getName(), file.length(), remotePath);
+    if (!bounded)
+      log.info("Uploading {} ({} bytes) to {}", file.getName(), file.length(), remotePath);
 
     try (InputStream inputStream = Files.newInputStream(file.toPath())) {
       UploadRequest request =
           new UploadRequest().setFilePath(remotePath).setContents(inputStream).setOverwrite(true);
       workspaceClient.files().upload(request);
-      log.info("Upload completed for {}", file.getName());
+      if (!bounded) log.info("Upload completed for {}", file.getName());
     } catch (Exception e) {
-      log.error(
-          "Upload failed for {} to {}: {} - {}",
-          file.getName(),
-          remotePath,
-          e.getClass().getName(),
-          e.getMessage(),
-          e);
+      if (bounded) log.error("Bounded Databricks upload failed");
+      else
+        log.error(
+            "Upload failed for {} to {}: {} - {}",
+            file.getName(),
+            remotePath,
+            e.getClass().getName(),
+            e.getMessage(),
+            e);
       if (e instanceof IOException) {
         throw (IOException) e;
       }
@@ -47,7 +53,7 @@ public record DatabricksVolumeUploader(WorkspaceClient workspaceClient) {
   }
 
   public void deleteDirectory(String directoryPath) {
-    log.debug("Deleting directory: {}", directoryPath);
+    if (!bounded) log.debug("Deleting directory: {}", directoryPath);
     try {
       // Delete all files in the directory first
       for (DirectoryEntry entry : workspaceClient.files().listDirectoryContents(directoryPath)) {
@@ -55,13 +61,14 @@ public record DatabricksVolumeUploader(WorkspaceClient workspaceClient) {
           deleteDirectory(entry.getPath());
         } else {
           workspaceClient.files().delete(entry.getPath());
-          log.debug("Deleted file: {}", entry.getPath());
+          if (!bounded) log.debug("Deleted file: {}", entry.getPath());
         }
       }
       workspaceClient.files().deleteDirectory(directoryPath);
-      log.info("Deleted directory: {}", directoryPath);
+      if (!bounded) log.info("Deleted directory: {}", directoryPath);
     } catch (Exception e) {
-      log.warn("Failed to delete directory {}: {}", directoryPath, e.getMessage());
+      if (bounded) log.warn("Bounded Databricks remote cleanup failed");
+      else log.warn("Failed to delete directory {}: {}", directoryPath, e.getMessage());
     }
   }
 }

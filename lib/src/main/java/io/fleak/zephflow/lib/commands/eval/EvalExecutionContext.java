@@ -55,10 +55,18 @@ public class EvalExecutionContext extends DefaultExecutionContext {
       try {
         pythonExecutor.close();
       } catch (IOException e) {
-        log.error("failed to close python executor", e);
+        if (compiledExpression.boundedDiagnostics()) {
+          log.error("failed to close python executor");
+        } else {
+          log.error("failed to close python executor", e);
+        }
         throw e;
       } catch (Exception e) {
-        log.error("failed to close python executor", e);
+        if (compiledExpression.boundedDiagnostics()) {
+          log.error("failed to close python executor");
+        } else {
+          log.error("failed to close python executor", e);
+        }
         throw new IOException("Failed to close python executor", e);
       }
     }

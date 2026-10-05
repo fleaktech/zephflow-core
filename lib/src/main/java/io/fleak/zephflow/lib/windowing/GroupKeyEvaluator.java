@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.windowing;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
@@ -30,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
  * missing-key POLICY (drop, pass-through, error) is left to each command.
  */
 @Slf4j
-public final class GroupKeyEvaluator {
+public final class GroupKeyEvaluator implements AutoCloseable {
 
   public enum Kind {
     /** Result is a usable scalar; {@link GroupKey#value()} holds its string form. */
@@ -54,23 +55,60 @@ public final class GroupKeyEvaluator {
   }
 
   private final CompiledExpression compiledExpression;
+  private final PythonExecutor pythonExecutor;
 
-  private GroupKeyEvaluator(CompiledExpression compiledExpression) {
+  private GroupKeyEvaluator(CompiledExpression compiledExpression, PythonExecutor pythonExecutor) {
     this.compiledExpression = compiledExpression;
+    this.pythonExecutor = pythonExecutor;
+  }
+
+  @Override
+  public void close() {
+    if (pythonExecutor == null) return;
+    try {
+      pythonExecutor.close();
+    } catch (Exception cleanup) {
+      throw new IllegalStateException("Failed to close group key Python executor", cleanup);
+    }
   }
 
   /** Compiles the expression; throws if it does not parse/compile (use for config validation). */
   public static GroupKeyEvaluator compile(String expression) {
+    return compile(expression, null);
+  }
+
+  public static GroupKeyEvaluator compile(String expression, JobContext jobContext) {
+    boolean bounded = jobContext != null && jobContext.isBoundedExecution();
     EvalExpressionParser parser =
         (EvalExpressionParser) AntlrUtils.parseInput(expression, AntlrUtils.GrammarType.EVAL);
     EvalExpressionParser.LanguageContext languageContext = parser.language();
     PythonExecutor pythonExecutor = null;
     try {
-      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext);
+      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext, bounded);
+    } catch (PythonExecutor.CleanupFailure cleanup) {
+      throw cleanup;
     } catch (Exception e) {
-      log.error("Python support init failed for group key expression; Python disabled.", e);
+      if (bounded) {
+        log.error("Python support init failed for group key expression; Python disabled.");
+      } else {
+        log.error("Python support init failed for group key expression; Python disabled.", e);
+      }
     }
-    return new GroupKeyEvaluator(ExpressionCompiler.compile(languageContext, pythonExecutor));
+    try {
+      return new GroupKeyEvaluator(
+          ExpressionCompiler.compile(languageContext, pythonExecutor)
+              .withBoundedDiagnostics(bounded),
+          pythonExecutor);
+    } catch (RuntimeException | Error primary) {
+      if (pythonExecutor != null) {
+        try {
+          pythonExecutor.close();
+        } catch (Exception cleanup) {
+          primary.addSuppressed(cleanup);
+        }
+      }
+      throw primary;
+    }
   }
 
   public GroupKey evaluate(RecordFleakData event) {
@@ -78,7 +116,11 @@ public final class GroupKeyEvaluator {
     try {
       result = compiledExpression.evaluate(event);
     } catch (Exception e) {
-      log.debug("group key evaluation failed", e);
+      if (compiledExpression.boundedDiagnostics()) {
+        log.debug("group key evaluation failed");
+      } else {
+        log.debug("group key evaluation failed", e);
+      }
       return GroupKey.ERROR;
     }
     if (result == null) {

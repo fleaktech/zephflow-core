@@ -46,6 +46,33 @@ class DatabricksVolumeUploaderTest {
     uploader = new DatabricksVolumeUploader(workspaceClient);
   }
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+  void boundedUploadAndCleanupNeverLogPrivatePathsOrSdkFailures(boolean bounded) throws Exception {
+    var selected = new DatabricksVolumeUploader(uploader.workspaceClient(), bounded);
+    var file = createTestFile("test.parquet", "private row");
+    var failure =
+        new IllegalStateException(
+            "token=private-volume-token", new IOException("nested-volume-secret"));
+    doThrow(failure).when(filesAPI).upload(any(UploadRequest.class));
+    doThrow(failure).when(filesAPI).listDirectoryContents(anyString());
+    try (var logs =
+        new io.fleak.zephflow.lib.utils.BoundedLogCapture(DatabricksVolumeUploader.class)) {
+      assertThrows(
+          IOException.class, () -> selected.uploadFile(file, "/Volumes/private-path/file.parquet"));
+      selected.deleteDirectory("/Volumes/private-path");
+      assertFalse(logs.events().isEmpty());
+      if (bounded) {
+        assertTrue(logs.events().stream().allMatch(event -> event.getThrown() == null));
+        assertTrue(
+            logs.events().stream()
+                .noneMatch(event -> event.getMessage().getFormattedMessage().contains("private-")));
+      } else {
+        assertTrue(logs.events().stream().anyMatch(event -> event.getThrown() == failure));
+      }
+    }
+  }
+
   @Test
   void testUploadFile_success() throws Exception {
     File testFile = createTestFile("test.parquet", "test content");

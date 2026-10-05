@@ -198,6 +198,89 @@ class SplunkHecSinkFlusherTest {
   }
 
   @Test
+  void boundedAcceptedThenDisconnectedDoesNotRetryOrRecoverIndividualRecords() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.NO_RESPONSE);
+    var hooks = boundedHooks();
+    try (var sink = flusher(100, JobContext.builder().executionHooks(hooks).build())) {
+      assertThrows(IOException.class, () -> sink.flushBounded(events("a", "b"), Map.of(), hooks));
+      sink.abort();
+    }
+    assertEquals(List.of(2), hec.requestSizes());
+    assertTrue(dlqWriter.deadLetters.isEmpty());
+  }
+
+  @Test
+  void boundedServerErrorDoesNotEnterNormalRetryLoop() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.hec(503, 9, "unavailable"));
+    var hooks = boundedHooks();
+    try (var sink = flusher(100, JobContext.builder().executionHooks(hooks).build())) {
+      var result = sink.flushBounded(events("a", "b"), Map.of(), hooks);
+      assertEquals(2L, result.effectOutcome().unknownCount());
+      assertEquals(0L, result.effectOutcome().definiteFailureCount());
+    }
+    assertEquals(List.of(2), hec.requestSizes());
+    assertTrue(dlqWriter.deadLetters.isEmpty());
+  }
+
+  @Test
+  void boundedExplicitRejectionPreservesNegativeReceiptWithoutLoggingResponse() throws Exception {
+    String secret = "private-hec-credential-for-regression";
+    hec = FakeHec.replying(lines -> Reply.hec(403, 4, secret));
+    var logger =
+        (org.apache.logging.log4j.core.Logger)
+            org.apache.logging.log4j.LogManager.getLogger(SplunkHecSinkFlusher.class);
+    var logs = new ArrayList<org.apache.logging.log4j.core.LogEvent>();
+    var appender =
+        new org.apache.logging.log4j.core.appender.AbstractAppender(
+            "bounded-hec",
+            null,
+            org.apache.logging.log4j.core.layout.PatternLayout.createDefaultLayout(),
+            false,
+            org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+          public void append(org.apache.logging.log4j.core.LogEvent event) {
+            logs.add(event.toImmutable());
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    var hooks = boundedHooks();
+    try (var sink = flusher(100, JobContext.builder().executionHooks(hooks).build())) {
+      var result = sink.flushBounded(events("a", "b"), Map.of(), hooks);
+      var outcome = result.effectOutcome();
+      assertEquals(2L, outcome.attemptedCount());
+      assertEquals(2L, outcome.definiteFailureCount());
+      assertEquals(0L, outcome.unknownCount());
+      assertEquals(0L, outcome.acknowledgedCount());
+      assertEquals(
+          io.fleak.zephflow.api.execution.EffectOutcome.Delivery.FAILED, outcome.delivery());
+      assertEquals(2, result.errorOutputList().size());
+      assertTrue(result.errorOutputList().getFirst().errorMessage().contains(secret));
+      assertTrue(
+          logs.stream()
+              .noneMatch(event -> event.getMessage().getFormattedMessage().contains(secret)));
+      assertTrue(logs.stream().allMatch(event -> event.getThrown() == null));
+      assertEquals(List.of(2), hec.requestSizes());
+      assertTrue(dlqWriter.deadLetters.isEmpty());
+    } finally {
+      logger.removeAppender(appender);
+      appender.stop();
+    }
+  }
+
+  private static io.fleak.zephflow.api.execution.ExecutionHooks boundedHooks() {
+    return new io.fleak.zephflow.api.execution.ExecutionHooks(
+        () -> {},
+        new io.fleak.zephflow.api.execution.ExecutionHooks.Effects() {
+          public long started() {
+            return 1;
+          }
+
+          public void finished(long id, io.fleak.zephflow.api.execution.EffectOutcome outcome) {}
+        },
+        Runnable::run);
+  }
+
+  @Test
   void flush_belowBatchSize_buffersWithoutSending() throws Exception {
     hec = FakeHec.replying(lines -> Reply.ok());
     SplunkHecSinkFlusher flusher = flusher(3);

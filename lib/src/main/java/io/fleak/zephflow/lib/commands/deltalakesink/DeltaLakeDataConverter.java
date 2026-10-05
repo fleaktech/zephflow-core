@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
@@ -1213,6 +1214,17 @@ public class DeltaLakeDataConverter {
     public ColumnVector getColumnVector(int ordinal) {
       StructField field = schema.at(ordinal);
       return columnVectors.get(field.getName());
+    }
+
+    @Override
+    public ColumnarBatch withDeletedColumnAt(int ordinal) {
+      Objects.checkIndex(ordinal, schema.fields().size());
+      List<StructField> retainedFields = new ArrayList<>(schema.fields());
+      StructField removed = retainedFields.remove(ordinal);
+      Map<String, ColumnVector> retainedVectors = new HashMap<>(columnVectors);
+      retainedVectors.remove(removed.getName());
+      return new SimpleColumnarBatch(
+          new StructType(retainedFields), Map.copyOf(retainedVectors), numRows);
     }
   }
 

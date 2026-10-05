@@ -135,7 +135,11 @@ class ArrForEachFunction implements FeelFunction {
         FleakData resultElem = expressionNode.evaluate(ctx);
         resultArray.add(resultElem);
       } catch (Exception e) {
-        log.error("arr_foreach: skipping failed element. Reason: {}", e.getMessage());
+        if (ctx.boundedDiagnostics()) {
+          log.error("arr_foreach: skipping failed element.");
+        } else {
+          log.error("arr_foreach: skipping failed element. Reason: {}", e.getMessage());
+        }
       } finally {
         ctx.exitScope();
       }

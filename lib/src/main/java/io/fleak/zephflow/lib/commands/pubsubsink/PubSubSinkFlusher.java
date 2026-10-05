@@ -50,6 +50,23 @@ public class PubSubSinkFlusher implements SimpleSinkCommand.Flusher<PubSubOutbou
       SimpleSinkCommand.PreparedInputEvents<PubSubOutboundMessage> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, false);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<PubSubOutboundMessage> preparedInputEvents,
+      Map<String, String> metricTags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(preparedInputEvents.preparedList().size(), hooks);
+    return flushInternal(preparedInputEvents, true);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<PubSubOutboundMessage> preparedInputEvents,
+      boolean bounded)
+      throws Exception {
 
     List<PubSubOutboundMessage> messages = preparedInputEvents.preparedList();
     if (messages.isEmpty()) {
@@ -79,7 +96,7 @@ public class PubSubSinkFlusher implements SimpleSinkCommand.Flusher<PubSubOutbou
       log.debug("Pub/Sub flush completed: {} messages to {}", messages.size(), topicPath);
       return new SimpleSinkCommand.FlushResult(messages.size(), flushedDataSize, List.of());
     } catch (Exception e) {
-      log.error("Pub/Sub publish failed for topic {}", topicPath, e);
+      if (!bounded) log.error("Pub/Sub publish failed for topic {}", topicPath, e);
       List<ErrorOutput> errorOutputs = new ArrayList<>(messages.size());
       for (Pair<RecordFleakData, PubSubOutboundMessage> pair :
           preparedInputEvents.rawAndPreparedList()) {

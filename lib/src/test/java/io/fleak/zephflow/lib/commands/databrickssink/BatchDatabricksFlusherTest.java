@@ -103,6 +103,249 @@ class BatchDatabricksFlusherTest {
   }
 
   @Test
+  void boundedUploadFailureDoesNotRetryCopyOrFlushOnAbort() throws Exception {
+    var hooks = boundedHooks();
+    var file = createMockFile("bounded.parquet");
+    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(file));
+    var accepted = new java.util.concurrent.atomic.AtomicInteger();
+    doAnswer(
+            call -> {
+              accepted.incrementAndGet();
+              throw new IOException("accepted but response lost");
+            })
+        .when(volumeUploader)
+        .uploadFile(eq(file), anyString());
+    var sink =
+        new BatchDatabricksFlusher(
+            config,
+            parquetWriter,
+            volumeUploader,
+            sqlExecutor,
+            tempDir,
+            null,
+            schema,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter,
+            "db",
+            io.fleak.zephflow.api.JobContext.builder().executionHooks(hooks).build());
+    var events = new SimpleSinkCommand.PreparedInputEvents<Map<String, Object>>();
+    var data = Map.<String, Object>of("id", 1, "name", "one");
+    events.add((RecordFleakData) FleakData.wrap(data), data);
+    try {
+      var result = sink.flushBounded(events, Map.of(), hooks);
+      assertEquals(0, result.successCount());
+      assertEquals(1, result.errorOutputList().size());
+      assertEquals(
+          io.fleak.zephflow.api.execution.EffectOutcome.Delivery.UNKNOWN,
+          result.boundedOutcome(1).delivery());
+    } finally {
+      sink.abort();
+    }
+    assertEquals(1, accepted.get());
+    verifyNoInteractions(sqlExecutor);
+  }
+
+  @Test
+  void boundedUnknownCopyIsNotRepeatedOrReinterpretedAsSuccess() throws Exception {
+    var hooks = boundedHooks();
+    var file = createMockFile("bounded-copy.parquet");
+    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(file));
+    when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
+        .thenThrow(new RuntimeException("COPY accepted; result lost"));
+    var sink =
+        new BatchDatabricksFlusher(
+            config,
+            parquetWriter,
+            volumeUploader,
+            sqlExecutor,
+            tempDir,
+            null,
+            schema,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter,
+            "db",
+            io.fleak.zephflow.api.JobContext.builder().executionHooks(hooks).build());
+    var events = new SimpleSinkCommand.PreparedInputEvents<Map<String, Object>>();
+    var data = Map.<String, Object>of("id", 1, "name", "one");
+    events.add((RecordFleakData) FleakData.wrap(data), data);
+    try {
+      var result = sink.flushBounded(events, Map.of(), hooks);
+      assertEquals(
+          io.fleak.zephflow.api.execution.EffectOutcome.Delivery.UNKNOWN,
+          result.boundedOutcome(1).delivery());
+      assertEquals(1, result.errorOutputList().size());
+    } finally {
+      sink.abort();
+    }
+    verify(sqlExecutor, times(1))
+        .executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap());
+    verify(volumeUploader, never()).deleteDirectory(anyString());
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+  void boundedLocalRejectionRemainsDefiniteWithOrWithoutSuccessfulRecords(boolean mixed)
+      throws Exception {
+    var hooks = boundedHooks();
+    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class)))
+        .thenAnswer(
+            call -> {
+              List<Map<String, Object>> values = call.getArgument(0);
+              if (values.stream().anyMatch(value -> value.get("id") instanceof String))
+                throw new io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException(
+                    "private-row-id");
+              Path file =
+                  java.nio.file.Files.createTempFile(
+                      call.getArgument(1, Path.class), "valid-", ".parquet");
+              return List.of(file.toFile());
+            });
+    when(sqlExecutor.executeCopyIntoWithStats(anyString(), anyString(), anyMap(), anyMap()))
+        .thenReturn(new CopyIntoStats(1, 1, 1, List.of(), true));
+    var events = new SimpleSinkCommand.PreparedInputEvents<Map<String, Object>>();
+    var invalid = Map.<String, Object>of("id", "private-row-id", "name", "invalid");
+    events.add((RecordFleakData) FleakData.wrap(invalid), invalid);
+    if (mixed) {
+      var valid = Map.<String, Object>of("id", 1, "name", "valid");
+      events.add((RecordFleakData) FleakData.wrap(valid), valid);
+    }
+    try (var sink = boundedFlusher(hooks);
+        var logs =
+            new io.fleak.zephflow.lib.utils.BoundedLogCapture(BatchDatabricksFlusher.class)) {
+      var result = sink.flushBounded(events, Map.of(), hooks);
+      var outcome = result.effectOutcome();
+      assertEquals(mixed ? 1L : 0L, outcome.attemptedCount());
+      assertEquals(mixed ? 1L : 0L, outcome.acknowledgedCount());
+      assertEquals(1L, outcome.definiteFailureCount());
+      assertEquals(1L, outcome.notAttemptedCount());
+      assertEquals(0L, outcome.unknownCount());
+      assertEquals(
+          mixed
+              ? io.fleak.zephflow.api.execution.EffectOutcome.Delivery.PARTIAL
+              : io.fleak.zephflow.api.execution.EffectOutcome.Delivery.FAILED,
+          outcome.delivery());
+      assertEquals(1, result.errorOutputList().size());
+      assertEquals(invalid, result.errorOutputList().getFirst().inputEvent().unwrap());
+      assertTrue(logs.events().stream().allMatch(event -> event.getThrown() == null));
+      assertTrue(
+          logs.events().stream()
+              .noneMatch(
+                  event -> event.getMessage().getFormattedMessage().contains("private-row-id")));
+    }
+    if (mixed) verify(volumeUploader).uploadFile(any(), anyString());
+    else verifyNoInteractions(volumeUploader, sqlExecutor);
+  }
+
+  @Test
+  void boundedGenerationUploadAndCleanupFailuresLogOnlySafeContext() throws Exception {
+    var hooks = boundedHooks();
+    var failure =
+        new IOException(
+            "token=databricks-private-token", new IllegalStateException("nested-private-row"));
+    var events = new SimpleSinkCommand.PreparedInputEvents<Map<String, Object>>();
+    var data = Map.<String, Object>of("id", 1, "name", "one");
+    events.add((RecordFleakData) FleakData.wrap(data), data);
+    try (var logs =
+        new io.fleak.zephflow.lib.utils.BoundedLogCapture(BatchDatabricksFlusher.class)) {
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenThrow(failure);
+      try (var sink = boundedFlusher(hooks)) {
+        assertEquals(1, sink.flushBounded(events, Map.of(), hooks).errorOutputList().size());
+      }
+      java.nio.file.Files.createDirectories(tempDir);
+      var file = createMockFile("upload-failure.parquet");
+      when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(file));
+      doThrow(failure).when(volumeUploader).uploadFile(any(), anyString());
+      doThrow(new IllegalStateException("token=databricks-private-token", failure))
+          .when(volumeUploader)
+          .deleteDirectory(anyString());
+      try (var sink = boundedFlusher(hooks)) {
+        assertEquals(1L, sink.flushBounded(events, Map.of(), hooks).effectOutcome().unknownCount());
+      }
+      assertTrue(
+          logs.events().stream()
+              .anyMatch(
+                  event ->
+                      event
+                          .getMessage()
+                          .getFormattedMessage()
+                          .contains("Bounded Databricks remote cleanup failed")));
+      assertTrue(logs.events().stream().allMatch(event -> event.getThrown() == null));
+      assertTrue(
+          logs.events().stream()
+              .noneMatch(
+                  event ->
+                      event.getMessage().getFormattedMessage().contains("private-token")
+                          || event.getMessage().getFormattedMessage().contains("private-row")));
+    }
+  }
+
+  @Test
+  void boundedStopImmediatelyBeforeUploadPreservesKnownUnsentReceipt() throws Exception {
+    var checks = new java.util.concurrent.atomic.AtomicInteger();
+    var hooks =
+        new io.fleak.zephflow.api.execution.ExecutionHooks(
+            () -> {
+              if (checks.incrementAndGet() == 3)
+                throw new io.fleak.zephflow.api.execution.ExecutionStoppedException(
+                    "cancel before first upload");
+            },
+            mock(io.fleak.zephflow.api.execution.ExecutionHooks.Effects.class),
+            Runnable::run);
+    var file = createMockFile("cancel.parquet");
+    when(parquetWriter.writeParquetFiles(anyList(), any(Path.class))).thenReturn(List.of(file));
+    var events = new SimpleSinkCommand.PreparedInputEvents<Map<String, Object>>();
+    var data = Map.<String, Object>of("id", 1, "name", "one");
+    events.add((RecordFleakData) FleakData.wrap(data), data);
+    try (var sink = boundedFlusher(hooks)) {
+      var stopped =
+          assertThrows(
+              io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+              () -> sink.flushBounded(events, Map.of(), hooks));
+      var outcome = stopped.result().effectOutcome();
+      assertEquals(0L, outcome.attemptedCount());
+      assertEquals(0L, outcome.unknownCount());
+      assertEquals(1L, outcome.notAttemptedCount());
+      assertEquals(
+          io.fleak.zephflow.api.execution.EffectOutcome.Delivery.NOT_ATTEMPTED, outcome.delivery());
+      assertInstanceOf(
+          io.fleak.zephflow.api.execution.ExecutionStoppedException.class, stopped.getCause());
+    }
+    verify(volumeUploader, never()).uploadFile(any(), anyString());
+    verifyNoInteractions(sqlExecutor);
+  }
+
+  private BatchDatabricksFlusher boundedFlusher(
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks) {
+    return new BatchDatabricksFlusher(
+        config,
+        parquetWriter,
+        volumeUploader,
+        sqlExecutor,
+        tempDir,
+        null,
+        schema,
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter,
+        "db",
+        io.fleak.zephflow.api.JobContext.builder().executionHooks(hooks).build());
+  }
+
+  private static io.fleak.zephflow.api.execution.ExecutionHooks boundedHooks() {
+    return new io.fleak.zephflow.api.execution.ExecutionHooks(
+        () -> {},
+        new io.fleak.zephflow.api.execution.ExecutionHooks.Effects() {
+          public long started() {
+            return 1;
+          }
+
+          public void finished(long id, io.fleak.zephflow.api.execution.EffectOutcome outcome) {}
+        },
+        Runnable::run);
+  }
+
+  @Test
   void testFlushEmptyEvents() throws Exception {
     try (BatchDatabricksFlusher flusher = createFlusher()) {
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> emptyEvents =
@@ -324,7 +567,8 @@ class BatchDatabricksFlusherTest {
       // Databricks SDK reports a PERMISSION_DENIED on the target volume.
       doThrow(
               new IOException(
-                  "Upload failed: User does not have WRITE VOLUME privilege on VOLUME 'test.catalog.vol'."))
+                  "Upload failed: User does not have WRITE VOLUME privilege on VOLUME"
+                      + " 'test.catalog.vol'."))
           .when(volumeUploader)
           .uploadFile(any(File.class), anyString());
 

@@ -68,6 +68,180 @@ class ZerobusSinkFlusherTest {
   }
 
   @Test
+  void boundedStopBeforeStreamWritePreservesNotAttemptedReceipt() throws Exception {
+    ZerobusProtoStream stream = mock();
+    var flusher = new ZerobusSinkFlusher("c.s.t", mock(), stream, avroSchema(), descriptor(), null);
+    var base = hooks();
+    var stopped =
+        new io.fleak.zephflow.api.execution.ExecutionHooks(
+            () -> {
+              throw new io.fleak.zephflow.api.execution.ExecutionStoppedException("cancelled");
+            },
+            base.effects(),
+            base.backgroundWork());
+    try {
+      var failure =
+          assertThrows(
+              io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+              () ->
+                  flusher.flushBounded(
+                      events(List.of(Map.of("id", 1, "name", "ok"))), Map.of(), stopped));
+      var outcome = failure.result().effectOutcome();
+      assertEquals(0L, outcome.attemptedCount());
+      assertEquals(0L, outcome.unknownCount());
+      assertEquals(1L, outcome.notAttemptedCount());
+      assertEquals(
+          io.fleak.zephflow.api.execution.EffectOutcome.Delivery.NOT_ATTEMPTED, outcome.delivery());
+      verifyNoInteractions(stream);
+    } finally {
+      flusher.close();
+    }
+  }
+
+  @Test
+  void boundedSdkFailuresDoNotLogRawCredentialsOrCauses() throws Exception {
+    var logger =
+        (org.apache.logging.log4j.core.Logger)
+            org.apache.logging.log4j.LogManager.getLogger(ZerobusSinkFlusher.class);
+    var logs = new java.util.ArrayList<org.apache.logging.log4j.core.LogEvent>();
+    var appender =
+        new org.apache.logging.log4j.core.appender.AbstractAppender(
+            "bounded-zerobus-test",
+            null,
+            org.apache.logging.log4j.core.layout.PatternLayout.createDefaultLayout(),
+            false,
+            org.apache.logging.log4j.core.config.Property.EMPTY_ARRAY) {
+          public void append(org.apache.logging.log4j.core.LogEvent event) {
+            logs.add(event.toImmutable());
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      for (boolean duringIngest : List.of(true, false)) {
+        ZerobusProtoStream stream = mock();
+        var sdkFailure = new ZerobusException("clientSecret=private-zerobus-test-token");
+        if (duringIngest) {
+          when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
+              .thenThrow(sdkFailure);
+        } else {
+          when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
+              .thenReturn(Optional.of(10L));
+          doThrow(sdkFailure).when(stream).waitForOffset(10L);
+        }
+        var flusher =
+            new ZerobusSinkFlusher("c.s.t", mock(), stream, avroSchema(), descriptor(), null);
+        var failure =
+            assertThrows(
+                io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+                () ->
+                    flusher.flushBounded(
+                        events(List.of(Map.of("id", 1, "name", "ok"))), Map.of(), hooks()));
+        assertEquals(1L, failure.result().effectOutcome().unknownCount());
+        assertNotNull(failure.getCause());
+        flusher.close();
+      }
+      assertTrue(
+          logs.stream()
+              .noneMatch(
+                  event ->
+                      event
+                          .getMessage()
+                          .getFormattedMessage()
+                          .contains("private-zerobus-test-token")));
+      assertTrue(logs.stream().allMatch(event -> event.getThrown() == null));
+    } finally {
+      logger.removeAppender(appender);
+      appender.stop();
+    }
+  }
+
+  @Test
+  void boundedEncodingRejectionsAreNotCountedAsUnknownDeliveries() throws Exception {
+    ZerobusProtoStream stream = mock();
+    when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
+        .thenReturn(Optional.of(10L));
+    var flusher = new ZerobusSinkFlusher("c.s.t", mock(), stream, avroSchema(), descriptor(), null);
+    var result =
+        flusher.flushBounded(
+            events(List.of(Map.of("id", 1, "name", "ok"), Map.of("name", "missing-id"))),
+            Map.of(),
+            hooks());
+    assertEquals(1L, result.effectOutcome().acknowledgedCount());
+    assertEquals(1L, result.effectOutcome().notAttemptedCount());
+    assertEquals(1L, result.effectOutcome().definiteFailureCount());
+    assertEquals(0L, result.effectOutcome().unknownCount());
+    verify(stream).waitForOffset(10L);
+    flusher.close();
+  }
+
+  @Test
+  void boundedUnknownRemoteOutcomeKeepsKnownEncodingRejections() throws Exception {
+    ZerobusProtoStream stream = mock();
+    when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
+        .thenReturn(Optional.of(10L));
+    doThrow(new ZerobusException("ack lost")).when(stream).waitForOffset(10L);
+    var flusher = new ZerobusSinkFlusher("c.s.t", mock(), stream, avroSchema(), descriptor(), null);
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+            () ->
+                flusher.flushBounded(
+                    events(List.of(Map.of("id", 1, "name", "ok"), Map.of("name", "missing-id"))),
+                    Map.of(),
+                    hooks()));
+    assertEquals(1L, failure.result().effectOutcome().notAttemptedCount());
+    assertEquals(1L, failure.result().effectOutcome().definiteFailureCount());
+    assertEquals(1L, failure.result().effectOutcome().unknownCount());
+    assertEquals(1, failure.result().errorOutputList().size());
+    flusher.close();
+  }
+
+  @Test
+  void boundedCloseFailureIsReportedAndSdkStillCloses() throws Exception {
+    ZerobusProtoStream stream = mock();
+    ZerobusSdk sdk = mock();
+    var flusher = new ZerobusSinkFlusher("c.s.t", sdk, stream, avroSchema(), descriptor(), null);
+    flusher.flushBounded(events(List.of()), Map.of(), hooks());
+    doThrow(new ZerobusException("close failed")).when(stream).close();
+    assertThrows(IllegalStateException.class, flusher::close);
+    verify(sdk).close();
+  }
+
+  @Test
+  void boundedFailureDoesNotReconnectOrSendFollowingBatch() throws Exception {
+    ZerobusProtoStream stream = mock();
+    when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))
+        .thenReturn(Optional.of(7L));
+    doThrow(new ZerobusException("ack lost")).when(stream).waitForOffset(7L);
+    var flusher = new ZerobusSinkFlusher("c.s.t", mock(), stream, avroSchema(), descriptor(), null);
+    var input = events(List.of(Map.of("id", 1, "name", "ok")));
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+            () -> flusher.flushBounded(input, Map.of(), hooks()));
+    assertEquals(1L, failure.result().effectOutcome().unknownCount());
+    var next = flusher.flushBounded(input, Map.of(), hooks());
+    assertEquals(1L, next.effectOutcome().notAttemptedCount());
+    assertEquals(0L, next.effectOutcome().attemptedCount());
+    verify(stream, times(1)).ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList());
+    flusher.close();
+  }
+
+  private static io.fleak.zephflow.api.execution.ExecutionHooks hooks() {
+    return new io.fleak.zephflow.api.execution.ExecutionHooks(
+        () -> {},
+        new io.fleak.zephflow.api.execution.ExecutionHooks.Effects() {
+          public long started() {
+            return 1;
+          }
+
+          public void finished(long id, io.fleak.zephflow.api.execution.EffectOutcome outcome) {}
+        },
+        Runnable::run);
+  }
+
+  @Test
   void protoFlushReportsEncodeErrorsAndIngestsOnlyValidPayloads() throws Exception {
     ZerobusProtoStream stream = mock(ZerobusProtoStream.class);
     when(stream.ingestRecordsOffset(ArgumentMatchers.<byte[]>anyList()))

@@ -32,6 +32,115 @@ import org.junit.jupiter.api.Test;
 
 class AzureEventHubSinkFlusherTest {
 
+  @Test
+  void boundedOversizeRejectionsAreDefiniteWithoutSending() throws Exception {
+    EventDataBatch batch = mock(EventDataBatch.class);
+    when(producerClient.createBatch()).thenReturn(batch);
+    when(batch.tryAdd(any())).thenReturn(false);
+    var result =
+        new AzureEventHubSinkFlusher(producerClient, serializer, null)
+            .flushBounded(
+                prepared(record(Map.of("id", 1)), record(Map.of("id", 2))),
+                Map.of(),
+                boundedHooks(() -> {}));
+    assertEquals(2, result.errorOutputList().size());
+    assertEquals(0L, result.effectOutcome().attemptedCount());
+    assertEquals(2L, result.effectOutcome().definiteFailureCount());
+    assertEquals(2L, result.effectOutcome().notAttemptedCount());
+    assertEquals(
+        io.fleak.zephflow.api.execution.EffectOutcome.Delivery.FAILED,
+        result.effectOutcome().delivery());
+    verify(producerClient, never()).send(any(EventDataBatch.class));
+  }
+
+  @Test
+  void boundedNullSerializationRejectsOnlyThatRecordAndPreservesSuccessfulBatch() throws Exception {
+    FleakSerializer<?> mixed = mock();
+    when(mixed.serialize(anyList()))
+        .thenReturn(new io.fleak.zephflow.lib.serdes.SerializedEvent(null, null, null))
+        .thenReturn(new io.fleak.zephflow.lib.serdes.SerializedEvent(null, new byte[] {1}, null));
+    EventDataBatch batch = mock();
+    when(producerClient.createBatch()).thenReturn(batch);
+    when(batch.tryAdd(any())).thenReturn(true);
+    when(batch.getCount()).thenReturn(1);
+    var result =
+        new AzureEventHubSinkFlusher(producerClient, mixed, null)
+            .flushBounded(
+                prepared(record(Map.of("id", 1)), record(Map.of("id", 2))),
+                Map.of(),
+                boundedHooks(() -> {}));
+    assertEquals(1, result.errorOutputList().size());
+    assertEquals(1L, result.effectOutcome().attemptedCount());
+    assertEquals(1L, result.effectOutcome().acknowledgedCount());
+    assertEquals(1L, result.effectOutcome().definiteFailureCount());
+    assertEquals(1L, result.effectOutcome().notAttemptedCount());
+    assertEquals(0L, result.effectOutcome().unknownCount());
+    assertEquals(
+        io.fleak.zephflow.api.execution.EffectOutcome.Delivery.PARTIAL,
+        result.effectOutcome().delivery());
+  }
+
+  @Test
+  void boundedStopBeforeFirstSendIsNotAttempted() {
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+            () ->
+                new AzureEventHubSinkFlusher(producerClient, serializer, null)
+                    .flushBounded(
+                        prepared(record(Map.of("id", 1))),
+                        Map.of(),
+                        boundedHooks(
+                            () -> {
+                              throw new io.fleak.zephflow.api.execution.ExecutionStoppedException(
+                                  "stop");
+                            })));
+    assertEquals(0L, failure.result().effectOutcome().attemptedCount());
+    assertEquals(0L, failure.result().effectOutcome().unknownCount());
+    assertEquals(1L, failure.result().effectOutcome().notAttemptedCount());
+    assertEquals(
+        io.fleak.zephflow.api.execution.EffectOutcome.Delivery.NOT_ATTEMPTED,
+        failure.result().effectOutcome().delivery());
+    verifyNoInteractions(producerClient);
+  }
+
+  private static io.fleak.zephflow.api.execution.ExecutionHooks boundedHooks(
+      io.fleak.zephflow.api.execution.ExecutionControl control) {
+    return new io.fleak.zephflow.api.execution.ExecutionHooks(control, mock(), Runnable::run);
+  }
+
+  @Test
+  void boundedFailureInSecondPhysicalBatchPreservesFirstAcknowledgement() {
+    EventDataBatch batch = mock(EventDataBatch.class);
+    when(producerClient.createBatch()).thenReturn(batch);
+    when(batch.tryAdd(any())).thenReturn(true, true, false, true);
+    when(batch.getCount()).thenReturn(2);
+    doNothing()
+        .doThrow(new IllegalStateException("accepted remotely, acknowledgement lost"))
+        .when(producerClient)
+        .send(batch);
+    var flusher = new AzureEventHubSinkFlusher(producerClient, serializer, null);
+    var hooks =
+        new io.fleak.zephflow.api.execution.ExecutionHooks(
+            () -> {},
+            mock(io.fleak.zephflow.api.execution.ExecutionHooks.Effects.class),
+            Runnable::run);
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+            () ->
+                flusher.flushBounded(
+                    prepared(
+                        record(Map.of("id", 1)), record(Map.of("id", 2)), record(Map.of("id", 3))),
+                    Map.of(),
+                    hooks));
+    assertEquals(2, failure.result().successCount());
+    assertEquals(2L, failure.result().effectOutcome().acknowledgedCount());
+    assertEquals(1L, failure.result().effectOutcome().unknownCount());
+    assertEquals(0L, failure.result().effectOutcome().notAttemptedCount());
+    verify(producerClient, times(2)).send(batch);
+  }
+
   private EventHubProducerClient producerClient;
   private FleakSerializer<?> serializer;
 

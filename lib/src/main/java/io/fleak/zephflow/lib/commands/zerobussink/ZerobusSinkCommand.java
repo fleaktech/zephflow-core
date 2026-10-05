@@ -51,7 +51,8 @@ public class ZerobusSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
 
     DatabricksCredential credential =
         lookupDatabricksCredential(jobContext, config.getDatabricksCredentialId());
-    Flusher<Map<String, Object>> flusher = ZerobusSinkFlusher.create(config, credential);
+    Flusher<Map<String, Object>> flusher =
+        ZerobusSinkFlusher.create(config, credential, jobContext.getExecutionHooks());
 
     SinkMessagePreProcessor<Map<String, Object>> preprocessor = new ZerobusMessageProcessor();
 
@@ -76,7 +77,7 @@ public class ZerobusSinkCommand extends SimpleSinkCommand<Map<String, Object>> {
       String nodeId,
       Flusher<Map<String, Object>> flusher,
       SinkMessagePreProcessor<Map<String, Object>> preprocessor) {
-    if (!config.isStoreAndForwardEnabled()) {
+    if (!config.isStoreAndForwardEnabled() || jobContext.getExecutionHooks() != null) {
       return SinkStoreForward.noop();
     }
 

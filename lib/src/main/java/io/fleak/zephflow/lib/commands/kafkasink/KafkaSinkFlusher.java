@@ -260,6 +260,78 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     return keyValue == null ? null : keyValue.getBytes(StandardCharsets.UTF_8);
   }
 
+  private boolean bounded;
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> input,
+      Map<String, String> tags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks) {
+    bounded = true;
+    if (closed) throw new IllegalStateException("KafkaSinkFlusher is closed");
+    int acknowledged = 0;
+    int attempted = 0;
+    int rejected = 0;
+    long bytes = 0;
+    List<ErrorOutput> errors = new ArrayList<>();
+    boolean interrupted = false;
+    Throwable stopped = null;
+    try {
+      for (RecordFleakData event : input.preparedList()) {
+        hooks.control().checkpoint();
+        byte[] value;
+        byte[] key;
+        try {
+          value = serializeValue(event);
+          key = keyBytes(event);
+          if (value == null) {
+            rejected++;
+            errors.add(new ErrorOutput(event, "Serializer produced no record"));
+            continue;
+          }
+        } catch (Exception failure) {
+          rejected++;
+          errors.add(new ErrorOutput(event, failure.getMessage()));
+          continue;
+        }
+        attempted++;
+        try {
+          Future<RecordMetadata> future = producer.send(new ProducerRecord<>(topic, key, value));
+          while (true) {
+            try {
+              future.get();
+              break;
+            } catch (InterruptedException interruption) {
+              interrupted = true;
+            }
+          }
+          acknowledged++;
+          bytes += value.length;
+          asyncDeliveredCountCounter.increase(tags);
+          asyncDeliveredSizeCounter.increase(value.length, tags);
+        } catch (Exception failure) {
+          errors.add(new ErrorOutput(event, failure.getMessage()));
+        }
+      }
+    } catch (io.fleak.zephflow.api.execution.ExecutionStoppedException failure) {
+      stopped = failure;
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
+    }
+    var outcome =
+        io.fleak.zephflow.api.execution.EffectOutcome.counted(
+            (long) attempted,
+            (long) acknowledged,
+            (long) rejected,
+            (long) attempted - acknowledged,
+            (long) input.preparedList().size() - attempted,
+            "broker_ack");
+    var result = new SimpleSinkCommand.FlushResult(acknowledged, bytes, errors, outcome);
+    if (stopped != null)
+      throw new io.fleak.zephflow.lib.commands.sink.BoundedFlushException(result, stopped);
+    return result;
+  }
+
   @Override
   public void close() {
     if (closed) {
@@ -268,7 +340,8 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     closed = true;
     // Bound shutdown: a wedged producer (e.g. broker unreachable) must not hang terminate()
     // indefinitely while it retries to flush undelivered records.
-    producer.close(Duration.ofSeconds(10));
+    if (bounded) producer.close();
+    else producer.close(Duration.ofSeconds(10));
     log.info("KafkaSinkFlusher closed successfully");
   }
 

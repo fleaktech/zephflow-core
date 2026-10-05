@@ -26,7 +26,7 @@ public class SampleConfigValidator implements ConfigValidator {
     for (int i = 0; i < rules.size(); i++) {
       String condition = rules.get(i).condition();
       if (condition != null) {
-        SampleCondition.closeAll(List.of(SampleCondition.compile(condition, i)));
+        SampleCondition.closeAll(List.of(SampleCondition.compile(condition, i, jobContext)));
       }
     }
   }

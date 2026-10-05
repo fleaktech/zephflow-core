@@ -17,6 +17,8 @@ import static java.time.temporal.ChronoUnit.MINUTES;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import io.fleak.zephflow.lib.utils.SecurityUtils;
 import java.io.IOException;
@@ -87,6 +89,54 @@ public class SimpleHttpClient {
       @NonNull List<String> headerEntries,
       @NonNull HttpClient.Version version)
       throws IOException, InterruptedException {
+    return httpClient.send(
+        buildBytesRequest(url, method, requestBodyBytes, headerEntries, version), handler);
+  }
+
+  /**
+   * Sends one bounded bytes request. Local validation finishes before the final stop check and
+   * attempt callback; only entering the underlying send admits an uncertain remote operation.
+   */
+  public HttpResponse<String> sendHttpBytes(
+      @NonNull String url,
+      @NonNull HttpMethodType method,
+      @NonNull byte[] requestBodyBytes,
+      @NonNull List<String> headerEntries,
+      @NonNull HttpClient.Version version,
+      @NonNull ExecutionHooks hooks,
+      @NonNull Runnable onAttempt)
+      throws IOException, InterruptedException {
+    HttpRequest request;
+    try {
+      request = buildBytesRequest(url, method, requestBodyBytes, headerEntries, version);
+    } catch (RuntimeException rejected) {
+      checkBoundedSendAllowed(hooks);
+      throw new LocalRequestRejectedException();
+    }
+    checkBoundedSendAllowed(hooks);
+    onAttempt.run();
+    return httpClient.send(request, handler);
+  }
+
+  private static void checkBoundedSendAllowed(ExecutionHooks hooks) throws InterruptedException {
+    hooks.control().checkpoint();
+    if (Thread.currentThread().isInterrupted())
+      throw new InterruptedException("HTTP request interrupted before send");
+  }
+
+  /** A request rejected by local validation before any HTTP attempt, with safe diagnostics. */
+  public static final class LocalRequestRejectedException extends RuntimeException {
+    private LocalRequestRejectedException() {
+      super("HTTP request failed local preparation or access validation");
+    }
+  }
+
+  private static HttpRequest buildBytesRequest(
+      String url,
+      HttpMethodType method,
+      byte[] requestBodyBytes,
+      List<String> headerEntries,
+      HttpClient.Version version) {
     if (!SecurityUtils.isUrlAllowed(url)) {
       throw new SecurityException("Unauthorized URL access: " + url);
     }
@@ -97,7 +147,37 @@ public class SimpleHttpClient {
             .timeout(DEFAULT_HTTP_TIMEOUT)
             .method(method.toString(), HttpRequest.BodyPublishers.ofByteArray(requestBodyBytes));
     parseHeaders(headerEntries).forEach(requestBuilder::header);
-    return httpClient.send(requestBuilder.build(), handler);
+    return requestBuilder.build();
+  }
+
+  /** One bounded attempt: no retry, protocol fallback, or request/provider logging. */
+  public String callHttpEndpoint(
+      @NonNull String url,
+      @NonNull HttpMethodType method,
+      String requestBody,
+      @NonNull List<String> headerEntries,
+      ExecutionHooks hooks) {
+    if (hooks == null) return callHttpEndpoint(url, method, requestBody, headerEntries);
+    if (!SecurityUtils.isUrlAllowed(url)) {
+      throw new SecurityException("Unauthorized URL access: " + url);
+    }
+    HttpRequest request =
+        buildRequest(
+            url, method, requestBody, parseHeaders(headerEntries), HttpClient.Version.HTTP_2);
+    hooks.control().checkpoint();
+    if (Thread.currentThread().isInterrupted()) throw new ExecutionStoppedException("INTERRUPTED");
+    HttpResponse<String> response;
+    try {
+      response = httpClient.send(request, handler);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new ExecutionStoppedException("INTERRUPTED", interrupted);
+    } catch (IOException failure) {
+      throw new RuntimeException("HTTP request failed", failure);
+    }
+    if (response.statusCode() >= 400)
+      throw new RuntimeException("HTTP request failed with status " + response.statusCode());
+    return response.body();
   }
 
   public String callHttpEndpointNoSecureCheck(

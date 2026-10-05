@@ -140,6 +140,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       try {
         long totalSize = 0;
         for (int i = 0; i < tempFiles.size(); i++) {
+          if (boundedHooks != null) boundedHooks.control().checkpoint();
           File tempFile = tempFiles.get(i);
           String s3Key =
               tempFiles.size() == 1
@@ -155,7 +156,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             bucketName);
         return new SimpleSinkCommand.FlushResult(recordCount, totalSize, List.of());
       } catch (Exception e) {
-        if (attempt >= MAX_WRITE_RETRIES) {
+        if (boundedHooks != null || attempt >= MAX_WRITE_RETRIES) {
           throw e;
         }
         log.warn(
@@ -205,7 +206,8 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       try {
         dlqWriter.close();
       } catch (Exception e) {
-        log.warn("Failed to close DLQ writer", e);
+        if (boundedHooks != null) log.warn("Bounded S3 DLQ cleanup failed");
+        else log.warn("Failed to close DLQ writer", e);
       }
     }
     cleanupTempDirectory();
@@ -217,7 +219,8 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
         FileUtils.deleteDirectory(tempDirectory.toFile());
         log.debug("Cleaned up temp directory: {}", tempDirectory);
       } catch (IOException e) {
-        log.warn("Failed to cleanup temp directory: {}", tempDirectory, e);
+        if (boundedHooks != null) log.warn("Bounded S3 temporary directory cleanup failed");
+        else log.warn("Failed to cleanup temp directory: {}", tempDirectory, e);
       }
     }
   }

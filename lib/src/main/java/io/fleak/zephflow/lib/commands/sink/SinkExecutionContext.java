@@ -57,12 +57,20 @@ public record SinkExecutionContext<T>(
   }
 
   @Override
-  public void close() throws IOException {
-    if (flusher != null) {
-      flusher.close();
+  public void abort() throws IOException {
+    try {
+      if (flusher != null) flusher.abort();
+    } finally {
+      if (storeForward != null) storeForward.close();
     }
-    if (storeForward != null) {
-      storeForward.close();
+  }
+
+  @Override
+  public void close() throws IOException {
+    try {
+      if (flusher != null) flusher.close();
+    } finally {
+      if (storeForward != null) storeForward.close();
     }
   }
 }

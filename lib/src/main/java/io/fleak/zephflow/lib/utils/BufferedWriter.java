@@ -259,4 +259,19 @@ public class BufferedWriter<T> implements Closeable {
     // Final flush
     flush();
   }
+
+  /** Stops scheduled work and discards buffered records without invoking the flush handler. */
+  public synchronized void abort() {
+    if (closed) return;
+    closed = true;
+    if (flushTask != null) {
+      flushTask.cancel(true);
+      flushTask = null;
+    }
+    ExecutorShutdown.awaitExit(scheduler, true);
+    scheduler = null;
+    synchronized (bufferLock) {
+      buffer.clear();
+    }
+  }
 }

@@ -27,13 +27,23 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public record DatabricksSqlExecutor(
-    WorkspaceClient workspaceClient, String warehouseId, long maxWaitMs) {
+    WorkspaceClient workspaceClient, String warehouseId, long maxWaitMs, boolean bounded) {
 
   private static final int SLEEP_TIME_MS = 5000;
   private static final long DEFAULT_MAX_WAIT_MS = 30 * 60 * 1000L;
 
   public DatabricksSqlExecutor(WorkspaceClient workspaceClient, String warehouseId) {
-    this(workspaceClient, warehouseId, DEFAULT_MAX_WAIT_MS);
+    this(workspaceClient, warehouseId, DEFAULT_MAX_WAIT_MS, false);
+  }
+
+  public DatabricksSqlExecutor(
+      WorkspaceClient workspaceClient, String warehouseId, long maxWaitMs) {
+    this(workspaceClient, warehouseId, maxWaitMs, false);
+  }
+
+  public DatabricksSqlExecutor(
+      WorkspaceClient workspaceClient, String warehouseId, boolean bounded) {
+    this(workspaceClient, warehouseId, DEFAULT_MAX_WAIT_MS, bounded);
   }
 
   public void validateCopyInto(
@@ -107,7 +117,8 @@ public record DatabricksSqlExecutor(
 
   private StatementResponse executeStatement(
       String sql, boolean validation, LongSupplier clock, Sleeper sleeper) {
-    log.info("Executing COPY INTO SQL:\n{}", sql);
+    if (bounded) log.info("Executing bounded Databricks COPY operation");
+    else log.info("Executing COPY INTO SQL:\n{}", sql);
     ExecuteStatementRequest request =
         new ExecuteStatementRequest()
             .setWarehouseId(warehouseId)

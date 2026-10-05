@@ -23,7 +23,9 @@ import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import lombok.NonNull;
 
 /** Created by bolei on 4/8/25 */
@@ -52,6 +54,49 @@ public class DagRunnerService {
   public NoSourceDagRunner createForTestRun(
       List<AdjacencyListDagDefinition.DagNode> dag, @NonNull JobContext jobContext) {
     return create(dag, jobContext, true);
+  }
+
+  /**
+   * Compiles a prepared bounded graph. Source and skipped nodes must already be replaced by safe
+   * boundaries; actual source constructors and validators are never used by this entry point.
+   */
+  public NoSourceDagRunner createForBoundedRun(
+      List<AdjacencyListDagDefinition.DagNode> dag,
+      JobContext jobContext,
+      BoundedDefinition definition) {
+    Objects.requireNonNull(definition);
+    var properties = new HashMap<>(jobContext.getOtherProperties());
+    properties.put(JobContext.FLAG_BOUNDED_MODE, true);
+    properties.put(JobContext.FLAG_TEST_MODE, false);
+    JobContext boundedContext =
+        new JobContext(properties, jobContext.getMetricTags(), jobContext.getLogLevel(), null);
+    for (var node : dag) {
+      var factory = dagCompiler.commandFactoryMap().get(node.getCommandName());
+      if (factory != null && factory.commandType() == io.fleak.zephflow.api.CommandType.SOURCE) {
+        throw new IllegalArgumentException(
+            "Stored execution requires a source OUTPUT boundary: " + node.getId());
+      }
+      if (definition.boundaries().containsKey(node.getId())
+          && !"noop".equals(node.getCommandName())) {
+        throw new IllegalArgumentException(
+            "Bounded boundary must be a prepared noop: " + node.getId());
+      }
+    }
+    AdjacencyListDagDefinition dagDefinition =
+        AdjacencyListDagDefinition.builder().jobContext(boundedContext).dag(dag).build();
+    Dag<OperatorCommand> compiled = dagCompiler.compile(dagDefinition, false);
+    definition.boundaries().keySet().forEach(compiled::lookupNode);
+    definition.externalNodeIds().forEach(compiled::lookupNode);
+    for (var node : compiled.getNodes()) {
+      if (node.getNodeContent() instanceof SourceCommand) {
+        throw new IllegalArgumentException(
+            "Stored execution requires a source OUTPUT boundary: " + node.getId());
+      }
+    }
+    DagRunCounters counters =
+        DagRunCounters.createPipelineCounters(metricClientProvider, boundedContext.getMetricTags());
+    return new NoSourceDagRunner(
+        List.of(), compiled, metricClientProvider, counters, false, definition);
   }
 
   private NoSourceDagRunner create(

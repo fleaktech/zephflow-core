@@ -87,11 +87,13 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
   /** Initialize the Delta Lake writer. Must be called before using flush(). */
   public synchronized void initialize() {
     if (initialized) {
-      log.warn("Delta Lake writer already initialized for path: {}", config.getTablePath());
+      if (boundedHooks != null) log.warn("Bounded Delta Lake writer already initialized");
+      else log.warn("Delta Lake writer already initialized for path: {}", config.getTablePath());
       return;
     }
 
-    log.info("Initializing Delta Lake writer for path: {}", config.getTablePath());
+    if (boundedHooks == null)
+      log.info("Initializing Delta Lake writer for path: {}", config.getTablePath());
 
     // Initialize Hadoop configuration
     Configuration hadoopConf = new Configuration();
@@ -115,15 +117,17 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     try {
       this.table = Table.forPath(engine, config.getTablePath());
       snapshot = table.getLatestSnapshot(engine);
-      log.info("Loaded existing Delta table at path: {}", config.getTablePath());
+      if (boundedHooks == null)
+        log.info("Loaded existing Delta table at path: {}", config.getTablePath());
     } catch (Exception e) {
       String errorMessage =
           String.format(
-              "Delta table does not exist at path: %s. "
-                  + "This sink requires pre-existing tables and does not support automatic table creation. "
-                  + "Please create the Delta table first before using this sink.",
+              "Delta table does not exist at path: %s. This sink requires pre-existing tables and"
+                  + " does not support automatic table creation. Please create the Delta table"
+                  + " first before using this sink.",
               config.getTablePath());
-      log.error(errorMessage, e);
+      if (boundedHooks != null) log.error("Bounded Delta Lake initialization failed");
+      else log.error(errorMessage, e);
       throw new IllegalStateException(errorMessage, e);
     }
 
@@ -152,12 +156,14 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
                   + "This could cause data corruption. "
                   + "Please reconcile the configuration with the actual table schema.",
               configPartitionColumns, tablePartitionColumns);
-      log.error(errorMessage);
+      if (boundedHooks != null) log.error("Bounded Delta Lake schema validation failed");
+      else log.error(errorMessage);
       throw new IllegalStateException(errorMessage);
     }
-    log.info(
-        "Partition columns validated: {}",
-        tablePartitionColumns.isEmpty() ? "(none - unpartitioned)" : tablePartitionColumns);
+    if (boundedHooks == null)
+      log.info(
+          "Partition columns validated: {}",
+          tablePartitionColumns.isEmpty() ? "(none - unpartitioned)" : tablePartitionColumns);
 
     // Cache partition column types for O(1) lookup during partitioning
     this.partitionColumnTypes = buildPartitionColumnTypeCache();
@@ -179,14 +185,20 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
               thread.setDaemon(true);
               return thread;
             },
-            (r, executor) ->
-                log.warn(
-                    "Checkpoint task rejected for path: {} - previous checkpoint still running. "
-                        + "Table remains consistent, but checkpoints are falling behind.",
-                    config.getTablePath()));
+            (r, executor) -> {
+              if (boundedHooks != null) {
+                throw new RejectedExecutionException(
+                    "Delta Lake checkpoint could not be scheduled");
+              }
+              log.warn(
+                  "Checkpoint task rejected for path: {} - previous checkpoint still running. "
+                      + "Table remains consistent, but checkpoints are falling behind.",
+                  config.getTablePath());
+            });
 
     this.initialized = true;
-    log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
+    if (boundedHooks == null)
+      log.info("Delta Lake writer initialization completed for path: {}", config.getTablePath());
 
     super.initialize();
   }
@@ -256,7 +268,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
     log.debug("Starting Delta Lake write operation for {} records", dataToWrite.size());
 
     // Use cached schema from config
-    log.debug("Using table schema: {}", this.tableSchema);
+    if (boundedHooks == null) log.debug("Using table schema: {}", this.tableSchema);
 
     // Step 2: Create transaction
     Transaction transaction = createTransaction(table);
@@ -271,6 +283,7 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       // Step 5: Process each partition separately
       for (Map.Entry<Map<String, Literal>, List<Map<String, Object>>> partition :
           partitionedData.entrySet()) {
+        if (boundedHooks != null) boundedHooks.control().checkpoint();
         Map<String, Literal> partitionValues = partition.getKey();
         List<Map<String, Object>> partitionData = partition.getValue();
 
@@ -287,15 +300,18 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
           e.addSuppressed(closeEx);
         }
       }
-      log.error("Error during processing partitions", e);
+      if (boundedHooks != null) log.error("Bounded Delta Lake partition processing failed");
+      else log.error("Error during processing partitions", e);
       throw e;
     }
 
     // Step 6: Combine all data action iterators into a single stream and commit
     log.info("Committing transaction with data for {} records", dataToWrite.size());
 
+    SimpleSinkCommand.FlushResult committedReceipt = null;
     try (CloseableIterator<Row> allActionsIterator =
         new CombinedCloseableIterator<>(dataActionIterators)) {
+      if (boundedHooks != null) boundedHooks.control().checkpoint();
       TransactionCommitResult commitResult =
           transaction.commit(
               engine,
@@ -312,9 +328,12 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
               });
 
       log.info(
-          "Delta Lake write operation completed successfully for {} records, committed as version {}",
+          "Delta Lake write operation completed successfully for {} records, committed as version"
+              + " {}",
           dataToWrite.size(),
           commitResult.getVersion());
+      committedReceipt =
+          new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
 
       if (config.isEnableAutoCheckpoint()) {
         createCheckpointIfReady(commitResult);
@@ -322,7 +341,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
       return new SimpleSinkCommand.FlushResult(dataToWrite.size(), totalDataSize, List.of());
     } catch (Exception e) {
-      log.error("Error during Delta Lake write operation", e);
+      if (boundedHooks != null && committedReceipt != null) {
+        throw new io.fleak.zephflow.lib.commands.sink.BoundedFlushException(committedReceipt, e);
+      }
+      if (boundedHooks != null) log.error("Bounded Delta Lake write failed");
+      else log.error("Error during Delta Lake write operation", e);
       throw e;
     }
   }
@@ -380,10 +403,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       partitionedData.computeIfAbsent(partitionValues, k -> new ArrayList<>()).add(record);
     }
 
-    log.debug(
-        "Data partitioned into {} partitions based on columns: {}",
-        partitionedData.size(),
-        partitionColumns);
+    if (boundedHooks == null)
+      log.debug(
+          "Data partitioned into {} partitions based on columns: {}",
+          partitionedData.size(),
+          partitionColumns);
 
     return partitionedData;
   }
@@ -471,6 +495,27 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
     long version = commitResult.getVersion();
 
+    if (boundedHooks != null) {
+      boundedHooks.control().checkpoint();
+      checkpointExecutor.submit(
+          () ->
+              boundedHooks
+                  .backgroundWork()
+                  .run(
+                      () -> {
+                        for (PostCommitHook hook : checkpointHooks) {
+                          boundedHooks.control().checkpoint();
+                          try {
+                            hook.threadSafeInvoke(engine);
+                          } catch (Exception failure) {
+                            throw new IllegalStateException(
+                                "Delta Lake checkpoint failed at version " + version, failure);
+                          }
+                        }
+                      }));
+      return;
+    }
+
     // Submit checkpoint work to background thread to avoid blocking data processing
     checkpointExecutor.submit(
         () -> {
@@ -500,6 +545,12 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
 
   @Override
   public void close() throws IOException {
+    if (boundedHooks != null) {
+      discardPendingRecords();
+      io.fleak.zephflow.lib.utils.ExecutorShutdown.awaitExit(checkpointExecutor, false);
+      if (dlqWriter != null) dlqWriter.close();
+      return;
+    }
     log.info("Closing Delta Lake writer for path: {}", config.getTablePath());
 
     stopFlushTimer();
@@ -548,6 +599,13 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       checkpointExecutor.shutdownNow();
       Thread.currentThread().interrupt();
     }
+  }
+
+  @Override
+  public void abort() throws IOException {
+    discardPendingRecords();
+    io.fleak.zephflow.lib.utils.ExecutorShutdown.awaitExit(checkpointExecutor, true);
+    if (dlqWriter != null) dlqWriter.close();
   }
 
   /**
@@ -633,7 +691,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
                   + "This could cause data corruption. "
                   + "Please reconcile the configuration with the actual table schema.",
               config.getTablePath(), String.join("; ", errors));
-      log.error(errorMessage);
+      if (boundedHooks != null) log.error("Bounded Delta Lake schema validation failed");
+      else log.error(errorMessage);
       throw new IllegalStateException(errorMessage);
     }
   }
@@ -665,7 +724,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       if (!tableArray.containsNull() && configArray.containsNull()) {
         errors.add(
             String.format(
-                "Array '%s' element nullability mismatch: table elements are non-nullable but config allows null elements",
+                "Array '%s' element nullability mismatch: table elements are non-nullable but"
+                    + " config allows null elements",
                 fieldPath));
       }
       validateNestedNullability(
@@ -677,7 +737,8 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       if (!tableMap.isValueContainsNull() && configMap.isValueContainsNull()) {
         errors.add(
             String.format(
-                "Map '%s' value nullability mismatch: table values are non-nullable but config allows null values",
+                "Map '%s' value nullability mismatch: table values are non-nullable but config"
+                    + " allows null values",
                 fieldPath));
       }
       validateNestedNullability(
@@ -699,10 +760,11 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
       StructType tableSchema)
       throws Exception {
 
-    log.debug(
-        "Processing partition with {} records, partition values: {}",
-        partitionData.size(),
-        partitionValues);
+    if (boundedHooks == null)
+      log.debug(
+          "Processing partition with {} records, partition values: {}",
+          partitionData.size(),
+          partitionValues);
 
     // Convert data to columnar format
     try (CloseableIterator<FilteredColumnarBatch> columnarData =

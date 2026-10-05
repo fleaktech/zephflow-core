@@ -66,5 +66,7 @@ public class ThrottleExecutionContext extends DefaultExecutionContext {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    keyEvaluator.close();
+  }
 }

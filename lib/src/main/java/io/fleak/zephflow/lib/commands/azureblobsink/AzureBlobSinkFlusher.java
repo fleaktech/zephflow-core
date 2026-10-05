@@ -47,6 +47,23 @@ public class AzureBlobSinkFlusher implements SimpleSinkCommand.Flusher<AzureBlob
       SimpleSinkCommand.PreparedInputEvents<AzureBlobOutboundMessage> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, false);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<AzureBlobOutboundMessage> preparedInputEvents,
+      Map<String, String> metricTags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(preparedInputEvents.preparedList().size(), hooks);
+    return flushInternal(preparedInputEvents, true);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<AzureBlobOutboundMessage> preparedInputEvents,
+      boolean bounded)
+      throws Exception {
     List<AzureBlobOutboundMessage> messages = preparedInputEvents.preparedList();
     if (messages.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
@@ -70,7 +87,7 @@ public class AzureBlobSinkFlusher implements SimpleSinkCommand.Flusher<AzureBlob
       log.debug("Uploaded {} events to Azure Blob Storage as: {}", messages.size(), blobName);
       return new SimpleSinkCommand.FlushResult(messages.size(), bytes.length, List.of());
     } catch (Exception e) {
-      log.error("Failed to upload blob: {}", blobName, e);
+      if (!bounded) log.error("Failed to upload blob: {}", blobName, e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()
               .map(p -> new ErrorOutput(p.getLeft(), "Azure Blob upload failed: " + e.getMessage()))

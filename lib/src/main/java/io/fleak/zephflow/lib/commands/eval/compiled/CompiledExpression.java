@@ -19,14 +19,22 @@ import io.fleak.zephflow.api.structure.FleakData;
  * Entry point for compiled expression evaluation. Holds the root AST node and provides methods to
  * evaluate against input events.
  */
-public record CompiledExpression(ExpressionNode root) {
+public record CompiledExpression(ExpressionNode root, boolean boundedDiagnostics) {
+
+  public CompiledExpression(ExpressionNode root) {
+    this(root, false);
+  }
+
+  public CompiledExpression withBoundedDiagnostics(boolean bounded) {
+    return new CompiledExpression(root, bounded);
+  }
 
   public FleakData evaluate(FleakData event) {
     return evaluate(event, false);
   }
 
   public FleakData evaluate(FleakData event, boolean lenient) {
-    EvalContext ctx = EvalContext.create(event, lenient);
+    EvalContext ctx = EvalContext.create(event, lenient, boundedDiagnostics);
     return root.evaluate(ctx);
   }
 }

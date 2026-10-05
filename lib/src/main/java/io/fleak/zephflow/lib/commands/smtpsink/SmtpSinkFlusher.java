@@ -47,6 +47,22 @@ public class SmtpSinkFlusher implements SimpleSinkCommand.Flusher<PreparedEmail>
       SimpleSinkCommand.PreparedInputEvents<PreparedEmail> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, false);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<PreparedEmail> preparedInputEvents,
+      Map<String, String> metricTags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(preparedInputEvents.preparedList().size(), hooks);
+    return flushInternal(preparedInputEvents, true);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<PreparedEmail> preparedInputEvents, boolean bounded)
+      throws Exception {
 
     if (closed) {
       throw new IllegalStateException("SmtpSinkFlusher is closed");
@@ -73,7 +89,7 @@ public class SmtpSinkFlusher implements SimpleSinkCommand.Flusher<PreparedEmail>
         sentCount++;
         totalSize += messageSizeBytes(email);
       } catch (Exception e) {
-        log.error("Failed to send email to {}", email.to(), e);
+        if (!bounded) log.error("Failed to send email to {}", email.to(), e);
         errorOutputs.add(new ErrorOutput(rawEvent, e.getMessage()));
       }
     }

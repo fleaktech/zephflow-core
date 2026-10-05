@@ -1,5 +1,10 @@
 dependencies {
   api project(":lib")
+  testImplementation libs.delta.kernel.api
+  testImplementation libs.delta.kernel.defaults
+  testImplementation(libs.hadoop.common) {
+    exclude group: 'org.slf4j', module: 'slf4j-reload4j'
+  }
 }
 
 tasks.named('test') {

@@ -30,6 +30,37 @@ import org.junit.jupiter.api.Test;
 
 class AzureMonitorSinkFlusherTest {
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(ints = {400, 401, 403, 429, 408, 500})
+  void boundedNegativeReceiptIsDistinctFromUnknownOutcome(int status) throws Exception {
+    when(mockTokenProvider.getToken()).thenReturn("token");
+    when(mockResponse.statusCode()).thenReturn(status);
+    when(mockResponse.body()).thenReturn("provider response");
+    when(mockHttpClient.send(
+            any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
+        .thenReturn(mockResponse);
+    var events = new SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent>();
+    events.add(
+        new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello"))),
+        new AzureMonitorSinkOutboundEvent("{}"));
+    var result =
+        flusher.flushBounded(
+            events,
+            Map.of(),
+            new io.fleak.zephflow.api.execution.ExecutionHooks(() -> {}, mock(), Runnable::run));
+    var outcome = result.boundedOutcome(1);
+    boolean rejected = status < 500 && status != 408;
+    assertEquals(1L, outcome.attemptedCount());
+    assertEquals(rejected ? 1L : 0L, outcome.definiteFailureCount());
+    assertEquals(rejected ? 0L : 1L, outcome.unknownCount());
+    assertEquals(
+        rejected
+            ? io.fleak.zephflow.api.execution.EffectOutcome.Delivery.FAILED
+            : io.fleak.zephflow.api.execution.EffectOutcome.Delivery.UNKNOWN,
+        outcome.delivery());
+    verify(mockHttpClient).send(any(), any());
+  }
+
   private HttpClient mockHttpClient;
   private HttpResponse<String> mockResponse;
   private EntraIdTokenProvider mockTokenProvider;

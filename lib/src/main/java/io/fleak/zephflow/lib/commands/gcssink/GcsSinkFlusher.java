@@ -48,6 +48,23 @@ public class GcsSinkFlusher implements SimpleSinkCommand.Flusher<GcsOutboundMess
       SimpleSinkCommand.PreparedInputEvents<GcsOutboundMessage> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, false);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<GcsOutboundMessage> preparedInputEvents,
+      Map<String, String> metricTags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(preparedInputEvents.preparedList().size(), hooks);
+    return flushInternal(preparedInputEvents, true);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<GcsOutboundMessage> preparedInputEvents,
+      boolean bounded)
+      throws Exception {
     List<GcsOutboundMessage> messages = preparedInputEvents.preparedList();
     if (messages.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
@@ -74,7 +91,7 @@ public class GcsSinkFlusher implements SimpleSinkCommand.Flusher<GcsOutboundMess
       log.debug("Uploaded {} events to GCS as: {}", messages.size(), objectName);
       return new SimpleSinkCommand.FlushResult(messages.size(), bytes.length, List.of());
     } catch (Exception e) {
-      log.error("Failed to upload to GCS: {}", objectName, e);
+      if (!bounded) log.error("Failed to upload to GCS: {}", objectName, e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()
               .map(p -> new ErrorOutput(p.getLeft(), "GCS upload failed: " + e.getMessage()))

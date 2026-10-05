@@ -74,24 +74,28 @@ public class SampleCommand extends ScalarCommand implements EndOfInputFlushable,
         SampleCommandDto.Rule rule = config.rules().get(i);
         SampleCondition condition = null;
         if (rule.condition() != null) {
-          condition = SampleCondition.compile(rule.condition(), i);
+          condition = SampleCondition.compile(rule.condition(), i, jobContext);
           conditions.add(condition);
         }
         rules.add(
             new RuleState(condition == null ? null : condition.expression(), rule.sampleRate()));
       }
-    } catch (RuntimeException e) {
-      SampleCondition.closeAll(conditions);
-      throw e;
+      return new SampleExecutionContext(
+          metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags),
+          metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_COUNT, metricTags),
+          metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags),
+          metricClientProvider.counter(SAMPLE_DROPPED_COUNT, metricTags),
+          rules,
+          config.sampleRateField(),
+          conditions);
+    } catch (RuntimeException | Error primary) {
+      try {
+        SampleCondition.closeAll(conditions);
+      } catch (RuntimeException cleanup) {
+        primary.addSuppressed(cleanup);
+      }
+      throw primary;
     }
-    return new SampleExecutionContext(
-        metricClientProvider.counter(METRIC_NAME_INPUT_EVENT_COUNT, metricTags),
-        metricClientProvider.counter(METRIC_NAME_OUTPUT_EVENT_COUNT, metricTags),
-        metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags),
-        metricClientProvider.counter(SAMPLE_DROPPED_COUNT, metricTags),
-        rules,
-        config.sampleRateField(),
-        conditions);
   }
 
   @Override
