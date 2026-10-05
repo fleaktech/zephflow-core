@@ -73,6 +73,7 @@ public class SQLEvalCommand extends ScalarCommand {
   @Override
   public ScalarCommand.ProcessResult process(
       List<RecordFleakData> events, String callingUser, ExecutionContext context) {
+    executionCheckpoint();
     Map<String, String> callingUserTagAndEventTags =
         getCallingUserTagAndEventTags(callingUser, events.isEmpty() ? null : events.getFirst());
     SqlExecutionContext sqlContext = (SqlExecutionContext) context;
@@ -92,15 +93,19 @@ public class SQLEvalCommand extends ScalarCommand {
                       Map.of(RECORD_TABLE_NAME, recordsTable, EVENT_TABLE_NAME_ALIAS, eventsTable)),
                   sqlContext.getQuery())
               .map(Row::asMap)
+              .peek(ignored -> executionCheckpoint())
               .map(m -> (RecordFleakData) FleakData.wrap(m))
               .toList();
+      executionCheckpoint();
       sqlContext.getOutputMessageCounter().increase(output.size(), callingUserTagAndEventTags);
       return new ProcessResult(output, List.of());
+    } catch (io.fleak.zephflow.api.execution.ExecutionStoppedException e) {
+      throw e;
     } catch (Exception e) {
       sqlContext.getErrorCounter().increase(events.size(), callingUserTagAndEventTags);
       List<ErrorOutput> errorOutputs =
           events.stream().map(event -> new ErrorOutput(event, e.getMessage())).toList();
-      return new ProcessResult(List.of(), errorOutputs);
+      return new ProcessResult(List.of(), errorOutputs, executionHooks == null ? null : e);
     }
   }
 

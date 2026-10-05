@@ -15,6 +15,7 @@ package io.fleak.zephflow.runner;
 
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.CommandType;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.runner.dag.*;
 import java.util.List;
@@ -78,6 +79,20 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                         .id(n.getId())
                         .build();
                   } catch (Exception e) {
+                    if (jobContext != null
+                        && jobContext.getOtherProperties() != null
+                        && Boolean.TRUE.equals(
+                            jobContext.getOtherProperties().get(JobContext.FLAG_BOUNDED_MODE))) {
+                      String failureType = e.getClass().getSimpleName();
+                      log.warn(
+                          "bounded DAG compilation failed at node {}: {}", n.getId(), failureType);
+                      throw new DagCompilationException(
+                          DagCompilationException.ErrorType.NODE_COMPILATION,
+                          n.getId(),
+                          rdn.getCommandName(),
+                          "failed to compile DAG node " + n.getId() + ": " + failureType,
+                          null);
+                    }
                     // config errors are expected user-input failures; the exception is wrapped
                     // and rethrown for the caller to handle, so don't log at ERROR
                     log.warn(

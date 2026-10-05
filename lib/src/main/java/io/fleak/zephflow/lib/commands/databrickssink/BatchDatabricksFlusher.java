@@ -20,12 +20,15 @@ import com.google.common.base.Preconditions;
 import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
 import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
 import io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.File;
@@ -67,15 +70,17 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     this.config = config;
     schema = AvroToDeltaSchemaConverter.parse(config.getAvroSchema());
     this.parquetWriter = new DatabricksParquetWriter(schema);
-    this.volumeUploader = new DatabricksVolumeUploader(workspaceClient);
-    this.sqlExecutor = new DatabricksSqlExecutor(workspaceClient, config.getWarehouseId());
+    this.volumeUploader = new DatabricksVolumeUploader(workspaceClient, boundedHooks != null);
+    this.sqlExecutor =
+        new DatabricksSqlExecutor(workspaceClient, config.getWarehouseId(), boundedHooks != null);
     this.tempDirectory = tempDirectory;
 
-    log.info(
-        "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms, table={}",
-        config.getBatchSize(),
-        config.getFlushIntervalMillis(),
-        config.getTableName());
+    if (boundedHooks == null)
+      log.info(
+          "BatchDatabricksFlusher initialized: batchSize={}, flushInterval={}ms, table={}",
+          config.getBatchSize(),
+          config.getFlushIntervalMillis(),
+          config.getTableName());
   }
 
   // Package-private constructor for testing with injected dependencies (no timer, no test mode)
@@ -92,7 +97,36 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       @NonNull FleakCounter outputSizeCounter,
       @NonNull FleakCounter sinkErrorCounter,
       String nodeId) {
-    super(dlqWriter, null, nodeId, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+    this(
+        config,
+        parquetWriter,
+        volumeUploader,
+        sqlExecutor,
+        tempDirectory,
+        dlqWriter,
+        schema,
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter,
+        nodeId,
+        null);
+  }
+
+  @VisibleForTesting
+  BatchDatabricksFlusher(
+      DatabricksSinkDto.Config config,
+      DatabricksParquetWriter parquetWriter,
+      DatabricksVolumeUploader volumeUploader,
+      DatabricksSqlExecutor sqlExecutor,
+      Path tempDirectory,
+      DlqWriter dlqWriter,
+      StructType schema,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter,
+      String nodeId,
+      JobContext jobContext) {
+    super(dlqWriter, jobContext, nodeId, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
     this.config = config;
     this.parquetWriter = parquetWriter;
     this.volumeUploader = volumeUploader;
@@ -162,9 +196,13 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     for (int index = 0; index < batch.size(); index++) {
       records.add(new IndexedRecord(index, batch.get(index)));
     }
-    FlushAccumulator accumulator = new FlushAccumulator(batch.size());
-    if (!writeAndDeliver(records, UUID.randomUUID().toString(), accumulator)) {
-      accumulator.fail(records, "Delivery not attempted after an operational failure");
+    FlushAccumulator accumulator = new FlushAccumulator(batch.size(), boundedHooks != null);
+    try {
+      if (!writeAndDeliver(records, UUID.randomUUID().toString(), accumulator)) {
+        accumulator.fail(records, "Delivery not attempted after an operational failure");
+      }
+    } catch (ExecutionStoppedException stopped) {
+      throw new BoundedFlushException(accumulator.result(), stopped);
     }
     return accumulator.result();
   }
@@ -181,8 +219,11 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
           prepared.stream().flatMap(files -> files.records().stream()).toList();
       return validRecords.isEmpty()
           || deliverPrepared(validRecords, prepared, batchId, accumulator);
+    } catch (ExecutionStoppedException stopped) {
+      throw stopped;
     } catch (Exception failure) {
-      log.error("Parquet generation failed for batch {}", batchId, failure);
+      if (boundedHooks != null) log.error("Bounded Databricks Parquet generation failed");
+      else log.error("Parquet generation failed for batch {}", batchId, failure);
       accumulator.fail(records, "Parquet generation failed: " + failure.getMessage());
       return false;
     } finally {
@@ -218,7 +259,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
         throw failure;
       }
       if (records.size() == 1) {
-        accumulator.fail(records, "Parquet conversion failed: " + failure.getMessage());
+        accumulator.reject(records, "Parquet conversion failed: " + failure.getMessage());
         return;
       }
     }
@@ -254,24 +295,28 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       List<PreparedFiles> prepared,
       String batchId,
       FlushAccumulator accumulator) {
+    if (boundedHooks != null) boundedHooks.control().checkpoint();
     String attemptId = batchId + "-" + UUID.randomUUID();
     AttemptPhase phase = AttemptPhase.UPLOAD;
     boolean preserveRemoteFiles = false;
     String rejection;
     try {
       List<File> files = prepared.stream().flatMap(group -> group.files().stream()).toList();
-      UploadResult upload = uploadFilesWithRetry(files, attemptId);
+      UploadResult upload =
+          uploadFilesWithRetry(files, attemptId, () -> accumulator.attempt(records));
       if (!upload.failedFiles().isEmpty()) {
         accumulator.fail(records, "Databricks upload failed: " + upload.lastErrorMessage());
         return false;
       }
       phase = AttemptPhase.VALIDATE;
+      if (boundedHooks != null) boundedHooks.control().checkpoint();
       sqlExecutor.validateCopyInto(
           config.getTableName(),
           buildBatchDirectoryPath(attemptId) + "/*.parquet",
           config.getCopyOptions(),
           config.getFormatOptions());
       phase = AttemptPhase.COPY;
+      if (boundedHooks != null) boundedHooks.control().checkpoint();
       CopyIntoStats stats =
           sqlExecutor.executeCopyIntoWithStats(
               config.getTableName(),
@@ -294,25 +339,34 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
         preserveRemoteFiles = phase == AttemptPhase.COPY;
         accumulator.fail(records, failureMessagePrefix(phase) + failure.getMessage());
         if (preserveRemoteFiles) {
-          log.warn(
-              "Preserving COPY source: batch={}, attempt={}, statement={}, path={}",
-              batchId,
-              attemptId,
-              failure.statementId(),
-              buildBatchDirectoryPath(attemptId));
+          if (boundedHooks != null)
+            log.warn("Bounded Databricks COPY source retained after uncertain outcome");
+          else
+            log.warn(
+                "Preserving COPY source: batch={}, attempt={}, statement={}, path={}",
+                batchId,
+                attemptId,
+                failure.statementId(),
+                buildBatchDirectoryPath(attemptId));
         }
         return false;
       }
       rejection = failure.getMessage();
+    } catch (ExecutionStoppedException stopped) {
+      preserveRemoteFiles = phase == AttemptPhase.COPY;
+      throw stopped;
     } catch (Exception failure) {
       preserveRemoteFiles = phase == AttemptPhase.COPY;
       accumulator.fail(records, failureMessagePrefix(phase) + failure.getMessage());
       if (preserveRemoteFiles) {
-        log.warn(
-            "Preserving COPY source after unknown outcome: batch={}, attempt={}, path={}",
-            batchId,
-            attemptId,
-            buildBatchDirectoryPath(attemptId));
+        if (boundedHooks != null)
+          log.warn("Bounded Databricks COPY source retained after uncertain outcome");
+        else
+          log.warn(
+              "Preserving COPY source after unknown outcome: batch={}, attempt={}, path={}",
+              batchId,
+              attemptId,
+              buildBatchDirectoryPath(attemptId));
       }
       return false;
     } finally {
@@ -323,7 +377,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     }
 
     if (records.size() == 1) {
-      accumulator.fail(records, "COPY INTO validation rejected record: " + rejection);
+      accumulator.reject(records, "COPY INTO validation rejected record: " + rejection);
       return true;
     }
     int midpoint = records.size() / 2;
@@ -353,7 +407,8 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       try {
         deleteLocalDirectory(files.directory());
       } catch (Exception failure) {
-        log.warn("Failed to clean local attempt directory {}", files.directory(), failure);
+        if (boundedHooks != null) log.warn("Bounded Databricks local cleanup failed");
+        else log.warn("Failed to clean local attempt directory {}", files.directory(), failure);
       }
     }
   }
@@ -369,7 +424,8 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     }
   }
 
-  private UploadResult uploadFilesWithRetry(List<File> files, String batchId) {
+  private UploadResult uploadFilesWithRetry(
+      List<File> files, String batchId, Runnable beforeUpload) {
     List<String> uploadedPaths = new ArrayList<>();
     List<File> failedFiles = new ArrayList<>();
     String lastErrorMessage = null;
@@ -377,10 +433,14 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     for (File file : files) {
       boolean uploaded = false;
       Exception lastException = null;
+      int attemptsMade = 0;
 
       for (int attempt = 0; attempt < MAX_UPLOAD_RETRIES; attempt++) {
+        if (boundedHooks != null) boundedHooks.control().checkpoint();
+        attemptsMade++;
         try {
           String remotePath = buildRemotePath(file, batchId);
+          beforeUpload.run();
           volumeUploader.uploadFile(file, remotePath);
           uploadedPaths.add(remotePath);
           uploaded = true;
@@ -392,6 +452,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
 
         } catch (Exception e) {
           lastException = e;
+          if (boundedHooks != null) break;
           long delay = INITIAL_RETRY_DELAY_MS * (long) Math.pow(2, attempt);
 
           if (attempt < MAX_UPLOAD_RETRIES - 1) {
@@ -412,11 +473,13 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       }
 
       if (!uploaded) {
-        log.error(
-            "Failed to upload {} after {} attempts: {}",
-            file.getName(),
-            MAX_UPLOAD_RETRIES,
-            lastException.getMessage());
+        if (boundedHooks != null) log.error("Bounded Databricks upload failed");
+        else
+          log.error(
+              "Failed to upload {} after {} attempts: {}",
+              file.getName(),
+              attemptsMade,
+              lastException.getMessage());
         failedFiles.add(file);
         lastErrorMessage = lastException.getMessage();
       }
@@ -450,9 +513,10 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     try {
       String batchDirectory = buildBatchDirectoryPath(batchId);
       volumeUploader.deleteDirectory(batchDirectory);
-      log.debug("Cleaned up remote batch directory: {}", batchDirectory);
+      if (boundedHooks == null) log.debug("Cleaned up remote batch directory: {}", batchDirectory);
     } catch (Exception e) {
-      log.warn("Failed to cleanup remote batch directory {}: {}", batchId, e.getMessage());
+      if (boundedHooks != null) log.warn("Bounded Databricks remote cleanup failed");
+      else log.warn("Failed to cleanup remote batch directory {}: {}", batchId, e.getMessage());
     }
   }
 
@@ -464,6 +528,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
     closed = true;
 
     log.info("Closing BatchDatabricksFlusher...");
+    if (boundedHooks != null) discardPendingRecords();
     stopFlushTimer();
 
     List<Pair<RecordFleakData, Map<String, Object>>> snapshot = swapBufferIfNotEmpty();
@@ -490,7 +555,8 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
                     try {
                       Files.delete(path);
                     } catch (IOException e) {
-                      log.warn("Failed to delete {}", path, e);
+                      if (boundedHooks != null) log.warn("Bounded Databricks local cleanup failed");
+                      else log.warn("Failed to delete {}", path, e);
                     }
                   });
         }
@@ -514,12 +580,33 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   private static final class FlushAccumulator {
     private final boolean[] completed;
     private final ErrorOutput[] errors;
+    private final boolean bounded;
+    private final boolean[] attempted;
+    private long rejected;
+    private long attemptedRejected;
+    private boolean rowsLoadedKnown = true;
     private long rowsLoaded;
     private long bytes;
 
-    private FlushAccumulator(int size) {
+    private FlushAccumulator(int size, boolean bounded) {
       completed = new boolean[size];
       errors = new ErrorOutput[size];
+      attempted = new boolean[size];
+      this.bounded = bounded;
+    }
+
+    private void attempt(List<IndexedRecord> records) {
+      records.forEach(record -> attempted[record.index()] = true);
+    }
+
+    private void reject(List<IndexedRecord> records, String message) {
+      for (var record : records) {
+        if (!completed[record.index()]) {
+          rejected++;
+          if (attempted[record.index()]) attemptedRejected++;
+        }
+      }
+      fail(records, message);
     }
 
     private void fail(List<IndexedRecord> records, String message) {
@@ -537,13 +624,42 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
       }
       if (stats.rowsLoadedKnown()) {
         rowsLoaded += stats.rowsLoaded();
+      } else {
+        rowsLoadedKnown = false;
       }
       bytes += writtenBytes;
     }
 
     private SimpleSinkCommand.FlushResult result() {
-      return new SimpleSinkCommand.FlushResult(
-          (int) rowsLoaded, bytes, Arrays.stream(errors).filter(Objects::nonNull).toList());
+      var retainedErrors = Arrays.stream(errors).filter(Objects::nonNull).toList();
+      if (!bounded)
+        return new SimpleSinkCommand.FlushResult((int) rowsLoaded, bytes, retainedErrors);
+      long attemptedCount = 0;
+      for (int index = 0; index < attempted.length; index++) {
+        if (attempted[index]) {
+          attemptedCount++;
+        }
+      }
+      long notAttempted = attempted.length - attemptedCount;
+      // Conversion failures are definite and unsent. Other failed sends remain uncertain.
+      EffectOutcome outcome =
+          rowsLoadedKnown
+              ? EffectOutcome.counted(
+                  attemptedCount,
+                  rowsLoaded,
+                  rejected,
+                  Math.max(0, attemptedCount - rowsLoaded - attemptedRejected),
+                  notAttempted,
+                  "copy_into_rows")
+              : new EffectOutcome(
+                  attemptedCount,
+                  null,
+                  rejected,
+                  null,
+                  notAttempted,
+                  "copy_into_rows_unavailable",
+                  rowsLoaded > 0 ? EffectOutcome.Delivery.PARTIAL : EffectOutcome.Delivery.UNKNOWN);
+      return new SimpleSinkCommand.FlushResult((int) rowsLoaded, bytes, retainedErrors, outcome);
     }
   }
 

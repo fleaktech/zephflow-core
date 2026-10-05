@@ -13,9 +13,11 @@
  */
 package io.fleak.zephflow.api;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +34,7 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class JobContext implements Serializable {
   public static final String FLAG_TEST_MODE = "TEST_MODE";
+  public static final String FLAG_BOUNDED_MODE = "BOUNDED_MODE";
   public static final String DATA_KEY_PREFIX = "DATA_KEY_PREFIX";
   public static final String CHECKPOINT_URL = "CHECKPOINT_URL";
   public static final String CHECKPOINT_SCOPE = "CHECKPOINT_SCOPE";
@@ -44,6 +47,29 @@ public class JobContext implements Serializable {
 
   private String logLevel;
   private DlqConfig dlqConfig;
+
+  @JsonIgnore @lombok.ToString.Exclude @lombok.EqualsAndHashCode.Exclude
+  private transient ExecutionHooks executionHooks;
+
+  public JobContext(
+      Map<String, Serializable> otherProperties,
+      Map<String, String> metricTags,
+      String logLevel,
+      DlqConfig dlqConfig) {
+    this(otherProperties, metricTags, logLevel, dlqConfig, null);
+  }
+
+  /** Makes a per-operator runtime context without changing the shared compiled job context. */
+  public JobContext withExecutionHooks(ExecutionHooks hooks) {
+    return new JobContext(otherProperties, metricTags, logLevel, dlqConfig, hooks);
+  }
+
+  /** True during bounded validation as well as per-operator execution. */
+  @JsonIgnore
+  public boolean isBoundedExecution() {
+    return executionHooks != null
+        || (otherProperties != null && Boolean.TRUE.equals(otherProperties.get(FLAG_BOUNDED_MODE)));
+  }
 
   @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
   @JsonSubTypes({

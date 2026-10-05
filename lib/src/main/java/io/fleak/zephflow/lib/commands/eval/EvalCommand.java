@@ -85,25 +85,45 @@ public class EvalCommand extends ScalarCommand {
 
     PythonExecutor pythonExecutor = null;
     try {
-      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext);
+      pythonExecutor =
+          PythonExecutor.createPythonExecutor(languageContext, jobContext.isBoundedExecution());
+    } catch (PythonExecutor.CleanupFailure cleanup) {
+      throw cleanup;
     } catch (Exception e) {
-      log.error(
-          "An unexpected error occurred during Python support initialization. Python execution will be disabled.",
-          e);
+      if (jobContext.isBoundedExecution()) {
+        log.error("Python support initialization failed. Python execution will be disabled.");
+      } else {
+        log.error(
+            "An unexpected error occurred during Python support initialization. Python execution"
+                + " will be disabled.",
+            e);
+      }
     }
 
-    // Compile expression to lightweight AST for efficient evaluation
-    CompiledExpression compiledExpression =
-        ExpressionCompiler.compile(languageContext, pythonExecutor);
+    try {
+      // Compile expression to lightweight AST for efficient evaluation
+      CompiledExpression compiledExpression =
+          ExpressionCompiler.compile(languageContext, pythonExecutor)
+              .withBoundedDiagnostics(jobContext.isBoundedExecution());
 
-    return new EvalExecutionContext(
-        inputMessageCounter,
-        outputMessageCounter,
-        errorCounter,
-        languageContext,
-        config.assertion(),
-        pythonExecutor,
-        compiledExpression);
+      return new EvalExecutionContext(
+          inputMessageCounter,
+          outputMessageCounter,
+          errorCounter,
+          languageContext,
+          config.assertion(),
+          pythonExecutor,
+          compiledExpression);
+    } catch (RuntimeException | Error primary) {
+      if (pythonExecutor != null) {
+        try {
+          pythonExecutor.close();
+        } catch (Exception cleanup) {
+          primary.addSuppressed(cleanup);
+        }
+      }
+      throw primary;
+    }
   }
 
   @Override

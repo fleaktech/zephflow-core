@@ -80,16 +80,26 @@ public class ThrottleCommand extends ScalarCommand implements KeyedStatefulComma
     FleakCounter errorCounter =
         metricClientProvider.counter(METRIC_NAME_ERROR_EVENT_COUNT, metricTags);
     FleakCounter droppedCounter = metricClientProvider.counter(THROTTLE_DROPPED_COUNT, metricTags);
-    return new ThrottleExecutionContext(
-        inputCounter,
-        outputCounter,
-        errorCounter,
-        droppedCounter,
-        GroupKeyEvaluator.compile(config.keyExpression()),
-        new KeyedStateStore<>(),
-        config.numToAllow(),
-        config.periodSeconds() * 1000L,
-        config.cacheSizeLimit());
+    GroupKeyEvaluator keyEvaluator = GroupKeyEvaluator.compile(config.keyExpression(), jobContext);
+    try {
+      return new ThrottleExecutionContext(
+          inputCounter,
+          outputCounter,
+          errorCounter,
+          droppedCounter,
+          keyEvaluator,
+          new KeyedStateStore<>(),
+          config.numToAllow(),
+          config.periodSeconds() * 1000L,
+          config.cacheSizeLimit());
+    } catch (RuntimeException | Error primary) {
+      try {
+        keyEvaluator.close();
+      } catch (RuntimeException cleanup) {
+        primary.addSuppressed(cleanup);
+      }
+      throw primary;
+    }
   }
 
   @Override

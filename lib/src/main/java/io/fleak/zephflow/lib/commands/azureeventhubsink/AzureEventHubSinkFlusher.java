@@ -20,7 +20,10 @@ import com.azure.messaging.eventhubs.EventDataBatch;
 import com.azure.messaging.eventhubs.EventHubProducerClient;
 import com.azure.messaging.eventhubs.models.CreateBatchOptions;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -67,6 +70,22 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, null);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events,
+      Map<String, String> tags,
+      ExecutionHooks hooks)
+      throws Exception {
+    return flushInternal(events, hooks);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
+      ExecutionHooks hooks)
+      throws Exception {
     if (closed) {
       throw new IllegalStateException("AzureEventHubSinkFlusher is closed");
     }
@@ -77,40 +96,66 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
     }
 
     List<ErrorOutput> errorOutputs = new ArrayList<>();
+    DeliveryProgress progress = hooks == null ? null : new DeliveryProgress(events.size(), hooks);
+    try {
+      Map<String, List<PreparedEvent>> eventsByPartitionKey =
+          preparePartitionGroups(events, hooks, progress, errorOutputs);
 
-    // Serialize up front, grouping by resolved partition key (null key -> its own group). Grouping
-    // preserves order and lets each key be sent as a single-partition-key batch.
+      long deliveredSize = 0;
+      int delivered = 0;
+      for (Map.Entry<String, List<PreparedEvent>> group : eventsByPartitionKey.entrySet()) {
+        BatchSendResult result =
+            sendGroup(group.getKey(), group.getValue(), errorOutputs, progress);
+        delivered += result.count();
+        deliveredSize += result.size();
+      }
+
+      return progress == null
+          ? new SimpleSinkCommand.FlushResult(delivered, deliveredSize, errorOutputs)
+          : progress.result(errorOutputs);
+    } catch (Exception failure) {
+      if (progress != null) throw new BoundedFlushException(progress.result(errorOutputs), failure);
+      throw failure;
+    }
+  }
+
+  private Map<String, List<PreparedEvent>> preparePartitionGroups(
+      List<RecordFleakData> events,
+      ExecutionHooks hooks,
+      DeliveryProgress progress,
+      List<ErrorOutput> errorOutputs) {
     Map<String, List<PreparedEvent>> eventsByPartitionKey = new LinkedHashMap<>();
     for (RecordFleakData event : events) {
+      if (hooks != null) hooks.control().checkpoint();
       try {
         byte[] value = serializeValue(event);
         if (value == null) {
+          if (progress != null) {
+            progress.rejected++;
+            errorOutputs.add(new ErrorOutput(event, "Serializer produced no record"));
+          }
           continue;
         }
         String partitionKey = resolvePartitionKey(event);
         eventsByPartitionKey
             .computeIfAbsent(partitionKey, k -> new ArrayList<>())
             .add(new PreparedEvent(event, new EventData(value), value.length));
-      } catch (Exception e) {
-        log.error("Failed to serialize event for Event Hub: {}", toJsonString(event), e);
-        errorOutputs.add(new ErrorOutput(event, e.getMessage()));
+      } catch (Exception failure) {
+        if (progress == null)
+          log.error("Failed to serialize event for Event Hub: {}", toJsonString(event), failure);
+        else progress.rejected++;
+        errorOutputs.add(new ErrorOutput(event, failure.getMessage()));
       }
     }
-
-    long deliveredSize = 0;
-    int delivered = 0;
-    for (Map.Entry<String, List<PreparedEvent>> group : eventsByPartitionKey.entrySet()) {
-      BatchSendResult result = sendGroup(group.getKey(), group.getValue(), errorOutputs);
-      delivered += result.count();
-      deliveredSize += result.size();
-    }
-
-    return new SimpleSinkCommand.FlushResult(delivered, deliveredSize, errorOutputs);
+    return eventsByPartitionKey;
   }
 
   /** Sends one partition-key group, rolling into a new batch whenever the current one fills up. */
   private BatchSendResult sendGroup(
-      String partitionKey, List<PreparedEvent> groupEvents, List<ErrorOutput> errorOutputs) {
+      String partitionKey,
+      List<PreparedEvent> groupEvents,
+      List<ErrorOutput> errorOutputs,
+      DeliveryProgress progress) {
     int deliveredCount = 0;
     long deliveredSize = 0;
 
@@ -126,12 +171,13 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
       }
       // tryAdd failed: either the batch is full, or the single event is too large for an empty one.
       if (batch.getCount() == 0) {
+        if (progress != null) progress.rejected++;
         errorOutputs.add(
             new ErrorOutput(
                 prepared.raw(), "event exceeds the maximum Event Hub batch size and was dropped"));
         continue;
       }
-      producerClient.send(batch);
+      sendBatch(batch, batchCount, batchSize, progress);
       deliveredCount += batchCount;
       deliveredSize += batchSize;
 
@@ -142,6 +188,7 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
         batchCount++;
         batchSize += prepared.size();
       } else {
+        if (progress != null) progress.rejected++;
         errorOutputs.add(
             new ErrorOutput(
                 prepared.raw(), "event exceeds the maximum Event Hub batch size and was dropped"));
@@ -149,11 +196,49 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
     }
 
     if (batch.getCount() > 0) {
-      producerClient.send(batch);
+      sendBatch(batch, batchCount, batchSize, progress);
       deliveredCount += batchCount;
       deliveredSize += batchSize;
     }
     return new BatchSendResult(deliveredCount, deliveredSize);
+  }
+
+  private void sendBatch(EventDataBatch batch, int count, long bytes, DeliveryProgress progress) {
+    if (progress != null) {
+      progress.hooks.control().checkpoint();
+      progress.attempted += count;
+    }
+    producerClient.send(batch);
+    if (progress != null) {
+      progress.acknowledged += count;
+      progress.bytes += bytes;
+    }
+  }
+
+  private static final class DeliveryProgress {
+    final int total;
+    final ExecutionHooks hooks;
+    int attempted;
+    int acknowledged;
+    int rejected;
+    long bytes;
+
+    DeliveryProgress(int total, ExecutionHooks hooks) {
+      this.total = total;
+      this.hooks = hooks;
+    }
+
+    SimpleSinkCommand.FlushResult result(List<ErrorOutput> errors) {
+      EffectOutcome outcome =
+          EffectOutcome.counted(
+              (long) attempted,
+              (long) acknowledged,
+              (long) rejected,
+              (long) attempted - acknowledged,
+              (long) total - attempted,
+              "event_hub_send_ack");
+      return new SimpleSinkCommand.FlushResult(acknowledged, bytes, errors, outcome);
+    }
   }
 
   private EventDataBatch newBatch(String partitionKey) {

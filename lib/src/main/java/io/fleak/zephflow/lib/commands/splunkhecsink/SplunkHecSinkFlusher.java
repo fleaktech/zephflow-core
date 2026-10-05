@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.Lists;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.EffectOutcome;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
@@ -176,6 +177,20 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
 
     String body = response.body() == null ? "" : response.body();
     String reason = "Splunk HEC error " + status + ": " + extractHecErrorText(body);
+    if (boundedHooks != null) {
+      boolean rejected = status >= 400 && status < 500 && status != 408;
+      return new SimpleSinkCommand.FlushResult(
+          0,
+          0,
+          slice.stream().map(event -> new ErrorOutput(event.getLeft(), reason)).toList(),
+          EffectOutcome.counted(
+              slice.size(),
+              0,
+              rejected ? slice.size() : 0,
+              rejected ? 0 : slice.size(),
+              0,
+              "hec_http_" + status));
+    }
     if (status == 429 || status >= 500) {
       throw new RetryableHecException(reason);
     }

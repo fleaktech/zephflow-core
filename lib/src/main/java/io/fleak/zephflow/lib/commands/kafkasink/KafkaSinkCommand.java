@@ -74,10 +74,13 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     // A test run is an ephemeral, in-memory single shot; durable store-and-forward buffering is
     // meaningless there and would leave an orphaned, still-locked on-disk queue that blocks the
     // next run. Force it off in test mode.
-    boolean storeAndForwardEnabled = config.isStoreAndForwardEnabled() && !isTestMode(jobContext);
+    boolean bounded = jobContext.getExecutionHooks() != null;
+    boolean storeAndForwardEnabled =
+        config.isStoreAndForwardEnabled() && !isTestMode(jobContext) && !bounded;
 
     boolean waitForBrokerAcks =
-        storeAndForwardEnabled
+        bounded
+            || storeAndForwardEnabled
             || config.getDeliveryMode() != KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET;
 
     KafkaConnectionFailureClassifier connectionFailureClassifier =

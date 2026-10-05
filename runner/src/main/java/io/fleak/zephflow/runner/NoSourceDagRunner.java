@@ -25,6 +25,10 @@ import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.WindowFlushable;
+import io.fleak.zephflow.api.execution.*;
+import io.fleak.zephflow.api.execution.ExecutionObserver.Invocation;
+import io.fleak.zephflow.api.execution.ExecutionObserver.Phase;
+import io.fleak.zephflow.api.execution.ExecutionObserver.Side;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
@@ -83,6 +87,8 @@ public class NoSourceDagRunner {
   private final MetricClientProvider metricClientProvider;
   private final DagRunCounters counters;
   private final boolean useDlq;
+  private final BoundedDefinition boundedDefinition;
+  private BoundedExecution boundedExecution;
 
   private final List<Node<OperatorCommand>> windowedNodes;
   private final boolean hasWindowedNodes;
@@ -102,11 +108,22 @@ public class NoSourceDagRunner {
       MetricClientProvider metricClientProvider,
       DagRunCounters counters,
       boolean useDlq) {
+    this(edgesFromSource, compiledDagWithoutSource, metricClientProvider, counters, useDlq, null);
+  }
+
+  NoSourceDagRunner(
+      List<Edge> edgesFromSource,
+      Dag<OperatorCommand> compiledDagWithoutSource,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters,
+      boolean useDlq,
+      BoundedDefinition boundedDefinition) {
     this.edgesFromSource = edgesFromSource;
     this.compiledDagWithoutSource = compiledDagWithoutSource;
     this.metricClientProvider = metricClientProvider;
     this.counters = counters;
     this.useDlq = useDlq;
+    this.boundedDefinition = boundedDefinition;
     this.windowedNodes =
         compiledDagWithoutSource.getNodes().stream()
             .filter(n -> n.getNodeContent() instanceof WindowFlushable)
@@ -128,6 +145,146 @@ public class NoSourceDagRunner {
   public DagResult run(
       List<RecordFleakData> events, String callingUser, NoSourceDagRunner.DagRunConfig runConfig) {
     return run(events, callingUser, runConfig, false);
+  }
+
+  /**
+   * Runs each complete binding once, in authored node order, then flushes stateful operators once.
+   * The caller must subsequently call disposeBounded, including when this method throws.
+   */
+  public BoundedRunResult runBounded(
+      List<BoundInput> inputs,
+      String callingUser,
+      ExecutionObserver observer,
+      ExecutionControl control) {
+    pipelineLock.lock();
+    try {
+      Preconditions.checkState(
+          boundedDefinition != null, "Runner was not prepared for bounded execution");
+      Preconditions.checkState(
+          boundedExecution == null && !terminated.get(), "Bounded runner is single-use");
+      Map<String, BoundInput> bindings = validateBindings(inputs);
+      boundedExecution = new BoundedExecution(boundedDefinition, observer, control);
+      for (var node : compiledDagWithoutSource.getNodes()) {
+        if (!boundedDefinition.boundaries().containsKey(node.getId())) {
+          node.getNodeContent().setExecutionHooks(boundedExecution.hooks(node.getId()));
+        }
+      }
+      for (var node : compiledDagWithoutSource.getNodes()) {
+        if (!boundedDefinition.boundaries().containsKey(node.getId())) {
+          initializeBoundedCommand(node.getId(), node.getNodeContent(), boundedExecution);
+        }
+      }
+      RunContext context =
+          RunContext.builder()
+              .callingUser(callingUser)
+              .callingUserTag(getCallingUserTagAndEventTags(callingUser, null))
+              .metricClientProvider(metricClientProvider)
+              .runConfig(FLUSH_RUN_CONFIG)
+              .bounded(boundedExecution)
+              .build();
+      for (var node : compiledDagWithoutSource.getNodes()) {
+        BoundInput input = bindings.get(node.getId());
+        if (input == null) continue;
+        boundedExecution.checkpoint();
+        context.bindingId = input.bindingId();
+        if (input.side() == Side.OUTPUT) {
+          Invocation invocation =
+              boundedExecution.start(input.nodeId(), null, Phase.PROCESS, input.bindingId());
+          boundedExecution.records(invocation, Side.OUTPUT, input.records());
+          boundedExecution.finish(invocation, 0, input.records().size(), true);
+          routeToDownstream(
+              input.nodeId(),
+              node.getNodeContent().commandName(),
+              input.records(),
+              compiledDagWithoutSource.downstreamEdges(input.nodeId()),
+              context);
+        } else {
+          processEvent(input.nodeId(), null, input.records(), context);
+        }
+      }
+      context.bindingId = null;
+      flushEndOfInputNodes(context);
+      boundedExecution.checkpoint();
+      return boundedExecution.summary();
+    } finally {
+      pipelineLock.unlock();
+    }
+  }
+
+  private Map<String, BoundInput> validateBindings(List<BoundInput> inputs) {
+    Map<String, BoundInput> bindings = new HashMap<>();
+    for (BoundInput input : inputs) {
+      compiledDagWithoutSource.lookupNode(input.nodeId());
+      Preconditions.checkArgument(
+          bindings.putIfAbsent(input.nodeId(), input) == null,
+          "Duplicate node binding: %s",
+          input.nodeId());
+      Preconditions.checkArgument(
+          compiledDagWithoutSource.upstreamEdges(input.nodeId()).isEmpty(),
+          "Bound input must replace all upstream edges: %s",
+          input.nodeId());
+      boolean source =
+          boundedDefinition.boundaries().get(input.nodeId())
+              == BoundedDefinition.BoundaryRole.SOURCE_OUTPUT;
+      Preconditions.checkArgument(
+          source == (input.side() == Side.OUTPUT),
+          "Only a source boundary accepts OUTPUT binding: %s",
+          input.nodeId());
+    }
+    for (var entry : compiledDagWithoutSource.getEntryNodes()) {
+      Preconditions.checkArgument(
+          bindings.containsKey(entry.getId()), "Missing entry binding: %s", entry.getId());
+    }
+    return bindings;
+  }
+
+  /** Releases resources without repeating end-of-input; abort never flushes pending user data. */
+  public void disposeBounded(CompletionDisposition disposition) {
+    Preconditions.checkState(
+        boundedDefinition != null, "Runner was not prepared for bounded execution");
+    pipelineLock.lock();
+    try {
+      if (!terminated.compareAndSet(false, true)) return;
+      RuntimeException observationFailure = null;
+      for (var node : compiledDagWithoutSource.getNodes()) {
+        OperatorCommand command = node.getNodeContent();
+        if (!command.isInitialized()) continue;
+        Invocation invocation = null;
+        Invocation previous = null;
+        try {
+          if (boundedExecution != null) {
+            invocation = boundedExecution.start(node.getId(), null, Phase.DISPOSE, null);
+            previous = boundedExecution.enter(invocation);
+          }
+        } catch (RuntimeException failure) {
+          observationFailure = failure;
+        }
+        try {
+          if (disposition == CompletionDisposition.ABORTED) command.abort();
+          else command.terminate();
+          if (invocation != null) boundedExecution.finish(invocation, 0, 0, true);
+        } catch (Exception failure) {
+          if (invocation != null) {
+            try {
+              boundedExecution.failed(invocation, failure);
+              boundedExecution.finish(invocation, 0, 0, false);
+            } catch (RuntimeException publicationFailure) {
+              publicationFailure.addSuppressed(failure);
+              observationFailure = publicationFailure;
+            }
+          } else if (observationFailure != null) {
+            observationFailure.addSuppressed(failure);
+          } else {
+            observationFailure = new IllegalStateException("Bounded cleanup failed", failure);
+          }
+        } finally {
+          if (boundedExecution != null) boundedExecution.restore(previous);
+        }
+      }
+      if (observationFailure != null) throw observationFailure;
+    } finally {
+      pipelineLock.unlock();
+    }
   }
 
   /**
@@ -160,6 +317,7 @@ public class NoSourceDagRunner {
       NoSourceDagRunner.DagRunConfig runConfig,
       boolean routeInput,
       boolean endOfInput) {
+    Preconditions.checkState(boundedDefinition == null, "Use runBounded for this runner");
     // Any keyed-stateful node (windowed aggregation, throttle, sample) holds non-thread-safe
     // per-key
     // state, so take the lock to serialize run() against the flush thread and any concurrent run()
@@ -245,6 +403,7 @@ public class NoSourceDagRunner {
       List<Edge> outgoingEdges,
       RunContext runContext) {
     if (CollectionUtils.isEmpty(outgoingEdges)) {
+      if (runContext.bounded != null) return;
       List<RecordFleakData> currentNodeOutput =
           runContext.dagResult.outputEvents.computeIfAbsent(currentNodeId, k -> new ArrayList<>());
       currentNodeOutput.addAll(events);
@@ -255,6 +414,7 @@ public class NoSourceDagRunner {
       return;
     }
     for (var e : outgoingEdges) {
+      if (runContext.bounded != null) runContext.bounded.checkpoint();
       // Failure isolation: a node failure aborts only its own subtree; sibling branches still run.
       // Recorded failures may trigger the DLQ once the whole run finishes (see run()).
       // Data isolation relies on the command contract (no in-place mutation of input records), so
@@ -262,6 +422,7 @@ public class NoSourceDagRunner {
       try {
         processEvent(e.getTo(), currentNodeId, events, runContext);
       } catch (NodeExecutionException nee) {
+        if (runContext.bounded != null) throw nee;
         runContext.dagResult.recordFailure(nee.getNodeId(), nee.getCommandName(), nee.getMessage());
         Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
         tags.put(METRIC_TAG_NODE_ID, nee.getNodeId());
@@ -277,6 +438,10 @@ public class NoSourceDagRunner {
       String upstreamNodeId,
       List<RecordFleakData> events,
       RunContext runContext) {
+    if (runContext.bounded != null) {
+      processBoundedEvent(currentNodeId, upstreamNodeId, events, runContext);
+      return;
+    }
     Node<OperatorCommand> compiledNode = compiledDagWithoutSource.lookupNode(currentNodeId);
     OperatorCommand command = compiledNode.getNodeContent();
     List<Edge> downstreamEdges = compiledDagWithoutSource.downstreamEdges(currentNodeId);
@@ -339,6 +504,133 @@ public class NoSourceDagRunner {
             currentNodeId, command.commandName()));
   }
 
+  private void processBoundedEvent(
+      String nodeId, String upstreamId, List<RecordFleakData> events, RunContext context) {
+    BoundedExecution execution = context.bounded;
+    execution.checkpoint();
+    Invocation invocation =
+        execution.start(
+            nodeId, upstreamId, Phase.PROCESS, upstreamId == null ? context.bindingId : null);
+    execution.records(invocation, Side.INPUT, events);
+    var boundary = boundedDefinition.boundaries().get(nodeId);
+    if (boundary != null) {
+      Preconditions.checkState(
+          boundary != BoundedDefinition.BoundaryRole.SOURCE_OUTPUT,
+          "Source boundary cannot receive upstream records");
+      execution.finish(
+          invocation, events.size(), 0, boundary == BoundedDefinition.BoundaryRole.INPUT_ONLY);
+      return;
+    }
+    OperatorCommand command = compiledDagWithoutSource.lookupNode(nodeId).getNodeContent();
+    Invocation previous = execution.enter(invocation);
+    List<RecordFleakData> output = null;
+    try {
+      execution.checkpoint();
+      if (command instanceof ScalarCommand scalar) {
+        Long effect =
+            boundedDefinition.externalNodeIds().contains(nodeId)
+                ? execution.hooks(nodeId).effects().started()
+                : null;
+        ScalarCommand.ProcessResult result = null;
+        try {
+          result = scalar.process(events, context.callingUser, command.getExecutionContext());
+        } finally {
+          if (effect != null)
+            execution
+                .hooks(nodeId)
+                .effects()
+                .finished(
+                    effect,
+                    EffectOutcome.opaque(
+                        result != null
+                            && result.getInvocationFailure() == null
+                            && result.getFailureEvents().isEmpty()));
+        }
+        execution.errors(invocation, result.getFailureEvents());
+        output = result.getOutput();
+        execution.records(invocation, Side.OUTPUT, output);
+        if (result.getInvocationFailure() != null) {
+          execution.failed(invocation, result.getInvocationFailure());
+          execution.finish(invocation, events.size(), output.size(), false);
+          return;
+        }
+        execution.finish(
+            invocation, events.size(), output.size(), result.getFailureEvents().isEmpty());
+      } else if (command instanceof ScalarSinkCommand sink) {
+        ScalarSinkCommand.SinkResult result =
+            sink.writeToSink(events, context.callingUser, command.getExecutionContext());
+        execution.errors(invocation, result.getFailureEvents());
+        if (result.getInvocationFailure() != null)
+          execution.failed(invocation, result.getInvocationFailure());
+        execution.finish(
+            invocation,
+            events.size(),
+            0,
+            result.getFailureEvents().isEmpty() && result.getInvocationFailure() == null);
+      } else {
+        throw new IllegalStateException("Unsupported bounded operator: " + command.commandName());
+      }
+    } catch (ExecutionProgressStoppedException partial) {
+      execution.errors(invocation, partial.errors());
+      if (command instanceof ScalarCommand) {
+        execution.records(invocation, Side.OUTPUT, partial.output());
+      }
+      execution.finish(invocation, events.size(), partial.output().size(), false);
+      throw partial;
+    } catch (ExecutionStoppedException failure) {
+      throw failure;
+    } catch (Exception failure) {
+      execution.failed(invocation, failure);
+      execution.finish(invocation, events.size(), 0, false);
+      return;
+    } finally {
+      execution.restore(previous);
+    }
+    execution.checkpoint();
+    if (output != null)
+      routeToDownstream(
+          nodeId,
+          command.commandName(),
+          output,
+          compiledDagWithoutSource.downstreamEdges(nodeId),
+          context);
+  }
+
+  private void initializeBoundedCommand(
+      String nodeId, OperatorCommand command, BoundedExecution execution) {
+    if (command.isInitialized()) return;
+    execution.checkpoint();
+    Invocation invocation = execution.start(nodeId, null, Phase.INIT, null);
+    Invocation previous = execution.enter(invocation);
+    try {
+      Long effect =
+          boundedDefinition.externalNodeIds().contains(nodeId)
+              ? execution.hooks(nodeId).effects().started()
+              : null;
+      boolean returnedSuccessfully = false;
+      try {
+        command.initialize(metricClientProvider);
+        returnedSuccessfully = true;
+      } finally {
+        if (effect != null)
+          execution
+              .hooks(nodeId)
+              .effects()
+              .finished(effect, EffectOutcome.opaque(returnedSuccessfully));
+      }
+      execution.checkpoint();
+      execution.finish(invocation, 0, 0, true);
+    } catch (ExecutionStoppedException failure) {
+      throw failure;
+    } catch (Exception failure) {
+      execution.failed(invocation, failure);
+      execution.finish(invocation, 0, 0, false);
+      throw new ExecutionStoppedException("Operator initialization failed: " + nodeId, failure);
+    } finally {
+      execution.restore(previous);
+    }
+  }
+
   /**
    * Initialize all commands in the DAG. Should be called once before processing events. This method
    * is idempotent - calling it multiple times will only initialize each command once due to
@@ -368,6 +660,8 @@ public class NoSourceDagRunner {
   }
 
   public synchronized void startFlushScheduler(String callingUser, long tickMs) {
+    Preconditions.checkState(
+        boundedDefinition == null, "Bounded executions do not run a window timer");
     if (terminated.get() || !hasWindowedNodes || flushScheduler != null) {
       return;
     }
@@ -459,6 +753,10 @@ public class NoSourceDagRunner {
    */
   private void flushEndOfInputNodes(RunContext runContext) {
     for (Node<OperatorCommand> node : endOfInputNodes) {
+      if (runContext.bounded != null) {
+        flushBoundedNode(node, runContext);
+        continue;
+      }
       OperatorCommand command = node.getNodeContent();
       if (!command.isInitialized()) {
         continue;
@@ -556,7 +854,44 @@ public class NoSourceDagRunner {
     }
   }
 
+  private void flushBoundedNode(Node<OperatorCommand> node, RunContext context) {
+    OperatorCommand command = node.getNodeContent();
+    if (!command.isInitialized()) return;
+    BoundedExecution execution = context.bounded;
+    execution.checkpoint();
+    Invocation invocation = execution.start(node.getId(), null, Phase.END_OF_INPUT, null);
+    Invocation previous = execution.enter(invocation);
+    List<RecordFleakData> output;
+    try {
+      output =
+          ((EndOfInputFlushable) command)
+              .flushAtEndOfInput(context.callingUser, command.getExecutionContext());
+      execution.records(invocation, Side.OUTPUT, output);
+      execution.finish(invocation, 0, output.size(), true);
+    } catch (ExecutionStoppedException failure) {
+      throw failure;
+    } catch (Exception failure) {
+      execution.failed(invocation, failure);
+      execution.finish(invocation, 0, 0, false);
+      return;
+    } finally {
+      execution.restore(previous);
+    }
+    execution.checkpoint();
+    if (!output.isEmpty())
+      routeToDownstream(
+          node.getId(),
+          command.commandName(),
+          output,
+          compiledDagWithoutSource.downstreamEdges(node.getId()),
+          context);
+  }
+
   public void terminate() {
+    if (boundedDefinition != null) {
+      disposeBounded(CompletionDisposition.ABORTED);
+      return;
+    }
     if (!terminated.compareAndSet(false, true)) {
       return;
     }
@@ -631,5 +966,7 @@ public class NoSourceDagRunner {
     MetricClientProvider metricClientProvider;
     DagResult dagResult;
     NoSourceDagRunner.DagRunConfig runConfig;
+    BoundedExecution bounded;
+    String bindingId;
   }
 }

@@ -14,12 +14,19 @@
 package io.fleak.zephflow.lib.commands.sqssink;
 
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -126,6 +133,117 @@ public class SqsSinkFlusher implements SimpleSinkCommand.Flusher<SqsOutboundMess
       }
       return new SimpleSinkCommand.FlushResult(0, 0, errorOutputs);
     }
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<SqsOutboundMessage> events,
+      Map<String, String> metricTags,
+      ExecutionHooks hooks) {
+    List<SendMessageBatchRequestEntry> entries = new ArrayList<>();
+    Map<String, RecordFleakData> submitted = new LinkedHashMap<>();
+    Map<String, Integer> sizes = new LinkedHashMap<>();
+    List<ErrorOutput> errors = new ArrayList<>();
+    for (int index = 0; index < events.rawAndPreparedList().size(); index++) {
+      var pair = events.rawAndPreparedList().get(index);
+      try {
+        var message = pair.getRight();
+        String id = String.valueOf(index);
+        int size = message.body().getBytes(StandardCharsets.UTF_8).length;
+        var entry =
+            SendMessageBatchRequestEntry.builder()
+                .id(id)
+                .messageBody(message.body())
+                .messageGroupId(message.messageGroupId())
+                .messageDeduplicationId(message.deduplicationId())
+                .build();
+        entries.add(entry);
+        submitted.put(id, pair.getLeft());
+        sizes.put(id, size);
+      } catch (Exception failure) {
+        errors.add(
+            new ErrorOutput(
+                pair.getLeft(), "Failed to prepare SQS message: " + failure.getMessage()));
+      }
+    }
+    long notAttempted = events.rawAndPreparedList().size() - entries.size();
+    if (entries.isEmpty()) return boundedResult(0, 0, notAttempted, 0, notAttempted, 0, errors);
+    try {
+      hooks.control().checkpoint();
+    } catch (ExecutionStoppedException stopped) {
+      throw new BoundedFlushException(
+          boundedResult(0, 0, notAttempted, 0, events.rawAndPreparedList().size(), 0, errors),
+          stopped);
+    }
+    Set<String> acknowledged = new HashSet<>();
+    Set<String> rejected = new HashSet<>();
+    try {
+      var response =
+          sqsClient.sendMessageBatch(
+              SendMessageBatchRequest.builder().queueUrl(queueUrl).entries(entries).build());
+      if (response == null)
+        throw new IllegalStateException("Received null response from SQS client");
+      for (var success : response.successful()) {
+        if (submitted.containsKey(success.id())) acknowledged.add(success.id());
+      }
+      for (var failure : response.failed()) {
+        if (submitted.containsKey(failure.id())
+            && !acknowledged.contains(failure.id())
+            && rejected.add(failure.id()))
+          errors.add(
+              new ErrorOutput(
+                  submitted.get(failure.id()),
+                  "SQS batch send failed: " + failure.code() + " - " + failure.message()));
+      }
+      for (var item : submitted.entrySet()) {
+        if (!acknowledged.contains(item.getKey()) && !rejected.contains(item.getKey()))
+          errors.add(new ErrorOutput(item.getValue(), "SQS delivery acknowledgement unavailable"));
+      }
+    } catch (Exception failure) {
+      for (var item : submitted.entrySet()) {
+        if (!acknowledged.contains(item.getKey()) && !rejected.contains(item.getKey()))
+          errors.add(new ErrorOutput(item.getValue(), "SQS client error: " + failure.getMessage()));
+      }
+    }
+    long bytes = acknowledged.stream().mapToLong(sizes::get).sum();
+    return boundedResult(
+        entries.size(),
+        acknowledged.size(),
+        rejected.size() + notAttempted,
+        entries.size() - acknowledged.size() - rejected.size(),
+        notAttempted,
+        bytes,
+        errors);
+  }
+
+  private static SimpleSinkCommand.FlushResult boundedResult(
+      long attempted,
+      long acknowledged,
+      long rejected,
+      long unknown,
+      long notAttempted,
+      long bytes,
+      List<ErrorOutput> errors) {
+    EffectOutcome.Delivery delivery =
+        attempted == 0
+            ? rejected > 0 ? EffectOutcome.Delivery.FAILED : EffectOutcome.Delivery.NOT_ATTEMPTED
+            : acknowledged == attempted && notAttempted == 0
+                ? EffectOutcome.Delivery.ACKNOWLEDGED
+                : acknowledged > 0
+                    ? EffectOutcome.Delivery.PARTIAL
+                    : unknown > 0 ? EffectOutcome.Delivery.UNKNOWN : EffectOutcome.Delivery.FAILED;
+    return new SimpleSinkCommand.FlushResult(
+        (int) acknowledged,
+        bytes,
+        errors,
+        new EffectOutcome(
+            attempted,
+            acknowledged,
+            rejected,
+            unknown,
+            notAttempted,
+            "sqs_send_message_batch_receipt",
+            delivery));
   }
 
   @Override

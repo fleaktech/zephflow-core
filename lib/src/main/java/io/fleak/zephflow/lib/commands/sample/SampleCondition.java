@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.sample;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.compiled.CompiledExpression;
 import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
@@ -25,16 +26,27 @@ import lombok.extern.slf4j.Slf4j;
 record SampleCondition(CompiledExpression expression, PythonExecutor pythonExecutor) {
 
   static SampleCondition compile(String condition, int index) {
+    return compile(condition, index, null);
+  }
+
+  static SampleCondition compile(String condition, int index, JobContext jobContext) {
+    boolean bounded = jobContext != null && jobContext.isBoundedExecution();
     PythonExecutor pythonExecutor = null;
     try {
       EvalExpressionParser.LanguageContext languageContext =
           ((EvalExpressionParser) AntlrUtils.parseInput(condition, AntlrUtils.GrammarType.EVAL))
               .language();
-      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext);
+      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext, bounded);
       return new SampleCondition(
-          ExpressionCompiler.compile(languageContext, pythonExecutor), pythonExecutor);
+          ExpressionCompiler.compile(languageContext, pythonExecutor)
+              .withBoundedDiagnostics(bounded),
+          pythonExecutor);
     } catch (Exception e) {
-      closeQuietly(pythonExecutor);
+      try {
+        closeExecutor(pythonExecutor);
+      } catch (RuntimeException cleanup) {
+        e.addSuppressed(cleanup);
+      }
       throw new IllegalArgumentException(
           String.format("invalid 'rules[%s].condition' '%s': %s", index, condition, e.getMessage()),
           e);
@@ -42,17 +54,28 @@ record SampleCondition(CompiledExpression expression, PythonExecutor pythonExecu
   }
 
   static void closeAll(List<SampleCondition> conditions) {
-    conditions.forEach(c -> closeQuietly(c.pythonExecutor()));
+    RuntimeException failure = null;
+    for (SampleCondition condition : conditions) {
+      try {
+        closeExecutor(condition.pythonExecutor());
+      } catch (RuntimeException cleanup) {
+        if (failure == null) failure = cleanup;
+        else failure.addSuppressed(cleanup);
+      }
+    }
+    if (failure != null) throw failure;
   }
 
-  private static void closeQuietly(PythonExecutor pythonExecutor) {
-    if (pythonExecutor == null) {
-      return;
-    }
+  private static void closeExecutor(PythonExecutor executor) {
+    if (executor == null) return;
     try {
-      pythonExecutor.close();
-    } catch (Exception e) {
-      log.error("failed to close python executor", e);
+      executor.close();
+    } catch (Exception cleanup) {
+      if (executor.boundedDiagnostics()) {
+        log.error("failed to close python executor");
+        throw new IllegalStateException("Failed to close sample Python executor", cleanup);
+      }
+      log.error("failed to close python executor", cleanup);
     }
   }
 }

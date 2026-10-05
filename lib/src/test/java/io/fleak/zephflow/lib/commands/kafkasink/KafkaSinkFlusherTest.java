@@ -38,6 +38,123 @@ import org.mockito.MockitoAnnotations;
 
 class KafkaSinkFlusherTest {
 
+  @Test
+  void boundedLocalRejectionsAreDefiniteAndDoNotBecomeRemoteAttempts() throws Exception {
+    when(mockSerializer.serialize(anyList()))
+        .thenThrow(new IllegalArgumentException("invalid event"));
+    var result =
+        flusher.flushBounded(createPreparedEvents(testEvents), Map.of(), boundedHooks(() -> {}));
+    assertEquals(5, result.errorOutputList().size());
+    assertEquals(0L, result.effectOutcome().attemptedCount());
+    assertEquals(5L, result.effectOutcome().definiteFailureCount());
+    assertEquals(5L, result.effectOutcome().notAttemptedCount());
+    assertEquals(0L, result.effectOutcome().unknownCount());
+    assertEquals(
+        io.fleak.zephflow.api.execution.EffectOutcome.Delivery.FAILED,
+        result.effectOutcome().delivery());
+    verify(mockProducer, never()).send(any(ProducerRecord.class));
+  }
+
+  @Test
+  void boundedMixedLocalRejectionPreservesBrokerAcknowledgement() throws Exception {
+    when(mockSerializer.serialize(anyList()))
+        .thenReturn(new SerializedEvent(null, TEST_DATA, Map.of()))
+        .thenReturn(new SerializedEvent(null, null, Map.of()));
+    when(mockProducer.send(any(ProducerRecord.class)))
+        .thenReturn(
+            java.util.concurrent.CompletableFuture.completedFuture(mock(RecordMetadata.class)));
+    var result =
+        flusher.flushBounded(
+            createPreparedEvents(testEvents.subList(0, 2)), Map.of(), boundedHooks(() -> {}));
+    assertEquals(1, result.errorOutputList().size());
+    assertEquals(1L, result.effectOutcome().attemptedCount());
+    assertEquals(1L, result.effectOutcome().acknowledgedCount());
+    assertEquals(1L, result.effectOutcome().definiteFailureCount());
+    assertEquals(1L, result.effectOutcome().notAttemptedCount());
+    assertEquals(0L, result.effectOutcome().unknownCount());
+    assertEquals(
+        io.fleak.zephflow.api.execution.EffectOutcome.Delivery.PARTIAL,
+        result.effectOutcome().delivery());
+  }
+
+  @Test
+  void boundedStopBeforeFirstSendIsNotAttempted() {
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+            () ->
+                flusher.flushBounded(
+                    createPreparedEvents(testEvents),
+                    Map.of(),
+                    boundedHooks(
+                        () -> {
+                          throw new io.fleak.zephflow.api.execution.ExecutionStoppedException(
+                              "stop");
+                        })));
+    assertEquals(0L, failure.result().effectOutcome().attemptedCount());
+    assertEquals(0L, failure.result().effectOutcome().unknownCount());
+    assertEquals(5L, failure.result().effectOutcome().notAttemptedCount());
+    assertEquals(
+        io.fleak.zephflow.api.execution.EffectOutcome.Delivery.NOT_ATTEMPTED,
+        failure.result().effectOutcome().delivery());
+    verify(mockProducer, never()).send(any(ProducerRecord.class));
+  }
+
+  @Test
+  void boundedFireAndForgetConfigurationWaitsForBrokerAcknowledgements() throws Exception {
+    when(mockProducer.send(any(ProducerRecord.class)))
+        .thenReturn(
+            java.util.concurrent.CompletableFuture.completedFuture(mock(RecordMetadata.class)))
+        .thenReturn(
+            java.util.concurrent.CompletableFuture.failedFuture(
+                new java.io.IOException("acknowledgement lost")));
+    var result =
+        flusher.flushBounded(
+            createPreparedEvents(testEvents.subList(0, 2)), Map.of(), boundedHooks(() -> {}));
+    assertEquals(1, result.successCount());
+    assertEquals(1L, result.effectOutcome().acknowledgedCount());
+    assertEquals(1L, result.effectOutcome().unknownCount());
+    verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+    flusher.close();
+    verify(mockProducer).close();
+  }
+
+  @Test
+  void boundedStopPreservesEarlierAcknowledgementAndDoesNotSendNextRecord() {
+    java.util.concurrent.atomic.AtomicBoolean stopped =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    when(mockProducer.send(any(ProducerRecord.class)))
+        .thenAnswer(
+            invocation -> {
+              stopped.set(true);
+              return java.util.concurrent.CompletableFuture.completedFuture(
+                  mock(RecordMetadata.class));
+            });
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
+            () ->
+                flusher.flushBounded(
+                    createPreparedEvents(testEvents.subList(0, 3)),
+                    Map.of(),
+                    boundedHooks(
+                        () -> {
+                          if (stopped.get())
+                            throw new io.fleak.zephflow.api.execution.ExecutionStoppedException(
+                                "stop");
+                        })));
+    assertEquals(1L, failure.result().effectOutcome().acknowledgedCount());
+    assertEquals(2L, failure.result().effectOutcome().notAttemptedCount());
+    assertEquals(0L, failure.result().effectOutcome().unknownCount());
+    verify(mockProducer, times(1)).send(any(ProducerRecord.class));
+  }
+
+  private static io.fleak.zephflow.api.execution.ExecutionHooks boundedHooks(
+      io.fleak.zephflow.api.execution.ExecutionControl control) {
+    return new io.fleak.zephflow.api.execution.ExecutionHooks(
+        control, mock(io.fleak.zephflow.api.execution.ExecutionHooks.Effects.class), Runnable::run);
+  }
+
   @Mock private KafkaProducer<byte[], byte[]> mockProducer;
   @Mock private FleakSerializer<Object> mockSerializer;
   @Mock private FleakCounter mockDeliveredCountCounter;

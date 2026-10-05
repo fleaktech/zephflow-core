@@ -25,6 +25,20 @@ import org.junit.jupiter.api.Test;
 class BufferedWriterTest {
 
   @Test
+  void abortDiscardsUnsentRecordsAndLaterCloseDoesNotFlushThem() {
+    List<List<String>> writes = new ArrayList<>();
+    BufferedWriter<String> writer =
+        new BufferedWriter<>(100, 60_000, writes::add, "aborted-writer", false);
+    writer.start();
+    writer.write(List.of("pending-a", "pending-b"), false);
+    assertEquals(2, writer.getBufferSize());
+    writer.abort();
+    writer.close();
+    assertEquals(0, writer.getBufferSize());
+    assertTrue(writes.isEmpty());
+  }
+
+  @Test
   void testSyncModeFlushesImmediately() {
     List<List<String>> flushedBatches = new ArrayList<>();
 

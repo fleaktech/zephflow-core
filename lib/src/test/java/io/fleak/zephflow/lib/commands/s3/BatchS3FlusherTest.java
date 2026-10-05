@@ -127,6 +127,70 @@ class BatchS3FlusherTest {
   }
 
   @Test
+  void boundedUploadHasNoRetryAndAbortDoesNotUploadAgain() throws Exception {
+    var manager = mock(software.amazon.awssdk.transfer.s3.S3TransferManager.class);
+    var client = mock(software.amazon.awssdk.services.s3.S3AsyncClient.class);
+    var upload = mock(software.amazon.awssdk.transfer.s3.model.FileUpload.class);
+    var accepted = new java.util.concurrent.atomic.AtomicInteger();
+    when(manager.uploadFile(any(software.amazon.awssdk.transfer.s3.model.UploadFileRequest.class)))
+        .thenAnswer(
+            call -> {
+              accepted.incrementAndGet();
+              return upload;
+            });
+    when(upload.completionFuture())
+        .thenReturn(
+            java.util.concurrent.CompletableFuture.failedFuture(
+                new java.io.IOException("accepted but response lost")));
+    var hooks =
+        new io.fleak.zephflow.api.execution.ExecutionHooks(
+            () -> {},
+            new io.fleak.zephflow.api.execution.ExecutionHooks.Effects() {
+              public long started() {
+                return 1;
+              }
+
+              public void finished(
+                  long id, io.fleak.zephflow.api.execution.EffectOutcome outcome) {}
+            },
+            Runnable::run);
+    var fileWriter =
+        new TextBlobFileWriter(
+            SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE)
+                .createSerializer(),
+            EncodingType.JSON_OBJECT_LINE,
+            new NoopCompressor());
+    var sink =
+        new BatchS3Flusher(
+            new AwsClientFactory.S3TransferResources(client, manager),
+            BUCKET_NAME,
+            KEY_NAME,
+            fileWriter,
+            100,
+            1,
+            null,
+            io.fleak.zephflow.api.JobContext.builder().executionHooks(hooks).build(),
+            "s3",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    sink.initialize();
+    var events = new SimpleSinkCommand.PreparedInputEvents<RecordFleakData>();
+    var record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    events.add(record, record);
+    try {
+      assertThrows(
+          java.util.concurrent.CompletionException.class,
+          () -> sink.flushBounded(events, Map.of(), hooks));
+    } finally {
+      sink.abort();
+    }
+    assertEquals(1, accepted.get());
+    verify(manager).close();
+    verify(client).close();
+  }
+
+  @Test
   void testFlushOnBatchSize() throws Exception {
     int batchSize = 5;
     flusher = createFlusher(batchSize, 60000);

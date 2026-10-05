@@ -57,6 +57,23 @@ public class AzureMonitorSinkFlusher
       SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, false);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> preparedInputEvents,
+      Map<String, String> metricTags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(preparedInputEvents.preparedList().size(), hooks);
+    return flushInternal(preparedInputEvents, true);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> preparedInputEvents,
+      boolean bounded)
+      throws Exception {
     List<AzureMonitorSinkOutboundEvent> events = preparedInputEvents.preparedList();
     if (events.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
@@ -74,7 +91,7 @@ public class AzureMonitorSinkFlusher
       String token = tokenProvider.getToken();
       HttpResponse<String> response = sendRequest(token, bodyBytes);
 
-      if (response.statusCode() == 401) {
+      if (!bounded && response.statusCode() == 401) {
         tokenProvider.invalidate();
         token = tokenProvider.getToken();
         response = sendRequest(token, bodyBytes);
@@ -86,7 +103,8 @@ public class AzureMonitorSinkFlusher
       } else {
         final int statusCode = response.statusCode();
         final String responseBody = response.body();
-        log.error("Azure Monitor API returned status {}: {}", statusCode, responseBody);
+        if (!bounded)
+          log.error("Azure Monitor API returned status {}: {}", statusCode, responseBody);
         List<ErrorOutput> errors =
             preparedInputEvents.rawAndPreparedList().stream()
                 .map(
@@ -95,10 +113,18 @@ public class AzureMonitorSinkFlusher
                             p.getLeft(),
                             "Azure Monitor API error " + statusCode + ": " + responseBody))
                 .toList();
+        if (bounded && statusCode >= 400 && statusCode < 500 && statusCode != 408) {
+          return new SimpleSinkCommand.FlushResult(
+              0,
+              0,
+              errors,
+              io.fleak.zephflow.api.execution.EffectOutcome.counted(
+                  events.size(), 0, events.size(), 0, 0, "http_rejected_" + statusCode));
+        }
         return new SimpleSinkCommand.FlushResult(0, 0, errors);
       }
     } catch (Exception e) {
-      log.error("Failed to send events to Azure Monitor", e);
+      if (!bounded) log.error("Failed to send events to Azure Monitor", e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()
               .map(

@@ -16,15 +16,19 @@ package io.fleak.zephflow.lib.commands.elasticsearchsink;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.sun.net.httpserver.HttpServer;
+import io.fleak.zephflow.api.execution.*;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -60,18 +64,76 @@ class ElasticsearchSinkFlusherTest {
     assertTrue(result.contains("&"), "Should contain '&' separator");
   }
 
+  @Test
+  void boundedBulkKeepsKnownRejectionsAndDoesNotInventMissingReceipts() throws Exception {
+    for (String body :
+        List.of(
+            "{\"errors\":true,\"items\":[{\"index\":{\"status\":201}},{\"index\":{\"status\":400}}]}",
+            "{\"errors\":true,\"items\":[{\"index\":{\"status\":201}}]}",
+            "{\"errors\":false,\"items\":[{\"index\":{\"status\":201}},{\"index\":{}}]}")) {
+      try (FakeEs es = FakeEs.serving(body)) {
+        var flusher = new ElasticsearchSinkFlusher(es.host(), "idx", null, null, Map.of());
+        var result = flusher.flushBounded(twoDocs(), Map.of(), hooks(() -> {}));
+        assertEquals(2L, result.effectOutcome().attemptedCount());
+        assertEquals(1L, result.effectOutcome().acknowledgedCount());
+        assertEquals(body.contains("400") ? 1L : 0L, result.effectOutcome().definiteFailureCount());
+        assertEquals(body.contains("400") ? 0L : 1L, result.effectOutcome().unknownCount());
+        assertEquals(EffectOutcome.Delivery.PARTIAL, result.effectOutcome().delivery());
+        assertEquals(1, result.errorOutputList().size());
+        assertEquals(1, es.requests().get());
+      }
+    }
+  }
+
+  @Test
+  void boundedCancellationBeforeHttpProducesNoRemoteAttempt() throws Exception {
+    try (FakeEs es = FakeEs.serving("{}")) {
+      var flusher = new ElasticsearchSinkFlusher(es.host(), "idx", null, null, Map.of());
+      var stopped =
+          assertThrows(
+              BoundedFlushException.class,
+              () ->
+                  flusher.flushBounded(
+                      twoDocs(),
+                      Map.of(),
+                      hooks(
+                          () -> {
+                            throw new ExecutionStoppedException("cancelled");
+                          })));
+      assertEquals(0L, stopped.result().effectOutcome().attemptedCount());
+      assertEquals(0L, stopped.result().effectOutcome().unknownCount());
+      assertEquals(2L, stopped.result().effectOutcome().notAttemptedCount());
+      assertEquals(0, es.requests().get());
+    }
+  }
+
+  private static ExecutionHooks hooks(ExecutionControl control) {
+    return new ExecutionHooks(
+        control,
+        new ExecutionHooks.Effects() {
+          public long started() {
+            return 1;
+          }
+
+          public void finished(long id, EffectOutcome outcome) {}
+        },
+        Runnable::run);
+  }
+
   private static final String DOC_A = "{\"a\":1}";
   private static final String DOC_B = "{\"b\":2}";
 
   /** Serves one canned _bulk response and records the request body it received. */
-  private record FakeEs(HttpServer server, AtomicReference<byte[]> lastBody)
+  private record FakeEs(HttpServer server, AtomicReference<byte[]> lastBody, AtomicInteger requests)
       implements AutoCloseable {
     static FakeEs serving(String bulkResponseJson) throws IOException {
       HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
       AtomicReference<byte[]> lastBody = new AtomicReference<>();
+      AtomicInteger requests = new AtomicInteger();
       server.createContext(
           "/_bulk",
           exchange -> {
+            requests.incrementAndGet();
             lastBody.set(exchange.getRequestBody().readAllBytes());
             byte[] out = bulkResponseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, out.length);
@@ -80,7 +142,7 @@ class ElasticsearchSinkFlusherTest {
             }
           });
       server.start();
-      return new FakeEs(server, lastBody);
+      return new FakeEs(server, lastBody, requests);
     }
 
     String host() {

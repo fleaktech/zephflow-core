@@ -23,18 +23,28 @@ import java.util.LinkedList;
 import java.util.Map;
 
 /** Runtime context for evaluating compiled expressions. Manages variable scopes. */
-public record EvalContext(Deque<Map<String, FleakData>> scopes, boolean lenient) {
+public record EvalContext(
+    Deque<Map<String, FleakData>> scopes, boolean lenient, boolean boundedDiagnostics) {
+
+  public EvalContext(Deque<Map<String, FleakData>> scopes, boolean lenient) {
+    this(scopes, lenient, false);
+  }
 
   public static EvalContext create(FleakData rootData) {
     return create(rootData, false);
   }
 
   public static EvalContext create(FleakData rootData, boolean lenient) {
+    return create(rootData, lenient, false);
+  }
+
+  public static EvalContext create(
+      FleakData rootData, boolean lenient, boolean boundedDiagnostics) {
     Deque<Map<String, FleakData>> scopes = new LinkedList<>();
     Map<String, FleakData> rootScope = new HashMap<>();
     rootScope.put(ROOT_OBJECT_VARIABLE_NAME, rootData);
     scopes.push(rootScope);
-    return new EvalContext(scopes, lenient);
+    return new EvalContext(scopes, lenient, boundedDiagnostics);
   }
 
   public FleakData getVariable(String name) {

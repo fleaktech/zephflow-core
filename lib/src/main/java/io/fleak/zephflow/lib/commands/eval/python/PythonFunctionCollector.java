@@ -27,8 +27,17 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
 
   @Getter private final Map<ParserRuleContext, CompiledPythonFunction> compiledFunctions;
 
+  private final boolean boundedDiagnostics;
+
   public PythonFunctionCollector(Map<ParserRuleContext, CompiledPythonFunction> compiledFunctions) {
+    this(compiledFunctions, false);
+  }
+
+  public PythonFunctionCollector(
+      Map<ParserRuleContext, CompiledPythonFunction> compiledFunctions,
+      boolean boundedDiagnostics) {
     this.compiledFunctions = compiledFunctions;
+    this.boundedDiagnostics = boundedDiagnostics;
   }
 
   @Override
@@ -57,16 +66,26 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
         try {
           CompiledPythonFunction compiledFunction = compileAndDiscover(scriptText);
           compiledFunctions.put(ctx, compiledFunction);
-          log.debug(
-              "Pre-compiled Python function at context: {} with script: {}",
-              ctx.getSourceInterval(),
-              scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
+          if (boundedDiagnostics) {
+            log.debug("Pre-compiled Python function.");
+          } else {
+            log.debug(
+                "Pre-compiled Python function at context: {} with script: {}",
+                ctx.getSourceInterval(),
+                scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
+          }
+        } catch (PythonExecutor.CleanupFailure cleanup) {
+          throw cleanup;
         } catch (Exception e) {
-          log.error(
-              "Failed to pre-compile Python function at {}: {} Script: {}",
-              ctx.getSourceInterval(),
-              e.getMessage(),
-              scriptText.substring(0, Math.min(100, scriptText.length())));
+          if (boundedDiagnostics) {
+            log.error("Failed to pre-compile Python function.");
+          } else {
+            log.error(
+                "Failed to pre-compile Python function at {}: {} Script: {}",
+                ctx.getSourceInterval(),
+                e.getMessage(),
+                scriptText.substring(0, Math.min(100, scriptText.length())));
+          }
           // Re-throw as IllegalArgumentException so Sentry client error filter can ignore it
           throw new IllegalArgumentException(e.getMessage(), e);
         }
@@ -76,8 +95,10 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
 
   private CompiledPythonFunction compileAndDiscover(String pythonScript) {
     Context pythonContext = createPythonContext();
-    pythonContext.enter();
+    boolean entered = false;
     try {
+      pythonContext.enter();
+      entered = true;
       // 1. Get bindings BEFORE evaluating the user script
       Value initialBindings = pythonContext.getBindings("python");
       Set<String> initialKeys = new HashSet<>(initialBindings.getMemberKeys());
@@ -115,19 +136,43 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
 
       // 5. Validate discovery results based on DEFINED functions
       if (definedFunctions.size() == 1) {
-        log.debug("Found function defined by script: {}", definedFunctionNames.getFirst());
-        return new CompiledPythonFunction(
-            definedFunctionNames.getFirst(), definedFunctions.getFirst(), pythonContext);
+        if (!boundedDiagnostics) {
+          log.debug("Found function defined by script: {}", definedFunctionNames.getFirst());
+        }
+        CompiledPythonFunction function =
+            new CompiledPythonFunction(
+                definedFunctionNames.getFirst(), definedFunctions.getFirst(), pythonContext);
+        entered = false;
+        pythonContext.leave();
+        return function;
       }
 
       // Log or handle error: 0 or >1 functions *defined by the script* found
       throw new IllegalArgumentException(
           String.format(
-              "Pre-compilation Error: Script must define exactly one function, but defined %d: [%s]",
+              "Pre-compilation Error: Script must define exactly one function, but defined %d:"
+                  + " [%s]",
               definedFunctions.size(), String.join(", ", definedFunctionNames)));
 
-    } finally {
-      pythonContext.leave();
+    } catch (RuntimeException | Error primary) {
+      if (entered) {
+        try {
+          pythonContext.leave();
+        } catch (RuntimeException | Error leaveFailure) {
+          primary.addSuppressed(leaveFailure);
+        }
+      }
+      try {
+        pythonContext.close(true);
+      } catch (RuntimeException | Error cleanup) {
+        if (boundedDiagnostics) {
+          PythonExecutor.CleanupFailure failure = new PythonExecutor.CleanupFailure(primary);
+          failure.addSuppressed(cleanup);
+          throw failure;
+        }
+        primary.addSuppressed(cleanup);
+      }
+      throw primary;
     }
   }
 

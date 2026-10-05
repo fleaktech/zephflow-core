@@ -20,8 +20,12 @@ import com.databricks.zerobus.ZerobusSdk;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.RetriableConnectionException;
+import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand.FlushResult;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand.Flusher;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand.PreparedInputEvents;
@@ -77,6 +81,7 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
 
   // Set to false when a flush fails; the next flush reconnects (production path only).
   private volatile boolean healthy = true;
+  private boolean bounded;
 
   // The Zerobus SDK documents that ZerobusSdk and the stream classes are NOT thread-safe and must
   // be used from a single thread. We hold one long-lived stream per execution context, so serialize
@@ -108,7 +113,13 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
 
   /** Opens the appropriate stream and constructs a ready-to-use flusher. */
   static ZerobusSinkFlusher create(ZerobusSinkDto.Config config, DatabricksCredential credential) {
+    return create(config, credential, null);
+  }
+
+  static ZerobusSinkFlusher create(
+      ZerobusSinkDto.Config config, DatabricksCredential credential, ExecutionHooks hooks) {
     ZerobusSinkFlusher flusher = new ZerobusSinkFlusher(config, credential);
+    flusher.bounded = hooks != null;
     flusher.connect();
     return flusher;
   }
@@ -171,21 +182,23 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
       // itself). Log at error level with context BEFORE surfacing: otherwise the only sink output
       // is the earlier "Creating Zerobus SDK" info line and the real cause never reaches the
       // pipeline log (on the initial path the node just crash-loops on init).
-      log.error(
-          "Failed to open Zerobus stream for table {} (endpoint {}, encoding {}): {}",
-          tableName,
-          config.getZerobusEndpoint(),
-          config.getEncodingType(),
-          e.getMessage(),
-          e);
+      if (!bounded)
+        log.error(
+            "Failed to open Zerobus stream for table {} (endpoint {}, encoding {}): {}",
+            tableName,
+            config.getZerobusEndpoint(),
+            config.getEncodingType(),
+            e.getMessage(),
+            e);
       // stream creation failed: clean up the SDK before surfacing
       try {
         newSdk.close();
       } catch (RuntimeException closeError) {
-        log.warn(
-            "Failed to close Zerobus SDK after stream creation failure for table {}",
-            tableName,
-            closeError);
+        if (!bounded)
+          log.warn(
+              "Failed to close Zerobus SDK after stream creation failure for table {}",
+              tableName,
+              closeError);
       }
       throw e;
     }
@@ -204,6 +217,42 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         // store-and-forward forwarder can recover once the network is back.
         healthy = false;
         throw e;
+      }
+    }
+  }
+
+  @Override
+  public FlushResult flushBounded(
+      PreparedInputEvents<Map<String, Object>> events,
+      Map<String, String> tags,
+      ExecutionHooks hooks) {
+    synchronized (streamLock) {
+      bounded = true;
+      SimpleSinkCommand.requireBoundedWriteAllowed(events.preparedList().size(), hooks);
+      if (!healthy) {
+        return new FlushResult(
+            0,
+            0,
+            events.rawAndPreparedList().stream()
+                .map(
+                    pair ->
+                        new ErrorOutput(
+                            pair.getLeft(), "Zerobus stream has an unresolved previous write"))
+                .toList(),
+            new EffectOutcome(
+                0L,
+                0L,
+                0L,
+                0L,
+                (long) events.preparedList().size(),
+                "stream_unavailable",
+                EffectOutcome.Delivery.NOT_ATTEMPTED));
+      }
+      try {
+        return doFlushLocked(events);
+      } catch (RuntimeException failure) {
+        healthy = false;
+        throw failure;
       }
     }
   }
@@ -248,12 +297,12 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
           // the FIRST failure of the batch at warn; a systematically-bad batch (e.g. every record
           // missing a required field) would otherwise emit up to batchSize() warn lines per flush
           // and flood the disk. The rest go to debug; the total is reported in the summary below.
-          if (errors.isEmpty()) {
+          if (!bounded && errors.isEmpty()) {
             log.warn(
                 "Zerobus JSON encode failed for a record to table {} (first of batch): {}",
                 tableName,
                 e.getMessage());
-          } else {
+          } else if (!bounded) {
             log.debug(
                 "Zerobus JSON encode failed for a record to table {}: {}",
                 tableName,
@@ -264,9 +313,11 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         }
       }
       Optional<Long> offset =
-          ingestWithUnknownCommitState(
-              !payloads.isEmpty(), () -> jsonStream.ingestRecordsOffset(payloads));
-      awaitDurability(offset, jsonStream::waitForOffset);
+          deliver(
+              payloads.size(),
+              errors,
+              () -> jsonStream.ingestRecordsOffset(payloads),
+              jsonStream::waitForOffset);
       log.info(
           "Zerobus flush to table {} (json): {} records committed, {} failed, {} bytes, offset {}",
           tableName,
@@ -274,7 +325,7 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
           errors.size(),
           flushedDataSize,
           offset.map(String::valueOf).orElse("none"));
-      return new FlushResult(payloads.size(), flushedDataSize, errors);
+      return receipt(payloads.size(), flushedDataSize, errors);
     }
 
     List<byte[]> payloads = new ArrayList<>();
@@ -293,12 +344,12 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
         // record/schema mismatch (e.g. an unexpected field) surfaces. Log only the FIRST failure of
         // the batch at warn; a systematically-bad batch would otherwise emit up to batchSize() warn
         // lines per flush and flood the disk. The rest go to debug; the total is in the summary.
-        if (errors.isEmpty()) {
+        if (!bounded && errors.isEmpty()) {
           log.warn(
               "Zerobus protobuf encode failed for a record to table {} (first of batch): {}",
               tableName,
               e.getMessage());
-        } else {
+        } else if (!bounded) {
           log.debug(
               "Zerobus protobuf encode failed for a record to table {}: {}",
               tableName,
@@ -309,17 +360,63 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
       }
     }
     Optional<Long> offset =
-        ingestWithUnknownCommitState(
-            !payloads.isEmpty(), () -> protoStream.ingestRecordsOffset(payloads));
-    awaitDurability(offset, protoStream::waitForOffset);
+        deliver(
+            payloads.size(),
+            errors,
+            () -> protoStream.ingestRecordsOffset(payloads),
+            protoStream::waitForOffset);
     log.info(
-        "Zerobus flush to table {} (protobuf): {} records committed, {} failed, {} bytes, offset {}",
+        "Zerobus flush to table {} (protobuf): {} records committed, {} failed, {} bytes, offset"
+            + " {}",
         tableName,
         payloads.size(),
         errors.size(),
         flushedDataSize,
         offset.map(String::valueOf).orElse("none"));
-    return new FlushResult(payloads.size(), flushedDataSize, errors);
+    return receipt(payloads.size(), flushedDataSize, errors);
+  }
+
+  private Optional<Long> deliver(
+      int count, List<ErrorOutput> errors, OffsetIngestor ingestor, OffsetWaiter waiter) {
+    try {
+      Optional<Long> offset = ingestWithUnknownCommitState(count > 0, ingestor);
+      awaitDurability(offset, waiter);
+      return offset;
+    } catch (UnknownSinkCommitStateException failure) {
+      if (!bounded) throw failure;
+      throw new BoundedFlushException(
+          new FlushResult(
+              0,
+              0,
+              errors,
+              new EffectOutcome(
+                  (long) count,
+                  0L,
+                  (long) errors.size(),
+                  (long) count,
+                  (long) errors.size(),
+                  "none",
+                  EffectOutcome.Delivery.UNKNOWN)),
+          failure);
+    }
+  }
+
+  private FlushResult receipt(int accepted, long bytes, List<ErrorOutput> encodingErrors) {
+    if (!bounded) return new FlushResult(accepted, bytes, encodingErrors);
+    return new FlushResult(
+        accepted,
+        bytes,
+        encodingErrors,
+        new EffectOutcome(
+            (long) accepted,
+            (long) accepted,
+            (long) encodingErrors.size(),
+            0L,
+            (long) encodingErrors.size(),
+            "durable_offset",
+            encodingErrors.isEmpty()
+                ? EffectOutcome.Delivery.ACKNOWLEDGED
+                : accepted > 0 ? EffectOutcome.Delivery.PARTIAL : EffectOutcome.Delivery.FAILED));
   }
 
   /**
@@ -339,12 +436,13 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
     try {
       return ingestor.ingest();
     } catch (Exception e) {
-      log.error(
-          "Zerobus ingest failed for table {} after a non-empty batch was handed to the SDK; "
-              + "commit state is unknown: {}",
-          tableName,
-          e.getMessage(),
-          e);
+      if (!bounded)
+        log.error(
+            "Zerobus ingest failed for table {} after a non-empty batch was handed to the SDK; "
+                + "commit state is unknown: {}",
+            tableName,
+            e.getMessage(),
+            e);
       throw new UnknownSinkCommitStateException(
           "Zerobus ingest failed after a non-empty batch was handed to the SDK; "
               + "commit state is unknown",
@@ -371,12 +469,13 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
     try {
       waiter.waitForOffset(offset.get());
     } catch (Exception e) {
-      log.error(
-          "Zerobus durability wait failed for table {} at offset {}; commit state is unknown: {}",
-          tableName,
-          offset.get(),
-          e.getMessage(),
-          e);
+      if (!bounded)
+        log.error(
+            "Zerobus durability wait failed for table {} at offset {}; commit state is unknown: {}",
+            tableName,
+            offset.get(),
+            e.getMessage(),
+            e);
       throw new UnknownSinkCommitStateException(
           "Zerobus accepted records but durability confirmation failed; commit state is unknown — "
               + "not treating this batch as retryable per-record failures",
@@ -410,9 +509,31 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
     }
   }
 
+  private void closeBounded() {
+    RuntimeException failure = null;
+    try {
+      if (protoStream != null) protoStream.close();
+      if (jsonStream != null) jsonStream.close();
+    } catch (Exception closeFailure) {
+      failure = new IllegalStateException("Zerobus stream close failed", closeFailure);
+    } finally {
+      try {
+        if (sdk != null) sdk.close();
+      } catch (RuntimeException sdkFailure) {
+        if (failure == null) failure = sdkFailure;
+        else failure.addSuppressed(sdkFailure);
+      }
+    }
+    if (failure != null) throw failure;
+  }
+
   @Override
   public void close() {
     synchronized (streamLock) {
+      if (bounded) {
+        closeBounded();
+        return;
+      }
       closeStreamsQuietly();
     }
   }

@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.google.common.collect.Lists;
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.execution.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -52,6 +53,18 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
 
     //noinspection unchecked
     SinkExecutionContext<T> sinkContext = (SinkExecutionContext<T>) context;
+    if (executionHooks != null) {
+      SinkResult result = new SinkResult();
+      try {
+        for (List<RecordFleakData> batch : Lists.partition(events, batchSize())) {
+          executionCheckpoint();
+          result.merge(writeBoundedBatch(batch, tags, sinkContext));
+        }
+      } catch (ExecutionStoppedException stopped) {
+        throw new ExecutionProgressStoppedException(stopped, List.of(), result.getFailureEvents());
+      }
+      return result;
+    }
     // Outage fast-path: while store-and-forward is buffering, route everything straight to disk
     // (no remote attempt) so we don't reorder ahead of already-queued records.
     if (sinkContext.storeForward().isBuffering()) {
@@ -68,6 +81,84 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   protected abstract int batchSize();
+
+  private SinkResult writeBoundedBatch(
+      List<RecordFleakData> batch, Map<String, String> tags, SinkExecutionContext<T> context) {
+    context.inputMessageCounter().increase(batch.size(), tags);
+    PreparedInputEvents<T> prepared = new PreparedInputEvents<>();
+    List<ErrorOutput> errors = new ArrayList<>();
+    long effectId = executionHooks.effects().started();
+    boolean receiptPublished = false;
+    try {
+      long timestamp = System.currentTimeMillis();
+      for (RecordFleakData record : batch) {
+        executionCheckpoint();
+        try {
+          prepared.add(record, context.messagePreProcessor().preprocess(record, timestamp));
+        } catch (ExecutionStoppedException failure) {
+          throw failure;
+        } catch (Exception failure) {
+          errors.add(new ErrorOutput(record, failure.getMessage()));
+          context.errorCounter().increase(tags);
+        }
+      }
+      FlushResult flush;
+      Throwable invocationFailure = null;
+      try {
+        flush =
+            prepared.preparedList().isEmpty()
+                ? new FlushResult(0, 0, List.of())
+                : context.flusher().flushBounded(prepared, tags, executionHooks);
+      } catch (ExecutionStoppedException failure) {
+        flush =
+            new FlushResult(0, 0, List.of(), EffectOutcome.unknown(prepared.preparedList().size()));
+        invocationFailure = failure;
+      } catch (BoundedFlushException failure) {
+        flush = failure.result();
+        invocationFailure = failure.getCause();
+      } catch (Exception failure) {
+        flush =
+            new FlushResult(
+                0,
+                0,
+                prepared.rawAndPreparedList().stream()
+                    .map(pair -> new ErrorOutput(pair.getKey(), failure.getMessage()))
+                    .toList(),
+                EffectOutcome.unknown(prepared.preparedList().size()));
+      }
+      EffectOutcome outcome = flush.boundedOutcome(prepared.preparedList().size());
+      if (!errors.isEmpty()) {
+        outcome =
+            outcome.merge(
+                new EffectOutcome(
+                    0L,
+                    0L,
+                    (long) errors.size(),
+                    0L,
+                    (long) errors.size(),
+                    "preprocessing_rejected",
+                    EffectOutcome.Delivery.FAILED));
+      }
+      errors.addAll(flush.errorOutputList());
+      receiptPublished = true;
+      executionHooks.effects().finished(effectId, outcome);
+      context.sinkOutputCounter().increase(flush.successCount(), tags);
+      context.outputSizeCounter().increase(flush.flushedDataSize(), tags);
+      if (!errors.isEmpty()) context.sinkErrorCounter().increase(errors.size(), tags);
+      if (invocationFailure instanceof ExecutionStoppedException stopped) throw stopped;
+      executionCheckpoint();
+      return new SinkResult(batch.size(), flush.successCount(), errors, outcome, invocationFailure);
+    } catch (ExecutionStoppedException stopped) {
+      if (!receiptPublished) {
+        executionHooks
+            .effects()
+            .finished(
+                effectId,
+                EffectOutcome.counted(0, 0, errors.size(), 0, batch.size(), "preparation_stopped"));
+      }
+      throw new ExecutionProgressStoppedException(stopped, List.of(), errors);
+    }
+  }
 
   /**
    * Helper method to create base sink counters. Subclasses can use this to avoid code duplication.
@@ -208,21 +299,53 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     T preprocess(RecordFleakData event, long ts) throws Exception;
   }
 
+  /** Checks admission before a remote call, preserving a zero-attempt receipt on control stop. */
+  public static void requireBoundedWriteAllowed(int count, ExecutionHooks hooks)
+      throws BoundedFlushException {
+    try {
+      hooks.control().checkpoint();
+    } catch (ExecutionStoppedException stopped) {
+      throw new BoundedFlushException(
+          new FlushResult(
+              0,
+              0,
+              List.of(),
+              new EffectOutcome(
+                  0L, 0L, 0L, 0L, (long) count, "none", EffectOutcome.Delivery.NOT_ATTEMPTED)),
+          stopped);
+    }
+  }
+
   public interface Flusher<T> extends Closeable {
     /**
      * Flushes a batch of events to target system.
      *
      * <p>Note: The implementation should handle partial failures and return a FlushResult object.
-     * If an exception is thrown, it means complete failure
+     * An exception does not establish whether an external system accepted the write.
      *
      * @param preparedInputEvents preprocessed input events and their corresponding raw input
      * @param metricTags tags to use when reporting metrics (e.g., callingUser, event metadata)
      * @return the flush result. It contains - successful write count - error event list if any
-     * @throws Exception If any exception is thrown, it means nothing is written
+     * @throws Exception when the operation cannot return a receipt
      */
     FlushResult flush(
         final PreparedInputEvents<T> preparedInputEvents, Map<String, String> metricTags)
         throws Exception;
+
+    /**
+     * Synchronous bounded entry; buffered adapters must drain this exact operation before return.
+     */
+    default FlushResult flushBounded(
+        PreparedInputEvents<T> events, Map<String, String> tags, ExecutionHooks hooks)
+        throws Exception {
+      requireBoundedWriteAllowed(events.preparedList().size(), hooks);
+      return flush(events, tags);
+    }
+
+    /** Discards unsent records before closing resources. Buffered implementations override this. */
+    default void abort() throws java.io.IOException {
+      close();
+    }
   }
 
   public record PreparedInputEvents<T>(
@@ -238,5 +361,30 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   public record FlushResult(
-      int successCount, long flushedDataSize, List<ErrorOutput> errorOutputList) {}
+      int successCount,
+      long flushedDataSize,
+      List<ErrorOutput> errorOutputList,
+      EffectOutcome effectOutcome) {
+    public FlushResult(int successCount, long flushedDataSize, List<ErrorOutput> errors) {
+      this(successCount, flushedDataSize, errors, null);
+    }
+
+    /** Existing success receipts remain authoritative; an unclassified remainder stays unknown. */
+    public EffectOutcome boundedOutcome(long attempted) {
+      if (effectOutcome != null) return effectOutcome;
+      if (successCount < 0 || successCount > attempted) {
+        throw new IllegalStateException("Sink returned an invalid acknowledged count");
+      }
+      return new EffectOutcome(
+          attempted,
+          (long) successCount,
+          0L,
+          attempted - successCount,
+          0L,
+          "adapter_receipt",
+          successCount == attempted
+              ? EffectOutcome.Delivery.ACKNOWLEDGED
+              : successCount > 0 ? EffectOutcome.Delivery.PARTIAL : EffectOutcome.Delivery.UNKNOWN);
+    }
+  }
 }

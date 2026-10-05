@@ -58,6 +58,23 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
       SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
+    return flushInternal(preparedInputEvents, false);
+  }
+
+  @Override
+  public SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents,
+      Map<String, String> metricTags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(preparedInputEvents.preparedList().size(), hooks);
+    return flushInternal(preparedInputEvents, true);
+  }
+
+  private SimpleSinkCommand.FlushResult flushInternal(
+      SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> preparedInputEvents,
+      boolean bounded)
+      throws Exception {
     List<Map<String, Object>> data = preparedInputEvents.preparedList();
     if (data.isEmpty()) {
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
@@ -92,14 +109,14 @@ public class JdbcSinkFlusher implements SimpleSinkCommand.Flusher<Map<String, Ob
       try {
         connection.rollback();
       } catch (SQLException rollbackEx) {
-        log.warn("Failed to rollback transaction", rollbackEx);
+        if (!bounded) log.warn("Failed to rollback transaction", rollbackEx);
       }
       throw e;
     } finally {
       try {
         connection.setAutoCommit(originalAutoCommit);
       } catch (SQLException e) {
-        log.warn("Failed to restore auto-commit", e);
+        if (!bounded) log.warn("Failed to restore auto-commit", e);
       }
     }
   }

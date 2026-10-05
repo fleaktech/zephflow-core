@@ -28,6 +28,34 @@ import org.junit.jupiter.params.provider.MethodSource;
 class DeltaLakeDataConverterTest {
 
   @Test
+  void partitionColumnProjectionPreservesOriginalAndRemainingColumnOrder() {
+    StructType schema =
+        new StructType()
+            .add("id", IntegerType.INTEGER, false)
+            .add("partition", StringType.STRING, false)
+            .add("value", DoubleType.DOUBLE, true);
+    var original =
+        DeltaLakeDataConverter.convertSingleBatch(
+                List.of(Map.of("id", 7, "partition", "west", "value", 2.5)), schema)
+            .getData();
+    var projected = original.withDeletedColumnAt(1);
+    assertEquals(
+        List.of("id", "value"),
+        projected.getSchema().fields().stream().map(StructField::getName).toList());
+    assertEquals(1, projected.getSize());
+    assertEquals(7, projected.getColumnVector(0).getInt(0));
+    assertEquals(2.5, projected.getColumnVector(1).getDouble(0));
+    assertSame(original.getColumnVector(2), projected.getColumnVector(1));
+    assertEquals(schema, original.getSchema());
+    assertEquals("west", original.getColumnVector(1).getString(0));
+    var valueOnly = projected.withDeletedColumnAt(0);
+    assertEquals("value", valueOnly.getSchema().at(0).getName());
+    assertEquals(2, projected.getSchema().fields().size());
+    assertThrows(IndexOutOfBoundsException.class, () -> original.withDeletedColumnAt(-1));
+    assertThrows(IndexOutOfBoundsException.class, () -> original.withDeletedColumnAt(3));
+  }
+
+  @Test
   void testIntegerParseFailure() {
     StructType schema = new StructType(List.of(new StructField("age", IntegerType.INTEGER, false)));
 

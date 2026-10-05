@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.execution.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -97,6 +98,37 @@ class AbstractBufferedFlusherMetricsTest {
         new SimpleSinkCommand.PreparedInputEvents<>();
     events.add(record, record);
     return events;
+  }
+
+  @Test
+  void boundedCancellationBeforeAdapterIsNotAttempted() throws Exception {
+    var hooks =
+        new ExecutionHooks(
+            () -> {
+              throw new ExecutionStoppedException("cancelled");
+            },
+            new ExecutionHooks.Effects() {
+              public long started() {
+                return 1;
+              }
+
+              public void finished(long id, EffectOutcome outcome) {}
+            },
+            Runnable::run);
+    try (TestFlusher flusher = newFlusher(1)) {
+      var failure =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              BoundedFlushException.class, () -> flusher.flushBounded(oneEvent(), Map.of(), hooks));
+      org.junit.jupiter.api.Assertions.assertEquals(
+          0L, failure.result().effectOutcome().attemptedCount());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          0L, failure.result().effectOutcome().unknownCount());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          1L, failure.result().effectOutcome().notAttemptedCount());
+      org.junit.jupiter.api.Assertions.assertEquals(
+          EffectOutcome.Delivery.NOT_ATTEMPTED, failure.result().effectOutcome().delivery());
+      verifyNoInteractions(sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+    }
   }
 
   @Test

@@ -18,6 +18,9 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -49,6 +52,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected final String nodeId;
   protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
   protected final boolean testMode;
+  protected final io.fleak.zephflow.api.execution.ExecutionHooks boundedHooks;
   protected final FleakCounter sinkOutputCounter;
   protected final FleakCounter outputSizeCounter;
   protected final FleakCounter sinkErrorCounter;
@@ -67,6 +71,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     this.sinkOutputCounter = sinkOutputCounter;
     this.outputSizeCounter = outputSizeCounter;
     this.sinkErrorCounter = sinkErrorCounter;
+    this.boundedHooks = jobContext == null ? null : jobContext.getExecutionHooks();
     this.testMode =
         jobContext != null
             && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
@@ -74,7 +79,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   }
 
   protected final boolean isSyncMode() {
-    return testMode;
+    return testMode || boundedHooks != null;
   }
 
   private synchronized void ensureBufferedWriterInitialized() {
@@ -85,7 +90,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
               0, // No timer for lazy initialization; timer is started in initialize()
               this::handleScheduledFlushCallback,
               getSchedulerThreadName(),
-              testMode);
+              isSyncMode());
     }
   }
 
@@ -176,7 +181,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
             getFlushIntervalMs(),
             this::handleScheduledFlushCallback,
             getSchedulerThreadName(),
-            testMode);
+            isSyncMode());
     bufferedWriter.start();
   }
 
@@ -266,6 +271,122 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     }
 
     return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+  }
+
+  @Override
+  public final SimpleSinkCommand.FlushResult flushBounded(
+      SimpleSinkCommand.PreparedInputEvents<T> events,
+      Map<String, String> tags,
+      io.fleak.zephflow.api.execution.ExecutionHooks hooks)
+      throws Exception {
+    SimpleSinkCommand.requireBoundedWriteAllowed(events.preparedList().size(), hooks);
+    beforeFlush();
+    if (events.preparedList().isEmpty()) return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+    beforeWrite();
+    try {
+      if (events.preparedList().size() <= getBatchSize()) {
+        return doFlush(events.rawAndPreparedList());
+      }
+      return flushBoundedSlices(events.rawAndPreparedList(), hooks);
+    } finally {
+      afterWrite();
+    }
+  }
+
+  private SimpleSinkCommand.FlushResult flushBoundedSlices(
+      List<Pair<RecordFleakData, T>> records, ExecutionHooks hooks) throws Exception {
+    SimpleSinkCommand.FlushResult completed = null;
+    for (int offset = 0; offset < records.size(); ) {
+      int end = offset + Math.min(getBatchSize(), records.size() - offset);
+      List<Pair<RecordFleakData, T>> slice = records.subList(offset, end);
+      try {
+        SimpleSinkCommand.requireBoundedWriteAllowed(records.size() - offset, hooks);
+      } catch (BoundedFlushException stopped) {
+        throw new BoundedFlushException(
+            mergeBoundedResults(completed, stopped.result(), records.size() - offset),
+            stopped.getCause());
+      }
+      SimpleSinkCommand.FlushResult result;
+      try {
+        result = doFlush(slice);
+      } catch (BoundedFlushException partial) {
+        throw failedBoundedSlice(
+            completed, partial.result(), slice.size(), records.size() - end, partial.getCause());
+      } catch (ExecutionStoppedException stopped) {
+        throw failedBoundedSlice(
+            completed,
+            new SimpleSinkCommand.FlushResult(0, 0, List.of(), EffectOutcome.unknown(slice.size())),
+            slice.size(),
+            records.size() - end,
+            stopped);
+      } catch (Exception failure) {
+        throw failedBoundedSlice(
+            completed,
+            new SimpleSinkCommand.FlushResult(
+                0,
+                0,
+                slice.stream()
+                    .map(record -> new ErrorOutput(record.getLeft(), failure.getMessage()))
+                    .toList(),
+                EffectOutcome.unknown(slice.size())),
+            slice.size(),
+            records.size() - end,
+            failure);
+      }
+      completed = mergeBoundedResults(completed, result, slice.size());
+      offset = end;
+    }
+    return completed;
+  }
+
+  private static BoundedFlushException failedBoundedSlice(
+      SimpleSinkCommand.FlushResult completed,
+      SimpleSinkCommand.FlushResult partial,
+      int attemptedRecords,
+      int remainingRecords,
+      Throwable cause) {
+    SimpleSinkCommand.FlushResult result =
+        mergeBoundedResults(completed, partial, attemptedRecords);
+    if (remainingRecords > 0) {
+      result =
+          mergeBoundedResults(
+              result,
+              new SimpleSinkCommand.FlushResult(
+                  0, 0, List.of(), EffectOutcome.counted(0, 0, 0, 0, remainingRecords, "none")),
+              0);
+    }
+    return new BoundedFlushException(result, cause);
+  }
+
+  private static SimpleSinkCommand.FlushResult mergeBoundedResults(
+      SimpleSinkCommand.FlushResult completed,
+      SimpleSinkCommand.FlushResult current,
+      int currentRecords) {
+    EffectOutcome currentOutcome = current.boundedOutcome(currentRecords);
+    if (completed == null) {
+      return new SimpleSinkCommand.FlushResult(
+          current.successCount(),
+          current.flushedDataSize(),
+          current.errorOutputList(),
+          currentOutcome);
+    }
+    List<ErrorOutput> errors = new ArrayList<>(completed.errorOutputList());
+    errors.addAll(current.errorOutputList());
+    return new SimpleSinkCommand.FlushResult(
+        completed.successCount() + current.successCount(),
+        completed.flushedDataSize() + current.flushedDataSize(),
+        errors,
+        completed.effectOutcome().merge(currentOutcome));
+  }
+
+  @Override
+  public void abort() throws java.io.IOException {
+    discardPendingRecords();
+    close();
+  }
+
+  protected final void discardPendingRecords() {
+    if (bufferedWriter != null) bufferedWriter.abort();
   }
 
   /**
@@ -383,6 +504,10 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
    */
   protected SimpleSinkCommand.FlushResult doFlushWithRetry(List<Pair<RecordFleakData, T>> batch)
       throws Exception {
+    if (boundedHooks != null) {
+      boundedHooks.control().checkpoint();
+      return doFlush(batch);
+    }
     long retryDelayMs = INITIAL_RETRY_DELAY_MS;
     int attempt = 0;
 

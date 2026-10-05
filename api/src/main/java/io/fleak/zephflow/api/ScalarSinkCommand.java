@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.api;
 
+import io.fleak.zephflow.api.execution.EffectOutcome;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,11 +54,33 @@ public abstract class ScalarSinkCommand extends OperatorCommand {
     int inputCount;
     int successCount;
     List<ErrorOutput> failureEvents = new ArrayList<>();
+    EffectOutcome effectOutcome;
+    Throwable invocationFailure;
+
+    public SinkResult(int inputCount, int successCount, List<ErrorOutput> failureEvents) {
+      this(inputCount, successCount, failureEvents, null, null);
+    }
+
+    public SinkResult(
+        int inputCount, int successCount, List<ErrorOutput> failureEvents, EffectOutcome outcome) {
+      this(inputCount, successCount, failureEvents, outcome, null);
+    }
 
     public void merge(SinkResult that) {
       this.inputCount += that.inputCount;
       this.successCount += that.successCount;
       this.failureEvents.addAll(that.failureEvents);
+      if (that.invocationFailure != null) {
+        if (this.invocationFailure == null) this.invocationFailure = that.invocationFailure;
+        else if (this.invocationFailure != that.invocationFailure)
+          this.invocationFailure.addSuppressed(that.invocationFailure);
+      }
+      if (that.effectOutcome != null) {
+        this.effectOutcome =
+            this.effectOutcome == null
+                ? that.effectOutcome
+                : this.effectOutcome.merge(that.effectOutcome);
+      }
     }
 
     public long errorCount() {

@@ -46,6 +46,35 @@ class DatabricksSqlExecutorTest {
     executor = new DatabricksSqlExecutor(workspaceClient, WAREHOUSE_ID, 100);
   }
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+  void boundedSqlLoggingOmitsPrivateConfigurationWhileOrdinaryLogsRemain(boolean bounded) {
+    submit(success("num_inserted_rows", "1"));
+    var selected = new DatabricksSqlExecutor(workspaceClient, WAREHOUSE_ID, 100, bounded);
+    try (var logs =
+        new io.fleak.zephflow.lib.utils.BoundedLogCapture(DatabricksSqlExecutor.class)) {
+      var receipt =
+          selected.executeCopyIntoWithStats(
+              TABLE_NAME,
+              "/Volumes/private-copy-path/*.parquet",
+              Map.of("private_option", "private-copy-token"),
+              Map.of());
+      assertEquals(1, receipt.rowsLoaded());
+      assertEquals(
+          !bounded,
+          logs.events().stream()
+              .anyMatch(
+                  event ->
+                      event.getMessage().getFormattedMessage().contains("private-copy-token")));
+      assertEquals(
+          !bounded,
+          logs.events().stream()
+              .anyMatch(
+                  event -> event.getMessage().getFormattedMessage().contains("private-copy-path")));
+      assertTrue(submittedRequest().getStatement().contains("private-copy-token"));
+    }
+  }
+
   @Test
   void executesCopyAndPreservesDefaultOptions() {
     submit(response(StatementState.PENDING));
