@@ -27,6 +27,8 @@ import lombok.extern.slf4j.Slf4j;
 public class AzureMonitorSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<AzureMonitorSinkOutboundEvent> {
 
+  static final String TIME_GENERATED_COLUMN = "TimeGenerated";
+
   private final String timeGeneratedField;
 
   public AzureMonitorSinkMessageProcessor(String timeGeneratedField) {
@@ -39,8 +41,13 @@ public class AzureMonitorSinkMessageProcessor
       Map<String, Object> payload =
           new LinkedHashMap<>(OBJECT_MAPPER.convertValue(event, Map.class));
 
-      if (!payload.containsKey(timeGeneratedField)) {
-        payload.put(timeGeneratedField, DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
+      // timeGeneratedField names the record field holding the event time; Azure only reads it
+      // from the TimeGenerated column, so copy it there.
+      Object eventTime = payload.get(timeGeneratedField);
+      if (eventTime != null) {
+        payload.put(TIME_GENERATED_COLUMN, eventTime);
+      } else if (payload.get(TIME_GENERATED_COLUMN) == null) {
+        payload.put(TIME_GENERATED_COLUMN, DateTimeFormatter.ISO_INSTANT.format(Instant.now()));
       }
 
       return new AzureMonitorSinkOutboundEvent(OBJECT_MAPPER.writeValueAsString(payload));
@@ -48,7 +55,7 @@ public class AzureMonitorSinkMessageProcessor
       log.error("Failed to preprocess event for Azure Monitor", e);
       return new AzureMonitorSinkOutboundEvent(
           "{\""
-              + timeGeneratedField
+              + TIME_GENERATED_COLUMN
               + "\":\""
               + DateTimeFormatter.ISO_INSTANT.format(Instant.now())
               + "\"}");
