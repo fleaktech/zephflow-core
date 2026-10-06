@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 public class AzureMonitorSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<AzureMonitorSinkOutboundEvent> {
 
-  static final String TIME_GENERATED_COLUMN = "TimeGenerated";
+  private static final String TIME_GENERATED_COLUMN = "TimeGenerated";
 
   private final String timeGeneratedField;
 
@@ -41,8 +41,6 @@ public class AzureMonitorSinkMessageProcessor
       Map<String, Object> payload =
           new LinkedHashMap<>(OBJECT_MAPPER.convertValue(event, Map.class));
 
-      // timeGeneratedField names the record field holding the event time; Azure only reads it
-      // from the TimeGenerated column, so copy it there.
       Object eventTime = payload.get(timeGeneratedField);
       if (eventTime != null) {
         payload.put(TIME_GENERATED_COLUMN, eventTime);

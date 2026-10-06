@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.azuremonitorsink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.time.Instant;
@@ -26,16 +27,18 @@ class AzureMonitorSinkMessageProcessorTest {
 
   private static final String EVENT_TIME = "2026-09-28T18:30:00Z";
 
-  private Map<String, Object> process(String timeGeneratedField, Map<String, Object> record)
-      throws Exception {
+  private Map<String, Object> preprocessToPayload(
+      String timeGeneratedField, Map<String, Object> record) throws Exception {
     var processor = new AzureMonitorSinkMessageProcessor(timeGeneratedField);
-    var event = processor.preprocess((RecordFleakData) FleakData.wrap(record), 0L);
-    return OBJECT_MAPPER.readValue(event.jsonPayload(), Map.class);
+    var outboundEvent = processor.preprocess((RecordFleakData) FleakData.wrap(record), 0L);
+    return OBJECT_MAPPER.readValue(
+        outboundEvent.jsonPayload(), new TypeReference<Map<String, Object>>() {});
   }
 
   @Test
   void configuredFieldPopulatesTimeGenerated() throws Exception {
-    var payload = process("event_time", Map.of("event_time", EVENT_TIME, "msg", "hello"));
+    var payload =
+        preprocessToPayload("event_time", Map.of("event_time", EVENT_TIME, "msg", "hello"));
 
     assertEquals(EVENT_TIME, payload.get("TimeGenerated"));
     assertEquals(EVENT_TIME, payload.get("event_time"));
@@ -44,24 +47,26 @@ class AzureMonitorSinkMessageProcessorTest {
 
   @Test
   void defaultFieldKeepsExistingTimeGenerated() throws Exception {
-    var payload = process("TimeGenerated", Map.of("TimeGenerated", EVENT_TIME));
+    var payload = preprocessToPayload("TimeGenerated", Map.of("TimeGenerated", EVENT_TIME));
 
     assertEquals(EVENT_TIME, payload.get("TimeGenerated"));
   }
 
   @Test
   void missingConfiguredFieldStampsIngestionTime() throws Exception {
-    Instant before = Instant.now();
-    var payload = process("event_time", Map.of("msg", "hello"));
+    Instant timeBeforePreprocessing = Instant.now();
+    var payload = preprocessToPayload("event_time", Map.of("msg", "hello"));
+    Instant timeAfterPreprocessing = Instant.now();
 
-    Instant stamped = Instant.parse((String) payload.get("TimeGenerated"));
-    assertFalse(stamped.isBefore(before));
+    Instant stampedTimeGenerated = Instant.parse((String) payload.get("TimeGenerated"));
+    assertFalse(stampedTimeGenerated.isBefore(timeBeforePreprocessing));
+    assertFalse(stampedTimeGenerated.isAfter(timeAfterPreprocessing));
     assertFalse(payload.containsKey("event_time"));
   }
 
   @Test
   void missingConfiguredFieldKeepsExistingTimeGenerated() throws Exception {
-    var payload = process("event_time", Map.of("TimeGenerated", EVENT_TIME));
+    var payload = preprocessToPayload("event_time", Map.of("TimeGenerated", EVENT_TIME));
 
     assertEquals(EVENT_TIME, payload.get("TimeGenerated"));
   }
