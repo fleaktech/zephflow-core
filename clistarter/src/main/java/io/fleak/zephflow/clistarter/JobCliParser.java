@@ -171,8 +171,9 @@ public class JobCliParser {
                 String dagStr = new String(fromBase64String(d));
                 return fromYamlString(dagStr, new TypeReference<>() {});
               } catch (Exception e) {
-                throw new IllegalArgumentException(
-                    "failed to convert -d argument into a dag: " + d);
+                // don't echo the argument: it carries the decrypted credentials in
+                // jobContext.otherProperties
+                throw new IllegalArgumentException("failed to convert -d argument into a dag", e);
               }
             },
             null);
@@ -191,8 +192,11 @@ public class JobCliParser {
               }
               try {
                 String dagStr = Files.readString(Path.of(f));
-                log.info("read content from dag file:\n {}", dagStr);
-                return fromYamlString(dagStr, new TypeReference<>() {});
+                AdjacencyListDagDefinition dag = fromYamlString(dagStr, new TypeReference<>() {});
+                // summary only: the raw content carries the decrypted credentials in
+                // jobContext.otherProperties, and task logs are shipped to the log store
+                log.info("read dag from file {}: {}", f, summarizeDag(dag));
+                return dag;
               } catch (Exception e) {
                 throw new IllegalArgumentException("failed to load dag from file: " + f, e);
               }
@@ -208,6 +212,17 @@ public class JobCliParser {
       throw new RuntimeException("no DAG were provided");
     }
     return fromYamlString(dagStr, new TypeReference<>() {});
+  }
+
+  static String summarizeDag(AdjacencyListDagDefinition dag) {
+    if (dag == null || dag.getDag() == null) {
+      return "no nodes";
+    }
+    return dag.getDag().size()
+        + " nodes "
+        + dag.getDag().stream()
+            .map(n -> n.getId() + "(" + n.getCommandName() + ")")
+            .collect(Collectors.joining(", ", "[", "]"));
   }
 
   public static void printUsage(String prog) {
