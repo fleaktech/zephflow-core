@@ -151,7 +151,7 @@ class JobCliParserTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> JobCliParser.parseArgs(new String[] {"-id", "test_job", "-d", secretArg}));
-    assertTrue(e.getMessage().contains("line 1"), e.getMessage());
+    assertTrue(e.getMessage().contains("(line: 1, column: "), e.getMessage());
     for (Throwable t = e; t != null; t = t.getCause()) {
       assertFalse(t.getMessage().contains("fle2953-secret"), "dag leaked into error: " + t);
       assertFalse(t.getMessage().contains(secretArg), "dag leaked into error: " + t);
@@ -170,9 +170,47 @@ class JobCliParserTest {
             () ->
                 JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
 
-    assertTrue(e.getMessage().contains("at path dag[0].outputs"), e.getMessage());
+    assertTrue(
+        e.getMessage().contains("at path $.dag[0].outputs (line: 3, column: 14;"), e.getMessage());
     for (Throwable t = e; t != null; t = t.getCause()) {
       assertFalse(t.getMessage().contains("fle2953-secret"), "dag leaked into error: " + t);
     }
+  }
+
+  @Test
+  void parseArgs_dagWithWrongRootTypeReportsRootPath(@TempDir Path tempDir) throws IOException {
+    Path dagFile = tempDir.resolve("dag.yml");
+    Files.writeString(dagFile, "- \"fle2953-secret\"\n");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
+
+    assertTrue(e.getMessage().contains("at path $ ("), e.getMessage());
+    assertFalse(e.getMessage().contains("fle2953-secret"));
+  }
+
+  @Test
+  void parseArgs_missingDagFile(@TempDir Path tempDir) {
+    Path dagFile = tempDir.resolve("missing.yml");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
+
+    assertEquals("failed to read dag file: " + dagFile, e.getMessage());
+  }
+
+  @Test
+  void summarizeDag_listsNodesOrReportsNone() throws IOException {
+    String dagDefStr = MiscUtils.loadStringFromResource("/test_dag_stdin_stdout.yml");
+    AdjacencyListDagDefinition dag = fromYamlString(dagDefStr, new TypeReference<>() {});
+
+    assertTrue(JobCliParser.summarizeDag(dag).startsWith(dag.getDag().size() + " nodes ["));
+    assertEquals("no nodes", JobCliParser.summarizeDag(new AdjacencyListDagDefinition()));
   }
 }

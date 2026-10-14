@@ -14,7 +14,6 @@
 package io.fleak.zephflow.clistarter;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
-import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -24,6 +23,7 @@ import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config;
 import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import io.fleak.zephflow.lib.utils.MiscUtils;
+import io.fleak.zephflow.lib.utils.YamlUtils;
 import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.IOException;
@@ -31,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -220,36 +221,28 @@ public class JobCliParser {
    */
   private static AdjacencyListDagDefinition parseDag(String dagStr, String source) {
     try {
-      return fromYamlString(dagStr, new TypeReference<>() {});
-    } catch (RuntimeException e) {
-      if (!(e.getCause() instanceof JsonProcessingException cause)) {
-        throw e;
-      }
+      return YamlUtils.OBJECT_MAPPER.readValue(dagStr, new TypeReference<>() {});
+    } catch (JsonProcessingException e) {
       String path =
-          cause instanceof JsonMappingException mapping && !mapping.getPath().isEmpty()
-              ? " at path " + fieldPath(mapping)
-              : "";
-      JsonLocation location = cause.getLocation();
-      String position =
-          location == null
-              ? ""
-              : " at line " + location.getLineNr() + ", column " + location.getColumnNr();
+          e instanceof JsonMappingException mapping ? " at path " + fieldPath(mapping) : "";
+      JsonLocation location = Objects.requireNonNullElse(e.getLocation(), JsonLocation.NA);
       throw new IllegalArgumentException(
           "failed to parse dag from "
               + source
               + ": "
-              + cause.getClass().getSimpleName()
+              + e.getClass().getSimpleName()
               + path
-              + position
-              + " (content not shown)");
+              + " ("
+              + location.offsetDescription()
+              + "; content not shown)");
     }
   }
 
   private static String fieldPath(JsonMappingException mapping) {
-    StringBuilder path = new StringBuilder();
+    StringBuilder path = new StringBuilder("$");
     for (JsonMappingException.Reference reference : mapping.getPath()) {
       if (reference.getFieldName() != null) {
-        path.append(path.isEmpty() ? "" : ".").append(reference.getFieldName());
+        path.append('.').append(reference.getFieldName());
       } else {
         path.append('[').append(reference.getIndex()).append(']');
       }
@@ -258,7 +251,7 @@ public class JobCliParser {
   }
 
   static String summarizeDag(AdjacencyListDagDefinition dag) {
-    if (dag == null || dag.getDag() == null) {
+    if (dag.getDag() == null) {
       return "no nodes";
     }
     return dag.getDag().size()
