@@ -151,6 +151,10 @@ class JobCliParserTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> JobCliParser.parseArgs(new String[] {"-id", "test_job", "-d", secretArg}));
-    assertFalse(e.getMessage().contains(secretArg));
+    assertTrue(e.getMessage().contains("line 1"), e.getMessage());
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      assertFalse(t.getMessage().contains("fle2953-secret"), "dag leaked into error: " + t);
+      assertFalse(t.getMessage().contains(secretArg), "dag leaked into error: " + t);
+    }
   }
 }

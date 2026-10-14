@@ -16,6 +16,7 @@ package io.fleak.zephflow.clistarter;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config;
@@ -23,14 +24,17 @@ import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.*;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 /** Created by bolei on 9/26/24 */
 @Slf4j
@@ -167,14 +171,7 @@ public class JobCliParser {
               if (StringUtils.isBlank(d)) {
                 return null;
               }
-              try {
-                String dagStr = new String(fromBase64String(d));
-                return fromYamlString(dagStr, new TypeReference<>() {});
-              } catch (Exception e) {
-                // don't echo the argument: it carries the decrypted credentials in
-                // jobContext.otherProperties
-                throw new IllegalArgumentException("failed to convert -d argument into a dag", e);
-              }
+              return parseDag(new String(fromBase64String(d)), "-d argument");
             },
             null);
     if (dagDefinition != null) {
@@ -190,16 +187,17 @@ public class JobCliParser {
               if (StringUtils.isBlank(f)) {
                 return null;
               }
+              String dagStr;
               try {
-                String dagStr = Files.readString(Path.of(f));
-                AdjacencyListDagDefinition dag = fromYamlString(dagStr, new TypeReference<>() {});
-                // summary only: the raw content carries the decrypted credentials in
-                // jobContext.otherProperties, and task logs are shipped to the log store
-                log.info("read dag from file {}: {}", f, summarizeDag(dag));
-                return dag;
-              } catch (Exception e) {
-                throw new IllegalArgumentException("failed to load dag from file: " + f, e);
+                dagStr = Files.readString(Path.of(f));
+              } catch (IOException e) {
+                throw new IllegalArgumentException("failed to read dag file: " + f, e);
               }
+              AdjacencyListDagDefinition dag = parseDag(dagStr, "dag file " + f);
+              // summary only: the raw content carries the decrypted credentials in
+              // jobContext.otherProperties, and task logs are shipped to the log store
+              log.info("read dag from file {}: {}", f, summarizeDag(dag));
+              return dag;
             },
             null);
     if (dagDefinition != null) {
@@ -211,7 +209,29 @@ public class JobCliParser {
     if (dagStr == null) {
       throw new RuntimeException("no DAG were provided");
     }
-    return fromYamlString(dagStr, new TypeReference<>() {});
+    return parseDag(dagStr, "DAG environment variable");
+  }
+
+  /**
+   * Parses DAG yaml without letting its content into the error: the DAG carries the decrypted
+   * credentials in jobContext.otherProperties, and YAML parse errors quote the offending source
+   * line. Only the error location is reported.
+   */
+  private static AdjacencyListDagDefinition parseDag(String dagStr, String source) {
+    try {
+      return fromYamlString(dagStr, new TypeReference<>() {});
+    } catch (Exception e) {
+      String location =
+          ExceptionUtils.getThrowableList(e).stream()
+              .filter(JsonProcessingException.class::isInstance)
+              .map(t -> ((JsonProcessingException) t).getLocation())
+              .filter(Objects::nonNull)
+              .findFirst()
+              .map(l -> " at line " + l.getLineNr() + ", column " + l.getColumnNr())
+              .orElse("");
+      throw new IllegalArgumentException(
+          "failed to parse dag from " + source + location + " (content not shown)");
+    }
   }
 
   static String summarizeDag(AdjacencyListDagDefinition dag) {
