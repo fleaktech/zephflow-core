@@ -23,7 +23,15 @@ import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.commons.cli.ParseException;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -77,5 +85,132 @@ class JobCliParserTest {
     assertEquals("default_service", jobConfig.getService());
     assertEquals("default_env", jobConfig.getEnvironment());
     assertTrue(jobConfig.getJobId().matches("\\w{16}"));
+  }
+
+  @Test
+  void parseArgs_doesNotLogCredentialsFromDag(@TempDir Path tempDir) throws Exception {
+    String secret = "fle2953-secret-api-key";
+    String dagStr =
+        """
+        jobContext:
+          otherProperties:
+            my-credential:
+              key: "%s"
+        dag:
+          - id: "src"
+            commandName: "stdin"
+            config:
+              encodingType: "JSON_ARRAY"
+            outputs: ["sink"]
+          - id: "sink"
+            commandName: "stdout"
+            config:
+              encodingType: "JSON_OBJECT"
+        """
+            .formatted(secret);
+    Path dagFile = tempDir.resolve("dag.yml");
+    Files.writeString(dagFile, dagStr);
+
+    Logger logger = (Logger) LogManager.getLogger(JobCliParser.class);
+    Level originalLevel = logger.getLevel();
+    List<LogEvent> events = new CopyOnWriteArrayList<>();
+    AbstractAppender appender =
+        new AbstractAppender("fle2953-capture", null, null, false, Property.EMPTY_ARRAY) {
+          @Override
+          public void append(LogEvent event) {
+            events.add(event.toImmutable());
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    logger.setLevel(Level.ALL);
+    try {
+      JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()});
+    } finally {
+      logger.removeAppender(appender);
+      logger.setLevel(originalLevel);
+      appender.stop();
+    }
+
+    assertFalse(events.isEmpty(), "expected the dag summary to be logged");
+    for (LogEvent event : events) {
+      String message = event.getMessage().getFormattedMessage();
+      assertFalse(message.contains(secret), "credential leaked into log: " + message);
+      assertFalse(message.contains("otherProperties"), "jobContext leaked into log: " + message);
+    }
+    assertTrue(
+        events.stream()
+            .anyMatch(
+                e -> e.getMessage().getFormattedMessage().contains("src(stdin), sink(stdout)")));
+  }
+
+  @Test
+  void parseArgs_invalidBase64DagDoesNotEchoArgument() {
+    String secretArg = MiscUtils.toBase64String("not: [valid dag key: fle2953-secret".getBytes());
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> JobCliParser.parseArgs(new String[] {"-id", "test_job", "-d", secretArg}));
+    assertTrue(e.getMessage().contains("(line: 1, column: "), e.getMessage());
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      assertFalse(t.getMessage().contains("fle2953-secret"), "dag leaked into error: " + t);
+      assertFalse(t.getMessage().contains(secretArg), "dag leaked into error: " + t);
+    }
+  }
+
+  @Test
+  void parseArgs_dagTypeMismatchReportsPathWithoutValue(@TempDir Path tempDir) throws IOException {
+    Path dagFile = tempDir.resolve("dag.yml");
+    Files.writeString(
+        dagFile, "dag:\n  - id: \"a\"\n    outputs: \"fle2953-secret\"\n    config: [1]\n");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
+
+    assertTrue(
+        e.getMessage().contains("at path $.dag[0].outputs (line: 3, column: 14;"), e.getMessage());
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      assertFalse(t.getMessage().contains("fle2953-secret"), "dag leaked into error: " + t);
+    }
+  }
+
+  @Test
+  void parseArgs_dagWithWrongRootTypeReportsRootPath(@TempDir Path tempDir) throws IOException {
+    Path dagFile = tempDir.resolve("dag.yml");
+    Files.writeString(dagFile, "- \"fle2953-secret\"\n");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
+
+    assertTrue(e.getMessage().contains("at path $ ("), e.getMessage());
+    assertFalse(e.getMessage().contains("fle2953-secret"));
+  }
+
+  @Test
+  void parseArgs_missingDagFile(@TempDir Path tempDir) {
+    Path dagFile = tempDir.resolve("missing.yml");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
+
+    assertEquals("failed to read dag file: " + dagFile, e.getMessage());
+  }
+
+  @Test
+  void summarizeDag_listsNodesOrReportsNone() throws IOException {
+    String dagDefStr = MiscUtils.loadStringFromResource("/test_dag_stdin_stdout.yml");
+    AdjacencyListDagDefinition dag = fromYamlString(dagDefStr, new TypeReference<>() {});
+
+    assertTrue(JobCliParser.summarizeDag(dag).startsWith(dag.getDag().size() + " nodes ["));
+    assertEquals("no nodes", JobCliParser.summarizeDag(new AdjacencyListDagDefinition()));
   }
 }

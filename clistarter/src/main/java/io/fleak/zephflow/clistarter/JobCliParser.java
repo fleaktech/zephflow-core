@@ -14,18 +14,24 @@
 package io.fleak.zephflow.clistarter;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
-import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config;
 import io.fleak.zephflow.api.metric.SplunkMetricSender;
 import io.fleak.zephflow.lib.utils.MiscUtils;
+import io.fleak.zephflow.lib.utils.YamlUtils;
 import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -167,13 +173,7 @@ public class JobCliParser {
               if (StringUtils.isBlank(d)) {
                 return null;
               }
-              try {
-                String dagStr = new String(fromBase64String(d));
-                return fromYamlString(dagStr, new TypeReference<>() {});
-              } catch (Exception e) {
-                throw new IllegalArgumentException(
-                    "failed to convert -d argument into a dag: " + d);
-              }
+              return parseDag(new String(fromBase64String(d)), "-d argument");
             },
             null);
     if (dagDefinition != null) {
@@ -189,13 +189,17 @@ public class JobCliParser {
               if (StringUtils.isBlank(f)) {
                 return null;
               }
+              String dagStr;
               try {
-                String dagStr = Files.readString(Path.of(f));
-                log.info("read content from dag file:\n {}", dagStr);
-                return fromYamlString(dagStr, new TypeReference<>() {});
-              } catch (Exception e) {
-                throw new IllegalArgumentException("failed to load dag from file: " + f, e);
+                dagStr = Files.readString(Path.of(f));
+              } catch (IOException | InvalidPathException e) {
+                throw new IllegalArgumentException("failed to read dag file: " + f, e);
               }
+              AdjacencyListDagDefinition dag = parseDag(dagStr, "dag file " + f);
+              // summary only: the raw content carries the decrypted credentials in
+              // jobContext.otherProperties, and task logs are shipped to the log store
+              log.info("read dag from file {}: {}", f, summarizeDag(dag));
+              return dag;
             },
             null);
     if (dagDefinition != null) {
@@ -207,7 +211,54 @@ public class JobCliParser {
     if (dagStr == null) {
       throw new RuntimeException("no DAG were provided");
     }
-    return fromYamlString(dagStr, new TypeReference<>() {});
+    return parseDag(dagStr, "DAG environment variable");
+  }
+
+  /**
+   * Parses DAG yaml without letting its content into the error: the DAG carries the decrypted
+   * credentials in jobContext.otherProperties, and Jackson/YAML error messages quote the offending
+   * source or value. Only the exception type, field path and location are reported.
+   */
+  private static AdjacencyListDagDefinition parseDag(String dagStr, String source) {
+    try {
+      return YamlUtils.OBJECT_MAPPER.readValue(dagStr, new TypeReference<>() {});
+    } catch (JsonProcessingException e) {
+      String path =
+          e instanceof JsonMappingException mapping ? " at path " + fieldPath(mapping) : "";
+      JsonLocation location = Objects.requireNonNullElse(e.getLocation(), JsonLocation.NA);
+      throw new IllegalArgumentException(
+          "failed to parse dag from "
+              + source
+              + ": "
+              + e.getClass().getSimpleName()
+              + path
+              + " ("
+              + location.offsetDescription()
+              + "; content not shown)");
+    }
+  }
+
+  private static String fieldPath(JsonMappingException mapping) {
+    StringBuilder path = new StringBuilder("$");
+    for (JsonMappingException.Reference reference : mapping.getPath()) {
+      if (reference.getFieldName() != null) {
+        path.append('.').append(reference.getFieldName());
+      } else {
+        path.append('[').append(reference.getIndex()).append(']');
+      }
+    }
+    return path.toString();
+  }
+
+  static String summarizeDag(AdjacencyListDagDefinition dag) {
+    if (dag.getDag() == null) {
+      return "no nodes";
+    }
+    return dag.getDag().size()
+        + " nodes "
+        + dag.getDag().stream()
+            .map(n -> n.getId() + "(" + n.getCommandName() + ")")
+            .collect(Collectors.joining(", ", "[", "]"));
   }
 
   public static void printUsage(String prog) {
