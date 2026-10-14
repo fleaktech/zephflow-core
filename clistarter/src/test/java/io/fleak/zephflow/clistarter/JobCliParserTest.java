@@ -157,4 +157,22 @@ class JobCliParserTest {
       assertFalse(t.getMessage().contains(secretArg), "dag leaked into error: " + t);
     }
   }
+
+  @Test
+  void parseArgs_dagTypeMismatchReportsPathWithoutValue(@TempDir Path tempDir) throws IOException {
+    Path dagFile = tempDir.resolve("dag.yml");
+    Files.writeString(
+        dagFile, "dag:\n  - id: \"a\"\n    outputs: \"fle2953-secret\"\n    config: [1]\n");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobCliParser.parseArgs(new String[] {"-id", "test_job", "-f", dagFile.toString()}));
+
+    assertTrue(e.getMessage().contains("at path dag[0].outputs"), e.getMessage());
+    for (Throwable t = e; t != null; t = t.getCause()) {
+      assertFalse(t.getMessage().contains("fle2953-secret"), "dag leaked into error: " + t);
+    }
+  }
 }

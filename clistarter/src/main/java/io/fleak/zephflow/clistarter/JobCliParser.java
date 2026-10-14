@@ -16,8 +16,10 @@ package io.fleak.zephflow.clistarter;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.lib.utils.YamlUtils.fromYamlString;
 
+import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.fleak.zephflow.api.metric.InfluxDBMetricSender;
 import io.fleak.zephflow.api.metric.InfluxDBV2MetricSender.InfluxDBV2Config;
 import io.fleak.zephflow.api.metric.SplunkMetricSender;
@@ -26,15 +28,14 @@ import io.fleak.zephflow.runner.JobConfig;
 import io.fleak.zephflow.runner.dag.AdjacencyListDagDefinition;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.*;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 
 /** Created by bolei on 9/26/24 */
 @Slf4j
@@ -190,7 +191,7 @@ public class JobCliParser {
               String dagStr;
               try {
                 dagStr = Files.readString(Path.of(f));
-              } catch (IOException e) {
+              } catch (IOException | InvalidPathException e) {
                 throw new IllegalArgumentException("failed to read dag file: " + f, e);
               }
               AdjacencyListDagDefinition dag = parseDag(dagStr, "dag file " + f);
@@ -214,24 +215,46 @@ public class JobCliParser {
 
   /**
    * Parses DAG yaml without letting its content into the error: the DAG carries the decrypted
-   * credentials in jobContext.otherProperties, and YAML parse errors quote the offending source
-   * line. Only the error location is reported.
+   * credentials in jobContext.otherProperties, and Jackson/YAML error messages quote the offending
+   * source or value. Only the exception type, field path and location are reported.
    */
   private static AdjacencyListDagDefinition parseDag(String dagStr, String source) {
     try {
       return fromYamlString(dagStr, new TypeReference<>() {});
-    } catch (Exception e) {
-      String location =
-          ExceptionUtils.getThrowableList(e).stream()
-              .filter(JsonProcessingException.class::isInstance)
-              .map(t -> ((JsonProcessingException) t).getLocation())
-              .filter(Objects::nonNull)
-              .findFirst()
-              .map(l -> " at line " + l.getLineNr() + ", column " + l.getColumnNr())
-              .orElse("");
+    } catch (RuntimeException e) {
+      if (!(e.getCause() instanceof JsonProcessingException cause)) {
+        throw e;
+      }
+      String path =
+          cause instanceof JsonMappingException mapping && !mapping.getPath().isEmpty()
+              ? " at path " + fieldPath(mapping)
+              : "";
+      JsonLocation location = cause.getLocation();
+      String position =
+          location == null
+              ? ""
+              : " at line " + location.getLineNr() + ", column " + location.getColumnNr();
       throw new IllegalArgumentException(
-          "failed to parse dag from " + source + location + " (content not shown)");
+          "failed to parse dag from "
+              + source
+              + ": "
+              + cause.getClass().getSimpleName()
+              + path
+              + position
+              + " (content not shown)");
     }
+  }
+
+  private static String fieldPath(JsonMappingException mapping) {
+    StringBuilder path = new StringBuilder();
+    for (JsonMappingException.Reference reference : mapping.getPath()) {
+      if (reference.getFieldName() != null) {
+        path.append(path.isEmpty() ? "" : ".").append(reference.getFieldName());
+      } else {
+        path.append('[').append(reference.getIndex()).append(']');
+      }
+    }
+    return path.toString();
   }
 
   static String summarizeDag(AdjacencyListDagDefinition dag) {
