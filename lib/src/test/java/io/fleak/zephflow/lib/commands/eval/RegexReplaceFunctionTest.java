@@ -20,8 +20,6 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import org.junit.jupiter.api.Test;
 
-// FEEL string literals take a doubled backslash for regex escapes ("\\s" in FEEL), so each one is
-// written "\\\\s" in the Java source below.
 class RegexReplaceFunctionTest extends FeelFunctionTestBase {
 
   private static final FleakData ANY = new StringPrimitiveFleakData("test");
@@ -68,12 +66,10 @@ class RegexReplaceFunctionTest extends FeelFunctionTestBase {
 
   @Test
   public void inlineFlagsControlMatchingMode() {
-    // (?s): . also matches newlines, so a multi-line block is stripped in one match
     testFunctionExecution(
         ev("{\"raw\":\"<Event><System>\\n<EventID>4624</EventID>\\n</System><Data/></Event>\"}"),
         "regex_replace($.raw, \"(?s)<System>.*?</System>\", \"\")",
         "<Event><Data/></Event>");
-    // (?i): case-insensitive
     testFunctionExecution(
         ANY, "regex_replace(\"Error ERROR error\", \"(?i)error\", \"E\")", "E E E");
   }
@@ -116,7 +112,6 @@ class RegexReplaceFunctionTest extends FeelFunctionTestBase {
 
   @Test
   public void emptyMatchingPatternInsertsAtEveryPosition() {
-    // a pattern that can match the empty string matches between every character, as in Java/JS
     testFunctionExecution(ANY, "regex_replace(\"abc\", \"x*\", \"-\")", "-a-b-c-");
   }
 

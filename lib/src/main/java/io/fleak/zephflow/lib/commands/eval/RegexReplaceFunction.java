@@ -21,31 +21,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
-/*
-regexReplaceFunction:
-Replaces every match of a regular expression in a string.
-
-Syntax:
-regex_replace($.path.to.string.field, "<regex_pattern>", "<replacement>")
-
-Parameters:
-- First argument: string to rewrite
-- Second argument: regex pattern (Java regex syntax)
-- Third argument: replacement; $1, $2, ... insert capture groups, ${name} inserts a named group
-
-Returns: the input with all matches replaced, or null if the input is null
-
-Notes:
-- All matches are replaced (global).
-- Use inline flags for matching modes: (?i) case-insensitive, (?m) multiline, (?s) dot matches newline.
-- To insert a literal $ or \ in the replacement, escape it as \\$ or \\\\.
-
-Examples:
-regex_replace($.msg, "\\s+", " ")                                   // collapse whitespace
-regex_replace($.raw, "<Data Name='(\\w+)'>([^<]*)</Data>", "$1=$2") // XML element -> key=value
-regex_replace($.raw, "(?s)<System>.*?</System>", "")                // strip a multi-line block
-regex_replace($.ssn, "\\d{3}-\\d{2}-(\\d{4})", "***-**-$1")         // mask all but last 4 digits
-*/
 class RegexReplaceFunction implements FeelFunction {
   private final Map<String, Pattern> patternCache = new ConcurrentHashMap<>();
 
@@ -90,8 +65,6 @@ class RegexReplaceFunction implements FeelFunction {
     try {
       return new StringPrimitiveFleakData(pattern.matcher(input).replaceAll(replacement));
     } catch (IndexOutOfBoundsException | IllegalArgumentException e) {
-      // a malformed replacement: $3 when the pattern only has two groups, an unknown ${name},
-      // or a trailing lone $
       throw new IllegalArgumentException(
           String.format(
               "regex_replace: replacement \"%s\" is invalid for pattern \"%s\": %s",
