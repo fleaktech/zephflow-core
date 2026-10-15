@@ -100,9 +100,12 @@ class RegexReplaceFunctionTest extends FeelFunctionTestBase {
 
   @Test
   public void rejectsInvalidPattern() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> evaluateExpression("regex_replace(\"abc\", \"(unclosed\", \"x\")", ANY));
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> evaluateExpression("regex_replace(\"abc\", \"(unclosed\", \"x\")", ANY));
+    assertTrue(
+        e.getMessage().startsWith("regex_replace: invalid pattern \"(unclosed\""), e.getMessage());
   }
 
   @Test

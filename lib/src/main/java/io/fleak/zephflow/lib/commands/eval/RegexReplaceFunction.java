@@ -20,6 +20,7 @@ import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 class RegexReplaceFunction implements FeelFunction {
   private final Map<String, Pattern> patternCache = new ConcurrentHashMap<>();
@@ -60,7 +61,15 @@ class RegexReplaceFunction implements FeelFunction {
 
     String input = inputFd.getStringValue();
     String replacement = replacementFd.getStringValue();
-    Pattern pattern = patternCache.computeIfAbsent(patternFd.getStringValue(), Pattern::compile);
+    String patternStr = patternFd.getStringValue();
+    Pattern pattern;
+    try {
+      pattern = patternCache.computeIfAbsent(patternStr, Pattern::compile);
+    } catch (PatternSyntaxException e) {
+      throw new IllegalArgumentException(
+          String.format("regex_replace: invalid pattern \"%s\": %s", patternStr, e.getMessage()),
+          e);
+    }
 
     try {
       return new StringPrimitiveFleakData(pattern.matcher(input).replaceAll(replacement));
