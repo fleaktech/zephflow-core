@@ -27,11 +27,14 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
 import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourcePattern;
+import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -41,12 +44,17 @@ import org.testcontainers.kafka.KafkaContainer;
 
 @Testcontainers
 class KafkaConnectionValidatorContractTest {
+  /** The shared CI runner starts many containers at once; the default timeout is too tight. */
+  private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(3);
+
   @Container
-  static final KafkaContainer ANONYMOUS = new KafkaContainer("apache/kafka-native:3.8.0");
+  static final KafkaContainer ANONYMOUS =
+      new KafkaContainer("apache/kafka-native:3.8.0").withStartupTimeout(STARTUP_TIMEOUT);
 
   @Container
   static final KafkaContainer AUTHENTICATED =
       new KafkaContainer("apache/kafka-native:3.8.0")
+          .withStartupTimeout(STARTUP_TIMEOUT)
           .withEnv(
               "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
               "BROKER:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT:SASL_PLAINTEXT")
@@ -194,6 +202,7 @@ class KafkaConnectionValidatorContractTest {
                           ResourceType.GROUP, "presidio-tester-", PatternType.PREFIXED))))
           .all()
           .get(10, TimeUnit.SECONDS);
+      awaitAclsOnBroker(observer, 2);
     }
     Properties properties = sasl("test", "test-password");
     var validator = new KafkaConnectionValidator();
@@ -208,6 +217,20 @@ class KafkaConnectionValidatorContractTest {
     assertEquals(
         KafkaConnectionValidator.Status.AUTHORIZATION_FAILED,
         validator.validate(properties, Duration.ofSeconds(5), "other-topic", "presidio-tester-1"));
+  }
+
+  /** The controller applies created ACLs to the broker's authorizer asynchronously. */
+  private static void awaitAclsOnBroker(Admin observer, int expected) throws Exception {
+    var filter =
+        new AclBindingFilter(
+            ResourcePatternFilter.ANY,
+            new AccessControlEntryFilter(
+                "User:test", null, AclOperation.ANY, AclPermissionType.ANY));
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+    while (observer.describeAcls(filter).values().get(10, TimeUnit.SECONDS).size() < expected) {
+      if (System.nanoTime() > deadline) fail("ACLs did not reach the broker");
+      Thread.sleep(100);
+    }
   }
 
   private static AclBinding allowTest(ResourcePattern pattern) {
