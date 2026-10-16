@@ -92,6 +92,22 @@ class RunSummaryMetricClientProviderTest {
   }
 
   @Test
+  void truncatesLongErrorSamples() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+    Map<String, String> tags = Map.of("node_id", "sink", "command_name", "httpsink");
+
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, tags);
+    FleakCounter errors = provider.counter(METRIC_NAME_SINK_ERROR_COUNT, tags);
+    errors.increase(1, Map.of());
+    errors.recordErrorSample("x".repeat(2000));
+
+    String firstError = provider.summarize().sinks().getFirst().firstError();
+    assertEquals(RunSummaryMetricClientProvider.MAX_ERROR_SAMPLE_LENGTH + 1, firstError.length());
+  }
+
+  @Test
   void delegatesGaugeStopWatchAndClose() {
     MetricClientProvider delegate = mock(MetricClientProvider.class);
     @SuppressWarnings("unchecked")
