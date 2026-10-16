@@ -58,9 +58,18 @@ public class AssertionCommand extends ScalarCommand {
     try {
       fleakData = evalContext.getCompiledExpression().evaluate(event);
     } catch (Exception e) {
-      // no-op
-      // any exception thrown during evaluation should be caught here and causing the expression
-      // evaluation to false
+      if (!evalContext.isAssertion()) {
+        // a filter that cannot be evaluated is an error, not a silent drop: otherwise a broken
+        // expression drops every record while the node reports zero errors
+        evalContext.getErrorCounter().increase(callingUserTagAndEventTags);
+        throw new IllegalArgumentException(
+            "filter expression '"
+                + evalContext.getLanguageContext().expression().getText()
+                + "' failed: "
+                + e.getMessage(),
+            e);
+      }
+      // in assertion mode the exception evaluates to false and fails the assertion below
     }
 
     if (fleakData instanceof BooleanPrimitiveFleakData b && b.isTrueValue()) {
