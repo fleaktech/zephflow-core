@@ -987,6 +987,30 @@ class DeltaLakeWriterTest {
   }
 
   @Test
+  void closeFlushFailureReportsSinkErrorsWithSample() throws Exception {
+    DlqWriter mockDlqWriter = mock(DlqWriter.class);
+    DeltaLakeWriter writer = createWriter(config, mockDlqWriter, "delta-test-node");
+    writer.initialize();
+
+    // fewer records than batchSize, so they are written (and fail) only at close
+    Map<String, Object> invalidData = new HashMap<>();
+    invalidData.put("id", "not-a-number");
+    invalidData.put("name", "test");
+    invalidData.put("value", 1.0);
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(invalidData);
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record, invalidData);
+    writer.flush(events, Map.of());
+
+    writer.close();
+
+    verify(sinkErrorCounter).increase(eq(1L), anyMap());
+    verify(sinkErrorCounter).recordErrorSample(anyString());
+    verify(mockDlqWriter).writeToDlq(anyLong(), any(), any(String.class), eq("delta-test-node"));
+  }
+
+  @Test
   void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
     DlqWriter mockDlqWriter = mock(DlqWriter.class);
 

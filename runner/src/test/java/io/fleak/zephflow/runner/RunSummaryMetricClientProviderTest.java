@@ -108,6 +108,33 @@ class RunSummaryMetricClientProviderTest {
   }
 
   @Test
+  void ignoresUntaggedCountersAndBlankErrorSamples() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+
+    // counters without a node_id still count globally, but belong to no sink
+    FleakCounter untagged = provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, null);
+    untagged.increase(Map.of());
+    untagged.recordErrorSample("dropped");
+
+    Map<String, String> tags = Map.of("node_id", "sink", "command_name", "httpsink");
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, tags).increase(Map.of());
+    FleakCounter errors = provider.counter(METRIC_NAME_SINK_ERROR_COUNT, tags);
+    errors.increase(Map.of());
+    errors.recordErrorSample(null);
+    errors.recordErrorSample("  ");
+    errors.recordErrorSample("real cause");
+
+    RunSummary summary = provider.summarize();
+
+    assertEquals(2, summary.counterTotal(METRIC_NAME_SINK_OUTPUT_COUNT));
+    assertEquals(
+        List.of(new RunSummary.SinkSummary("sink", "httpsink", 0, 1, 1, "real cause")),
+        summary.sinks());
+  }
+
+  @Test
   void delegatesGaugeStopWatchAndClose() {
     MetricClientProvider delegate = mock(MetricClientProvider.class);
     @SuppressWarnings("unchecked")

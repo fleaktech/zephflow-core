@@ -63,6 +63,20 @@ class MainTest {
   }
 
   @Test
+  public void testMainWritesRunSummaryWhenPipelineFails(@TempDir Path tempDir) throws Exception {
+    Path summaryFile = tempDir.resolve("run-summary.json");
+
+    System.setProperty(Main.RUN_SUMMARY_FILE_SYS_PROP, summaryFile.toString());
+    try {
+      assertThrows(Exception.class, () -> runMainWithDag("/test_dag_unknown_command.yml", "[]"));
+    } finally {
+      System.clearProperty(Main.RUN_SUMMARY_FILE_SYS_PROP);
+    }
+
+    assertTrue(Files.exists(summaryFile), "run summary file should be written on failure too");
+  }
+
+  @Test
   public void testMain() throws Exception {
     String output = runMainWithStdioDag();
 

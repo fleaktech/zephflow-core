@@ -206,4 +206,24 @@ class AzureMonitorSinkFlusherTest {
     assertEquals(1, result.errorOutputList().size());
     assertTrue(result.errorOutputList().get(0).errorMessage().contains("Connection refused"));
   }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void flush_exceptionWithoutMessage_namesExceptionType() throws Exception {
+    when(mockTokenProvider.getToken()).thenReturn("test-token");
+    when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+        .thenThrow(new NullPointerException());
+
+    SimpleSinkCommand.PreparedInputEvents<AzureMonitorSinkOutboundEvent> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    RecordFleakData record =
+        new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("hello")));
+    events.add(record, new AzureMonitorSinkOutboundEvent("{\"msg\":\"hello\"}"));
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(
+        "Failed to send events to Azure Monitor: NullPointerException",
+        result.errorOutputList().get(0).errorMessage());
+  }
 }

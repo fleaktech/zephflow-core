@@ -126,7 +126,8 @@ public class AzureMonitorSinkFlusher
     } catch (Exception e) {
       // The cause (e.g. "Failed to obtain Entra ID token: HTTP 401") goes in the line itself, so
       // it's readable without expanding the stack trace.
-      String errorMessage = "Failed to send events to Azure Monitor: " + e.getMessage();
+      String cause = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+      String errorMessage = "Failed to send events to Azure Monitor: " + cause;
       if (!bounded) log.error(errorMessage, e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()

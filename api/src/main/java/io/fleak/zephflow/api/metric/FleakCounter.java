@@ -25,5 +25,7 @@ public interface FleakCounter {
    * Attaches an example error message to this counter, so a run summary can say why records were
    * lost and not only how many. Metric backends don't keep messages, so the default ignores it.
    */
-  default void recordErrorSample(String errorMessage) {}
+  default void recordErrorSample(String errorMessage) {
+    // no-op: only the run summary keeps error samples
+  }
 }
