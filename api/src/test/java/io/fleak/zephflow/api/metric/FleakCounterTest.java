@@ -25,10 +25,14 @@ class FleakCounterTest {
     FleakCounter counter =
         new FleakCounter() {
           @Override
-          public void increase(Map<String, String> additionalTags) {}
+          public void increase(Map<String, String> additionalTags) {
+            // counting is irrelevant here; only the default recordErrorSample is under test
+          }
 
           @Override
-          public void increase(long n, Map<String, String> additionalTags) {}
+          public void increase(long n, Map<String, String> additionalTags) {
+            // counting is irrelevant here; only the default recordErrorSample is under test
+          }
         };
 
     assertDoesNotThrow(() -> counter.recordErrorSample("boom"));

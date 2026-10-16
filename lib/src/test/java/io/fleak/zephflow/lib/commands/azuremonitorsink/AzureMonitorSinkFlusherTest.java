@@ -209,7 +209,7 @@ class AzureMonitorSinkFlusherTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void flush_exceptionWithoutMessage_namesExceptionType() throws Exception {
+  void flushNamesExceptionTypeWhenMessageIsNull() throws Exception {
     when(mockTokenProvider.getToken()).thenReturn("test-token");
     when(mockHttpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
         .thenThrow(new NullPointerException());
