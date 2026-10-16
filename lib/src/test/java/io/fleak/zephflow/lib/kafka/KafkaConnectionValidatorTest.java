@@ -18,13 +18,22 @@ import static org.mockito.Mockito.*;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.admin.DescribeClusterResult;
+import org.apache.kafka.clients.admin.DescribeConsumerGroupsResult;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
+import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
+import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
+import org.apache.kafka.common.errors.TopicAuthorizationException;
+import org.apache.kafka.common.errors.UnsupportedVersionException;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.junit.jupiter.api.Test;
 
 class KafkaConnectionValidatorTest {
@@ -144,6 +153,99 @@ class KafkaConnectionValidatorTest {
     assertEquals(
         KafkaConnectionValidator.Status.TLS_FAILED,
         validator.validate(properties(), Duration.ofSeconds(1)));
+  }
+
+  @Test
+  void deniedConsumerGroupIsAnAuthorizationFailure() {
+    Admin admin = reachableAdmin();
+    allowTopic(admin, "orders");
+    groupResult(admin, "wrong-group", failed(new GroupAuthorizationException("denied")));
+    assertEquals(
+        KafkaConnectionValidator.Status.AUTHORIZATION_FAILED,
+        new KafkaConnectionValidator(properties -> admin)
+            .validate(properties(), Duration.ofSeconds(1), "orders", "wrong-group"));
+  }
+
+  @Test
+  void deniedTopicIsAnAuthorizationFailureAndSkipsTheGroupCheck() {
+    Admin admin = reachableAdmin();
+    topicResult(admin, "orders", failed(new TopicAuthorizationException("denied")));
+    assertEquals(
+        KafkaConnectionValidator.Status.AUTHORIZATION_FAILED,
+        new KafkaConnectionValidator(properties -> admin)
+            .validate(properties(), Duration.ofSeconds(1), "orders", "group"));
+    verify(admin, never()).describeConsumerGroups(any(), any());
+  }
+
+  @Test
+  void allowedTopicAndGroupSucceed() {
+    Admin admin = reachableAdmin();
+    allowTopic(admin, "orders");
+    groupResult(admin, "group", KafkaFuture.completedFuture(mock(ConsumerGroupDescription.class)));
+    assertEquals(
+        KafkaConnectionValidator.Status.SUCCESS,
+        new KafkaConnectionValidator(properties -> admin)
+            .validate(properties(), Duration.ofSeconds(1), "orders", "group"));
+    verify(admin).describeTopics(eq(List.of("orders")), any());
+    verify(admin).describeConsumerGroups(eq(List.of("group")), any());
+  }
+
+  @Test
+  void accessCheckFailuresOtherThanDenialKeepReachability() {
+    Admin admin = reachableAdmin();
+    topicResult(admin, "orders", failed(new UnsupportedVersionException("old broker")));
+    groupResult(admin, "group", failed(new UnsupportedVersionException("old broker")));
+    assertEquals(
+        KafkaConnectionValidator.Status.SUCCESS,
+        new KafkaConnectionValidator(properties -> admin)
+            .validate(properties(), Duration.ofSeconds(1), "orders", "group"));
+  }
+
+  @Test
+  void clusterDescribeDenialStillChecksTheGroup() {
+    Admin admin = mock(Admin.class);
+    DescribeClusterResult result = mock(DescribeClusterResult.class);
+    when(admin.describeCluster(any())).thenReturn(result);
+    when(result.nodes()).thenReturn(failed(new ClusterAuthorizationException("denied")));
+    groupResult(admin, "wrong-group", failed(new GroupAuthorizationException("denied")));
+    assertEquals(
+        KafkaConnectionValidator.Status.AUTHORIZATION_FAILED,
+        new KafkaConnectionValidator(properties -> admin)
+            .validate(properties(), Duration.ofSeconds(1), null, "wrong-group"));
+    verify(admin, never()).describeTopics(anyCollection(), any());
+  }
+
+  private static Admin reachableAdmin() {
+    Admin admin = mock(Admin.class);
+    DescribeClusterResult result = mock(DescribeClusterResult.class);
+    when(admin.describeCluster(any())).thenReturn(result);
+    when(result.nodes())
+        .thenReturn(KafkaFuture.completedFuture(List.of(new Node(1, "broker", 9092))));
+    return admin;
+  }
+
+  private static void allowTopic(Admin admin, String topic) {
+    topicResult(admin, topic, KafkaFuture.completedFuture(mock(TopicDescription.class)));
+  }
+
+  private static void topicResult(
+      Admin admin, String topic, KafkaFuture<TopicDescription> description) {
+    DescribeTopicsResult result = mock(DescribeTopicsResult.class);
+    when(result.topicNameValues()).thenReturn(Map.of(topic, description));
+    when(admin.describeTopics(eq(List.of(topic)), any())).thenReturn(result);
+  }
+
+  private static void groupResult(
+      Admin admin, String groupId, KafkaFuture<ConsumerGroupDescription> description) {
+    DescribeConsumerGroupsResult result = mock(DescribeConsumerGroupsResult.class);
+    when(result.describedGroups()).thenReturn(Map.of(groupId, description));
+    when(admin.describeConsumerGroups(eq(List.of(groupId)), any())).thenReturn(result);
+  }
+
+  private static <T> KafkaFuture<T> failed(Throwable failure) {
+    KafkaFutureImpl<T> future = new KafkaFutureImpl<>();
+    future.completeExceptionally(failure);
+    return future;
   }
 
   private Properties properties() {

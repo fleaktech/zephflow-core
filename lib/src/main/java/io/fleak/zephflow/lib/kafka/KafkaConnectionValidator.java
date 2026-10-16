@@ -16,15 +16,22 @@ package io.fleak.zephflow.lib.kafka;
 import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import javax.net.ssl.SSLException;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.DescribeClusterOptions;
+import org.apache.kafka.clients.admin.DescribeConsumerGroupsOptions;
+import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.errors.ClusterAuthorizationException;
+import org.apache.kafka.common.errors.GroupAuthorizationException;
 import org.apache.kafka.common.errors.SslAuthenticationException;
+import org.apache.kafka.common.errors.TopicAuthorizationException;
 
 public final class KafkaConnectionValidator {
   public enum Status {
@@ -32,6 +39,8 @@ public final class KafkaConnectionValidator {
     INVALID_CONFIGURATION,
     AUTHENTICATION_FAILED,
     TLS_FAILED,
+    /** The broker denied the principal access to the node's topic or consumer group. */
+    AUTHORIZATION_FAILED,
     UNAVAILABLE
   }
 
@@ -46,6 +55,18 @@ public final class KafkaConnectionValidator {
   }
 
   public Status validate(Properties effectiveProperties, Duration budget) {
+    return validate(effectiveProperties, budget, null, null);
+  }
+
+  /**
+   * Checks that the broker is reachable with these client properties and, once it is, that the
+   * principal may describe {@code topic} and {@code groupId} (either may be null to skip it). A
+   * principal that can read or write a topic, or join a group, can also describe it. The access
+   * checks are best effort: only an authorization denial fails them, so a broker that does not
+   * support an API or answers slowly keeps the reachability result.
+   */
+  public Status validate(
+      Properties effectiveProperties, Duration budget, String topic, String groupId) {
     long deadline = System.nanoTime() + Math.max(0, budget.toNanos());
     Admin admin = null;
     Status status;
@@ -64,18 +85,9 @@ public final class KafkaConnectionValidator {
       properties.put("socket.connection.setup.timeout.ms", Integer.toString(timeout));
       properties.put("socket.connection.setup.timeout.max.ms", Integer.toString(timeout));
       admin = clientFactory.apply(properties);
-      long remainingMillis = remaining(deadline).toMillis();
-      if (remainingMillis <= 0) {
-        status = Status.UNAVAILABLE;
-      } else {
-        var nodes =
-            admin
-                .describeCluster(
-                    new DescribeClusterOptions()
-                        .timeoutMs((int) Math.min(timeout, remainingMillis)))
-                .nodes()
-                .get(remainingMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
-        status = nodes == null || nodes.isEmpty() ? Status.UNAVAILABLE : Status.SUCCESS;
+      status = describeCluster(admin, timeout, deadline);
+      if (status == Status.SUCCESS) {
+        status = checkAccess(admin, topic, groupId, timeout, deadline);
       }
     } catch (Exception failure) {
       status = classify(failure);
@@ -91,6 +103,69 @@ public final class KafkaConnectionValidator {
       }
     }
     return status;
+  }
+
+  private static Status describeCluster(Admin admin, int timeout, long deadline)
+      throws InterruptedException {
+    long remainingMillis = remaining(deadline).toMillis();
+    if (remainingMillis <= 0) return Status.UNAVAILABLE;
+    try {
+      var nodes =
+          admin
+              .describeCluster(
+                  new DescribeClusterOptions().timeoutMs((int) Math.min(timeout, remainingMillis)))
+              .nodes()
+              .get(remainingMillis, TimeUnit.MILLISECONDS);
+      return nodes == null || nodes.isEmpty() ? Status.UNAVAILABLE : Status.SUCCESS;
+    } catch (ExecutionException | TimeoutException | RuntimeException failure) {
+      return classify(failure);
+    }
+  }
+
+  private static Status checkAccess(
+      Admin admin, String topic, String groupId, int timeout, long deadline)
+      throws InterruptedException {
+    if (topic != null && !topic.isBlank()) {
+      long remainingMillis = remaining(deadline).toMillis();
+      if (remainingMillis <= 0) return Status.SUCCESS;
+      try {
+        admin
+            .describeTopics(
+                List.of(topic),
+                new DescribeTopicsOptions().timeoutMs((int) Math.min(timeout, remainingMillis)))
+            .topicNameValues()
+            .get(topic)
+            .get(remainingMillis, TimeUnit.MILLISECONDS);
+      } catch (ExecutionException | TimeoutException | RuntimeException failure) {
+        if (hasCause(failure, TopicAuthorizationException.class))
+          return Status.AUTHORIZATION_FAILED;
+      }
+    }
+    if (groupId != null && !groupId.isBlank()) {
+      long remainingMillis = remaining(deadline).toMillis();
+      if (remainingMillis <= 0) return Status.SUCCESS;
+      try {
+        admin
+            .describeConsumerGroups(
+                List.of(groupId),
+                new DescribeConsumerGroupsOptions()
+                    .timeoutMs((int) Math.min(timeout, remainingMillis)))
+            .describedGroups()
+            .get(groupId)
+            .get(remainingMillis, TimeUnit.MILLISECONDS);
+      } catch (ExecutionException | TimeoutException | RuntimeException failure) {
+        if (hasCause(failure, GroupAuthorizationException.class))
+          return Status.AUTHORIZATION_FAILED;
+      }
+    }
+    return Status.SUCCESS;
+  }
+
+  private static boolean hasCause(Throwable failure, Class<? extends Throwable> type) {
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      if (type.isInstance(cause)) return true;
+    }
+    return false;
   }
 
   private static Status classify(Throwable failure) {
