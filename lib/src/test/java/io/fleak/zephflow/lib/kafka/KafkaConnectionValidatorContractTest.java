@@ -26,6 +26,13 @@ import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclOperation;
+import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.resource.ResourcePattern;
+import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.junit.jupiter.Container;
@@ -47,11 +54,11 @@ class KafkaConnectionValidatorContractTest {
           .withEnv(
               "KAFKA_AUTHORIZER_CLASS_NAME",
               "org.apache.kafka.metadata.authorizer.StandardAuthorizer")
-          .withEnv("KAFKA_SUPER_USERS", "User:ANONYMOUS")
+          .withEnv("KAFKA_SUPER_USERS", "User:ANONYMOUS;User:admin")
           .withEnv("KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND", "false")
           .withEnv(
               "KAFKA_LISTENER_NAME_PLAINTEXT_PLAIN_SASL_JAAS_CONFIG",
-              "org.apache.kafka.common.security.plain.PlainLoginModule required user_test=\"test-password\";");
+              "org.apache.kafka.common.security.plain.PlainLoginModule required user_test=\"test-password\" user_admin=\"admin-password\";");
 
   @Test
   void emptyTopicSucceedsWithoutProducingCommittingJoiningOrCreatingTopics() throws Exception {
@@ -167,6 +174,60 @@ class KafkaConnectionValidatorContractTest {
               status == KafkaConnectionValidator.Status.TLS_FAILED
                   || status == KafkaConnectionValidator.Status.UNAVAILABLE);
         });
+  }
+
+  @Test
+  void prefixedGroupAclRejectsOtherGroupsAndUnlistedTopics() throws Exception {
+    try (Admin observer = Admin.create(sasl("admin", "admin-password"))) {
+      observer
+          .createTopics(List.of(new NewTopic("fleak-demo-cloudtrail", 1, (short) 1)))
+          .all()
+          .get(10, TimeUnit.SECONDS);
+      observer
+          .createAcls(
+              List.of(
+                  allowTest(
+                      new ResourcePattern(
+                          ResourceType.TOPIC, "fleak-demo-cloudtrail", PatternType.LITERAL)),
+                  allowTest(
+                      new ResourcePattern(
+                          ResourceType.GROUP, "presidio-tester-", PatternType.PREFIXED))))
+          .all()
+          .get(10, TimeUnit.SECONDS);
+    }
+    Properties properties = sasl("test", "test-password");
+    var validator = new KafkaConnectionValidator();
+    assertEquals(
+        KafkaConnectionValidator.Status.SUCCESS,
+        validator.validate(
+            properties, Duration.ofSeconds(5), "fleak-demo-cloudtrail", "presidio-tester-1"));
+    assertEquals(
+        KafkaConnectionValidator.Status.AUTHORIZATION_FAILED,
+        validator.validate(
+            properties, Duration.ofSeconds(5), "fleak-demo-cloudtrail", "wrong-group"));
+    assertEquals(
+        KafkaConnectionValidator.Status.AUTHORIZATION_FAILED,
+        validator.validate(properties, Duration.ofSeconds(5), "other-topic", "presidio-tester-1"));
+  }
+
+  private static AclBinding allowTest(ResourcePattern pattern) {
+    return new AclBinding(
+        pattern,
+        new AccessControlEntry("User:test", "*", AclOperation.READ, AclPermissionType.ALLOW));
+  }
+
+  private static Properties sasl(String username, String password) {
+    Properties properties = properties(AUTHENTICATED.getBootstrapServers());
+    properties.put("security.protocol", "SASL_PLAINTEXT");
+    properties.put("sasl.mechanism", "PLAIN");
+    properties.put(
+        "sasl.jaas.config",
+        "org.apache.kafka.common.security.plain.PlainLoginModule required username=\""
+            + username
+            + "\" password=\""
+            + password
+            + "\";");
+    return properties;
   }
 
   private static Properties properties(String bootstrap) {
