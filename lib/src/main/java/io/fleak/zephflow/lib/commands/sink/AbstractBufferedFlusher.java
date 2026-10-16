@@ -147,11 +147,29 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   /**
    * Reports error metrics (for scheduled/close flushes where SimpleSinkCommand isn't involved).
    *
-   * @param errorCount Number of errors
+   * @param errorCount Number of records lost
+   * @param errorSample Why they were lost, kept as the run summary's example; may be null
    * @param metricTags Tags for metrics
    */
-  protected final void reportErrorMetrics(int errorCount, Map<String, String> metricTags) {
+  protected final void reportErrorMetrics(
+      int errorCount, String errorSample, Map<String, String> metricTags) {
     sinkErrorCounter.increase(errorCount, metricTags);
+    sinkErrorCounter.recordErrorSample(errorSample);
+  }
+
+  /**
+   * Counts the failed records of an out-of-band flush and sends them to the DLQ, or logs them as
+   * lost when there is none.
+   *
+   * @param result The flush result
+   */
+  protected final void handleOutOfBandFlushErrors(SimpleSinkCommand.FlushResult result) {
+    List<ErrorOutput> errors = result.errorOutputList();
+    if (errors.isEmpty()) {
+      return;
+    }
+    reportErrorMetrics(errors.size(), errors.getFirst().errorMessage(), Map.of());
+    handleScheduledFlushErrors(errors);
   }
 
   /**
@@ -191,14 +209,10 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   private void executeScheduledFlushInternal(List<Pair<RecordFleakData, T>> batch) {
     try {
-      SimpleSinkCommand.FlushResult result = executeFlushOutOfBand(batch, Map.of());
-      if (!result.errorOutputList().isEmpty()) {
-        reportErrorMetrics(result.errorOutputList().size(), Map.of());
-        handleScheduledFlushErrors(result.errorOutputList());
-      }
+      handleOutOfBandFlushErrors(executeFlushOutOfBand(batch, Map.of()));
     } catch (Exception e) {
       log.error("Error during scheduled flush", e);
-      reportErrorMetrics(batch.size(), Map.of());
+      reportErrorMetrics(batch.size(), e.getMessage(), Map.of());
       handleScheduledFlushErrors(batch, e.getMessage());
     }
   }

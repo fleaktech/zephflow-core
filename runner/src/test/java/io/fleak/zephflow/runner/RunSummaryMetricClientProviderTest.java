@@ -25,6 +25,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakGauge;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -50,6 +51,87 @@ class RunSummaryMetricClientProviderTest {
     verify(delegateCounter).increase(eq(5L), any());
     verify(delegateCounter).increase(any());
     verify(delegateCounter).increase(eq(3L), any());
+  }
+
+  @Test
+  void breaksDeliveryDownPerSinkNode() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    FleakCounter delegateCounter = mock(FleakCounter.class);
+    when(delegate.counter(any(), any())).thenReturn(delegateCounter);
+
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+    Map<String, String> s3Tags = Map.of("node_id", "s3", "command_name", "s3sink");
+    Map<String, String> sentinelTags =
+        Map.of("node_id", "sentinel", "command_name", "azuremonitorsink");
+
+    // a non-sink node: has input but no sink_output_count, so it is not listed
+    provider
+        .counter(METRIC_NAME_INPUT_EVENT_COUNT, Map.of("node_id", "eval"))
+        .increase(4, Map.of());
+
+    provider.counter(METRIC_NAME_INPUT_EVENT_COUNT, s3Tags).increase(3, Map.of());
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, s3Tags).increase(3, Map.of());
+    provider.counter(METRIC_NAME_SINK_ERROR_COUNT, s3Tags);
+
+    provider.counter(METRIC_NAME_INPUT_EVENT_COUNT, sentinelTags).increase(4, Map.of());
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, sentinelTags);
+    FleakCounter sentinelErrors = provider.counter(METRIC_NAME_SINK_ERROR_COUNT, sentinelTags);
+    sentinelErrors.increase(2, Map.of());
+    sentinelErrors.recordErrorSample("token: 401");
+    sentinelErrors.increase(2, Map.of());
+    sentinelErrors.recordErrorSample("later failure");
+
+    RunSummary summary = provider.summarize();
+
+    assertEquals(
+        List.of(
+            new RunSummary.SinkSummary("s3", "s3sink", 3, 3, 0, null),
+            new RunSummary.SinkSummary("sentinel", "azuremonitorsink", 4, 0, 4, "token: 401")),
+        summary.sinks());
+    verify(delegateCounter).recordErrorSample("token: 401");
+  }
+
+  @Test
+  void truncatesLongErrorSamples() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+    Map<String, String> tags = Map.of("node_id", "sink", "command_name", "httpsink");
+
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, tags);
+    FleakCounter errors = provider.counter(METRIC_NAME_SINK_ERROR_COUNT, tags);
+    errors.increase(1, Map.of());
+    errors.recordErrorSample("x".repeat(2000));
+
+    String firstError = provider.summarize().sinks().getFirst().firstError();
+    assertEquals(RunSummaryMetricClientProvider.MAX_ERROR_SAMPLE_LENGTH + 1, firstError.length());
+  }
+
+  @Test
+  void ignoresUntaggedCountersAndBlankErrorSamples() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+
+    // counters without a node_id still count globally, but belong to no sink
+    FleakCounter untagged = provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, null);
+    untagged.increase(Map.of());
+    untagged.recordErrorSample("dropped");
+
+    Map<String, String> tags = Map.of("node_id", "sink", "command_name", "httpsink");
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, tags).increase(Map.of());
+    FleakCounter errors = provider.counter(METRIC_NAME_SINK_ERROR_COUNT, tags);
+    errors.increase(Map.of());
+    errors.recordErrorSample(null);
+    errors.recordErrorSample("  ");
+    errors.recordErrorSample("real cause");
+
+    RunSummary summary = provider.summarize();
+
+    assertEquals(2, summary.counterTotal(METRIC_NAME_SINK_OUTPUT_COUNT));
+    assertEquals(
+        List.of(new RunSummary.SinkSummary("sink", "httpsink", 0, 1, 1, "real cause")),
+        summary.sinks());
   }
 
   @Test

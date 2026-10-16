@@ -56,6 +56,10 @@ public class Main {
         try {
           DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
           dagExecutor.executeDag();
+        } catch (Exception e) {
+          // Without this the failure only reaches stderr, which the run logs don't carry.
+          log.error("Pipeline run failed: {}", e.getMessage(), e);
+          throw e;
         } finally {
           writeRunSummary(metricClientProvider.summarize(), resolveRunSummaryPath());
         }
@@ -82,6 +86,7 @@ public class Main {
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("counters", new TreeMap<>(runSummary.counters()));
       payload.put("summary", runSummary.summaryText());
+      payload.put("sinks", runSummary.sinks());
       Files.writeString(Path.of(path), JsonUtils.toJsonString(payload));
       log.info("Wrote run summary to {}: {}", path, runSummary.summaryText());
     } catch (Exception e) {

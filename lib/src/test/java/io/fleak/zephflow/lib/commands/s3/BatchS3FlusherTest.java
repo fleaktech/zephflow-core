@@ -489,4 +489,44 @@ class BatchS3FlusherTest {
     verify(sinkErrorCounter).increase(eq(2L), anyMap());
     failingFlusher.close();
   }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void closeFlushFailureReportsSinkErrors() throws Exception {
+    // A run with fewer records than batchSize writes them all at close; losing them there must
+    // still count as sink errors, or the run summary reports a clean run.
+    BlobFileWriter<RecordFleakData> mockFileWriter = mock(BlobFileWriter.class);
+    when(mockFileWriter.getFileExtension()).thenReturn("jsonl");
+    when(mockFileWriter.writeToTempFiles(anyList(), any()))
+        .thenThrow(new RuntimeException("Access Denied"));
+
+    BatchS3Flusher failingFlusher =
+        new BatchS3Flusher(
+            createS3TransferResources(),
+            BUCKET_NAME,
+            KEY_NAME,
+            mockFileWriter,
+            100,
+            60000,
+            null,
+            null,
+            "s3-test-node",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    failingFlusher.initialize();
+
+    for (int i = 0; i < 3; i++) {
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", i));
+      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+          new SimpleSinkCommand.PreparedInputEvents<>();
+      events.add(record, record);
+      failingFlusher.flush(events, Map.of());
+    }
+
+    failingFlusher.close();
+
+    verify(sinkErrorCounter).increase(eq(3L), anyMap());
+    verify(sinkErrorCounter).recordErrorSample(contains("Access Denied"));
+  }
 }

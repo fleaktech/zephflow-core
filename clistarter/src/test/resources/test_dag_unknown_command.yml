@@ -1,0 +1,16 @@
+jobContext:
+  otherProperties:
+  metricTags:
+  dlqConfig:
+
+dag:
+  - id: "a"
+    commandName: "stdin"
+    config:
+      "encodingType": "JSON_ARRAY"
+    outputs:
+      - "b"
+
+  - id: "b"
+    commandName: "no_such_command"
+    config: {}

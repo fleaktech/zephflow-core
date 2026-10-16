@@ -144,7 +144,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       executionHooks.effects().finished(effectId, outcome);
       context.sinkOutputCounter().increase(flush.successCount(), tags);
       context.outputSizeCounter().increase(flush.flushedDataSize(), tags);
-      if (!errors.isEmpty()) context.sinkErrorCounter().increase(errors.size(), tags);
+      countSinkErrors(context.sinkErrorCounter(), errors, tags);
       if (invocationFailure instanceof ExecutionStoppedException stopped) throw stopped;
       executionCheckpoint();
       return new SinkResult(batch.size(), flush.successCount(), errors, outcome, invocationFailure);
@@ -184,6 +184,19 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
         metricClientProvider.counter(METRIC_NAME_SINK_ERROR_COUNT, metricTags);
     return new SinkCounters(
         inputMessageCounter, errorCounter, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+  }
+
+  /**
+   * Counts lost records on {@code sink_error_count} and keeps the first message as the run
+   * summary's example of why they were lost.
+   */
+  static void countSinkErrors(
+      FleakCounter sinkErrorCounter, List<ErrorOutput> errors, Map<String, String> tags) {
+    if (errors.isEmpty()) {
+      return;
+    }
+    sinkErrorCounter.increase(errors.size(), tags);
+    sinkErrorCounter.recordErrorSample(errors.getFirst().errorMessage());
   }
 
   /** Helper record to hold sink counters */
@@ -242,9 +255,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     sinkContext.sinkOutputCounter().increase(flushResult.successCount, callingUserTag);
     sinkContext.outputSizeCounter().increase(flushResult.flushedDataSize, callingUserTag);
     SinkResult sinkResult = new SinkResult(batch.size(), flushResult.successCount, errorOutputs);
-    if (!errorOutputs.isEmpty()) {
-      sinkContext.sinkErrorCounter().increase(errorOutputs.size(), callingUserTag);
-    }
+    countSinkErrors(sinkContext.sinkErrorCounter(), errorOutputs, callingUserTag);
     return sinkResult;
   }
 
@@ -265,9 +276,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     }
     // Buffered records are safely persisted, so they count as success and the pipeline proceeds.
     SinkResult result = new SinkResult(events.size(), stored, errors);
-    if (!errors.isEmpty()) {
-      sinkContext.sinkErrorCounter().increase(errors.size(), tags);
-    }
+    countSinkErrors(sinkContext.sinkErrorCounter(), errors, tags);
     return result;
   }
 
@@ -289,9 +298,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       errors.add(new ErrorOutput(raws.get(i), STORE_FORWARD_FULL_MSG));
     }
     SinkResult result = new SinkResult(batch.size(), stored, errors);
-    if (!errors.isEmpty()) {
-      sinkContext.sinkErrorCounter().increase(errors.size(), tags);
-    }
+    countSinkErrors(sinkContext.sinkErrorCounter(), errors, tags);
     return result;
   }
 

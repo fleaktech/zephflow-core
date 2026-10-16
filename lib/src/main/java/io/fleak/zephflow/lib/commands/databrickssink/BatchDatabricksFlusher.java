@@ -535,11 +535,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
 
     if (snapshot != null) {
       log.info("Flushing {} remaining records during close", snapshot.size());
-      SimpleSinkCommand.FlushResult result = executeFlushOutOfBand(snapshot, Map.of());
-      if (!result.errorOutputList().isEmpty()) {
-        reportErrorMetrics(result.errorOutputList().size(), Map.of());
-        handleScheduledFlushErrors(result.errorOutputList());
-      }
+      handleOutOfBandFlushErrors(executeFlushOutOfBand(snapshot, Map.of()));
     }
 
     // Acquire flushLock to ensure any in-progress scheduled flush completes

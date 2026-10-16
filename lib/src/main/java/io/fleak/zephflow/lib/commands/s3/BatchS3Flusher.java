@@ -199,7 +199,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     List<Pair<RecordFleakData, RecordFleakData>> remaining = swapBufferIfNotEmpty();
     if (!remaining.isEmpty()) {
       log.info("Flushing {} remaining records on close", remaining.size());
-      executeFlushOutOfBand(remaining, Map.of());
+      handleOutOfBandFlushErrors(executeFlushOutOfBand(remaining, Map.of()));
     }
     s3TransferResources.close();
     if (dlqWriter != null) {
