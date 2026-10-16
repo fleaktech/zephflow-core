@@ -208,7 +208,7 @@ class AbstractBufferedFlusherMetricsTest {
       Map<String, String> metricTags = Map.of("tenant_id", "789");
 
       flusher.reportMetrics(new SimpleSinkCommand.FlushResult(200, 10000L, List.of()), metricTags);
-      flusher.reportErrorMetrics(5, metricTags);
+      flusher.reportErrorMetrics(5, "boom", metricTags);
 
       verify(sinkOutputCounter).increase(200L, metricTags);
       verify(outputSizeCounter).increase(10000L, metricTags);

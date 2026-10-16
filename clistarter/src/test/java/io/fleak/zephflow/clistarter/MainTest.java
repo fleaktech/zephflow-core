@@ -53,6 +53,13 @@ class MainTest {
     String summary = (String) payload.get("summary");
     assertTrue(summary.contains("input events: 10"), summary);
     assertTrue(summary.contains("output events: 20"), summary);
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> sinks = (List<Map<String, Object>>) payload.get("sinks");
+    assertFalse(sinks.isEmpty(), "sinks should be listed");
+    long sinkOutput =
+        sinks.stream().mapToLong(sink -> ((Number) sink.get("outputCount")).longValue()).sum();
+    assertEquals(20, sinkOutput);
+    assertTrue(sinks.stream().allMatch(sink -> sink.get("nodeId") != null), sinks.toString());
   }
 
   @Test

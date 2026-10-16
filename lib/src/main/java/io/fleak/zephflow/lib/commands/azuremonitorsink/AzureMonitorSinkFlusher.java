@@ -124,13 +124,13 @@ public class AzureMonitorSinkFlusher
         return new SimpleSinkCommand.FlushResult(0, 0, errors);
       }
     } catch (Exception e) {
-      if (!bounded) log.error("Failed to send events to Azure Monitor", e);
+      // The cause (e.g. "Failed to obtain Entra ID token: HTTP 401") goes in the line itself, so
+      // it's readable without expanding the stack trace.
+      String errorMessage = "Failed to send events to Azure Monitor: " + e.getMessage();
+      if (!bounded) log.error(errorMessage, e);
       List<ErrorOutput> errors =
           preparedInputEvents.rawAndPreparedList().stream()
-              .map(
-                  p ->
-                      new ErrorOutput(
-                          p.getLeft(), "Azure Monitor connection error: " + e.getMessage()))
+              .map(p -> new ErrorOutput(p.getLeft(), errorMessage))
               .toList();
       return new SimpleSinkCommand.FlushResult(0, 0, errors);
     }

@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.loadFleakDataFromJsonResourc
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -135,6 +136,7 @@ class SimpleSinkCommandTest {
     verify(sinkOutputCounter, times(2)).increase(eq(1L), any());
     verify(outputSizeCounter, times(2)).increase(eq(100L), anyMap());
     verify(sinkErrorCounter).increase(eq(1L), any());
+    verify(sinkErrorCounter, times(2)).recordErrorSample(anyString());
   }
 
   @Test
