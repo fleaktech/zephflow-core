@@ -132,7 +132,7 @@ class AssertionCommandTest {
 
   @Test
   public void testFilterWithError() {
-    // should result in a false valuation
+    // an expression that throws is reported as an error, not silently dropped as false
     AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(false);
     AssertionCommand assertionCommand =
         (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
@@ -146,10 +146,63 @@ class AssertionCommandTest {
         assertionCommand.process(List.of(r0), "test_user", context);
 
     assertTrue(processResult.getOutput().isEmpty());
-    assertTrue(processResult.getFailureEvents().isEmpty());
+    assertEquals(1, processResult.getFailureEvents().size());
+    ErrorOutput errorOutput = processResult.getFailureEvents().get(0);
+    assertEquals(r0, errorOutput.inputEvent());
+    assertTrue(
+        errorOutput
+            .errorMessage()
+            .startsWith("filter expression 'str_split($.foo,'\\+')' failed: "),
+        errorOutput.errorMessage());
 
     verify(inputMessageCounter, times(1)).increase(any());
     verify(outputMessageCounter, never()).increase(any());
+    verify(errorCounter, times(1)).increase(any());
+  }
+
+  @Test
+  public void testFilterWithUndefinedVariable() {
+    // a bare identifier compiles but fails at runtime; every record must surface as an error
+    AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(false);
+    AssertionCommand assertionCommand =
+        (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
+    assertionCommand.parseAndValidateArg(Map.of("expression", "asdasdasdasdasd"));
+    RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
+    RecordFleakData r1 = (RecordFleakData) FleakData.wrap(Map.of("foo", 1));
+    assert r0 != null;
+    assert r1 != null;
+    assertionCommand.initialize(metricClientProvider);
+    var context = assertionCommand.getExecutionContext();
+    ScalarCommand.ProcessResult processResult =
+        assertionCommand.process(List.of(r0, r1), "test_user", context);
+
+    assertTrue(processResult.getOutput().isEmpty());
+    assertEquals(2, processResult.getFailureEvents().size());
+    assertTrue(
+        processResult.getFailureEvents().get(0).errorMessage().contains("asdasdasdasdasd"),
+        processResult.getFailureEvents().get(0).errorMessage());
+
+    verify(inputMessageCounter, times(2)).increase(any());
+    verify(outputMessageCounter, never()).increase(any());
+    verify(errorCounter, times(2)).increase(any());
+  }
+
+  @Test
+  public void testFilterWithNullResultIsDroppedWithoutError() {
+    // a relational comparison on a missing field evaluates to null: documented drop, not an error
+    AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(false);
+    AssertionCommand assertionCommand =
+        (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
+    assertionCommand.parseAndValidateArg(Map.of("expression", "$.severity >= 3"));
+    RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
+    assert r0 != null;
+    assertionCommand.initialize(metricClientProvider);
+    var context = assertionCommand.getExecutionContext();
+    ScalarCommand.ProcessResult processResult =
+        assertionCommand.process(List.of(r0), "test_user", context);
+
+    assertTrue(processResult.getOutput().isEmpty());
+    assertTrue(processResult.getFailureEvents().isEmpty());
     verify(errorCounter, never()).increase(any());
   }
 }
