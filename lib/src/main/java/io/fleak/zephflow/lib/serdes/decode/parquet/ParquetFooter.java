@@ -36,7 +36,7 @@ import org.apache.parquet.schema.MessageType;
  * reader tables, which grow with each leaf's depth and levels. The schema is checked without
  * recursion before parquet builds it.
  */
-record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadataStart) {
+record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadataStart, long heap) {
 
   private static final byte[] MAGIC = "PAR1".getBytes(StandardCharsets.US_ASCII);
   private static final int MAX_SCHEMA_DEPTH = 32;
@@ -87,7 +87,8 @@ record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadata
     } catch (RuntimeException e) {
       throw new MalformedParquetException("parquet schema is invalid: " + e.getMessage(), e);
     }
-    return new ParquetFooter(schema, rowGroups == null ? List.of() : rowGroups, metadataStart);
+    return new ParquetFooter(
+        schema, rowGroups == null ? List.of() : rowGroups, metadataStart, heap);
   }
 
   /**

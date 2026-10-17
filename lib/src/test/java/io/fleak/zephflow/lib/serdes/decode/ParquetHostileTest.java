@@ -19,13 +19,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.fleak.zephflow.lib.serdes.decode.ParquetTestFiles.RawChunk;
 import io.fleak.zephflow.lib.serdes.decode.ParquetTestFiles.RawPage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 import net.jpountz.lz4.LZ4Factory;
 import org.apache.parquet.bytes.HeapByteBufferAllocator;
@@ -99,7 +102,7 @@ class ParquetHostileTest {
                     hostile.apply(footer.getRow_groups().get(0)), footer.getRow_groups().get(1))));
   }
 
-  static List<Object> lostThenIntact(String error, int intactFrom) {
+  static List<Object> lostThenIntact(String error, long intactFrom) {
     List<Object> expected = new ArrayList<>();
     expected.add(new Bad(ErrorKind.MALFORMED, "", 1, null, error, false));
     for (int i = 1; i <= 3; i++) {
@@ -150,6 +153,8 @@ class ParquetHostileTest {
         decode(PARQUET, footerTooLong));
   }
 
+  private static final long PINNED_FOOTER = 4012;
+
   private static final List<Object> SIX_ROWS =
       List.of(
           new Ok(json("{\"n\":1}"), 1, null),
@@ -164,12 +169,44 @@ class ParquetHostileTest {
   }
 
   @Test
-  void footerOverTheDocumentLimitIsNotRead() {
+  void footerOverTheLimitIsTerminalAndUnreadWhenItsBytesAreOver() {
     byte[] file = hostileThenIntact(VALID, group -> group);
     int length = ByteBuffer.wrap(file, file.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
     long estimate = ParquetDecodeTest.footerEstimate(file);
     assertTrue(estimate > length + 2048, "the footer holds more than its bytes");
-    assertEquals(List.of(new Big(1, null, length, "", true)), decodeWithin(file, length - 1));
+    List<long[]> requests = new ArrayList<>();
+    RandomAccessInput recording =
+        new RandomAccessInput() {
+          @Override
+          public long length() {
+            return file.length;
+          }
+
+          @Override
+          public InputStream read(long offset, long count) {
+            requests.add(new long[] {offset, count});
+            return new ByteArrayInputStream(file, (int) offset, (int) count);
+          }
+        };
+    assertEquals(
+        List.of(new Big(1, null, length, "", true)),
+        decode(
+            decoder(PARQUET),
+            new ByteInput() {
+              @Override
+              public InputStream openStream() {
+                throw new UnsupportedOperationException();
+              }
+
+              @Override
+              public Optional<RandomAccessInput> randomAccess() {
+                return Optional.of(recording);
+              }
+            },
+            new DecodeLimits(0, length - 1)));
+    assertEquals(
+        List.of(List.of(0L, 4L), List.of(file.length - 8L, 8L)),
+        requests.stream().map(r -> List.of(r[0], r[1])).toList());
     assertEquals(List.of(new Big(1, null, estimate, "", true)), decodeWithin(file, estimate - 1));
     assertEquals(SIX_ROWS, decodeWithin(file, estimate));
   }
@@ -372,7 +409,7 @@ class ParquetHostileTest {
     byte[] hugeBlock = {(byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x04, 0x04, 0x03, 0x02};
     assertEquals(
         lostThenIntact(
-            "MalformedParquetException: parquet delta encoding claims 1000000000 values in a page of 3 values and 9 bytes",
+            "MalformedParquetException: parquet delta encoding claims 1000000000 values in a page of 3",
             4),
         decode(
             PARQUET,
@@ -702,23 +739,24 @@ class ParquetHostileTest {
                 group -> group)));
   }
 
+  private static byte[] decimalFile(int scale) {
+    return ParquetTestFiles.assemble(
+        FieldRepetitionType.REQUIRED,
+        1,
+        List.of(List.of(strings(1, page(1, Encoding.PLAIN, concatAll(ints(1), new byte[] {5}))))),
+        footer -> {
+          footer
+              .getSchema()
+              .get(1)
+              .setLogicalType(LogicalType.DECIMAL(new DecimalType(scale, scale)))
+              .setScale(scale)
+              .setPrecision(scale);
+          return footer;
+        });
+  }
+
   @Test
   void decimalWithAHugeScaleLosesItsRow() {
-    byte[] file =
-        ParquetTestFiles.assemble(
-            FieldRepetitionType.REQUIRED,
-            1,
-            List.of(
-                List.of(strings(1, page(1, Encoding.PLAIN, concatAll(ints(1), new byte[] {5}))))),
-            footer -> {
-              footer
-                  .getSchema()
-                  .get(1)
-                  .setLogicalType(LogicalType.DECIMAL(new DecimalType(100_000_000, 100_000_000)))
-                  .setScale(100_000_000)
-                  .setPrecision(100_000_000);
-              return footer;
-            });
     assertEquals(
         List.of(
             new Bad(
@@ -726,12 +764,18 @@ class ParquetHostileTest {
                 "",
                 1,
                 null,
-                "MalformedParquetException: column n does not convert: decimal scale 100000000 is over 1000",
+                "MalformedParquetException: column n does not convert: decimal scale 1001 is over 1000",
                 false)),
-        decode(PARQUET, file));
+        decode(PARQUET, decimalFile(1001)));
+    assertEquals(
+        List.of(new Ok(json("{\"n\":\"0." + "0".repeat(999) + "5\"}"), 1, null)),
+        decode(PARQUET, decimalFile(1000)));
     assertEquals(
         List.of(new Big(1, null, 100_000_017, "", false)),
-        decode(decoder(PARQUET), ByteInput.ofBytes(file), new DecodeLimits(1024 * 1024, 0)));
+        decode(
+            decoder(PARQUET),
+            ByteInput.ofBytes(decimalFile(100_000_000)),
+            new DecodeLimits(1024 * 1024, 0)));
   }
 
   @Test
@@ -756,7 +800,8 @@ class ParquetHostileTest {
     byte[] file = hostileThenIntact(column(3, pages.toArray(RawPage[]::new)), group -> group);
     List<Object> outcomes = decodeWithin(file, 1024 * 1024);
     long estimate = ((Big) outcomes.get(0)).sizeSoFar();
-    assertTrue(estimate > 20_000L * 150, "estimate: " + estimate);
+    assertTrue(
+        estimate > 1024 * 1024 && estimate < 1024 * 1024 + 1024, "stops at the limit: " + estimate);
     List<Object> expected = new ArrayList<>(SIX_ROWS.subList(3, 6));
     expected.add(0, new Big(1, null, estimate, "", false));
     assertEquals(expected, outcomes);
@@ -817,14 +862,22 @@ class ParquetHostileTest {
   }
 
   @Test
-  void rowCountsAreBoundedByBytesAndANegativeOneLosesOnlyItsGroup() {
+  void untrustworthyRowCountsCountAsOneRecord() {
+    long cap = 1024 * 29 + (1L << 26);
     assertEquals(
         lostThenIntact(
-            "MalformedParquetException: parquet row group claims 2000000 rows in 29 bytes, more than 1024 per byte plus 1000000",
-            2_000_001),
-        decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(2_000_000))));
+            "MalformedParquetException: parquet column chunk [n] has 3 values for " + cap + " rows",
+            cap + 1),
+        decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(cap))));
     assertEquals(
-        lostThenIntact("MalformedParquetException: parquet row group claims -1 rows", 1),
+        lostThenIntact(
+            "MalformedParquetException: parquet row group claims "
+                + (cap + 1)
+                + " rows in 29 bytes, more than 1024 per byte plus 67108864",
+            2),
+        decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(cap + 1))));
+    assertEquals(
+        lostThenIntact("MalformedParquetException: parquet row group claims -1 rows", 2),
         decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(-1))));
   }
 
@@ -841,5 +894,160 @@ class ParquetHostileTest {
             terminal(
                 "MalformedParquetException: parquet FileMetaData does not parse: a container claims 24 elements with 20 bytes left")),
         decode(PARQUET, withRawFooter(footer)));
+  }
+
+  @Test
+  void estimatesOfSmallFilesArePinned() {
+    byte[] file = hostileThenIntact(VALID, group -> group);
+    assertEquals(PINNED_FOOTER, ParquetDecodeTest.footerEstimate(file));
+    assertEquals(SIX_ROWS, decodeWithin(file, PINNED_FOOTER));
+    int[] values = new int[2000];
+    Arrays.setAll(values, i -> i);
+    byte[] wide =
+        ParquetTestFiles.assemble(
+            FieldRepetitionType.REQUIRED,
+            2000,
+            List.of(List.of(column(2000, page(2000, Encoding.PLAIN, ints(values))))),
+            footer -> footer);
+    assertEquals(
+        List.of(3354L, 8020L, 16344L),
+        List.of(
+            ParquetDecodeTest.footerEstimate(wide),
+            ((Big) decodeWithin(wide, 3354).get(0)).sizeSoFar(),
+            ((Big) decodeWithin(wide, 8020).get(0)).sizeSoFar()));
+    List<Object> rows = new ArrayList<>();
+    for (int i = 0; i < 2000; i++) {
+      rows.add(new Ok(json("{\"n\":" + i + "}"), i + 1, null));
+    }
+    assertEquals(rows, decodeWithin(wide, 16344));
+  }
+
+  @Test
+  void bitPackedRunsOfExactlyTheCapDecode() {
+    byte[] levels = new byte[4 + 2 + 1024];
+    levels[0] = 2;
+    levels[1] = 4;
+    levels[4] = (byte) 0x81;
+    levels[5] = 0x10;
+    levels[6] = 7;
+    assertEquals(
+        SIX_ROWS,
+        decode(
+            PARQUET,
+            hostileThenIntact(
+                FieldRepetitionType.OPTIONAL,
+                column(3, page(3, Encoding.PLAIN, concatAll(levels, ints(1, 2, 3)))),
+                OPTIONAL_VALID,
+                group -> group)));
+  }
+
+  @Test
+  void deltaBlocksOfExactlyTheCapDecode() {
+    byte[] atCap = {(byte) 0x80, 0x10, 0x04, 0x03, 0x02, 0x02, 0, 0, 0, 0};
+    byte[] overCap = {(byte) 0xA0, 0x10, 0x04, 0x03, 0x02, 0x02, 0, 0, 0, 0};
+    assertEquals(
+        SIX_ROWS,
+        decode(
+            PARQUET,
+            hostileThenIntact(
+                column(3, page(3, Encoding.DELTA_BINARY_PACKED, atCap)), group -> group)));
+    assertEquals(
+        lostThenIntact(
+            "MalformedParquetException: parquet delta block of 2080 values in 4 miniblocks", 4),
+        decode(
+            PARQUET,
+            hostileThenIntact(
+                column(3, page(3, Encoding.DELTA_BINARY_PACKED, overCap)), group -> group)));
+  }
+
+  @Test
+  void denseDeltaPagesDecode() throws IOException {
+    DeltaBinaryPackingValuesWriterForInteger writer =
+        new DeltaBinaryPackingValuesWriterForInteger(
+            2048, 4, 64, 64, HeapByteBufferAllocator.getInstance());
+    int rows = 100_000;
+    for (int i = 0; i < rows; i++) {
+      writer.writeInteger(i);
+    }
+    byte[] values = writer.getBytes().toByteArray();
+    assertTrue(rows / values.length > 100, "values per byte: " + rows / values.length);
+    byte[] file =
+        ParquetTestFiles.assemble(
+            FieldRepetitionType.REQUIRED,
+            rows,
+            List.of(List.of(column(rows, page(rows, Encoding.DELTA_BINARY_PACKED, values)))),
+            footer -> footer);
+    List<Object> expected = new ArrayList<>();
+    for (int i = 0; i < rows; i++) {
+      expected.add(new Ok(json("{\"n\":" + i + "}"), i + 1, null));
+    }
+    assertEquals(expected, decode(PARQUET, file));
+  }
+
+  @Test
+  void binaryDictionaryEntriesMustLieInsideThePage() {
+    byte[] entries = concatAll(ints(1000), utf8("abc"));
+    RawPage dictionary =
+        new RawPage(
+            new PageHeader(PageType.DICTIONARY_PAGE, entries.length, entries.length)
+                .setDictionary_page_header(new DictionaryPageHeader(1, Encoding.PLAIN)),
+            entries);
+    List<Object> expected = new ArrayList<>();
+    expected.add(
+        new Bad(
+            ErrorKind.MALFORMED,
+            "",
+            1,
+            null,
+            "MalformedParquetException: parquet dictionary entry 0 of 1000 bytes overflows the page",
+            false));
+    expected.add(new Ok(json("{\"n\":\"YWJj\"}"), 4, null));
+    expected.add(new Ok(json("{\"n\":\"YWJk\"}"), 5, null));
+    expected.add(new Ok(json("{\"n\":\"YXg=\"}"), 6, null));
+    byte[] prefixed = concatAll(deltaInts(0, 2, 1), deltaInts(3, 1, 1), utf8("abcdx"));
+    assertEquals(
+        expected,
+        decode(
+            PARQUET,
+            hostileThenIntact(
+                FieldRepetitionType.REQUIRED,
+                strings(3, dictionary, page(3, Encoding.RLE_DICTIONARY, new byte[] {0, 6})),
+                strings(3, page(3, Encoding.DELTA_BYTE_ARRAY, prefixed)),
+                group -> group)));
+  }
+
+  @Test
+  void schemaCellsAtTheCapPass() {
+    for (int leaves : List.of(413, 414)) {
+      List<SchemaElement> nested = new ArrayList<>();
+      nested.add(new SchemaElement("schema").setNum_children(1));
+      for (int i = 0; i < 9; i++) {
+        nested.add(
+            new SchemaElement("g" + i)
+                .setNum_children(i == 8 ? leaves : 1)
+                .setRepetition_type(FieldRepetitionType.REPEATED));
+      }
+      for (int i = 0; i < leaves; i++) {
+        nested.add(
+            new SchemaElement("n" + i)
+                .setType(Type.INT32)
+                .setRepetition_type(FieldRepetitionType.REPEATED));
+      }
+      List<Object> outcomes = decode(PARQUET, withSchema(nested));
+      assertEquals(
+          leaves == 414
+              ? List.of(
+                  terminal(
+                      "MalformedParquetException: parquet schema has too many deeply nested columns"))
+              : List.of(
+                  new Bad(
+                      ErrorKind.MALFORMED,
+                      "",
+                      1,
+                      null,
+                      "MalformedParquetException: parquet row group has 1 column chunks for 413 columns",
+                      false)),
+          outcomes);
+    }
   }
 }

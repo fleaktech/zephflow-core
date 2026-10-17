@@ -64,7 +64,7 @@ final class RowGroupPages implements PageReadStore {
   static final long ITEMS_PER_BYTE = 32;
   static final long EXTRA_ITEMS = 1_000_000;
   static final long ROWS_PER_BYTE = 1024;
-  static final long EXTRA_ROWS = 1_000_000;
+  static final long EXTRA_ROWS = 1L << 26;
   private static final long PAGE_BYTES = 48;
   private static final long ENTRY_BYTES = 48;
 
@@ -130,7 +130,7 @@ final class RowGroupPages implements PageReadStore {
     }
     long rows = group.getNum_rows();
     if (rows > ROWS_PER_BYTE * stored + EXTRA_ROWS) {
-      throw new MalformedParquetException(
+      throw new RowCountException(
           "parquet row group claims "
               + rows
               + " rows in "
@@ -150,7 +150,7 @@ final class RowGroupPages implements PageReadStore {
       ColumnMetaData meta = entry.getValue();
       ColumnDescriptor column = byPath.get(entry.getKey());
       byte[] bytes = ParquetFooter.bytes(in, start(meta), (int) meta.getTotal_compressed_size());
-      ChunkPages pages = ChunkPages.scan(column, meta, bytes);
+      ChunkPages pages = ChunkPages.scan(column, meta, bytes, heap, budget);
       if (pages.values < rows || (column.getMaxRepetitionLevel() == 0 && pages.values != rows)) {
         throw new MalformedParquetException(
             "parquet column chunk "
@@ -205,6 +205,13 @@ final class RowGroupPages implements PageReadStore {
     return rows;
   }
 
+  /** A row count the row group cannot hold; its rows cannot be counted, so they count as one. */
+  static final class RowCountException extends MalformedParquetException {
+    RowCountException(String message) {
+      super(message);
+    }
+  }
+
   private record Page(PageHeader header, int offset) {}
 
   private static final class ChunkPages implements PageReader {
@@ -235,9 +242,13 @@ final class RowGroupPages implements PageReadStore {
       this.data = data;
     }
 
-    /** Reads every page header until the chunk's values are reached. */
-    static ChunkPages scan(ColumnDescriptor column, ColumnMetaData meta, byte[] chunk)
-        throws MalformedParquetException {
+    /**
+     * Reads every page header until the chunk's values are reached, stopping as soon as the row
+     * group's estimate, {@code before} so far, goes over the budget.
+     */
+    static ChunkPages scan(
+        ColumnDescriptor column, ColumnMetaData meta, byte[] chunk, long before, long budget)
+        throws MalformedParquetException, TooLargeException {
       Page dictionary = null;
       Deque<Page> data = new ArrayDeque<>();
       long decompressed = 0;
@@ -264,6 +275,10 @@ final class RowGroupPages implements PageReadStore {
           throw new MalformedParquetException(
               "parquet page of " + compressed + " bytes does not fit its column chunk");
         }
+        if (before + heap + decompressed + uncompressed + deltaPeak > budget) {
+          throw new TooLargeException(
+              "row group", before + heap + decompressed + uncompressed + deltaPeak, budget);
+        }
         Page page = new Page(header, pos);
         switch (header.getType()) {
           case DICTIONARY_PAGE -> {
@@ -272,6 +287,7 @@ final class RowGroupPages implements PageReadStore {
               throw new MalformedParquetException(
                   "parquet dictionary page is invalid or misplaced");
             }
+            PageChecks.dictionary(dict.getNum_values(), uncompressed, column.getPrimitiveType());
             heap += dict.getNum_values() * entryBytes(column.getPrimitiveType());
             dictionary = page;
           }
@@ -348,7 +364,7 @@ final class RowGroupPages implements PageReadStore {
       try {
         DictionaryPageHeader header = dictionary.header().getDictionary_page_header();
         byte[] bytes = decompress(dictionary, dictionary.header().getUncompressed_page_size());
-        PageChecks.dictionary(header.getNum_values(), bytes.length, type);
+        PageChecks.dictionaryEntries(bytes, header.getNum_values(), type);
         return new DictionaryPage(
             BytesInput.from(bytes), header.getNum_values(), encoding(header.getEncoding()));
       } catch (MalformedParquetException e) {

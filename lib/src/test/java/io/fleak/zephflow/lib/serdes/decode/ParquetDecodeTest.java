@@ -667,4 +667,38 @@ class ParquetDecodeTest {
                 null)),
         decode(PARQUET, file));
   }
+
+  @Test
+  void aMapEntryWithoutAKeyLosesItsRow() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType(
+            """
+            message m {
+              optional group m (MAP) {
+                repeated group key_value {
+                  optional binary key (STRING);
+                  optional int32 value;
+                }
+              }
+            }
+            """);
+    SimpleGroupFactory factory = new SimpleGroupFactory(schema);
+    Group keyed = factory.newGroup();
+    keyed.addGroup("m").addGroup("key_value").append("key", "a").append("value", 1);
+    Group keyless = factory.newGroup();
+    keyless.addGroup("m").addGroup("key_value").append("value", 2);
+    byte[] file = ParquetTestFiles.write(schema, List.of(keyed, keyless, keyed), options -> {});
+    assertEquals(
+        List.of(
+            new Ok(json("{\"m\":{\"a\":1}}"), 1, null),
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                2,
+                null,
+                "MalformedParquetException: map key is null",
+                false),
+            new Ok(json("{\"m\":{\"a\":1}}"), 3, null)),
+        decode(PARQUET, file));
+  }
 }

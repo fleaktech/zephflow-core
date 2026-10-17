@@ -16,7 +16,7 @@ package io.fleak.zephflow.lib.serdes.decode.parquet;
 import java.io.IOException;
 
 /** A parquet file, row group or value that cannot be read as declared. */
-public final class MalformedParquetException extends IOException {
+public class MalformedParquetException extends IOException {
 
   public MalformedParquetException(String message) {
     super(message);

@@ -25,15 +25,13 @@ import org.apache.parquet.schema.PrimitiveType;
  * Checks a decompressed page before parquet's decoders read it, because they allocate from counts
  * and run headers inside the page: a bit-packed run may hold at most {@value #MAX_GROUPS} groups of
  * eight, within the page's bytes (writers use at most 64; the decoder allocates the whole run); a
- * delta header no more than the page's values and {@value #DELTA_VALUES_PER_BYTE} per byte of the
- * page plus {@value #EXTRA_DELTA_VALUES}, in blocks of at most {@value #MAX_DELTA_BLOCK}; and a
- * DELTA_BYTE_ARRAY prefix no longer than the value before it.
+ * delta header no more than the page's values, in blocks of at most {@value #MAX_DELTA_BLOCK};
+ * binary dictionary entries within the page; and a DELTA_BYTE_ARRAY prefix no longer than the value
+ * before it.
  */
 final class PageChecks {
 
   static final int MAX_DELTA_BLOCK = 2048;
-  private static final long DELTA_VALUES_PER_BYTE = 32;
-  private static final long EXTRA_DELTA_VALUES = 65_536;
 
   private static final long MAX_GROUPS = 1024;
 
@@ -139,9 +137,32 @@ final class PageChecks {
     }
   }
 
+  /**
+   * Binary dictionary entries, each a four-byte length and its bytes, must lie inside the page:
+   * parquet's dictionary wraps each length as it stands, so a damaged one would point past it.
+   */
+  static void dictionaryEntries(byte[] page, int entries, PrimitiveType type)
+      throws MalformedParquetException {
+    dictionary(entries, page.length, type);
+    if (type.getPrimitiveTypeName() != PrimitiveType.PrimitiveTypeName.BINARY) {
+      return;
+    }
+    ByteBuffer in = ByteBuffer.wrap(page).order(ByteOrder.LITTLE_ENDIAN);
+    for (int i = 0; i < entries; i++) {
+      if (in.remaining() < 4) {
+        throw new MalformedParquetException("parquet dictionary entry " + i + " is cut off");
+      }
+      int length = in.getInt();
+      if (length < 0 || length > in.remaining()) {
+        throw new MalformedParquetException(
+            "parquet dictionary entry " + i + " of " + length + " bytes overflows the page");
+      }
+      in.position(in.position() + length);
+    }
+  }
+
   /** Returns the header's value count after checking the sizes parquet allocates from. */
   private static long deltaHeader(ByteBuffer in, long values) throws MalformedParquetException {
-    long bytes = in.remaining();
     long blockSize = varint(in);
     long miniBlocks = varint(in);
     long total = varint(in);
@@ -153,15 +174,9 @@ final class PageChecks {
       throw new MalformedParquetException(
           "parquet delta block of " + blockSize + " values in " + miniBlocks + " miniblocks");
     }
-    if (total > values || total > DELTA_VALUES_PER_BYTE * bytes + EXTRA_DELTA_VALUES) {
+    if (total > values) {
       throw new MalformedParquetException(
-          "parquet delta encoding claims "
-              + total
-              + " values in a page of "
-              + values
-              + " values and "
-              + bytes
-              + " bytes");
+          "parquet delta encoding claims " + total + " values in a page of " + values);
     }
     return total;
   }

@@ -32,20 +32,26 @@ import org.apache.parquet.io.RecordReader;
 /**
  * A parquet file, one row group at a time, without parquet's file reader, which allocates whatever
  * the footer and page headers claim. The footer and each row group may take {@code
- * maxDocumentBytes} in memory, or half the heap when it is unlimited. A footer that does not parse
- * or does not fit is terminal. A row group that does not fit is skipped undecoded as {@code
- * Oversized}; a damaged one loses its remaining rows as one {@code Failed}; decoding then goes on
- * with the next row group. A row over {@code maxRecordBytes}, or one whose value does not convert,
- * loses only itself. Records have no raw bytes and no span.
+ * maxDocumentBytes} in memory; without it, they share half the heap that is free when decoding
+ * starts. A footer that does not parse or does not fit is terminal. A row group that does not fit
+ * is skipped undecoded as {@code Oversized}; a damaged one loses its remaining rows as one {@code
+ * Failed}; decoding then goes on with the next row group. A row over {@code maxRecordBytes}, or one
+ * whose value does not convert, loses only itself. Records have no raw bytes and no span.
  */
 public final class ParquetFormat implements FormatCursor {
 
   private static final byte[] EMPTY = new byte[0];
 
+  /**
+   * A row takes up to about 14 times its estimate, so without a limit it gets 1/16 of the budget.
+   */
+  private static final long ROW_SHARE = 16;
+
   private final RandomAccessInput in;
   private final DecodeLimits limits;
   private final DecodeFlags flags;
   private final long budget;
+  private long rowGroupBudget;
   private ParquetFooter footer;
   private MessageColumnIO columns;
   private ParquetRecords records;
@@ -58,10 +64,12 @@ public final class ParquetFormat implements FormatCursor {
     this.in = in;
     this.limits = limits;
     this.flags = flags;
-    this.budget =
-        limits.maxDocumentBytes() > 0
-            ? limits.maxDocumentBytes()
-            : Runtime.getRuntime().maxMemory() / 2;
+    this.budget = limits.maxDocumentBytes() > 0 ? limits.maxDocumentBytes() : freeHeap() / 2;
+  }
+
+  private static long freeHeap() {
+    Runtime runtime = Runtime.getRuntime();
+    return runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
   }
 
   @Override
@@ -73,7 +81,11 @@ public final class ParquetFormat implements FormatCursor {
         return new Oversized(nextIndex, null, e.size, EMPTY, true);
       }
       columns = new ColumnIOFactory().getColumnIO(footer.schema());
-      records = new ParquetRecords(footer.schema(), limits.maxRecordBytes());
+      rowGroupBudget = limits.maxDocumentBytes() > 0 ? budget : Math.max(0, budget - footer.heap());
+      records =
+          new ParquetRecords(
+              footer.schema(),
+              limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : rowGroupBudget / ROW_SHARE);
     }
     while (true) {
       if (nextIndex < groupEnd) {
@@ -86,21 +98,21 @@ public final class ParquetFormat implements FormatCursor {
       long rowCount = group.getNum_rows();
       rows = null;
       if (rowCount < 0 || rowCount > Long.MAX_VALUE - nextIndex) {
-        groupEnd = nextIndex;
-        return new Failed(
-            ErrorKind.MALFORMED,
-            EMPTY,
-            nextIndex,
-            null,
-            new MalformedParquetException("parquet row group claims " + rowCount + " rows"),
-            false);
+        groupEnd = nextIndex + 1;
+        return skipGroup(
+            groupFailure(
+                new MalformedParquetException("parquet row group claims " + rowCount + " rows")));
       }
       groupEnd = nextIndex + rowCount;
       if (rowCount == 0) {
         continue;
       }
       try {
-        rows = columns.getRecordReader(RowGroupPages.read(in, footer, group, budget), records);
+        rows =
+            columns.getRecordReader(RowGroupPages.read(in, footer, group, rowGroupBudget), records);
+      } catch (RowGroupPages.RowCountException e) {
+        groupEnd = nextIndex + 1;
+        return skipGroup(groupFailure(new MalformedParquetException(e.getMessage())));
       } catch (TooLargeException e) {
         return skipGroup(new Oversized(nextIndex, null, e.size, EMPTY, false));
       } catch (IOException | RuntimeException e) {

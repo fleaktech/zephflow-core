@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.serdes.decode.parquet;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import org.apache.parquet.format.FileMetaData;
 import org.apache.parquet.format.PageHeader;
@@ -33,13 +32,14 @@ import shaded.parquet.org.apache.thrift.transport.TIOStreamTransport;
  * elements than bytes are left (every element takes at least one), and structures nest at most
  * {@value #MAX_DEPTH} deep. parquet's own reader allocates whatever a length or count says. The
  * objects built are estimated as they are read ({@value #STRUCT_BYTES} bytes per structure, {@value
- * #ELEMENT_BYTES} per container element, {@value #STRING_BYTES} per string plus the bytes read), so
- * a footer stops once it would take more than its budget.
+ * #CONTAINER_BYTES} per container and {@value #ELEMENT_BYTES} per element, {@value #STRING_BYTES}
+ * per string, plus the bytes read), so a footer stops once it would take more than its budget.
  */
 final class BoundedThrift {
 
   static final int MAX_DEPTH = 64;
-  private static final long STRUCT_BYTES = 64;
+  private static final long STRUCT_BYTES = 128;
+  private static final long CONTAINER_BYTES = 40;
   private static final long ELEMENT_BYTES = 16;
   private static final long STRING_BYTES = 48;
 
@@ -47,7 +47,8 @@ final class BoundedThrift {
 
   record Parsed<T>(T value, int length, long heap) {}
 
-  static Parsed<FileMetaData> fileMetaData(byte[] bytes, long budget) throws IOException {
+  static Parsed<FileMetaData> fileMetaData(byte[] bytes, long budget)
+      throws MalformedParquetException, TooLargeException {
     return read(new FileMetaData(), bytes, 0, bytes.length, budget);
   }
 
@@ -57,16 +58,13 @@ final class BoundedThrift {
     try {
       return read(new PageHeader(), bytes, offset, end - offset, Long.MAX_VALUE);
     } catch (TooLargeException e) {
-      throw new IllegalStateException("an unlimited budget was exceeded", e);
-    } catch (MalformedParquetException e) {
-      throw e;
-    } catch (IOException e) {
-      throw new MalformedParquetException(e.getMessage(), e);
+      throw new AssertionError("an unlimited budget was exceeded", e);
     }
   }
 
   private static <T extends TBase<?, ?>> Parsed<T> read(
-      T target, byte[] bytes, int offset, int length, long budget) throws IOException {
+      T target, byte[] bytes, int offset, int length, long budget)
+      throws MalformedParquetException, TooLargeException {
     ByteArrayInputStream in = new ByteArrayInputStream(bytes, offset, length);
     Protocol protocol;
     try {
@@ -164,7 +162,7 @@ final class BoundedThrift {
         throw new TProtocolException(
             "a container claims " + count + " elements with " + in.available() + " bytes left");
       }
-      charge(ELEMENT_BYTES * count);
+      charge(CONTAINER_BYTES + ELEMENT_BYTES * count);
     }
   }
 }
