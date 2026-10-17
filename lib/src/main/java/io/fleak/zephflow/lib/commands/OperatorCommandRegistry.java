@@ -48,7 +48,6 @@ import io.fleak.zephflow.lib.commands.noop.NoopCommandFactory;
 import io.fleak.zephflow.lib.commands.parser.ParserCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsink.PubSubSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.pubsubsource.PubSubSourceCommandFactory;
-import io.fleak.zephflow.lib.commands.reader.ReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3.S3SinkCommandFactory;
 import io.fleak.zephflow.lib.commands.s3filereader.S3FileReaderCommandFactory;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeSourceCommandFactory;
@@ -92,7 +91,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_SPLUNK_SOURCE, new SplunkSourceCommandFactory())
           .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
           .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
-          .put(COMMAND_NAME_READER_SOURCE, new ReaderCommandFactory())
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .put(COMMAND_NAME_ZEROBUS_SINK, new ZerobusSinkCommandFactory())
           .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
