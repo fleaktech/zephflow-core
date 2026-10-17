@@ -25,46 +25,40 @@ import org.apache.avro.util.Utf8;
  * Avro binary decoding over one block (or one datum) in memory. Every length and item count is
  * checked against the bytes left before anything is allocated, so a wrong schema or a flipped bit
  * cannot ask for gigabytes. Avro's own limits are JVM-wide system properties, so they are not used.
- * Array, map and record counts all draw on one item budget per block: its byte length (an item
- * takes at least one byte) plus an allowance for items that encode in no bytes at all, such as
- * nulls or empty records. Values read without consuming a byte since the previous such value draw
- * on that allowance too, so a block cannot make the reader build or walk more than it allows.
+ * Two budgets bound what one block can make the reader do. Allocation counts (records in the block,
+ * array and map items) may total its byte length plus {@link #ZERO_BYTE_ITEMS}, since an item takes
+ * at least one byte unless it is a null, an empty record or an empty fixed. The objects built
+ * (record fields plus the record itself, array items, map keys and values) may total {@link
+ * #OBJECTS_PER_BYTE} per byte plus {@link #EXTRA_OBJECTS}, so a schema with many fields that encode
+ * in no bytes cannot make a small block expand without bound.
  */
 final class BoundedDecoder extends Decoder {
 
-  private static final long MIN_ZERO_BYTE_ITEMS = 100_000;
+  static final long ZERO_BYTE_ITEMS = 100_000;
+  static final long OBJECTS_PER_BYTE = 16;
+  static final long EXTRA_OBJECTS = 1_000_000;
 
   private final byte[] buf;
   private int pos;
   private final int end;
   private long items;
-  private long zeroByteValues;
-  private int lastZeroBytePos = -1;
+  private long objects;
 
-  BoundedDecoder(byte[] buf, int off, int len, long zeroByteAllowance) {
+  BoundedDecoder(byte[] buf, int off, int len) {
     this.buf = buf;
     this.pos = off;
     this.end = off + len;
-    this.items = len + zeroByteAllowance;
-    this.zeroByteValues = zeroByteAllowance;
+    this.items = len + ZERO_BYTE_ITEMS;
+    this.objects = OBJECTS_PER_BYTE * len + EXTRA_OBJECTS;
   }
 
-  /** At least 100,000, or an eighth of the document limit when that is larger. */
-  static long zeroByteAllowance(long maxDocumentBytes) {
-    return Math.max(MIN_ZERO_BYTE_ITEMS, maxDocumentBytes / 8);
-  }
-
-  int position() {
-    return pos;
-  }
-
-  /** Called for a value that encodes in no bytes; charged unless a byte was read since the last. */
-  void zeroByteValue(String what) throws MalformedAvroException {
-    if (pos == lastZeroBytePos && --zeroByteValues < 0) {
+  /** Charges {@code count} objects about to be built against the block's budget. */
+  void buildObjects(long count, String what) throws MalformedAvroException {
+    if (count > objects) {
       throw new MalformedAvroException(
-          "avro block has more " + what + " values that encode in no bytes than it allows");
+          what + " would build more objects than the block's " + objects + " left");
     }
-    lastZeroBytePos = pos;
+    objects -= count;
   }
 
   /** Charges {@code count} items (records, array or map entries) against the block's budget. */
@@ -74,6 +68,7 @@ final class BoundedDecoder extends Decoder {
           what + " of " + count + " items is more than the block's " + items + " items left");
     }
     items -= count;
+    buildObjects(count, what);
   }
 
   int remaining() {
@@ -92,9 +87,7 @@ final class BoundedDecoder extends Decoder {
   }
 
   @Override
-  public void readNull() throws IOException {
-    zeroByteValue("null");
-  }
+  public void readNull() {}
 
   @Override
   public boolean readBoolean() throws IOException {
@@ -174,9 +167,6 @@ final class BoundedDecoder extends Decoder {
   @Override
   public void readFixed(byte[] bytes, int start, int length) throws IOException {
     need(length, "fixed");
-    if (length == 0) {
-      zeroByteValue("fixed");
-    }
     System.arraycopy(buf, pos, bytes, start, length);
     pos += length;
   }
@@ -184,9 +174,6 @@ final class BoundedDecoder extends Decoder {
   @Override
   public void skipFixed(int length) throws IOException {
     need(length, "fixed");
-    if (length == 0) {
-      zeroByteValue("fixed");
-    }
     pos += length;
   }
 
@@ -212,12 +199,19 @@ final class BoundedDecoder extends Decoder {
 
   @Override
   public long readMapStart() throws IOException {
-    return blockCount("map");
+    return mapBlockCount();
   }
 
   @Override
   public long mapNext() throws IOException {
-    return blockCount("map");
+    return mapBlockCount();
+  }
+
+  /** A map entry builds a key as well as a value. */
+  private long mapBlockCount() throws IOException {
+    long count = blockCount("map");
+    buildObjects(count, "map block");
+    return count;
   }
 
   @Override

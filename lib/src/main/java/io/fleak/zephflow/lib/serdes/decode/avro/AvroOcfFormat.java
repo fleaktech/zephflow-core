@@ -149,8 +149,8 @@ public final class AvroOcfFormat implements FormatCursor {
     blocks++;
     long firstIndex = index + 1;
     blockFirstIndex = firstIndex;
-    long zeroByteAllowance = BoundedDecoder.zeroByteAllowance(maxDocumentBytes);
-    long mostRecords = (codec.equals("null") ? size : AvroBlocks.MAX_BLOCK) + zeroByteAllowance;
+    long mostRecords =
+        (codec.equals("null") ? size : AvroBlocks.MAX_BLOCK) + BoundedDecoder.ZERO_BYTE_ITEMS;
     if (count > mostRecords) {
       skip(size);
       checkSync();
@@ -182,7 +182,7 @@ public final class AvroOcfFormat implements FormatCursor {
       index += count;
       return new Failed(ErrorKind.CORRUPT_COMPRESSION, EMPTY, firstIndex, null, e, false);
     }
-    block = new BoundedDecoder(data, 0, data.length, zeroByteAllowance);
+    block = new BoundedDecoder(data, 0, data.length);
     try {
       block.takeItems(count, "avro block " + blocks);
     } catch (MalformedAvroException e) {

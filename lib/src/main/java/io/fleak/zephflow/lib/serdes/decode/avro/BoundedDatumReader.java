@@ -40,12 +40,8 @@ final class BoundedDatumReader extends GenericDatumReader<IndexedRecord> {
 
   @Override
   protected Object readRecord(Object old, Schema expected, ResolvingDecoder in) throws IOException {
-    int before = current.position();
-    Object record = super.readRecord(old, expected, in);
-    if (current.position() == before) {
-      current.zeroByteValue("record");
-    }
-    return record;
+    current.buildObjects(expected.getFields().size() + 1L, "record " + expected.getName());
+    return super.readRecord(old, expected, in);
   }
 
   @Override

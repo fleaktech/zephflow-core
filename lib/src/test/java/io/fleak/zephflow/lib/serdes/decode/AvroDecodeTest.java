@@ -682,6 +682,29 @@ class AvroDecodeTest {
   }
 
   @Test
+  void headerEntryCountsAndSizesAreBounded() throws IOException {
+    ByteArrayOutputStream badCount = new ByteArrayOutputStream();
+    badCount.write(new byte[] {'O', 'b', 'j', 1});
+    BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(badCount, null);
+    encoder.writeLong(Long.MIN_VALUE);
+    encoder.writeLong(0);
+    encoder.flush();
+    assertEquals(
+        List.of(malformed(1, "avro file header has an invalid entry count", true)),
+        decode(OCF, badCount.toByteArray()));
+    int entries = 9_000_000;
+    ByteArrayOutputStream endless = new ByteArrayOutputStream();
+    endless.write(new byte[] {'O', 'b', 'j', 1});
+    encoder = EncoderFactory.get().binaryEncoder(endless, null);
+    encoder.writeLong(entries);
+    encoder.flush();
+    endless.write(new byte[2 * entries]);
+    assertEquals(
+        List.of(malformed(1, "avro file header is longer than 16777216 bytes", true)),
+        decode(OCF, endless.toByteArray()));
+  }
+
+  @Test
   void negativeBlockCountIsTerminal() {
     assertEquals(
         List.of(malformed(1, "avro block 1 has a negative count or size", true)),
@@ -743,7 +766,7 @@ class AvroDecodeTest {
   }
 
   @Test
-  void wideRecordsOfNullsDrawOnTheZeroByteAllowance() throws IOException {
+  void wideRecordsOfFieldsThatEncodeInNoBytesAreBounded() throws IOException {
     StringBuilder fields = new StringBuilder();
     for (int i = 0; i < 100; i++) {
       fields
@@ -765,6 +788,10 @@ class AvroDecodeTest {
     encoder.writeLong(0);
     encoder.flush();
     byte[] input = bytes.toByteArray();
+    // The outer record costs its one field plus itself, then the array claims 100,000 items, and
+    // each inner record costs its 100 fields plus itself.
+    long budget = 16L * input.length + 1_000_000 - 2 - 100_000;
+    long left = budget % 101;
     assertEquals(
         List.of(
             new Bad(
@@ -772,13 +799,43 @@ class AvroDecodeTest {
                 new String(input, StandardCharsets.UTF_8),
                 -1,
                 new RawSpan(0, input.length),
-                "MalformedAvroException: avro block has more null values that encode in no bytes than it allows",
+                "MalformedAvroException: record R would build more objects than the block's "
+                    + left
+                    + " left",
                 true)),
         decode(datumConfig(schema), input));
   }
 
   @Test
-  void zeroByteAllowanceGrowsWithTheDocumentLimit() throws IOException {
+  void recordsWithSeveralNullColumnsDecode() throws IOException {
+    StringBuilder fields = new StringBuilder("{\"name\":\"id\",\"type\":\"int\"}");
+    for (int i = 0; i < 10; i++) {
+      fields.append(",{\"name\":\"n").append(i).append("\",\"type\":\"null\"}");
+    }
+    fields.append(",{\"name\":\"s\",\"type\":[\"null\",\"string\"]}");
+    Schema schema =
+        new Schema.Parser()
+            .parse("{\"type\":\"record\",\"name\":\"N\",\"fields\":[" + fields + "]}");
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (DataFileWriter<GenericRecord> writer =
+        new DataFileWriter<>(new GenericDatumWriter<>(schema))) {
+      writer.setSyncInterval(1 << 20);
+      writer.create(schema, bytes);
+      for (int i = 0; i < 100_000; i++) {
+        GenericRecord record = new GenericData.Record(schema);
+        record.put("id", i);
+        writer.append(record);
+      }
+    }
+    List<Object> expected = new ArrayList<>();
+    for (int i = 0; i < 100_000; i++) {
+      expected.add(new Ok(json("{\"id\":" + i + "}"), i + 1, null));
+    }
+    assertEquals(expected, decode(OCF, bytes.toByteArray()));
+  }
+
+  @Test
+  void moreZeroByteRecordsThanTheAllowanceLoseTheirBlock() throws IOException {
     Schema empty = new Schema.Parser().parse("{\"type\":\"record\",\"name\":\"E\",\"fields\":[]}");
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     try (DataFileWriter<GenericRecord> writer =
@@ -789,13 +846,6 @@ class AvroDecodeTest {
         writer.append(record);
       }
     }
-    List<Object> expected = new ArrayList<>();
-    for (int i = 1; i <= 200_000; i++) {
-      expected.add(new Ok(json("{}"), i, null));
-    }
-    assertEquals(
-        expected,
-        decode(decoder(OCF), ByteInput.ofBytes(bytes.toByteArray()), new DecodeLimits(0, 4 << 20)));
     assertEquals(
         List.of(malformed(1, "avro block 1 claims 200000 records in 0 bytes", false)),
         decode(OCF, bytes.toByteArray()));

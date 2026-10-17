@@ -114,9 +114,10 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   formats, csv and avro blocks continue with the next record or block (csv stops only when a quote
   stays open to the end); the others stop (`terminal=true`). xml elements and yaml multi-document
   cannot locate a record, so their `Oversized` has no preview and no span; an avro block's
-  `Oversized` has neither, and its `sizeSoFar` is the block's size, what it decompressed to
-  before the limit, or the memory xz needs. A codec over its memory limit gives a terminal `Oversized` with no span or
-  preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does not say.
+  `Oversized` has neither, and its `sizeSoFar` is the block's size, what it decompressed to before
+  the limit, the memory xz needs, or 0 for a zstd window. A codec over its memory limit gives a
+  terminal `Oversized` with no span or preview; `sizeSoFar` is the memory xz needs, or 0 for zstd,
+  which does not say.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -247,14 +248,14 @@ block, and decoding goes on with the next block; record numbers still count the 
 record that decodes but cannot be converted loses only itself, and bytes left after a block's
 records are reported against the block's first record. A wrong sync marker or a file that does not
 end exactly after a block is terminal. Every string, bytes and fixed length is checked against the
-bytes left in the block before anything is allocated, and record, array and map counts all draw on
-one budget per block: its byte length plus an allowance of 100,000 items that encode in no bytes
-(nulls, empty records), or an eighth of `maxDocumentBytes` when that is larger. Values read without
-consuming a byte since the previous such value (a run of nulls, a record of null fields, an empty
-record) draw on the same allowance, so a small block cannot make the reader build or walk much more
-than its size. The file header may be up to `maxDocumentBytes` or 16 MiB, whichever is larger. In
-`datum` mode, bytes left after the record are `MALFORMED`, and an empty input decodes if the schema
-fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
+bytes left in the block before anything is allocated. Two budgets bound what one block can make the
+reader do: allocation counts (records in the block, array and map items) may total its byte length
+plus 100,000, since only nulls, empty records and empty fixeds encode in no bytes; and the objects
+built (a record and its fields, array items, map keys and values) may total 16 per byte plus
+1,000,000. A block over either budget loses its records; a block with more than 100,000 records that
+encode in no bytes is one of them. The file header may be up to `maxDocumentBytes` or 16 MiB,
+whichever is larger. In `datum` mode, bytes left after the record are `MALFORMED`, and an empty
+input decodes if the schema fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -407,4 +408,4 @@ Decisions made while implementing PR1 that refine the design above.
 | P43 | A bad avro block or record is not terminal. The earlier plan ended an avro file at its first bad record and at its first oversized block; block boundaries are known, so decoding now goes on with the next block |
 | P44 | Records are decoded with our own bounded `Decoder` over the block bytes instead of avro's `BinaryDecoder`, whose length limits are JVM-wide system properties |
 | P45 | Avro comes in through the `api` module's `api` dependency; nothing new is declared |
-| P46 | Avro counts draw on one item budget per block instead of being checked one array block at a time: a per-block check rejected valid arrays of nulls near the end of a block, and many small array blocks could still claim a quadratic number of items. Values that encode in no bytes are charged as they are read, because a count alone does not bound a record of many null fields. A block's record count is checked against its compressed size only for the null codec; a compressed block can hold far more records than compressed bytes. `fixed` sizes, which come from the file's schema, are checked by a `GenericDatumReader` subclass before avro allocates them |
+| P46 | Avro allocation counts draw on one budget per block instead of being checked one array block at a time, which rejected valid arrays of nulls near the end of a block and let many small array blocks claim a quadratic number of items. The objects built are budgeted per byte as well, because a count alone does not bound a record with many fields that encode in no bytes; charging each zero-byte value as it was read, as tried in review, rejected valid files with a few null columns. A block's record count is checked against its compressed size only for the null codec. `fixed` sizes, which come from the file's schema, are checked by a `GenericDatumReader` subclass before avro allocates them |
