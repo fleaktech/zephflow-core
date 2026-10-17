@@ -14,6 +14,8 @@
 package io.fleak.zephflow.lib.serdes.decode.config;
 
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.csv.CsvDialect;
+import io.fleak.zephflow.lib.serdes.decode.csv.CsvFormat;
 import io.fleak.zephflow.lib.serdes.decode.internal.CompiledDecoder;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatFactory;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonArrayFormat;
@@ -25,10 +27,13 @@ import io.fleak.zephflow.lib.serdes.decode.text.TextMultilineFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.TextWholeFormat;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
+import java.util.stream.IntStream;
 
 /** Validates a config and builds its decoder. Every config error is reported here, not on read. */
 public final class DecodingConfigCompiler {
@@ -60,9 +65,71 @@ public final class DecodingConfigCompiler {
       throw new IllegalArgumentException("decoding format is required");
     }
     return switch (format) {
+      case CsvFormatConfig csv -> csv(csv);
       case JsonFormatConfig json -> json(json);
       case TextFormatConfig text -> text(text);
     };
+  }
+
+  private static FormatFactory csv(CsvFormatConfig csv) {
+    int delimiter = csvChar("delimiter", csv.delimiter() == null ? "," : csv.delimiter(), false);
+    int quote = csvChar("quote", csv.quote() == null ? "\"" : csv.quote(), true);
+    int escape = csvChar("escape", csv.escape(), true);
+    int comment = csvChar("commentMarker", csv.commentMarker(), true);
+    List<Integer> set =
+        IntStream.of(delimiter, quote, escape, comment).filter(c -> c >= 0).boxed().toList();
+    if (Set.copyOf(set).size() != set.size()) {
+      throw new IllegalArgumentException(
+          "csv delimiter, quote, escape and commentMarker must be different characters");
+    }
+    int skipLines = csv.skipLines() == null ? 0 : csv.skipLines();
+    if (skipLines < 0) {
+      throw new IllegalArgumentException("csv skipLines must not be negative");
+    }
+    List<String> columns = csv.columns() == null ? null : columns(csv.columns());
+    CsvDialect dialect =
+        new CsvDialect(
+            delimiter,
+            quote,
+            escape,
+            comment,
+            Boolean.TRUE.equals(csv.ignoreSurroundingSpaces()),
+            skipLines,
+            csv.header() == null || csv.header(),
+            columns,
+            charset(csv.charset()));
+    return (in, limits, flags) -> new CsvFormat(in, limits, dialect);
+  }
+
+  /**
+   * One ASCII character other than a line ending; -1 when absent, or empty and {@code optional}.
+   */
+  private static int csvChar(String option, String value, boolean optional) {
+    if (value == null || (optional && value.isEmpty())) {
+      return -1;
+    }
+    char c = value.length() == 1 ? value.charAt(0) : 0;
+    if (value.length() != 1 || c >= 128 || c == '\n' || c == '\r') {
+      throw new IllegalArgumentException(
+          "csv " + option + " must be a single ASCII character other than a line ending");
+    }
+    return c;
+  }
+
+  private static List<String> columns(List<String> columns) {
+    if (columns.isEmpty()) {
+      throw new IllegalArgumentException("csv columns must not be empty");
+    }
+    Set<String> seen = new HashSet<>();
+    for (String column : columns) {
+      if (column == null || column.isEmpty()) {
+        throw new IllegalArgumentException("csv column names must not be empty");
+      }
+      if (!seen.add(column)) {
+        throw new IllegalArgumentException("csv column names must be unique: " + column);
+      }
+    }
+    return List.copyOf(columns);
   }
 
   private static FormatFactory json(JsonFormatConfig json) {

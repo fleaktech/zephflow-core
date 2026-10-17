@@ -142,6 +142,24 @@ class LowMemoryDecodeTest {
             LIMITS));
   }
 
+  @Test
+  void csvFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 220;
+    InputStream input = generated(records, i -> i + ",\"" + PAD + "\"\n", "id,pad\n", "");
+    assertEquals(
+        Map.of("Decoded", records),
+        count(decoder("{\"format\":{\"type\":\"csv\"}}"), input, LIMITS));
+  }
+
+  @Test
+  void hugeCsvFieldIsOversizedAndTheNextRowStillDecodes() {
+    InputStream input =
+        generated(TARGET_BYTES / 1000, i -> "x".repeat(1000), "id,pad\n1,\"", "\"\n2,ok\n");
+    assertEquals(
+        Map.of("Oversized", 1L, "Decoded", 1L),
+        count(decoder("{\"format\":{\"type\":\"csv\"}}"), input, LIMITS));
+  }
+
   private static Map<String, Long> count(
       RecordDecoder decoder, InputStream input, DecodeLimits limits) {
     Map<String, Long> counts = new LinkedHashMap<>();

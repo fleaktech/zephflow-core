@@ -16,38 +16,43 @@ package io.fleak.zephflow.lib.serdes.decode.internal;
 import java.util.Arrays;
 
 /** A growable byte buffer that can also drop bytes from its front. */
-final class ByteBuilder {
+public final class ByteBuilder {
 
   private byte[] buf = new byte[256];
   private int size;
 
-  void append(byte[] src, int off, int len) {
+  public void append(int b) {
+    ensure(size + 1);
+    buf[size++] = (byte) b;
+  }
+
+  public void append(byte[] src, int off, int len) {
     ensure(size + len);
     System.arraycopy(src, off, buf, size, len);
     size += len;
   }
 
-  void dropFront(int count) {
+  public void dropFront(int count) {
     System.arraycopy(buf, count, buf, 0, size - count);
     size -= count;
   }
 
-  void clear() {
+  public void clear() {
     size = 0;
     if (buf.length > 64 * 1024) {
       buf = new byte[256];
     }
   }
 
-  int size() {
+  public int size() {
     return size;
   }
 
-  byte[] copy(int from, int to) {
+  public byte[] copy(int from, int to) {
     return Arrays.copyOfRange(buf, from, to);
   }
 
-  byte[] toByteArray() {
+  public byte[] toByteArray() {
     return Arrays.copyOf(buf, size);
   }
 
