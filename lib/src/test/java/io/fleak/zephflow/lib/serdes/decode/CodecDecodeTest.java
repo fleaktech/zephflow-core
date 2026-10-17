@@ -505,6 +505,8 @@ class CodecDecodeTest {
         data);
   }
 
+  record HeaderCase(String name, byte[] frame, List<Object> expected) {}
+
   @Test
   void lz4FrameHeadersAreChecked() {
     byte[] data = utf8(FIRST);
@@ -512,32 +514,71 @@ class CodecDecodeTest {
     assertEquals(List.of(line(0), line(1)), decode(LZ4.config(), good));
     byte[] badChecksum = good.clone();
     badChecksum[6] ^= 1;
-    byte[] sizeEight = {(byte) 99, 0, 0, 0, 0, 0, 0, 0};
-    List<Object[]> cases =
+    byte[] wrongSize = {(byte) 99, 0, 0, 0, 0, 0, 0, 0};
+    List<HeaderCase> cases =
         List.of(
-            new Object[] {badChecksum, "lz4 frame 1 header checksum mismatch"},
-            new Object[] {
-              lz4Frame(0x61, 0x40, new byte[0]), "lz4 frames with a dictionary are not supported"
-            },
-            new Object[] {
-              lz4Frame(0x20, 0x40, new byte[0]), "lz4 frame 1 has an unsupported header"
-            },
-            new Object[] {
-              lz4Frame(0x60, 0x30, new byte[0]), "lz4 frame 1 has an invalid block size"
-            },
-            new Object[] {
-              lz4Frame(0x60, 0x40, new byte[0], storedBlock(data, 70_000)),
-              "lz4 block of 70000 bytes exceeds the frame's block size"
-            },
-            new Object[] {
-              lz4Frame(0x68, 0x40, sizeEight, storedBlock(data, data.length)),
-              "lz4 frame 1 content size mismatch"
-            });
-    for (Object[] c : cases) {
-      List<Object> actual = decode(LZ4.config(), (byte[]) c[0]);
-      Bad last = (Bad) actual.get(actual.size() - 1);
-      assertEquals(
-          corrupt(last.recordIndex(), last.span().offset(), (String) c[1]), last, (String) c[1]);
+            new HeaderCase(
+                "header checksum",
+                badChecksum,
+                List.of(corrupt(1, 0, "lz4 frame 1 header checksum mismatch"))),
+            new HeaderCase(
+                "dictionary",
+                lz4Frame(0x61, 0x40, new byte[0]),
+                List.of(corrupt(1, 0, "lz4 frames with a dictionary are not supported"))),
+            new HeaderCase(
+                "version",
+                lz4Frame(0x20, 0x40, new byte[0]),
+                List.of(corrupt(1, 0, "lz4 frame 1 has an unsupported header"))),
+            new HeaderCase(
+                "block size code",
+                lz4Frame(0x60, 0x30, new byte[0]),
+                List.of(corrupt(1, 0, "lz4 frame 1 has an invalid block size"))),
+            new HeaderCase(
+                "oversized block",
+                lz4Frame(0x60, 0x40, new byte[0], storedBlock(data, 70_000)),
+                List.of(corrupt(1, 0, "lz4 block of 70000 bytes exceeds the frame's block size"))),
+            new HeaderCase(
+                "content size",
+                lz4Frame(0x68, 0x40, wrongSize, storedBlock(data, data.length)),
+                List.of(line(0), line(1), corrupt(3, 14, "lz4 frame 1 content size mismatch"))));
+    for (HeaderCase c : cases) {
+      assertEquals(c.expected(), decode(LZ4.config(), c.frame()), c.name());
+    }
+  }
+
+  @Test
+  void lz4LinkedBlocksWithoutBlockChecksumsStreamThroughTheWindow() throws IOException {
+    String text = numbered(50_000);
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (OutputStream out =
+        new FramedLZ4CompressorOutputStream(
+            bytes, new Parameters(BlockSize.K64, true, false, true))) {
+      out.write(utf8(text));
+    }
+    assertEquals(completeLines(text), decode(LZ4.config(), bytes.toByteArray()));
+  }
+
+  @Test
+  void anOuterLimitStaysOversizedWhenAStreamedLz4BlockSwallowsIt() {
+    // Random text over a small alphabet gives many minimum-length matches, the case where the
+    // block decoder swallows a failure while reading a match offset.
+    Random random = new Random(7);
+    StringBuilder text = new StringBuilder();
+    for (int i = 0; i < 4_000; i++) {
+      text.append((char) ('a' + random.nextInt(8))).append(i % 40 == 39 ? "\n" : "");
+    }
+    byte[] lz4 = LZ4.compress(text.toString());
+    byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
+    String chain =
+        "{\"compression\":[\"zstd\",\"lz4\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}";
+    for (int cut = 22; cut < lz4.length; cut++) {
+      List<Object> actual =
+          decode(chain, concat(Zstd.compress(Arrays.copyOf(lz4, cut)), hugeWindow));
+      List<Object> expected = new ArrayList<>(actual.subList(0, actual.size() - 1));
+      expected.add(new Big(expected.size() + 1, null, 0, "", true));
+      assertEquals(expected, actual, "cut " + cut);
+      assertTrue(
+          expected.stream().allMatch(o -> o instanceof Ok || o instanceof Big), "cut " + cut);
     }
   }
 

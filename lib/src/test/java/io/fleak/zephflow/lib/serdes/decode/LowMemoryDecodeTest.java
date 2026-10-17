@@ -18,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.ZstdOutputStreamNoFinalizer;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -30,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongFunction;
+import java.util.zip.CRC32;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
@@ -38,6 +41,7 @@ import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutp
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.tukaani.xz.LZMA2InputStream;
 import org.tukaani.xz.LZMA2Options;
 import org.tukaani.xz.XZOutputStream;
 
@@ -236,6 +240,33 @@ class LowMemoryDecodeTest {
               LIMITS),
           c.codec());
     }
+  }
+
+  @Test
+  void xzWithoutADocumentLimitIsCappedAtHalfTheHeap() throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (OutputStream out = new XZOutputStream(bytes, new LZMA2Options(0))) {
+      out.write("a\n".getBytes(StandardCharsets.UTF_8));
+    }
+    byte[] xz = bytes.toByteArray();
+    // Declare a 48 MiB dictionary (LZMA2 property 27) and fix the block header's CRC32.
+    int headerSize = ((xz[12] & 0xFF) + 1) * 4;
+    xz[16] = 27;
+    CRC32 crc = new CRC32();
+    crc.update(xz, 12, headerSize - 4);
+    for (int i = 0; i < 4; i++) {
+      xz[12 + headerSize - 4 + i] = (byte) (crc.getValue() >>> (8 * i));
+    }
+    long needed = LZMA2InputStream.getMemoryUsage(48 << 20) * 1024L;
+    assertTrue(
+        needed > Runtime.getRuntime().maxMemory() / 2, "the dictionary must exceed half the heap");
+    assertEquals(
+        Map.of("Oversized", 1L),
+        count(
+            decoder(
+                "{\"compression\":\"xz\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
+            new ByteArrayInputStream(xz),
+            new DecodeLimits(1024 * 1024, 0)));
   }
 
   private static Map<String, Long> count(

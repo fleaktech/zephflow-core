@@ -155,7 +155,7 @@ in one switch, so a missing case fails to compile. A format implements `FormatFa
 | `zstd` | Concatenated and skippable frames; input that ends inside a frame is `CORRUPT_COMPRESSION`. A frame whose window needs more than zstd's default 128 MiB is `Oversized` |
 | `bzip2` | Concatenated streams |
 | `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxDocumentBytes` (in whole KiB) is `Oversized`; without that limit, the cap is 128 MiB or half the heap, whichever is smaller |
-| `lz4` | The LZ4 frame format only, with skippable frames; not the raw block format, and not frames that need a dictionary. A block without a checksum is handed on as it decodes; a block with one is held until it matches, so up to one block (at most 4 MiB) can be lost when it does not |
+| `lz4` | The LZ4 frame format only, with skippable frames; not the raw block format, and not frames that need a dictionary. A block without a checksum is handed on as it decodes; a block with one is held until it matches, so up to one block (at most 4 MiB) can be lost when it does not match or is cut short |
 | `snappy` | The Snappy framing format only, with skippable chunks; not raw or Hadoop snappy. The format has no end mark, so input cut exactly between chunks ends cleanly; only the `ByteInput` contract (3.2) catches that |
 
 Every codec follows the same rules: concatenated streams are all read, bytes after the last stream

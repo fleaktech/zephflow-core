@@ -101,6 +101,9 @@ final class Lz4FrameStream extends InputStream {
     try {
       n = streamed.read(b, off, len);
     } catch (IOException | RuntimeException e) {
+      if (streamedInput.failure != null) {
+        throw streamedInput.failure;
+      }
       if (flags.anySet()) {
         throw e;
       }
@@ -111,6 +114,10 @@ final class Lz4FrameStream extends InputStream {
           e);
     }
     if (n < 0) {
+      // The block decoder swallows some failures from below and just ends; they are not ours.
+      if (streamedInput.failure != null) {
+        throw streamedInput.failure;
+      }
       if (streamedInput.remaining > 0) {
         throw corrupt("lz4 frame " + (frames + 1) + " is truncated", null);
       }
@@ -349,11 +356,15 @@ final class Lz4FrameStream extends InputStream {
     in.close();
   }
 
-  /** The block's compressed bytes; notes whether the input ended before the block did. */
+  /**
+   * The block's compressed bytes. Notes whether the input ended before the block did, and keeps any
+   * failure from below so it reaches the cursor unchanged even if the block decoder swallows it.
+   */
   private static final class Bounded extends InputStream {
     private final InputStream in;
     private long remaining;
     private boolean truncated;
+    private IOException failure;
 
     Bounded(InputStream in, long length) {
       this.in = in;
@@ -372,7 +383,13 @@ final class Lz4FrameStream extends InputStream {
       if (remaining == 0) {
         return -1;
       }
-      int n = in.read(b, off, (int) Math.min(len, remaining));
+      int n;
+      try {
+        n = in.read(b, off, (int) Math.min(len, remaining));
+      } catch (IOException e) {
+        failure = e;
+        throw e;
+      }
       if (n < 0) {
         truncated = true;
         return -1;
