@@ -178,7 +178,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `xml` | `mode`: `document`, or `elements` with `recordPath` (e.g. `/Events/Event`) | Any DTD is refused; values are strings |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (an object container file, which carries its schema), or `datum` (the whole input is one record) with `schema` (JSON, or a string holding it) | One record per avro record; the schema must be a record |
-| `protobuf` | `descriptorSet` (a base64 `FileDescriptorSet` with every dependency), `messageType` (full name), `framing`: `single`, `varint_delimited` | One record per message, by proto field name |
+| `protobuf` | `descriptorSet` (a base64 `FileDescriptorSet` with every dependency; line breaks are allowed), `messageType` (full name), `framing`: `single`, `varint_delimited` | One record per message, by proto field name |
 | `parquet` | — | Needs random access; cannot be combined with `compression` |
 
 **Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
@@ -263,9 +263,9 @@ presence appears only when set, a proto3 scalar without presence always appears)
 types stay objects; unknown fields are ignored, and so are unknown values of a closed (proto2) enum,
 which protobuf drops; a proto2 message missing a required field is `MALFORMED`, and so is a
 Timestamp or Duration whose milliseconds overflow. Unset fields are filled in with defaults, so
-before a message is parsed its wire format is scanned to count what it would build (a message and
-its fields, repeated items, map entries twice), and a message over 16 per byte plus 1,000,000 is
-`MALFORMED`. In `single` framing the whole input is one message, and an empty input is a message
+before a message is parsed its wire format is scanned to count what it would build (each message
+with the fields it always has, every field occurrence, map entries twice), and a message over 4
+per byte plus 100,000 is `MALFORMED`. In `single` framing the whole input is one message, and an empty input is a message
 with every field at its default. In `varint_delimited` framing each message is preceded by its
 length (a 32-bit varint, as `writeDelimitedTo` writes it); a record's `span` and raw bytes are the
 message without its prefix. A message that does not parse is `MALFORMED`, and one over
@@ -345,8 +345,11 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   records have no bytes of their own.
 - Tree formats (json array and object, xml, yaml) hold a record as a tree that can take 10–50 times
   its bytes in memory; only csv caps the number of fields.
-- A protobuf message may build at most 16 values per byte plus 1,000,000; a message of many empty
-  submessages of a wide type exceeds it and is `MALFORMED`.
+- A protobuf message may build at most 4 values per byte plus 100,000. Repeated submessages that
+  set only one or two of many proto3 fields without presence exceed it and are `MALFORMED`; fields
+  with presence cost nothing when unset. In the worst case a message holds about 300 times
+  `maxRecordBytes` in memory while it is converted, about twice what ordinary data of that size
+  reaches.
 - An avro block may build at most 16 objects per byte (4.2). Records with about 15 or more bare
   `null` columns per payload byte, or wrapper records nested 8 or more deep around a one-byte value,
   exceed it and lose their block. In the worst case an avro block holds about 150–250 times
@@ -435,7 +438,7 @@ Decisions made while implementing PR1 that refine the design above.
 
 | # | Note |
 |---|---|
-| P47 | Protobuf gets an object budget like avro's even though the descriptor is trusted: each two-byte empty submessage becomes a record of its type's defaults, so the data decides how often the defaults are filled in. The budget is checked by scanning the wire format before parsing, because protobuf's own parse already builds a tree of that shape |
+| P47 | Protobuf gets an object budget like avro's even though the descriptor is trusted: each two-byte empty submessage becomes a record of its type's defaults, so the data decides how often the defaults are filled in. The budget is checked by scanning the wire format before parsing, because protobuf's own parse already builds a tree of that shape. An instance is charged only for the fields that appear when unset, so sparse proto2 or `optional` data is not rejected, and unknown fields are charged because protobuf keeps them. A value costs 55–70 bytes of heap; 16 per byte plus 1,000,000, as first tried, let a 1 MiB message hold about 1 GB. The scan follows a field only in the wire type protobuf reads it with, so a group sent length-delimited stays unknown, as it does for protobuf |
 | P48 | The length prefix is read here rather than with `parseDelimitedFrom`, so an oversized message is skipped by reading (with a preview) instead of being buffered, and a broken prefix is told apart from a message that does not parse |
 | P49 | Protobuf comes in through `lib`'s existing `protobuf-java` dependency |
 | P50 | uint64 and fixed64 values of 2^63 and above are doubles, not longs: a long-typed number saturates at 2^63 - 1 when serialized. Timestamp and Duration both round down, like avro times |

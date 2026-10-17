@@ -571,6 +571,36 @@ class LowMemoryDecodeTest {
         Map.of("Failed", 1L, "Decoded", 1L), count(decoder(protobufConfig()), input, LIMITS));
   }
 
+  /**
+   * A 16 KiB length-delimited message of {@code empties} empty {@code Wide} submessages, padded
+   * with field 1. It builds {@code 4 + 102 * empties} values against a budget of 4 per byte plus
+   * 100,000.
+   */
+  private static byte[] protobufWideMessage(int empties) {
+    int padding = 16 * 1024 - 2 * empties - 3;
+    ByteArrayOutputStream message = new ByteArrayOutputStream();
+    message.write(0x0A);
+    writeVarint(message, padding);
+    message.writeBytes("x".repeat(padding).getBytes(StandardCharsets.UTF_8));
+    for (int i = 0; i < empties; i++) {
+      message.write(0x12);
+      message.write(0);
+    }
+    ByteArrayOutputStream framed = new ByteArrayOutputStream();
+    writeVarint(framed, message.size());
+    framed.writeBytes(message.toByteArray());
+    return framed.toByteArray();
+  }
+
+  @Test
+  void protobufMessageJustInsideTheObjectBudgetFitsTheHeap() {
+    InputStream input =
+        new ByteArrayInputStream(
+            concat(protobufWideMessage(1622), protobufWideMessage(1623), protobufMessage("ok")));
+    assertEquals(
+        Map.of("Decoded", 2L, "Failed", 1L), count(decoder(protobufConfig()), input, LIMITS));
+  }
+
   private static Map<String, Long> count(
       RecordDecoder decoder, InputStream input, DecodeLimits limits) {
     Map<String, Long> counts = new LinkedHashMap<>();

@@ -87,6 +87,15 @@ class ProtobufDecodeTest {
     return wide.build();
   }
 
+  /** A proto2 message of 200 optional fields, which appear only when set. */
+  private static DescriptorProto sparse() {
+    DescriptorProto.Builder sparse = DescriptorProto.newBuilder().setName("Sparse");
+    for (int i = 1; i <= 200; i++) {
+      sparse.addField(field("f" + i, i, Type.TYPE_INT32));
+    }
+    return sparse.build();
+  }
+
   private static final FileDescriptorProto PROTO3 =
       FileDescriptorProto.newBuilder()
           .setName("test.proto")
@@ -171,6 +180,22 @@ class ProtobufDecodeTest {
                       field("need", 1, Type.TYPE_INT32).toBuilder().setLabel(Label.LABEL_REQUIRED))
                   .addField(field("maybe", 2, Type.TYPE_INT32))
                   .addField(field("color", 3, Type.TYPE_ENUM, ".old.Shade")))
+          .addMessageType(sparse())
+          .addMessageType(
+              DescriptorProto.newBuilder()
+                  .setName("Bag")
+                  .addField(
+                      field("items", 1, Type.TYPE_MESSAGE, ".old.Sparse").toBuilder()
+                          .setLabel(Label.LABEL_REPEATED))
+                  .addField(field("grp", 5, Type.TYPE_GROUP, ".old.Bag.Grp"))
+                  .addNestedType(
+                      DescriptorProto.newBuilder()
+                          .setName("Grp")
+                          .addField(field("v", 1, Type.TYPE_INT32))))
+          .addMessageType(
+              DescriptorProto.newBuilder()
+                  .setName("Node")
+                  .addField(field("next", 1, Type.TYPE_MESSAGE, ".old.Node")))
           .addEnumType(
               EnumDescriptorProto.newBuilder()
                   .setName("Shade")
@@ -506,6 +531,9 @@ class ProtobufDecodeTest {
         setConfig(FileDescriptorSet.newBuilder().addFile(cycleA).addFile(cycleB).build(), "x.Y"));
     moreBad.add(setConfig(FileDescriptorSet.newBuilder().addFile(invalid).build(), "bad.B"));
     moreBad.add(setConfig(SET, "test.All.MEntry"));
+    assertEquals(
+        "protobuf descriptorSet is not a base64 FileDescriptorSet: Illegal base64 character 21",
+        assertThrows(IllegalArgumentException.class, () -> decoder(bad.get(2))).getMessage());
     moreBad.add(
         "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\"AAAA\",\"messageType\":\"test.All\",\"framing\":\"single\"}}");
     moreBad.add(
@@ -609,9 +637,115 @@ class ProtobufDecodeTest {
                 new String(many, StandardCharsets.UTF_8),
                 -1,
                 new RawSpan(0, many.length),
-                "MalformedProtobufException: message would build more than 16 values per byte plus 1000000",
+                "MalformedProtobufException: message would build more than 4 values per byte plus 100000",
                 true)),
         decode(holder, many));
+  }
+
+  @Test
+  void sparseSubmessagesOfAWideTypeAreNotChargedForUnsetFields() {
+    byte[] items = new byte[4000];
+    for (int i = 0; i < items.length; i += 4) {
+      items[i] = 0x0A;
+      items[i + 1] = 2;
+      items[i + 2] = 8;
+      items[i + 3] = 1;
+    }
+    assertEquals(
+        List.of(
+            new Ok(
+                json(
+                    "{\"items\":["
+                        + String.join(",", Collections.nCopies(1000, "{\"f1\":1}"))
+                        + "]}"),
+                1,
+                new RawSpan(0, items.length))),
+        decode(config("old.Bag", "single"), items));
+  }
+
+  @Test
+  void aGroupFieldIsOnlyReadAsAGroup() {
+    String bag = config("old.Bag", "single");
+    assertEquals(
+        List.of(new Ok(json("{\"items\":[],\"grp\":{\"v\":7}}"), 1, new RawSpan(0, 4))),
+        decode(bag, new byte[] {0x2B, 8, 7, 0x2C}));
+    assertEquals(
+        List.of(new Ok(json("{\"items\":[]}"), 1, new RawSpan(0, 4))),
+        decode(bag, new byte[] {0x2A, 2, (byte) 0xFF, (byte) 0xFF}));
+  }
+
+  /** {@code levels} Nodes nested in a top-level Node, each the only field of its parent. */
+  private static byte[] nested(int levels) {
+    byte[] node = new byte[0];
+    for (int i = 0; i < levels; i++) {
+      ByteArrayOutputStream outer = new ByteArrayOutputStream();
+      outer.write(0x0A);
+      outer.write(node.length < 128 ? node.length : node.length & 0x7F | 0x80);
+      if (node.length >= 128) {
+        outer.write(node.length >>> 7);
+      }
+      outer.writeBytes(node);
+      node = outer.toByteArray();
+    }
+    return node;
+  }
+
+  /** {@code levels} unknown groups (field 9) nested in a Node. */
+  private static byte[] unknownGroups(int levels) {
+    byte[] groups = new byte[2 * levels];
+    Arrays.fill(groups, 0, levels, (byte) 0x4B);
+    Arrays.fill(groups, levels, 2 * levels, (byte) 0x4C);
+    return groups;
+  }
+
+  private static byte[] framed(byte[] message) {
+    ByteArrayOutputStream framed = new ByteArrayOutputStream();
+    framed.write(message.length < 128 ? message.length : message.length & 0x7F | 0x80);
+    if (message.length >= 128) {
+      framed.write(message.length >>> 7);
+    }
+    framed.writeBytes(message);
+    return framed.toByteArray();
+  }
+
+  @Test
+  void messagesNestedTooDeeplyLoseOnlyThemselves() {
+    String node = config("old.Node", "varint_delimited");
+    byte[] deepest = nested(100);
+    byte[] tooDeep = nested(101);
+    byte[] groups = unknownGroups(100);
+    byte[] tooManyGroups = unknownGroups(101);
+    byte[] input =
+        concat(
+            framed(deepest),
+            framed(tooDeep),
+            framed(groups),
+            framed(tooManyGroups),
+            framed(new byte[0]));
+    String chain = "{\"next\":".repeat(100) + "{}" + "}".repeat(100);
+    int at = 2 + deepest.length;
+    int groupsAt = at + 2 + tooDeep.length;
+    int tooManyAt = groupsAt + 2 + groups.length;
+    assertEquals(
+        List.of(
+            new Ok(json(chain), 1, new RawSpan(2, deepest.length)),
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(tooDeep, StandardCharsets.UTF_8),
+                2,
+                new RawSpan(at + 2, tooDeep.length),
+                "MalformedProtobufException: message nests deeper than 100 levels",
+                false),
+            new Ok(json("{}"), 3, new RawSpan(groupsAt + 2, groups.length)),
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(tooManyGroups, StandardCharsets.UTF_8),
+                4,
+                new RawSpan(tooManyAt + 2, tooManyGroups.length),
+                "MalformedProtobufException: message nests deeper than 100 levels",
+                false),
+            new Ok(json("{}"), 5, new RawSpan(tooManyAt + 2 + tooManyGroups.length + 1, 0))),
+        decode(node, input));
   }
 
   @Test

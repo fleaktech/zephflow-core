@@ -251,7 +251,9 @@ public final class DecodingConfigCompiler {
     }
     FileDescriptorSet set;
     try {
-      set = FileDescriptorSet.parseFrom(Base64.getMimeDecoder().decode(descriptorSet));
+      set =
+          FileDescriptorSet.parseFrom(
+              Base64.getDecoder().decode(descriptorSet.replaceAll("\\s", "")));
     } catch (IllegalArgumentException | InvalidProtocolBufferException e) {
       throw new IllegalArgumentException(
           "protobuf descriptorSet is not a base64 FileDescriptorSet: " + e.getMessage(), e);
