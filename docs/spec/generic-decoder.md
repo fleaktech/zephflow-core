@@ -205,7 +205,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | PR | Scope | Status |
 |---|---|---|
 | 1 | API, config and compiler, error classification, budgets, `gzip` + `auto`, `json` (all modes), `text` `line` + `whole` (UTF-8), `lowMemoryTest` task | Done (#339) |
-| 2 | `text` `multiline`, non-UTF-8 text | In review |
+| 2 | `text` `multiline`, non-UTF-8 text | Done (#340) |
 | 3 | `csv` | Planned |
 | 4 | `xml`, `yaml` | Planned |
 | 5 | Remaining codecs | Planned |
