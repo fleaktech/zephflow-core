@@ -272,7 +272,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 2 | `text` `multiline`, non-UTF-8 text | Done (#340) |
 | 3 | `csv` | Done (#341) |
 | 4 | `xml`, `yaml` | Done (#342) |
-| 5 | Remaining codecs | In review |
+| 5 | Remaining codecs | Done (#343) |
 | 6 | `avro` | Planned |
 | 7 | `protobuf` | Planned |
 | 8 | `parquet`, random-access input | Planned |
