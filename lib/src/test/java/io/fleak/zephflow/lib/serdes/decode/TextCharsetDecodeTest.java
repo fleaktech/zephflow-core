@@ -150,6 +150,16 @@ class TextCharsetDecodeTest {
   }
 
   @Test
+  void utf16LittleEndianBomCharsetFollowsABigEndianMark() {
+    assertEquals(
+        A_B,
+        decode(
+            line("x-UTF-16LE-BOM"),
+            concat(UTF_16BE_BOM, "a\nb".getBytes(StandardCharsets.UTF_16BE))));
+    assertEquals(A_B, decode(line("x-UTF-16LE-BOM"), "a\nb".getBytes(StandardCharsets.UTF_16LE)));
+  }
+
+  @Test
   void bomDroppingJdkUtf32CharsetsReplaceSurrogatesToo() {
     byte[] surrogates = {0, 0, (byte) 0xD8, 0, 0, 0, (byte) 0xDC, 0};
     assertEquals(

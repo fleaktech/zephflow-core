@@ -26,10 +26,11 @@ public final class Transcoding {
   public static final Charset UTF_32BE = Charset.forName("UTF-32BE");
   public static final Charset UTF_32LE = Charset.forName("UTF-32LE");
 
-  /** JDK charsets whose decoders drop a byte order mark on their own, by their fixed-order form. */
+  private static final Charset UTF_16LE_BOM = Charset.forName("x-UTF-16LE-BOM");
+
+  /** JDK UTF-32 charsets whose decoders drop a byte order mark on their own. */
   private static final Map<Charset, Charset> BOM_DROPPING =
       Map.of(
-          Charset.forName("x-UTF-16LE-BOM"), StandardCharsets.UTF_16LE,
           Charset.forName("X-UTF-32BE-BOM"), UTF_32BE,
           Charset.forName("X-UTF-32LE-BOM"), UTF_32LE);
 
@@ -37,15 +38,23 @@ public final class Transcoding {
 
   /**
    * Returns {@code in} itself for UTF-8, otherwise a re-encoding stream. Unmarked UTF-16 and UTF-32
-   * take their byte order from a byte order mark and default to big-endian (RFC 2781).
+   * take their byte order from a byte order mark and default to big-endian (RFC 2781);
+   * x-UTF-16LE-BOM does the same but defaults to little-endian, as its JDK decoder does.
    */
   public static InputStream toUtf8(InputStream in, Charset charset) throws IOException {
     if (charset.equals(StandardCharsets.UTF_8)) {
       return in;
     }
-    if (charset.equals(StandardCharsets.UTF_16)) {
-      PeekedStream peeked = PeekedStream.peek(in, 2, head -> startsDifferently(head, 0xFF, 0xFE));
-      boolean little = peeked.head().length == 2 && !startsDifferently(peeked.head(), 0xFF, 0xFE);
+    if (charset.equals(StandardCharsets.UTF_16) || charset.equals(UTF_16LE_BOM)) {
+      PeekedStream peeked =
+          PeekedStream.peek(
+              in,
+              2,
+              head -> startsDifferently(head, 0xFF, 0xFE) && startsDifferently(head, 0xFE, 0xFF));
+      byte[] head = peeked.head();
+      boolean little =
+          head.length == 2 && !startsDifferently(head, 0xFF, 0xFE)
+              || charset.equals(UTF_16LE_BOM) && startsDifferently(head, 0xFE, 0xFF);
       return new Utf8TranscodingStream(
           peeked, little ? StandardCharsets.UTF_16LE : StandardCharsets.UTF_16BE);
     }

@@ -167,8 +167,8 @@ anchor it with `^`. With `startPattern`, a matching line starts a new event and 
 current one. With `continuePattern`, a matching line joins the current event and other lines start
 a new one. The first line of the input always starts an event, so lines before the first start
 line, or a leading continuation line, form an event of their own. Blank lines follow the same rule:
-with `startPattern` they stay in the current event, and with `continuePattern` they usually start a
-new one. An event keeps its inner line endings as they were. It is emitted when the next event
+with `startPattern` they stay in the current event, and with `continuePattern` they start a new one
+unless the pattern matches them. An event keeps its inner line endings as they were. It is emitted when the next event
 starts or the input ends. Events made only of blank lines are skipped. An event over `maxLines` or
 `maxRecordBytes` is reported whole as `Oversized`, even if it is blank, and the lines that continue
 it are counted into it, so a stack trace never splits into records that look valid. An oversized
@@ -265,6 +265,6 @@ Decisions made while implementing PR1 that refine the design above.
 | # | Note |
 |---|---|
 | P17 | UTF-32 is decoded by our own decoder. The JDK decoders drop a leading byte order mark on their own and pass surrogate code points through, so D800 followed by DC00 became one valid character. Now each becomes U+FFFD, and exactly one leading U+FEFF is dropped for every charset. A second U+FEFF is kept as text |
-| P18 | Unmarked `UTF-16` and `UTF-32` are resolved to a fixed byte order from the first bytes before decoding. The JDK charsets that drop a mark themselves (`x-UTF-16LE-BOM`, `X-UTF-32BE-BOM`, `X-UTF-32LE-BOM`) are replaced by their fixed-order forms. So no decoder drops a mark |
+| P18 | Unmarked `UTF-16` and `UTF-32` are resolved to a fixed byte order from the first bytes before decoding. `x-UTF-16LE-BOM` is handled like unmarked `UTF-16` but defaults to little-endian. The JDK UTF-32 charsets that drop a mark themselves (`X-UTF-32BE-BOM`, `X-UTF-32LE-BOM`) are replaced by their fixed-order forms. So no decoder drops a mark |
 | P19 | Line framing skips a UTF-8 byte order mark only on untranscoded input |
 | P20 | Malformed input skips the length the charset decoder reports. UTF-16 is the exception: it skips one code unit, because the JDK reports a lone high surrogate together with the unit after it. A pair cut off by the end of the input is one sequence |
