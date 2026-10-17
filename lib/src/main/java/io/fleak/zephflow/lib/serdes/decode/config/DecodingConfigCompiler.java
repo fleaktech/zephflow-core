@@ -25,6 +25,10 @@ import io.fleak.zephflow.lib.serdes.decode.text.MultilineRule;
 import io.fleak.zephflow.lib.serdes.decode.text.TextLineFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.TextMultilineFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.TextWholeFormat;
+import io.fleak.zephflow.lib.serdes.decode.xml.XmlDocumentFormat;
+import io.fleak.zephflow.lib.serdes.decode.xml.XmlElementsFormat;
+import io.fleak.zephflow.lib.serdes.decode.yaml.YamlDocumentFormat;
+import io.fleak.zephflow.lib.serdes.decode.yaml.YamlMultiDocumentFormat;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
@@ -37,6 +41,9 @@ import java.util.stream.IntStream;
 
 /** Validates a config and builds its decoder. Every config error is reported here, not on read. */
 public final class DecodingConfigCompiler {
+
+  /** Absolute; each step is one XML element name, without namespace prefix, wildcard or index. */
+  private static final Pattern RECORD_PATH = Pattern.compile("(/[\\p{L}_][\\p{L}\\p{N}_.\\-]*)+");
 
   private DecodingConfigCompiler() {}
 
@@ -68,6 +75,8 @@ public final class DecodingConfigCompiler {
       case CsvFormatConfig csv -> csv(csv);
       case JsonFormatConfig json -> json(json);
       case TextFormatConfig text -> text(text);
+      case XmlFormatConfig xml -> xml(xml);
+      case YamlFormatConfig yaml -> yaml(yaml);
     };
   }
 
@@ -130,6 +139,42 @@ public final class DecodingConfigCompiler {
       }
     }
     return List.copyOf(columns);
+  }
+
+  private static FormatFactory xml(XmlFormatConfig xml) {
+    if (xml.mode() == null) {
+      throw new IllegalArgumentException("xml format needs a mode: document or elements");
+    }
+    return switch (xml.mode()) {
+      case DOCUMENT -> {
+        if (xml.recordPath() != null) {
+          throw new IllegalArgumentException("xml recordPath only applies to elements mode");
+        }
+        yield (in, limits, flags) -> new XmlDocumentFormat(in, limits);
+      }
+      case ELEMENTS -> {
+        List<String> path = recordPath(xml.recordPath());
+        yield (in, limits, flags) -> new XmlElementsFormat(in, limits, flags, path);
+      }
+    };
+  }
+
+  private static List<String> recordPath(String recordPath) {
+    if (recordPath == null || !RECORD_PATH.matcher(recordPath).matches()) {
+      throw new IllegalArgumentException(
+          "xml elements mode needs a recordPath of element names such as /Events/Event");
+    }
+    return List.of(recordPath.substring(1).split("/"));
+  }
+
+  private static FormatFactory yaml(YamlFormatConfig yaml) {
+    if (yaml.mode() == null) {
+      throw new IllegalArgumentException("yaml format needs a mode: document or multi_document");
+    }
+    return switch (yaml.mode()) {
+      case DOCUMENT -> (in, limits, flags) -> new YamlDocumentFormat(in, limits);
+      case MULTI_DOCUMENT -> YamlMultiDocumentFormat::new;
+    };
   }
 
   private static FormatFactory json(JsonFormatConfig json) {

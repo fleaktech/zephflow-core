@@ -43,6 +43,10 @@ class LowMemoryDecodeTest {
   private static final long TARGET_BYTES = 300L * 1024 * 1024;
   private static final DecodeLimits LIMITS = new DecodeLimits(1024 * 1024, 4 * 1024 * 1024);
   private static final String PAD = "x".repeat(200);
+  private static final String XML_EVENTS =
+      "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/Events/Event\"}}";
+  private static final String YAML_MULTI =
+      "{\"format\":{\"type\":\"yaml\",\"mode\":\"multi_document\"}}";
   private static final String MULTILINE =
       "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"continuePattern\":\"^\\\\s\"}}}";
 
@@ -158,6 +162,43 @@ class LowMemoryDecodeTest {
     assertEquals(
         Map.of("Oversized", 1L, "Decoded", 1L),
         count(decoder("{\"format\":{\"type\":\"csv\"}}"), input, LIMITS));
+  }
+
+  @Test
+  void xmlElementsFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 230;
+    InputStream input =
+        generated(
+            records,
+            i -> "<Event id=\"" + i + "\"><p>" + PAD + "</p></Event>",
+            "<Events>",
+            "</Events>");
+    assertEquals(Map.of("Decoded", records), count(decoder(XML_EVENTS), input, LIMITS));
+  }
+
+  @Test
+  void hugeXmlElementIsOversized() {
+    InputStream input =
+        generated(
+            TARGET_BYTES / 1000,
+            i -> "x".repeat(1000),
+            "<Events><Event>1</Event><Event>",
+            "</Event></Events>");
+    assertEquals(Map.of("Decoded", 1L, "Oversized", 1L), count(decoder(XML_EVENTS), input, LIMITS));
+  }
+
+  @Test
+  void yamlDocumentsFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 220;
+    InputStream input = generated(records, i -> "---\ni: " + i + "\np: " + PAD + "\n", "", "");
+    assertEquals(Map.of("Decoded", records), count(decoder(YAML_MULTI), input, LIMITS));
+  }
+
+  @Test
+  void hugeYamlDocumentIsOversized() {
+    InputStream input =
+        generated(TARGET_BYTES / 1000, i -> "x".repeat(1000), "a: 1\n---\nb: ", "\n");
+    assertEquals(Map.of("Decoded", 1L, "Oversized", 1L), count(decoder(YAML_MULTI), input, LIMITS));
   }
 
   private static Map<String, Long> count(

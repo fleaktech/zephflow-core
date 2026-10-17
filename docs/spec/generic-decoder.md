@@ -110,7 +110,8 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   parquet row group. Avro and parquet sizes are checked before allocating.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
   formats and csv continue with the next record (csv stops only when a quote stays open to the end);
-  the others stop (`terminal=true`).
+  the others stop (`terminal=true`). xml elements and yaml multi-document cannot locate a record, so
+  their `Oversized` has no preview and no span.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -157,7 +158,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `json` | `mode`: `object`, `array`, `lines` | Each record must be an object. UTF-16/UTF-32 input is detected (RFC 4627 §3) and transcoded |
 | `text` | `charset` (default UTF-8); `framing`: `line` (`skipBlank`, default true), `multiline` (`startPattern` or `continuePattern`, `maxLines`), `whole` | `{"__raw__": "<text>"}`. Lines split on LF, CRLF, CR; one leading BOM is removed |
 | `csv` | `delimiter` (default `,`), `quote` (default `"`, `""` turns quoting off), `escape`, `header` (default true), `columns`, `skipLines`, `commentMarker`, `ignoreSurroundingSpaces` (default false), `charset` | One object per row; values are strings |
-| `xml` | `mode`: `document`, or `elements` with `recordPath` | DTDs and external entities are disabled |
+| `xml` | `mode`: `document`, or `elements` with `recordPath` (e.g. `/Events/Event`) | Any DTD is refused; values are strings |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (schema from the file), `datum` (schema in config) | One record per avro record |
 | `protobuf` | `descriptorSet`, `messageType`, `framing`: `single`, `varint_delimited` | One record per message |
@@ -195,6 +196,29 @@ input is terminal. When names come from the header line, a header that is malfor
 has duplicate names is terminal, reported with `recordIndex` 0 and a span to the end of the input;
 data rows count from 1.
 
+**XML.** Elements map the way Jackson's `XmlMapper` maps them: attributes and child elements become
+fields, repeated children become an array, an empty element is `""`, and text next to attributes or
+children goes under the key `""`. In `document` mode only comments, processing instructions and
+whitespace may follow the root. In `elements` mode `recordPath` is absolute (each step an XML name),
+matched by local name with namespaces ignored; other elements are skipped, and a non-empty input
+where it matches nothing is `MALFORMED`. Any `DOCTYPE` is `MALFORMED` and terminal, so no entity is
+expanded and nothing is fetched. The encoding comes from the XML declaration or byte order mark.
+
+**YAML.** YAML 1.1 as SnakeYAML reads it (so `yes`/`no` are booleans and `012` is octal). Aliases
+are expanded into separate copies, up to one value per two bytes of the size limit (the most an
+alias-free document within the limit could hold), so aliases never make a record larger than the
+limit allows (without a limit, aliases may copy at most 1,000,000 values, since their growth is
+exponential); entries copied by merge keys (`<<`) count against the same cap, and copies of one
+scalar share its text; a document that contains itself is `MALFORMED`. Duplicate keys are
+`MALFORMED`, and so are a mapping key that is not a scalar and two keys that become the same name
+(`1` and `'1'`). Nesting is limited to 500 levels, in the source and after alias expansion, to stay
+clear of stack overflows in the recursive parser. An empty or null document gives no record. In
+`multi_document` mode a document that fails to construct (not a mapping, duplicate keys, an alias
+loop, an invalid date such as `2024-02-30`, a value that does not fit its tag, an unknown local tag
+such as `!foo`, nesting too deep after alias expansion) is `MALFORMED` and decoding goes on; a
+syntax error, too deep nesting in the source, or a global tag such as `!!python/object` is terminal.
+The encoding comes from the byte order mark (UTF-8 without one).
+
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
 the charset become U+FFFD.
@@ -210,8 +234,12 @@ syslog, CEF and key=value are `text` + `line`, parsed downstream by the `parser`
 | unsigned integers | the unsigned value, never negative |
 | decimal | string |
 | bytes, fixed, YAML `!!binary` | base64 string |
+| YAML mapping key that is not a string | its string form; a date key becomes its number |
+| YAML null | null |
+| YAML integer outside int64 | its decimal string |
+| YAML `.inf`, `-.inf`, `.nan` | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
 | enum | string |
-| timestamp | epoch milliseconds (local timestamps read as UTC) |
+| timestamp | epoch milliseconds (local timestamps, and YAML timestamps without a zone, read as UTC) |
 | date | days since 1970-01-01 |
 | time of day, protobuf `Duration` | milliseconds |
 | map, record, struct, message | object |
@@ -228,7 +256,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 1 | API, config and compiler, error classification, budgets, `gzip` + `auto`, `json` (all modes), `text` `line` + `whole` (UTF-8), `lowMemoryTest` task | Done (#339) |
 | 2 | `text` `multiline`, non-UTF-8 text | Done (#340) |
 | 3 | `csv` | Done (#341) |
-| 4 | `xml`, `yaml` | Planned |
+| 4 | `xml`, `yaml` | Done (#342) |
 | 5 | Remaining codecs | Planned |
 | 6 | `avro` | Planned |
 | 7 | `protobuf` | Planned |
@@ -256,8 +284,13 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   emitted; the terminal outcome's `span` starts at its first byte.
 - An oversized record in a library-parsed format ends decoding of that input, because the start of
   the next record cannot be found.
-- xml elements and yaml multi-document have empty `raw`; avro and parquet records have no bytes of
-  their own.
+- xml elements and yaml multi-document have empty `raw`, no `span` and no preview; avro and parquet
+  records have no bytes of their own.
+- Tree formats (json array and object, xml, yaml) hold a record as a tree that can take 10–50 times
+  its bytes in memory; only csv caps the number of fields.
+- Recursive parsers (Jackson, SnakeYAML) need a normal thread stack (1 MiB or more) to reach their
+  nesting limits. On a smaller stack, deep input can overflow it; the cursor then reports a terminal
+  `MALFORMED` instead of letting the `StackOverflowError` escape.
 - In a json array, more than 64 KiB of whitespace between elements counts toward the neighbouring
   record's budget.
 - A bad record in the middle of an avro file ends decoding; there is no resync at the next block.
@@ -299,3 +332,16 @@ Decisions made while implementing PR1 that refine the design above.
 | P23 | Quoting is turned off with `"quote": ""`, because an explicit JSON null cannot be told apart from an absent field |
 | P24 | RFC 4180 quoting by default: without `ignoreSurroundingSpaces`, a space before an opening quote makes the field unquoted, and a space after a closing quote is `MALFORMED` |
 | P25 | Rows are capped at 16,384 columns. A row of delimiters under `maxRecordBytes` costs about 200 bytes of heap per field, so without a cap one row could exhaust memory |
+
+## 11. PR4 implementation notes
+
+| # | Note |
+|---|---|
+| P26 | YAML uses SnakeYAML directly instead of Jackson's YAML reader, which turns aliases into the anchor's name and cannot tell `2024-01-15` from `"2024-01-15"`. A date-only timestamp becomes days, so it is not taken for a timestamp at midnight UTC |
+| P27 | Woodstox is created by name, because service lookup picks a shaded StAX implementation from the Hadoop client on this classpath |
+| P28 | A DTD is refused as soon as it is seen, rather than parsed with DTD support off: there is then no partial DTD processing to reason about |
+| P29 | xml elements and yaml multi-document restart their budget at the bytes read so far after each record (and, for xml, after each event outside a record), because both parsers buffer ahead and give no byte offsets. The limit is therefore approximate by up to one parser buffer, and `Oversized` has no span or preview |
+| P30 | Woodstox, Jackson XML and SnakeYAML come in through the existing Jackson XML and YAML dependencies; no new dependency is declared |
+| P31 | SnakeYAML's own alias limit (50 per stream) is lifted because it counts across documents and would end a valid stream; the size-based cap in `YamlRecords` replaces it, plus a cap on values copied through aliases when no limit is set, and a depth check after expansion. Any failure while constructing a composed document is reported per document, so it never ends a multi-document stream |
+| P32 | Woodstox's limit of 1,000 attributes per element is lifted, like the attribute length, so only the decoder's limits decide |
+| P33 | Merge-key chains are counted while SnakeYAML flattens mappings, against the same value cap, because they grow quadratically before `YamlRecords` sees them. The text of a shared scalar (`!!binary`, big integers) is made once per object, so alias copies share it |

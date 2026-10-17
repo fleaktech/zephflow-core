@@ -71,7 +71,17 @@ class DecodingConfigCompilerTest {
             "{\"format\":{\"type\":\"csv\",\"columns\":[]}}",
             "{\"format\":{\"type\":\"csv\",\"columns\":[\"a\",\"a\"]}}",
             "{\"format\":{\"type\":\"csv\",\"columns\":[\"\"]}}",
-            "{\"format\":{\"type\":\"csv\",\"charset\":\"nope\"}}")) {
+            "{\"format\":{\"type\":\"csv\",\"charset\":\"nope\"}}",
+            "{\"format\":{\"type\":\"xml\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"document\",\"recordPath\":\"/a\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"a/b\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/a//b\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/a/*\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/e:a\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/Events/Event[1]\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/1a\"}}",
+            "{\"format\":{\"type\":\"yaml\"}}")) {
       assertThrows(IllegalArgumentException.class, () -> decoder(bad), bad);
     }
     assertThrows(IllegalArgumentException.class, () -> DecodingConfigCompiler.compile(null));
@@ -83,7 +93,9 @@ class DecodingConfigCompilerTest {
         List.of(
             "{\"compression\":\"zip\",\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}",
             "{\"format\":{\"type\":\"json\",\"mode\":\"nope\"}}",
-            "{\"format\":{\"type\":\"csvx\"}}")) {
+            "{\"format\":{\"type\":\"csvx\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"nope\"}}",
+            "{\"format\":{\"type\":\"yaml\",\"mode\":\"nope\"}}")) {
       UncheckedIOException thrown =
           assertThrows(UncheckedIOException.class, () -> decoder(bad), bad);
       assertTrue(thrown.getCause() instanceof JsonMappingException, bad);
