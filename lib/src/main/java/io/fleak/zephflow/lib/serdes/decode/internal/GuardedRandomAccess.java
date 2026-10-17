@@ -87,9 +87,10 @@ final class GuardedRandomAccess implements RandomAccessInput {
       this.flags = flags;
     }
 
+    private final byte[] one = new byte[1];
+
     @Override
     public int read() throws IOException {
-      byte[] one = new byte[1];
       return read(one, 0, 1) < 0 ? -1 : one[0] & 0xFF;
     }
 

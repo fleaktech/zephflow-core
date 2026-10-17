@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.parquet;
 
-import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.RandomAccessInput;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,19 +29,22 @@ import org.apache.parquet.format.converter.ParquetMetadataConverter;
 import org.apache.parquet.schema.MessageType;
 
 /**
- * The file's footer, read before anything else: the trailing length and magic, then the metadata,
- * which may be up to {@code maxDocumentBytes}. The schema is checked before parquet builds it, so
- * that its depth and the record reader it implies stay small.
+ * The file's footer, read before anything else: the trailing length and magic, then the metadata.
+ * What the footer holds in memory is estimated while it is parsed and must stay within the budget:
+ * its thrift objects (see {@link BoundedThrift}), and per leaf column {@value #LEAF_BYTES} bytes of
+ * schema, column readers and converters plus {@value #CELL_BYTES} per cell of parquet's record
+ * reader tables, which grow with each leaf's depth and levels. The schema is checked without
+ * recursion before parquet builds it.
  */
 record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadataStart) {
 
   private static final byte[] MAGIC = "PAR1".getBytes(StandardCharsets.US_ASCII);
   private static final int MAX_SCHEMA_DEPTH = 32;
+  private static final long MAX_LEVEL_CELLS = 500_000;
+  private static final long LEAF_BYTES = 2048;
+  private static final long CELL_BYTES = 16;
 
-  /** Bounds parquet's record reader tables, which grow with each leaf's depth and levels. */
-  private static final long MAX_LEVEL_CELLS = 4_000_000;
-
-  static ParquetFooter read(RandomAccessInput in, DecodeLimits limits) throws IOException {
+  static ParquetFooter read(RandomAccessInput in, long budget) throws IOException {
     long length = in.length();
     if (length < 2L * MAGIC.length + 4) {
       throw new MalformedParquetException(
@@ -63,12 +65,16 @@ record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadata
       throw new MalformedParquetException(
           "parquet footer of " + metadataLength + " bytes does not fit in a file of " + length);
     }
-    if (limits.maxDocumentBytes() > 0 && metadataLength > limits.maxDocumentBytes()) {
-      throw new FooterTooLargeException(metadataLength);
+    if (metadataLength > budget || metadataLength > Integer.MAX_VALUE - 8) {
+      throw new TooLargeException("footer", metadataLength, budget);
     }
-    FileMetaData metadata =
-        BoundedThrift.fileMetaData(bytes(in, metadataStart, (int) metadataLength));
-    checkSchema(metadata.getSchema());
+    BoundedThrift.Parsed<FileMetaData> parsed =
+        BoundedThrift.fileMetaData(bytes(in, metadataStart, (int) metadataLength), budget);
+    FileMetaData metadata = parsed.value();
+    long heap = parsed.heap() + schemaHeap(metadata.getSchema());
+    if (heap > budget) {
+      throw new TooLargeException("footer", heap, budget);
+    }
     List<RowGroup> rowGroups = metadata.getRow_groups();
     metadata.setRow_groups(new ArrayList<>());
     MessageType schema;
@@ -84,21 +90,11 @@ record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadata
     return new ParquetFooter(schema, rowGroups == null ? List.of() : rowGroups, metadataStart);
   }
 
-  /** A footer over {@code maxDocumentBytes}; it is never read. */
-  static final class FooterTooLargeException extends IOException {
-    final long size;
-
-    FooterTooLargeException(long size) {
-      super("parquet footer of " + size + " bytes is over maxDocumentBytes");
-      this.size = size;
-    }
-  }
-
   /**
    * Walks the flattened schema the way parquet does, without recursion: the root and each group say
-   * how many children follow.
+   * how many children follow. Returns what its leaves will hold in memory.
    */
-  private static void checkSchema(List<SchemaElement> elements) throws MalformedParquetException {
+  private static long schemaHeap(List<SchemaElement> elements) throws MalformedParquetException {
     if (elements == null
         || elements.isEmpty()
         || !elements.get(0).isSetNum_children()
@@ -163,15 +159,13 @@ record ParquetFooter(MessageType schema, List<RowGroup> rowGroups, long metadata
     if (leaves == 0) {
       throw new MalformedParquetException("parquet schema has no columns");
     }
+    return LEAF_BYTES * leaves + CELL_BYTES * cells;
   }
 
   static byte[] bytes(RandomAccessInput in, long offset, int length) throws IOException {
     byte[] bytes = new byte[length];
     try (InputStream range = in.read(offset, length)) {
-      int read = range.readNBytes(bytes, 0, length);
-      if (read != length) {
-        throw new IOException("the input range ended " + (length - read) + " bytes early");
-      }
+      range.readNBytes(bytes, 0, length);
     }
     return bytes;
   }

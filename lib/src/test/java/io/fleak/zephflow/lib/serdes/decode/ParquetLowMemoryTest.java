@@ -179,18 +179,15 @@ class ParquetLowMemoryTest {
 
   /**
    * Each claim would make parquet allocate tens of megabytes that the heap could just hold: a
-   * 10,000,000-entry dictionary, a bit-packed run of 12,000,000 levels, a 10,000,000-value delta
-   * block, and a 60 MiB page.
+   * 10,000,000-entry dictionary (over half the heap, the budget without a limit), a bit-packed run
+   * of 12,000,000 levels, a 10,000,000-value delta block, and a 60 MiB page.
    */
   @Test
   void countsThatWouldAllocateTensOfMegabytesAreRejectedFirst() {
     PageHeader dictionary =
         new PageHeader(PageType.DICTIONARY_PAGE, 4, 4)
             .setDictionary_page_header(new DictionaryPageHeader(10_000_000, Encoding.PLAIN));
-    assertEquals(
-        ParquetHostileTest.lostThenIntact(
-            "MalformedParquetException: parquet dictionary of 10000000 entries does not fit in 4 bytes",
-            4),
+    List<Object> outcomes =
         DecodeTestSupport.decode(
             PARQUET,
             ParquetHostileTest.hostileThenIntact(
@@ -198,7 +195,13 @@ class ParquetLowMemoryTest {
                     3,
                     new ParquetTestFiles.RawPage(dictionary, ParquetHostileTest.ints(9)),
                     ParquetHostileTest.page(3, Encoding.RLE_DICTIONARY, new byte[] {1, 6, 0})),
-                group -> group)));
+                group -> group));
+    long estimate = ((DecodeTestSupport.Big) outcomes.get(0)).sizeSoFar();
+    assertTrue(estimate > 40_000_000 && estimate > Runtime.getRuntime().maxMemory() / 2);
+    List<Object> withoutLimit =
+        new ArrayList<>(ParquetHostileTest.lostThenIntact("unused", 4).subList(1, 4));
+    withoutLimit.add(0, new DecodeTestSupport.Big(1, null, estimate, "", false));
+    assertEquals(withoutLimit, outcomes);
     byte[] levels = {6, 0, 0, 0, (byte) 0xC1, (byte) 0x8D, (byte) 0xB7, (byte) 0x01, 0, 0};
     assertEquals(
         ParquetHostileTest.lostThenIntact(
@@ -234,10 +237,52 @@ class ParquetLowMemoryTest {
                 ParquetHostileTest.page(
                     3, Encoding.PLAIN, ParquetHostileTest.ints(1, 2, 3), 60 * 1024 * 1024)),
             group -> group);
+    List<Object> pageOutcomes =
+        DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(page), LIMITS);
+    long pageEstimate = ((DecodeTestSupport.Big) pageOutcomes.get(0)).sizeSoFar();
+    assertTrue(pageEstimate > 60 * 1024 * 1024);
     List<Object> expected =
         new ArrayList<>(ParquetHostileTest.lostThenIntact("unused", 4).subList(1, 4));
-    expected.add(0, new DecodeTestSupport.Big(1, null, 60 * 1024 * 1024, "", false));
-    assertEquals(
-        expected, DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(page), LIMITS));
+    expected.add(0, new DecodeTestSupport.Big(1, null, pageEstimate, "", false));
+    assertEquals(expected, pageOutcomes);
+  }
+
+  @Test
+  void rowGroupsNearTheDocumentLimitWithDictionariesDecode() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType(
+            "message m { required int64 n; required binary s (STRING); optional binary t (STRING); }");
+    SimpleGroupFactory factory = new SimpleGroupFactory(schema);
+    String pad = "y".repeat(100);
+    long rows = 400_000;
+    Iterable<Group> generated =
+        () ->
+            new Iterator<>() {
+              private long next;
+
+              @Override
+              public boolean hasNext() {
+                return next < rows;
+              }
+
+              @Override
+              public Group next() {
+                long n = next++;
+                Group row = factory.newGroup().append("n", n).append("s", pad + (n % 5000));
+                return n % 3 == 0 ? row : row.append("t", "t" + (n % 50));
+              }
+            };
+    Path file = dir.resolve("dictionaries.parquet");
+    ParquetTestFiles.write(
+        file,
+        schema,
+        generated,
+        options ->
+            options
+                .withCompressionCodec(CompressionCodecName.SNAPPY)
+                .withDictionaryEncoding(true)
+                .withDictionaryPageSize(2 * 1024 * 1024)
+                .withRowGroupSize(1024 * 1024));
+    assertEquals(Map.of("Decoded", rows), count(ranges(file), LIMITS));
   }
 }

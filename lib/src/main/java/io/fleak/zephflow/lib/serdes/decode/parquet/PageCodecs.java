@@ -38,6 +38,9 @@ final class PageCodecs {
 
   static byte[] decompress(CompressionCodec codec, byte[] src, int offset, int length, int size)
       throws MalformedParquetException {
+    if (size == 0 && length == 0) {
+      return new byte[0];
+    }
     if (codec == CompressionCodec.UNCOMPRESSED) {
       if (length != size) {
         throw new MalformedParquetException(

@@ -21,7 +21,12 @@ import java.util.List;
 /** Compiled from a DecodingConfig. Immutable and thread-safe; compile once, reuse. */
 public interface RecordDecoder {
 
-  /** Reads no bytes. The input is opened on the first {@link RecordCursor#next()}. */
+  /**
+   * Reads no bytes. The input is opened on the first {@link RecordCursor#next()}.
+   *
+   * @throws IllegalStateException for a format that needs {@link ByteInput#randomAccess()} when the
+   *     input offers none
+   */
   RecordCursor open(ByteInput input, DecodeLimits limits);
 
   default DecodeResult decodeAll(byte[] bytes, DecodeLimits limits) {

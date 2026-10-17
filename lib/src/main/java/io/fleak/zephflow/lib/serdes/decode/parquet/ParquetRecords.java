@@ -66,6 +66,7 @@ import org.apache.parquet.schema.Type;
 final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
 
   private static final long VALUE_BYTES = 8;
+  private static final int MAX_DECIMAL_SCALE = 1000;
   private static final long UNIX_EPOCH_JULIAN_DAY = 2_440_588L;
 
   private final long maxRecordBytes;
@@ -148,7 +149,8 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
             || annotation instanceof MapKeyValueTypeAnnotation)
         && isWrapper(group)
         && !group.getType(0).isPrimitive()
-        && group.getType(0).asGroupType().getFieldCount() <= 2) {
+        && group.getType(0).asGroupType().getFieldCount() <= 2
+        && group.getType(0).asGroupType().getType(0).isPrimitive()) {
       return new MapConverter(group, sink);
     }
     return new RecordConverter(group, sink);
@@ -163,6 +165,7 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
 
     private final String[] names;
     private final boolean[] repeated;
+    private final int repeatedCount;
     private final Converter[] fields;
     private final Sink sink;
     private Map<String, FleakData> values;
@@ -184,6 +187,11 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
             repeated[i] ? value -> lists.get(index).add(value) : value -> values.put(name, value);
         fields[i] = converter(field, into);
       }
+      int repeatedFields = 0;
+      for (boolean r : repeated) {
+        repeatedFields += r ? 1 : 0;
+      }
+      repeatedCount = repeatedFields;
     }
 
     @Override
@@ -202,15 +210,16 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
 
     @Override
     public void end() {
+      if (!charge(VALUE_BYTES * (1L + values.size() + repeatedCount))) {
+        return;
+      }
       Map<String, FleakData> built = values;
       for (int i = 0; i < names.length; i++) {
         if (repeated[i]) {
           built.put(names[i], new ArrayFleakData(lists.get(i)));
         }
       }
-      if (charge(VALUE_BYTES)) {
-        sink.accept(new RecordFleakData(built));
-      }
+      sink.accept(new RecordFleakData(built));
     }
   }
 
@@ -226,6 +235,7 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
       boolean elementIsRepeated =
           element.isPrimitive()
               || element.asGroupType().getFieldCount() != 1
+              || element.asGroupType().getType(0).isRepetition(Type.Repetition.REPEATED)
               || element.getName().equals("array")
               || element.getName().equals(list.getName() + "_tuple");
       Sink into = value -> items.add(value);
@@ -314,10 +324,12 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
     private final class EntryConverter extends GroupConverter {
 
       private final Converter[] fields;
+      private final PrimitiveTypeName keyType;
       private FleakData key;
       private FleakData value;
 
       EntryConverter(GroupType keyValue) {
+        keyType = keyValue.getType(0).asPrimitiveType().getPrimitiveTypeName();
         fields = new Converter[keyValue.getFieldCount()];
         fields[0] = converter(keyValue.getType(0), built -> key = built);
         if (fields.length > 1) {
@@ -338,17 +350,25 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
 
       @Override
       public void end() {
-        if (key != null && charge(VALUE_BYTES)) {
-          entries.put(mapKey(key), value);
+        if (!charge(VALUE_BYTES)) {
+          return;
         }
+        if (key == null) {
+          failure = new MalformedParquetException("map key is null");
+          return;
+        }
+        entries.put(mapKey(key, keyType), value);
       }
     }
   }
 
-  private static String mapKey(FleakData key) {
+  /** The key's string form; a float key keeps its own digits rather than the widened double's. */
+  private static String mapKey(FleakData key, PrimitiveTypeName type) {
     return switch (key) {
       case NumberPrimitiveFleakData n when n.getNumberType() == NumberType.LONG ->
           Long.toString((long) n.getNumberValue());
+      case NumberPrimitiveFleakData n when type == PrimitiveTypeName.FLOAT ->
+          Float.toString((float) n.getNumberValue());
       case NumberPrimitiveFleakData n -> Double.toString(n.getNumberValue());
       default -> String.valueOf(key.unwrap());
     };
@@ -359,11 +379,17 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
     private final PrimitiveType type;
     private final LogicalTypeAnnotation annotation;
     private final Sink sink;
+    private final long valueBytes;
 
     ValueConverter(PrimitiveType type, Sink sink) {
       this.type = type;
       this.annotation = type.getLogicalTypeAnnotation();
       this.sink = sink;
+      this.valueBytes =
+          VALUE_BYTES
+              + (annotation instanceof DecimalLogicalTypeAnnotation d
+                  ? Math.max(0, d.getScale())
+                  : 0);
     }
 
     private void emit(long bytes, ValueBuilder builder) {
@@ -387,7 +413,7 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
     @Override
     public void addInt(int value) {
       emit(
-          VALUE_BYTES,
+          valueBytes,
           () ->
               switch (annotation) {
                 case IntLogicalTypeAnnotation i when !i.isSigned() ->
@@ -400,12 +426,12 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
     @Override
     public void addLong(long value) {
       emit(
-          VALUE_BYTES,
+          valueBytes,
           () ->
               switch (annotation) {
                 case IntLogicalTypeAnnotation i when !i.isSigned() && value < 0 ->
                     new NumberPrimitiveFleakData(
-                        (double) (value >>> 1) * 2.0 + (value & 1), NumberType.DOUBLE);
+                        (double) ((value >>> 1) | (value & 1)) * 2.0, NumberType.DOUBLE);
                 case DecimalLogicalTypeAnnotation d -> decimal(BigInteger.valueOf(value), d);
                 case TimestampLogicalTypeAnnotation t -> number(millis(value, t.getUnit()));
                 case TimeLogicalTypeAnnotation t -> number(millis(value, t.getUnit()));
@@ -425,7 +451,7 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
 
     @Override
     public void addBinary(Binary value) {
-      emit(VALUE_BYTES + value.length(), () -> binary(value));
+      emit(valueBytes + value.length(), () -> binary(value));
     }
 
     private FleakData binary(Binary value) {
@@ -471,6 +497,10 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
   }
 
   private static FleakData decimal(BigInteger unscaled, DecimalLogicalTypeAnnotation decimal) {
+    if (decimal.getScale() > MAX_DECIMAL_SCALE) {
+      throw new IllegalArgumentException(
+          "decimal scale " + decimal.getScale() + " is over " + MAX_DECIMAL_SCALE);
+    }
     return new StringPrimitiveFleakData(
         new BigDecimal(unscaled, decimal.getScale()).toPlainString());
   }

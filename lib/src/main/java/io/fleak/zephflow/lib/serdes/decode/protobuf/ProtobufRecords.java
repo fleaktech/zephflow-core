@@ -156,7 +156,7 @@ final class ProtobufRecords {
   }
 
   private static double unsignedAsDouble(long n) {
-    return (double) (n >>> 1) * 2.0 + (n & 1);
+    return (double) ((n >>> 1) | (n & 1)) * 2.0;
   }
 
   private static FleakData number(long value) {

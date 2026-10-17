@@ -18,7 +18,9 @@ import java.io.InputStream;
 
 /**
  * Reads of a bounded range at any offset, for formats that start from a footer (parquet).
- * Implemented by the caller like {@link ByteInput}; every call may do I/O.
+ * Implemented by the caller like {@link ByteInput}; every call may do I/O. A cursor asks for the
+ * length once and then reads ranges one at a time, in increasing order within a row group; the
+ * bytes must not change while it reads.
  */
 public interface RandomAccessInput {
 

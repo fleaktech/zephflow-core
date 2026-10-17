@@ -13,11 +13,12 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.parquet;
 
-import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.RandomAccessInput;
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -40,24 +41,32 @@ import org.apache.parquet.format.DataPageHeader;
 import org.apache.parquet.format.DataPageHeaderV2;
 import org.apache.parquet.format.DictionaryPageHeader;
 import org.apache.parquet.format.PageHeader;
+import org.apache.parquet.format.PageType;
 import org.apache.parquet.format.RowGroup;
 import org.apache.parquet.format.converter.ParquetMetadataConverter;
 import org.apache.parquet.schema.PrimitiveType;
 
 /**
- * One row group, read whole and checked before parquet assembles a record from it. Every column
- * chunk must lie between the leading magic and the footer, and together they may take {@code
- * maxDocumentBytes} both as stored and as their pages claim to decompress, where a delta-encoded
- * page also counts the 8 bytes per value (16 for DELTA_BYTE_ARRAY) that parquet's decoder holds for
- * the chunk's largest page. Every page header is read first. A column that does not repeat has
- * exactly one value per row; repeated columns may add at most {@value #ITEMS_PER_BYTE} list items
- * per decompressed byte plus {@value #EXTRA_ITEMS}, because levels can claim items in no bytes.
- * Each page is then decompressed and checked when parquet asks for it.
+ * One row group, read whole and checked before parquet assembles a record from it. Its column
+ * chunks must lie between the leading magic and the footer and fit the budget as stored, and it may
+ * claim at most {@value #ROWS_PER_BYTE} rows per stored byte plus {@value #EXTRA_ROWS}. Every page
+ * header is then read, and what the row group holds while it is decoded is estimated and must fit
+ * the budget too: the stored chunks, every page decompressed, {@value #PAGE_BYTES} bytes per page
+ * plus its parsed header, parquet's delta decoders (8 bytes per value of a chunk's largest delta
+ * page, 16 for DELTA_BYTE_ARRAY, plus a block) and decoded dictionaries ({@value #ENTRY_BYTES}
+ * bytes per binary entry). A column that does not repeat has exactly one value per row; repeated
+ * columns may add at most {@value #ITEMS_PER_BYTE} list items per decompressed byte plus {@value
+ * #EXTRA_ITEMS}, because levels can claim items in no bytes. Each page is decompressed and checked
+ * when parquet asks for it.
  */
 final class RowGroupPages implements PageReadStore {
 
   static final long ITEMS_PER_BYTE = 32;
   static final long EXTRA_ITEMS = 1_000_000;
+  static final long ROWS_PER_BYTE = 1024;
+  static final long EXTRA_ROWS = 1_000_000;
+  private static final long PAGE_BYTES = 48;
+  private static final long ENTRY_BYTES = 48;
 
   private static final ParquetMetadataConverter CONVERTER = new ParquetMetadataConverter();
 
@@ -69,18 +78,7 @@ final class RowGroupPages implements PageReadStore {
     this.chunks = chunks;
   }
 
-  /** A row group over {@code maxDocumentBytes}; nothing of it is decompressed. */
-  static final class TooLargeException extends IOException {
-    final long size;
-
-    TooLargeException(long size) {
-      super("parquet row group of " + size + " bytes is over maxDocumentBytes");
-      this.size = size;
-    }
-  }
-
-  static RowGroupPages read(
-      RandomAccessInput in, ParquetFooter footer, RowGroup group, DecodeLimits limits)
+  static RowGroupPages read(RandomAccessInput in, ParquetFooter footer, RowGroup group, long budget)
       throws IOException {
     List<ColumnDescriptor> columns = footer.schema().getColumns();
     Map<List<String>, ColumnDescriptor> byPath = new HashMap<>();
@@ -96,7 +94,6 @@ final class RowGroupPages implements PageReadStore {
               + columns.size()
               + " columns");
     }
-    long limit = limits.maxDocumentBytes();
     long stored = 0;
     Map<List<String>, ColumnMetaData> metadata = new HashMap<>();
     for (ColumnChunk chunk : chunkList) {
@@ -128,15 +125,28 @@ final class RowGroupPages implements PageReadStore {
       }
       stored += size;
     }
-    if ((limit > 0 && stored > limit) || stored > Integer.MAX_VALUE - 8) {
-      throw new TooLargeException(stored);
+    if (stored > budget || stored > Integer.MAX_VALUE - 8) {
+      throw new TooLargeException("row group", stored, budget);
     }
     long rows = group.getNum_rows();
+    if (rows > ROWS_PER_BYTE * stored + EXTRA_ROWS) {
+      throw new MalformedParquetException(
+          "parquet row group claims "
+              + rows
+              + " rows in "
+              + stored
+              + " bytes, more than "
+              + ROWS_PER_BYTE
+              + " per byte plus "
+              + EXTRA_ROWS);
+    }
+    List<Map.Entry<List<String>, ColumnMetaData>> ordered = new ArrayList<>(metadata.entrySet());
+    ordered.sort(Comparator.comparingLong(entry -> start(entry.getValue())));
     Map<List<String>, ChunkPages> chunks = new HashMap<>();
     long decompressed = 0;
-    long decoded = 0;
+    long heap = stored;
     long items = 0;
-    for (Map.Entry<List<String>, ColumnMetaData> entry : metadata.entrySet()) {
+    for (Map.Entry<List<String>, ColumnMetaData> entry : ordered) {
       ColumnMetaData meta = entry.getValue();
       ColumnDescriptor column = byPath.get(entry.getKey());
       byte[] bytes = ParquetFooter.bytes(in, start(meta), (int) meta.getTotal_compressed_size());
@@ -153,11 +163,11 @@ final class RowGroupPages implements PageReadStore {
       }
       items += pages.values - rows;
       decompressed += pages.decompressed;
-      decoded += pages.deltaPeak;
+      heap += pages.heap;
       chunks.put(entry.getKey(), pages);
     }
-    if (limit > 0 && decompressed + decoded > limit) {
-      throw new TooLargeException(decompressed + decoded);
+    if (heap > budget) {
+      throw new TooLargeException("row group", heap, budget);
     }
     if (items > ITEMS_PER_BYTE * decompressed + EXTRA_ITEMS) {
       throw new MalformedParquetException(
@@ -208,7 +218,7 @@ final class RowGroupPages implements PageReadStore {
     private final Deque<Page> data;
     private long decompressed;
     private long values;
-    private long deltaPeak;
+    private long heap;
 
     private ChunkPages(
         ColumnDescriptor column,
@@ -233,6 +243,7 @@ final class RowGroupPages implements PageReadStore {
       long decompressed = 0;
       long values = 0;
       long deltaPeak = 0;
+      long heap = 0;
       int pos = 0;
       while (values < meta.getNum_values()) {
         if (pos >= chunk.length) {
@@ -243,9 +254,10 @@ final class RowGroupPages implements PageReadStore {
                   + meta.getNum_values()
                   + " values");
         }
-        BoundedThrift.Header read = BoundedThrift.pageHeader(chunk, pos, chunk.length);
-        PageHeader header = read.header();
+        BoundedThrift.Parsed<PageHeader> read = BoundedThrift.pageHeader(chunk, pos, chunk.length);
+        PageHeader header = read.value();
         pos += read.length();
+        heap += read.heap() + PAGE_BYTES;
         int compressed = header.getCompressed_page_size();
         int uncompressed = header.getUncompressed_page_size();
         if (compressed < 0 || compressed > chunk.length - pos || uncompressed < 0) {
@@ -260,6 +272,7 @@ final class RowGroupPages implements PageReadStore {
               throw new MalformedParquetException(
                   "parquet dictionary page is invalid or misplaced");
             }
+            heap += dict.getNum_values() * entryBytes(column.getPrimitiveType());
             dictionary = page;
           }
           case DATA_PAGE -> {
@@ -300,18 +313,29 @@ final class RowGroupPages implements PageReadStore {
       ChunkPages pages = new ChunkPages(column, meta, chunk, dictionary, data);
       pages.decompressed = decompressed;
       pages.values = values;
-      pages.deltaPeak = deltaPeak;
+      pages.heap = decompressed + heap + deltaPeak;
       return pages;
     }
 
-    /** What parquet's delta decoder holds for a page: every value, decoded up front. */
+    /** A decoded dictionary entry: a primitive in an array, or a Binary object. */
+    private static long entryBytes(PrimitiveType type) {
+      return switch (type.getPrimitiveTypeName()) {
+        case BOOLEAN -> 1;
+        case INT32, FLOAT -> 4;
+        case INT64, DOUBLE -> 8;
+        case INT96, BINARY, FIXED_LEN_BYTE_ARRAY -> ENTRY_BYTES;
+      };
+    }
+
+    /** What parquet's delta decoder holds for a page: every value of whole blocks, up front. */
     private static long deltaBytes(org.apache.parquet.format.Encoding encoding, int values) {
       if (encoding == null) {
         return 0;
       }
       return switch (encoding) {
-        case DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY -> 8L * values;
-        case DELTA_BYTE_ARRAY -> 16L * values;
+        case DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY ->
+            8L * (values + PageChecks.MAX_DELTA_BLOCK);
+        case DELTA_BYTE_ARRAY -> 16L * (values + PageChecks.MAX_DELTA_BLOCK);
         default -> 0;
       };
     }
@@ -344,7 +368,7 @@ final class RowGroupPages implements PageReadStore {
         return null;
       }
       try {
-        return page.header().isSetData_page_header() ? v1(page) : v2(page);
+        return page.header().getType() == PageType.DATA_PAGE ? v1(page) : v2(page);
       } catch (IOException e) {
         throw new PageException(e);
       }

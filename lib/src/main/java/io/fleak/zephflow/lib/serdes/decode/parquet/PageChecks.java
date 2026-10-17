@@ -23,19 +23,19 @@ import org.apache.parquet.schema.PrimitiveType;
 
 /**
  * Checks a decompressed page before parquet's decoders read it, because they allocate from counts
- * and run headers inside the page: a bit-packed run may claim no more values than the page has; a
+ * and run headers inside the page: a bit-packed run may hold at most {@value #MAX_GROUPS} groups of
+ * eight, within the page's bytes (writers use at most 64; the decoder allocates the whole run); a
  * delta header no more than the page's values and {@value #DELTA_VALUES_PER_BYTE} per byte of the
  * page plus {@value #EXTRA_DELTA_VALUES}, in blocks of at most {@value #MAX_DELTA_BLOCK}; and a
  * DELTA_BYTE_ARRAY prefix no longer than the value before it.
  */
 final class PageChecks {
 
-  private static final int MAX_DELTA_BLOCK = 1 << 16;
+  static final int MAX_DELTA_BLOCK = 2048;
   private static final long DELTA_VALUES_PER_BYTE = 32;
   private static final long EXTRA_DELTA_VALUES = 65_536;
 
-  /** Bit-packed groups of width 0 take no bytes; writers end a run with at most one. */
-  private static final int MAX_EMPTY_GROUPS = 1024;
+  private static final long MAX_GROUPS = 1024;
 
   private PageChecks() {}
 
@@ -67,9 +67,7 @@ final class PageChecks {
       long count = header >>> 1;
       if ((header & 1) == 1) {
         long bytes = count * width;
-        if (count * 8 > values - seen + 7
-            || bytes > end - pos
-            || (width == 0 && count > MAX_EMPTY_GROUPS)) {
+        if (count > MAX_GROUPS || bytes > end - pos) {
           throw new MalformedParquetException(
               "parquet bit-packed run of " + count * 8 + " values does not fit the page");
         }
@@ -77,7 +75,7 @@ final class PageChecks {
         seen += count * 8;
       } else {
         int bytes = (width + 7) / 8;
-        if (count > values - seen || bytes > end - pos) {
+        if (bytes > end - pos) {
           throw new MalformedParquetException(
               "parquet repeated run of " + count + " values does not fit the page");
         }
