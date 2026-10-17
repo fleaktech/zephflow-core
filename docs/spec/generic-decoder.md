@@ -224,8 +224,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 
 ## 8. PR1 implementation notes
 
-Decisions made while implementing PR1 that refine the design above. The review log refers to them by
-number.
+Decisions made while implementing PR1 that refine the design above.
 
 | # | Note |
 |---|---|
