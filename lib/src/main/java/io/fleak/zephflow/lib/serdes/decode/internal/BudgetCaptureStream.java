@@ -47,8 +47,8 @@ public final class BudgetCaptureStream extends InputStream {
     }
   }
 
-  public long recordStart() {
-    return retainedStart;
+  public long position() {
+    return position;
   }
 
   /** Bytes in [from, to); empty when outside what is retained. */
@@ -75,7 +75,7 @@ public final class BudgetCaptureStream extends InputStream {
     retained.append(b, off, n);
     position += n;
     long size = position - retainedStart;
-    if (maxRecordBytes > 0 && size > maxRecordBytes + READ_AHEAD_SLACK) {
+    if (maxRecordBytes > 0 && size - READ_AHEAD_SLACK > maxRecordBytes) {
       int keep = Math.min(retained.size(), Previews.PREVIEW_BYTES);
       flags.markBudget(new DecodeFlags.BudgetExceeded(retainedStart, size, retained.copy(0, keep)));
       retained.clear();

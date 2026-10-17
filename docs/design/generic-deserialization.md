@@ -190,7 +190,7 @@ public record DecodeResult(List<RecordFleakData> records, List<DecodeOutcome> pr
   - 例子：CSV 里有一个引号没闭合，后面整个文件都会被当成同一个字段。超过上限时它会停下，不会把内存撑爆。
 - **解析库自带的上限**一律放开，统一交给预算层判断，免得被误报成"格式不对"：
   - Jackson 的字符串长度、名字长度，以及 SnakeYAML 的 `codePointLimit`，都设成最大值；
-  - Jackson 的 `maxDocumentLength` 只在 json `object` 模式下设置，设成 `maxDocumentBytes`；
+  - Jackson 的 `maxDocumentLength` 不设：整个读进来的格式由 `WholeInputReader` 精确地按 `maxDocumentBytes` 限制（PR1 实现时改的）；
   - Woodstox 的属性长度设成最大值。
   - 嵌套深度（1000 层）和数字长度（1000 位）保持默认，超了报 `MALFORMED`。
 - **必须整个拿进来的格式**（json `object`、xml `document`、yaml `document`、text `whole`、protobuf `single`、avro `datum`）只看 `maxDocumentBytes`，超了报 `Oversized(terminal=true)`。
@@ -282,7 +282,7 @@ public record DecodeResult(List<RecordFleakData> records, List<DecodeOutcome> pr
   2. 尾部跟着的字节如果不是压缩数据，报 `CORRUPT_COMPRESSION`；
   3. **出错位置之前已经解压出来的数据，一个字节都不能丢**，前面的记录照常交出去。
 - **各算法的做法：**
-  - **gzip**：一段一段地读。用 commons-compress 读完一段，自己检查后面是不是下一段 gzip 的开头，再决定往下读还是报错。gzip 头也自己解析，并且给头的长度设上限（64 KiB），防止坏掉的文件名字段把内存撑爆。
+  - **gzip**：完全自己实现（PR1）。用 JDK 的 `Inflater(nowrap)` 写解压循环，自己解析头和尾（CRC32、ISIZE），一段一段读：每读完一段，看后面的字节是不是下一段的开头，再决定接着读还是报错。头的长度上限 1 MiB，防止坏掉的头一直读不完。碰到坏数据时，用 `Inflater.getBytesWritten()` 把那一次调用里已经解压出来的字节先交出去，下一次读取时再报错，所以损坏点之前的数据一个都不丢。
     - 不开 commons-compress 的"多段拼接"模式：那个模式遇到尾部垃圾时，会把同一次读出的好数据一起扔掉。
     - 也不用 JDK 的 `GZIPInputStream`：它读下一段的头时遇到 IOException 会直接吞掉，当成"读完了"。
   - **bzip2、xz、lz4**：打开 commons-compress 的多段模式。算法报告读完以后，再检查后面还有没有剩余字节。
@@ -298,7 +298,7 @@ public record DecodeResult(List<RecordFleakData> records, List<DecodeOutcome> pr
 
 | type | 参数 | 整个拿进来？ | 需求 |
 |------|------|------|------|
-| `json` | `mode`：`object`（整个输入是一个对象）、`array`（顶层是数组，一个元素一条）、`lines`（一行一个对象，空行跳过） | object 是 | R8 |
+| `json` | `mode`：`object`（整个输入是一个对象）、`array`（顶层是数组，一个元素一条）、`lines`（一行一个对象，空行跳过）。如果是 UTF-16 或 UTF-32 的 JSON（按 RFC 4627 §3，用前 4 个字节判断），先转码成 UTF-8；`span` 和 `raw` 都指转码后的字节（PR1） | object 是 | R8 |
 | `csv` | `delimiter`（默认 `,`）、`quote`（默认 `"`，设成 null 表示不用引号）、`escape`、`header`（`first_line`；`none`，此时列名是 `_c0`、`_c1`……；或者直接给一组列名）、`skipLines`、`commentMarker`、`ignoreSurroundingSpaces`（默认 false，和 RFC 4180 一致）、`charset`（非 UTF-8 会先转码）。开头的 BOM 总是去掉 | 否 | R8 |
 | `xml` | `mode`：`document`（整个算一条），或者 `elements` 加 `recordPath`（比如 `/Events/Event`，用 StAX 一段一段切，按元素的本地名匹配，忽略命名空间） | document 是 | R8 |
 | `yaml` | `mode`：`document`，或者 `multi_document`（按 `---` 分开，一个文档一条） | document 是 | R8 |

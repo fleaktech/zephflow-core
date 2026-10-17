@@ -28,22 +28,24 @@ import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import java.io.IOException;
 import java.io.InputStream;
 
-/**
- * Streams the elements of a top-level array. JSON is required to be UTF-8 (RFC 8259); other
- * encodings are rejected because the per-element budget needs byte offsets.
- */
+/** Streams the elements of a top-level array, one element in memory at a time. */
 public final class JsonArrayFormat implements FormatCursor {
 
   private static final byte[] EMPTY = new byte[0];
 
-  private final BudgetCaptureStream budget;
+  private final InputStream in;
+  private final DecodeLimits limits;
+  private final DecodeFlags flags;
+  private BudgetCaptureStream budget;
   private JsonParser parser;
   private long index;
   private long pendingOffset;
   private boolean done;
 
   public JsonArrayFormat(InputStream in, DecodeLimits limits, DecodeFlags flags) {
-    this.budget = new BudgetCaptureStream(in, limits.maxRecordBytes(), flags);
+    this.in = in;
+    this.limits = limits;
+    this.flags = flags;
   }
 
   @Override
@@ -52,17 +54,18 @@ public final class JsonArrayFormat implements FormatCursor {
       return null;
     }
     if (parser == null) {
+      budget = new BudgetCaptureStream(JsonEncoding.toUtf8(in), limits.maxRecordBytes(), flags);
       parser = JsonDecoding.FACTORY.createParser(budget);
       JsonToken first = parser.nextToken();
       if (first == null) {
-        done = true;
-        return null;
+        if (budget.position() == 0) {
+          done = true;
+          return null;
+        }
+        return terminal("no JSON array in the input");
       }
       if (first != JsonToken.START_ARRAY) {
         return terminal("expected a JSON array but found " + first);
-      }
-      if (JsonDecoding.byteOffset(parser.currentTokenLocation()) < 0) {
-        return terminal("JSON input must be UTF-8 encoded");
       }
       pendingOffset = JsonDecoding.byteOffset(parser.currentLocation());
     }
@@ -123,7 +126,11 @@ public final class JsonArrayFormat implements FormatCursor {
       if (parser != null) {
         parser.close();
       }
-      budget.close();
+      if (budget != null) {
+        budget.close();
+      } else {
+        in.close();
+      }
     } catch (IOException ignored) {
       // Nothing left to read.
     }

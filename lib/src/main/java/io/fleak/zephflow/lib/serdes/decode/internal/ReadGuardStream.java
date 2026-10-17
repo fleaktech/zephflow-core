@@ -21,6 +21,8 @@ import java.io.InputStream;
 /** Any failure of the caller's stream is a read failure, whatever its type. */
 public final class ReadGuardStream extends FilterInputStream {
 
+  private static final int MAX_EMPTY_READS = 1000;
+
   private final DecodeFlags flags;
 
   public ReadGuardStream(InputStream in, DecodeFlags flags) {
@@ -42,7 +44,15 @@ public final class ReadGuardStream extends FilterInputStream {
   public int read(byte[] b, int off, int len) throws IOException {
     failIfAlreadyFailed();
     try {
-      return in.read(b, off, len);
+      // A read that returns 0 breaks the InputStream contract; retry instead of letting a
+      // reader mistake it for the end of the input.
+      for (int attempt = 0; attempt < MAX_EMPTY_READS; attempt++) {
+        int n = in.read(b, off, len);
+        if (n != 0 || len == 0) {
+          return n;
+        }
+      }
+      throw new IOException("the input returned no bytes " + MAX_EMPTY_READS + " times in a row");
     } catch (IOException | RuntimeException e) {
       throw fail(e);
     }

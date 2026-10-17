@@ -49,6 +49,9 @@ public final class GuardedCursor implements RecordCursor {
   @Override
   public DecodeOutcome next() throws SourceReadException {
     if (done) {
+      if (flags.getReadFailure() != null) {
+        throw new SourceReadException("reading the input failed", flags.getReadFailure());
+      }
       return null;
     }
     try {

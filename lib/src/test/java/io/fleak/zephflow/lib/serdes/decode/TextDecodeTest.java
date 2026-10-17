@@ -67,7 +67,7 @@ class TextDecodeTest {
     assertEquals(
         List.of(
             new Ok(raw("abc"), 1, new RawSpan(0, 3)),
-            new Big(2, new RawSpan(4, 4), 4, 4, false),
+            new Big(2, new RawSpan(4, 4), 4, "abcd", false),
             new Ok(raw("e"), 3, new RawSpan(9, 1))),
         decode(decoder(LINE), ByteInput.ofBytes(utf8("abc\nabcd\ne")), limits));
   }
@@ -77,8 +77,16 @@ class TextDecodeTest {
     byte[] input = concat(new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}, utf8("x\ny\n"));
     assertEquals(List.of(new Ok(raw("x\ny\n"), 1, new RawSpan(0, 7))), decode(WHOLE, input));
     assertEquals(List.of(), decode(WHOLE, new byte[0]));
+  }
+
+  @Test
+  void wholeInputLimitIsExact() {
+    byte[] input = utf8("x\ny\n");
     assertEquals(
-        List.of(new Big(-1, RawSpan.toEnd(0), 7, 7, true)),
-        decode(decoder(WHOLE), ByteInput.ofBytes(input), new DecodeLimits(0, 6)));
+        List.of(new Ok(raw("x\ny\n"), 1, new RawSpan(0, 4))),
+        decode(decoder(WHOLE), ByteInput.ofBytes(input), new DecodeLimits(0, 4)));
+    assertEquals(
+        List.of(new Big(-1, RawSpan.toEnd(0), 4, "x\ny\n", true)),
+        decode(decoder(WHOLE), ByteInput.ofBytes(input), new DecodeLimits(0, 3)));
   }
 }

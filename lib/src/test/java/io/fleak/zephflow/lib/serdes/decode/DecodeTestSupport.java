@@ -41,7 +41,7 @@ final class DecodeTestSupport {
   record Bad(
       ErrorKind kind, String raw, long recordIndex, RawSpan span, String error, boolean terminal) {}
 
-  record Big(long recordIndex, RawSpan span, long sizeSoFar, int previewLength, boolean terminal) {}
+  record Big(long recordIndex, RawSpan span, long sizeSoFar, String preview, boolean terminal) {}
 
   record Threw(String type) {}
 
@@ -84,11 +84,22 @@ final class DecodeTestSupport {
               new String(f.raw(), StandardCharsets.UTF_8),
               f.recordIndex(),
               f.span(),
-              f.error().getClass().getSimpleName(),
+              error(f.error()),
               f.terminal());
       case DecodeOutcome.Oversized o ->
-          new Big(o.recordIndex(), o.span(), o.sizeSoFar(), o.preview().length, o.terminal());
+          new Big(
+              o.recordIndex(),
+              o.span(),
+              o.sizeSoFar(),
+              new String(o.preview(), StandardCharsets.UTF_8),
+              o.terminal());
     };
+  }
+
+  /** Class name and the first line of the message; later lines are parser location details. */
+  static String error(Exception e) {
+    String message = e.getMessage() == null ? "" : e.getMessage().lines().findFirst().orElse("");
+    return e.getClass().getSimpleName() + ": " + message;
   }
 
   static RecordFleakData json(String json) {

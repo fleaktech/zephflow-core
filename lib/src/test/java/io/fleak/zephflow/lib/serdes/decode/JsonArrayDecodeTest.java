@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.serdes.decode;
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -31,15 +32,34 @@ class JsonArrayDecodeTest {
         List.of(
             new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)),
             new Bad(
-                ErrorKind.MALFORMED, "7", 2, new RawSpan(10, 1), "IllegalArgumentException", false),
+                ErrorKind.MALFORMED,
+                "7",
+                2,
+                new RawSpan(10, 1),
+                "IllegalArgumentException: expected a JSON object but found NUMBER",
+                false),
             new Ok(json("{\"b\":[1,2]}"), 3, new RawSpan(13, 11))),
         decode(ARRAY, utf8(input)));
   }
 
   @Test
-  void emptyInputAndEmptyArray() {
+  void emptyInputAndEmptyArrayHaveNoOutcomes() {
     assertEquals(List.of(), decode(ARRAY, new byte[0]));
     assertEquals(List.of(), decode(ARRAY, utf8(" [ ] ")));
+  }
+
+  @Test
+  void whitespaceOnlyInputIsMalformed() {
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                1,
+                RawSpan.toEnd(0),
+                "IllegalArgumentException: no JSON array in the input",
+                true)),
+        decode(ARRAY, utf8(" \n")));
   }
 
   @Test
@@ -47,18 +67,29 @@ class JsonArrayDecodeTest {
     assertEquals(
         List.of(
             new Bad(
-                ErrorKind.MALFORMED, "", 1, RawSpan.toEnd(0), "IllegalArgumentException", true)),
+                ErrorKind.MALFORMED,
+                "",
+                1,
+                RawSpan.toEnd(0),
+                "IllegalArgumentException: expected a JSON array but found START_OBJECT",
+                true)),
         decode(ARRAY, utf8("{\"records\":[]}")));
   }
 
   @Test
   void syntaxErrorEndsTheCursorAfterEarlierElements() {
-    String input = "[{\"a\":1},{\"b\":]";
     assertEquals(
         List.of(
             new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)),
-            new Bad(ErrorKind.MALFORMED, "", 2, RawSpan.toEnd(9), "JsonParseException", true)),
-        decode(ARRAY, utf8(input)));
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                2,
+                RawSpan.toEnd(9),
+                "JsonParseException: Unexpected character (']' (code 93)): expected a valid value"
+                    + " (JSON String, Number, Array, Object or token 'null', 'true' or 'false')",
+                true)),
+        decode(ARRAY, utf8("[{\"a\":1},{\"b\":]")));
   }
 
   @Test
@@ -66,23 +97,39 @@ class JsonArrayDecodeTest {
     assertEquals(
         List.of(
             new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)),
-            new Bad(ErrorKind.MALFORMED, "", 2, RawSpan.toEnd(8), "JsonEOFException", true)),
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                2,
+                RawSpan.toEnd(8),
+                "JsonEOFException: Unexpected end-of-input: expected close marker for Array (start"
+                    + " marker at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION`"
+                    + " disabled); line: 1, column: 1])",
+                true)),
         decode(ARRAY, utf8("[{\"a\":1}")));
     assertEquals(
         List.of(
             new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)),
             new Bad(
-                ErrorKind.MALFORMED, "", 2, RawSpan.toEnd(8), "IllegalArgumentException", true)),
+                ErrorKind.MALFORMED,
+                "",
+                2,
+                RawSpan.toEnd(8),
+                "IllegalArgumentException: unexpected content after the JSON array",
+                true)),
         decode(ARRAY, utf8("[{\"a\":1}] {}")));
   }
 
   @Test
-  void nonUtf8JsonIsRejected() {
-    assertEquals(
+  void utf16AndUtf32InputAreTranscoded() {
+    List<Object> expected =
         List.of(
-            new Bad(
-                ErrorKind.MALFORMED, "", 1, RawSpan.toEnd(0), "IllegalArgumentException", true)),
-        decode(ARRAY, "[{\"a\":1}]".getBytes(StandardCharsets.UTF_16LE)));
+            new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)),
+            new Ok(json("{\"b\":\"é\"}"), 2, new RawSpan(9, 10)));
+    String input = "[{\"a\":1},{\"b\":\"é\"}]";
+    assertEquals(expected, decode(ARRAY, input.getBytes(StandardCharsets.UTF_16LE)));
+    assertEquals(expected, decode(ARRAY, input.getBytes(StandardCharsets.UTF_16BE)));
+    assertEquals(expected, decode(ARRAY, input.getBytes(Charset.forName("UTF-32LE"))));
   }
 
   @Test
@@ -96,11 +143,23 @@ class JsonArrayDecodeTest {
     assertEquals(2, outcomes.size());
     assertEquals(new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)), outcomes.get(0));
     Big oversized = (Big) outcomes.get(1);
-    assertEquals(new Big(2, RawSpan.toEnd(9), oversized.sizeSoFar(), 4096, true), oversized);
+    assertEquals(
+        new Big(2, RawSpan.toEnd(9), oversized.sizeSoFar(), big.substring(0, 4096), true),
+        oversized);
   }
 
   @Test
-  void readFailureIsNotReportedAsMalformedEvenWhenJacksonWrapsIt() {
+  void hugeLimitsDoNotOverflow() {
+    assertEquals(
+        List.of(new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7))),
+        decode(
+            decoder(ARRAY),
+            ByteInput.ofBytes(utf8("[{\"a\":1}]")),
+            new DecodeLimits(Long.MAX_VALUE, Long.MAX_VALUE)));
+  }
+
+  @Test
+  void readFailureMidArrayKeepsEarlierElements() {
     byte[] input = utf8("[{\"a\":1},{\"b\":2},{\"c\":3}]");
     assertEquals(
         List.of(new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)), new Threw("SourceReadException")),

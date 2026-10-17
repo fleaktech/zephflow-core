@@ -31,14 +31,20 @@ import java.io.InputStream;
 
 public final class JsonLinesFormat implements FormatCursor {
 
-  private final LineFramer framer;
+  private final InputStream in;
+  private final long maxRecordBytes;
+  private LineFramer framer;
 
   public JsonLinesFormat(InputStream in, DecodeLimits limits, DecodeFlags flags) {
-    this.framer = new LineFramer(in, limits.maxRecordBytes());
+    this.in = in;
+    this.maxRecordBytes = limits.maxRecordBytes();
   }
 
   @Override
   public DecodeOutcome next() throws IOException {
+    if (framer == null) {
+      framer = new LineFramer(JsonEncoding.toUtf8(in), maxRecordBytes);
+    }
     while (true) {
       LineFramer.Frame frame = framer.next();
       switch (frame) {
@@ -70,16 +76,24 @@ public final class JsonLinesFormat implements FormatCursor {
 
   @Override
   public long pendingRecordIndex() {
-    return framer.pendingLineNumber();
+    return framer == null ? 1 : framer.pendingLineNumber();
   }
 
   @Override
   public long pendingOffset() {
-    return framer.pendingOffset();
+    return framer == null ? 0 : framer.pendingOffset();
   }
 
   @Override
   public void close() {
-    framer.close();
+    if (framer != null) {
+      framer.close();
+    } else {
+      try {
+        in.close();
+      } catch (IOException ignored) {
+        // Nothing was read.
+      }
+    }
   }
 }

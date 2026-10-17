@@ -28,7 +28,7 @@ import java.util.zip.Inflater;
  */
 final class GzipMemberStream extends InputStream {
 
-  static final int MAX_HEADER_BYTES = 64 * 1024;
+  static final int MAX_HEADER_BYTES = 1024 * 1024;
 
   private static final int ID1 = 0x1f;
   private static final int ID2 = 0x8b;
@@ -106,11 +106,20 @@ final class GzipMemberStream extends InputStream {
         inflater.setInput(buf, pos, limit - pos);
         pos = limit;
       }
+      long writtenBefore = inflater.getBytesWritten();
       int n;
       try {
         n = inflater.inflate(b, off, len);
       } catch (DataFormatException e) {
-        throw corrupt("gzip data is corrupt: " + e.getMessage(), e);
+        // The inflater still counts what it wrote before hitting the damage; hand those bytes on
+        // and fail on the next read, so nothing decoded before the damaged spot is lost.
+        int written = (int) (inflater.getBytesWritten() - writtenBefore);
+        CorruptCompressionException failure = corrupt("gzip data is corrupt: " + e.getMessage(), e);
+        if (written > 0) {
+          crc.update(b, off, written);
+          return written;
+        }
+        throw failure;
       }
       if (n > 0) {
         // Hand the bytes on before reading the trailer, so a bad trailer cannot take them along.
@@ -121,9 +130,6 @@ final class GzipMemberStream extends InputStream {
       if (inflater.finished()) {
         finishMember();
         return 0;
-      }
-      if (inflater.needsDictionary()) {
-        throw corrupt("gzip data asks for a preset dictionary");
       }
       if (!inflater.needsInput()) {
         throw corrupt("gzip inflater made no progress");

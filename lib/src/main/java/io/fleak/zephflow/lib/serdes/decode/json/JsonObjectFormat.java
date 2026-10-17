@@ -43,7 +43,7 @@ public final class JsonObjectFormat implements FormatCursor {
       return null;
     }
     done = true;
-    return switch (WholeInputReader.read(in, maxDocumentBytes)) {
+    return switch (WholeInputReader.read(JsonEncoding.toUtf8(in), maxDocumentBytes)) {
       case WholeInputReader.TooLarge tooLarge ->
           new Oversized(-1, RawSpan.toEnd(0), tooLarge.sizeSoFar(), tooLarge.preview(), true);
       case WholeInputReader.Whole whole -> parse(whole.bytes());

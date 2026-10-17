@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.serdes.decode;
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -31,11 +32,23 @@ class JsonObjectDecodeTest {
   }
 
   @Test
+  void utf16ObjectIsTranscoded() {
+    assertEquals(
+        List.of(new Ok(json("{\"a\":\"é\"}"), 1, new RawSpan(0, 10))),
+        decode(OBJECT, "{\"a\":\"é\"}".getBytes(StandardCharsets.UTF_16BE)));
+  }
+
+  @Test
   void malformedDocumentsKeepTheWholeRaw() {
     assertEquals(
         List.of(
             new Bad(
-                ErrorKind.MALFORMED, "{\"a\":", -1, new RawSpan(0, 5), "JsonEOFException", true)),
+                ErrorKind.MALFORMED,
+                "{\"a\":",
+                -1,
+                new RawSpan(0, 5),
+                "JsonEOFException: Unexpected end-of-input within/between Object entries",
+                true)),
         decode(OBJECT, utf8("{\"a\":")));
     assertEquals(
         List.of(
@@ -44,7 +57,7 @@ class JsonObjectDecodeTest {
                 "{\"a\":1}\n{\"b\":2}",
                 -1,
                 new RawSpan(0, 15),
-                "IllegalArgumentException",
+                "IllegalArgumentException: unexpected content after the JSON value",
                 true)),
         decode(OBJECT, utf8("{\"a\":1}\n{\"b\":2}")));
     assertEquals(
@@ -54,7 +67,7 @@ class JsonObjectDecodeTest {
                 "[1]",
                 -1,
                 new RawSpan(0, 3),
-                "IllegalArgumentException",
+                "IllegalArgumentException: expected a JSON object but found ARRAY",
                 true)),
         decode(OBJECT, utf8("[1]")));
     assertEquals(
@@ -64,7 +77,7 @@ class JsonObjectDecodeTest {
                 "  ",
                 -1,
                 new RawSpan(0, 2),
-                "IllegalArgumentException",
+                "IllegalArgumentException: no JSON value",
                 true)),
         decode(OBJECT, utf8("  ")));
   }
@@ -81,7 +94,7 @@ class JsonObjectDecodeTest {
         List.of(new Ok(json(doc), 1, new RawSpan(0, 12))),
         decode(decoder(OBJECT), ByteInput.ofBytes(utf8(doc)), new DecodeLimits(0, 12)));
     assertEquals(
-        List.of(new Big(-1, RawSpan.toEnd(0), 12, 12, true)),
+        List.of(new Big(-1, RawSpan.toEnd(0), 12, doc, true)),
         decode(decoder(OBJECT), ByteInput.ofBytes(utf8(doc)), new DecodeLimits(0, 11)));
   }
 }
