@@ -98,7 +98,7 @@ public final class GuardedCursor implements RecordCursor {
       DecodeFlags.BudgetExceeded exceeded = flags.getBudgetExceeded();
       return new Oversized(
           pendingRecordIndex(),
-          RawSpan.toEnd(exceeded.recordStart()),
+          exceeded.recordStart() < 0 ? null : RawSpan.toEnd(exceeded.recordStart()),
           exceeded.sizeSoFar(),
           exceeded.preview(),
           true);

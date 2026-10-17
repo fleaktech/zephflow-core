@@ -28,18 +28,33 @@ public final class BudgetCaptureStream extends InputStream {
   private final InputStream in;
   private final long maxRecordBytes;
   private final DecodeFlags flags;
+  private final boolean locatable;
   private final ByteBuilder retained = new ByteBuilder();
   private long retainedStart;
   private long position;
 
   public BudgetCaptureStream(InputStream in, long maxRecordBytes, DecodeFlags flags) {
+    this(in, maxRecordBytes, flags, true);
+  }
+
+  /**
+   * @param locatable false when record starts are only known as "the bytes read so far", because
+   *     the parser buffers ahead; the budget then reports neither a start offset nor a preview
+   */
+  public BudgetCaptureStream(
+      InputStream in, long maxRecordBytes, DecodeFlags flags, boolean locatable) {
     this.in = in;
     this.maxRecordBytes = maxRecordBytes;
     this.flags = flags;
+    this.locatable = locatable;
   }
 
   /** Starts counting a new record at {@code offset}; bytes before it are dropped. */
   public void startRecord(long offset) {
+    if (!locatable) {
+      retainedStart = Math.min(offset, position);
+      return;
+    }
     long drop = Math.min(offset, position) - retainedStart;
     if (drop > 0) {
       retained.dropFront((int) drop);
@@ -72,12 +87,16 @@ public final class BudgetCaptureStream extends InputStream {
     if (n <= 0) {
       return n;
     }
-    retained.append(b, off, n);
+    if (locatable) {
+      retained.append(b, off, n);
+    }
     position += n;
     long size = position - retainedStart;
     if (maxRecordBytes > 0 && size - READ_AHEAD_SLACK > maxRecordBytes) {
-      int keep = Math.min(retained.size(), Previews.PREVIEW_BYTES);
-      flags.markBudget(new DecodeFlags.BudgetExceeded(retainedStart, size, retained.copy(0, keep)));
+      int keep = locatable ? Math.min(retained.size(), Previews.PREVIEW_BYTES) : 0;
+      flags.markBudget(
+          new DecodeFlags.BudgetExceeded(
+              locatable ? retainedStart : -1, size, retained.copy(0, keep)));
       retained.clear();
       throw new IOException("record exceeds maxRecordBytes " + maxRecordBytes);
     }

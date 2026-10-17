@@ -21,5 +21,12 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
   @JsonSubTypes.Type(value = CsvFormatConfig.class, name = "csv"),
   @JsonSubTypes.Type(value = JsonFormatConfig.class, name = "json"),
   @JsonSubTypes.Type(value = TextFormatConfig.class, name = "text"),
+  @JsonSubTypes.Type(value = XmlFormatConfig.class, name = "xml"),
+  @JsonSubTypes.Type(value = YamlFormatConfig.class, name = "yaml"),
 })
-public sealed interface FormatConfig permits CsvFormatConfig, JsonFormatConfig, TextFormatConfig {}
+public sealed interface FormatConfig
+    permits CsvFormatConfig,
+        JsonFormatConfig,
+        TextFormatConfig,
+        XmlFormatConfig,
+        YamlFormatConfig {}
