@@ -58,3 +58,16 @@ Verdicts: A = CHANGES (medium/low only), B = CHANGES (1 blocker). All round-2 ac
 | A3 | low | accepted: char literals written as escapes | Utf8TranscodingStream |
 | A4 | low | accepted: unused DecodeFlags.anySet and Previews.head removed | — |
 | (B probe) | low | deferred: a UTF-32 surrogate pair written as two code points is combined into one character instead of two U+FFFD | — |
+
+## Confirmation round — 03d75ab (diff 719221b...03d75ab)
+Verdict: CLEAN. All five post-cap fixes FIXED (fuzz: 15,200 UTF-16/UTF-32 cases, 0 mismatches; the same fuzz hangs on 719221b).
+Accepted medium/low findings, recorded and not fixed here (carried into PR2):
+- RC-1 medium: JsonArrayDecodeTest gzip-cut test derives its expected count from the output; should use an independent inflater count like GzipDecodeTest.
+- RC-2 low: Utf8TranscodingStream no-progress guard has no test and is not in plan §7.
+- RC-3 low: plan P5 says every bad UTF-32 unit becomes its own U+FFFD, but D800+DC00 written as two code points is combined (deferred item).
+- RC-4 low: UTF-32 with a BOM followed by a real U+FEFF loses that U+FEFF (JDK strips the BOM, then dropLeadingBom drops the next one).
+
+## Result
+Tier M, 3 rounds + confirmation. Round verdicts: R1 A=CHANGES B=CHANGES (a550001); R2 A=CHANGES B=CHANGES (396de28); R3 A=CHANGES (medium/low only) B=CHANGES (719221b); confirmation CLEAN (03d75ab).
+Not converged inside the cap: R3-B1 (blocker) was fixed after the cap under the user's standing instruction to continue without asking, and was reviewed only by the confirmation round.
+Not covered: Testcontainers-based tests could not run locally (Docker Hub credentials rejected); CI runs them.
