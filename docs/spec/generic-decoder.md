@@ -298,7 +298,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 3 | `csv` | Done (#341) |
 | 4 | `xml`, `yaml` | Done (#342) |
 | 5 | Remaining codecs | Done (#343) |
-| 6 | `avro` | In review |
+| 6 | `avro` | Done (#344) |
 | 7 | `protobuf` | Planned |
 | 8 | `parquet`, random-access input | Planned |
 
@@ -330,6 +330,10 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   records have no bytes of their own.
 - Tree formats (json array and object, xml, yaml) hold a record as a tree that can take 10–50 times
   its bytes in memory; only csv caps the number of fields.
+- An avro block may build at most 16 objects per byte (4.2). Records with about 15 or more bare
+  `null` columns per payload byte, or wrapper records nested 8 or more deep around a one-byte value,
+  exceed it and lose their block. In the worst case an avro block holds about 150–250 times
+  `maxDocumentBytes` in memory, about twice what ordinary data of that size can reach.
 - Recursive parsers (Jackson, SnakeYAML) need a normal thread stack (1 MiB or more) to reach their
   nesting limits. On a smaller stack, deep input can overflow it; the cursor then reports a terminal
   `MALFORMED` instead of letting the `StackOverflowError` escape.
