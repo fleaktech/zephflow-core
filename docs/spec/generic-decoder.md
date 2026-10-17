@@ -315,7 +315,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 4 | `xml`, `yaml` | Done (#342) |
 | 5 | Remaining codecs | Done (#343) |
 | 6 | `avro` | Done (#344) |
-| 7 | `protobuf` | In review |
+| 7 | `protobuf` | Done (#345) |
 | 8 | `parquet`, random-access input | Planned |
 
 ## 6. Testing
