@@ -264,13 +264,14 @@ types stay objects; unknown fields are ignored, and so are unknown values of a c
 which protobuf drops; a proto2 message missing a required field is `MALFORMED`, and so is a
 Timestamp or Duration whose milliseconds overflow. Unset fields are filled in with defaults, so
 before a message is parsed its wire format is scanned to count what it would build (each message
-with the fields it always has, every field occurrence, map entries twice), and a message over 4
-per byte plus 100,000 is `MALFORMED`. In `single` framing the whole input is one message, and an empty input is a message
-with every field at its default. In `varint_delimited` framing each message is preceded by its
-length (a 32-bit varint, as `writeDelimitedTo` writes it); a record's `span` and raw bytes are the
-message without its prefix. A message that does not parse is `MALFORMED`, and one over
-`maxRecordBytes` is `Oversized` with a preview; both lose only themselves. A broken prefix or an
-input that ends inside a message is terminal.
+with the fields it always has, every field occurrence, map entries twice, and the defaults of a
+missing map value), and a message over 4 per byte plus 100,000 is `MALFORMED`. In `single` framing
+the whole input is one message, and an empty input is a message with every field at its default. In
+`varint_delimited` framing each message is preceded by its length (a 32-bit varint, as
+`writeDelimitedTo` writes it); a record's `span` and raw bytes are the message without its prefix. A
+message that does not parse is `MALFORMED`, and one over `maxRecordBytes` is `Oversized` with a
+preview; both lose only themselves. A broken prefix or an input that ends inside a message is
+terminal.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -348,8 +349,8 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 - A protobuf message may build at most 4 values per byte plus 100,000. Repeated submessages that
   set only one or two of many proto3 fields without presence exceed it and are `MALFORMED`; fields
   with presence cost nothing when unset. In the worst case a message holds about 300 times
-  `maxRecordBytes` in memory while it is converted, about twice what ordinary data of that size
-  reaches.
+  `maxRecordBytes` (`maxDocumentBytes` in `single` framing) in memory while it is converted, about
+  twice what ordinary data of that size reaches.
 - An avro block may build at most 16 objects per byte (4.2). Records with about 15 or more bare
   `null` columns per payload byte, or wrapper records nested 8 or more deep around a one-byte value,
   exceed it and lose their block. In the worst case an avro block holds about 150–250 times

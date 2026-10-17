@@ -24,9 +24,9 @@ import java.util.Map;
 /**
  * Counts what a message would build before protobuf parses it: every message instance costs itself
  * plus the fields that appear even when unset (repeated, map and scalars without presence), every
- * field occurrence one more (unknown ones too, which protobuf keeps), a map entry two, and a packed
- * field at most one per byte. Parsing alone builds a tree of the same shape, so the check has to
- * come first.
+ * field occurrence one more (unknown ones too, which protobuf keeps), a map entry two (and its
+ * value's defaults when the value is missing), and a packed field at most one per byte. Parsing
+ * alone builds a tree of the same shape, so the check has to come first.
  */
 final class ObjectBudget {
 
@@ -47,17 +47,19 @@ final class ObjectBudget {
         .message(type, CodedInputStream.newInstance(bytes), 0, false);
   }
 
-  private void message(Descriptor type, CodedInputStream in, int depth, boolean group)
+  /** Returns whether field 2 occurred, which for a map entry is its value. */
+  private boolean message(Descriptor type, CodedInputStream in, int depth, boolean group)
       throws IOException {
     if (depth > MAX_DEPTH) {
       throw new MalformedProtobufException("message nests deeper than " + MAX_DEPTH + " levels");
     }
-    charge(1 + alwaysBuilt.computeIfAbsent(type, ObjectBudget::fieldsWithoutPresence));
+    charge(1 + alwaysBuilt(type));
+    boolean secondField = false;
     while (true) {
       int tag = in.readTag();
       int wireType = WireFormat.getTagWireType(tag);
       if (tag == 0 || (group && wireType == WireFormat.WIRETYPE_END_GROUP)) {
-        return;
+        return secondField;
       }
       FieldDescriptor field = type.findFieldByNumber(WireFormat.getTagFieldNumber(tag));
       FieldDescriptor.Type fieldType = field == null ? null : field.getType();
@@ -65,12 +67,17 @@ final class ObjectBudget {
           && wireType == WireFormat.WIRETYPE_LENGTH_DELIMITED) {
         charge(field.isMapField() ? 2 : 1);
         int limit = in.pushLimit(in.readRawVarint32());
-        message(field.getMessageType(), in, depth + 1, false);
+        boolean hasValue = message(field.getMessageType(), in, depth + 1, false);
         in.popLimit(limit);
+        if (field.isMapField() && !hasValue) {
+          defaultValue(field.getMessageType().findFieldByNumber(2));
+        }
+        secondField |= field.getNumber() == 2;
       } else if (fieldType == FieldDescriptor.Type.GROUP
           && wireType == WireFormat.WIRETYPE_START_GROUP) {
         charge(1);
         message(field.getMessageType(), in, depth + 1, true);
+        secondField |= field.getNumber() == 2;
       } else if (field != null
           && field.isPackable()
           && wireType == WireFormat.WIRETYPE_LENGTH_DELIMITED) {
@@ -100,6 +107,17 @@ final class ObjectBudget {
       }
       other(in, inner, depth + 1);
     }
+  }
+
+  /** A map entry without its value still converts to one, a record of defaults for a message. */
+  private void defaultValue(FieldDescriptor value) throws MalformedProtobufException {
+    if (value.getJavaType() == FieldDescriptor.JavaType.MESSAGE) {
+      charge(1 + alwaysBuilt(value.getMessageType()));
+    }
+  }
+
+  private long alwaysBuilt(Descriptor type) {
+    return alwaysBuilt.computeIfAbsent(type, ObjectBudget::fieldsWithoutPresence);
   }
 
   private static long fieldsWithoutPresence(Descriptor type) {

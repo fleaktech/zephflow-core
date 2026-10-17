@@ -122,6 +122,18 @@ class ProtobufDecodeTest {
                           .setLabel(Label.LABEL_REPEATED)))
           .addMessageType(
               DescriptorProto.newBuilder()
+                  .setName("Index")
+                  .addField(
+                      field("byKey", 1, Type.TYPE_MESSAGE, ".test.Index.ByKeyEntry").toBuilder()
+                          .setLabel(Label.LABEL_REPEATED))
+                  .addNestedType(
+                      DescriptorProto.newBuilder()
+                          .setName("ByKeyEntry")
+                          .setOptions(MessageOptions.newBuilder().setMapEntry(true))
+                          .addField(field("key", 1, Type.TYPE_INT32))
+                          .addField(field("value", 2, Type.TYPE_MESSAGE, ".test.Wide"))))
+          .addMessageType(
+              DescriptorProto.newBuilder()
                   .setName("All")
                   .addField(field("i32", 1, Type.TYPE_INT32))
                   .addField(field("i64", 2, Type.TYPE_INT64))
@@ -640,6 +652,38 @@ class ProtobufDecodeTest {
                 "MalformedProtobufException: message would build more than 4 values per byte plus 100000",
                 true)),
         decode(holder, many));
+  }
+
+  @Test
+  void mapEntriesWithoutAValueAreChargedForItsDefaults() {
+    String index = config("test.Index", "single");
+    StringBuilder zeros = new StringBuilder("{");
+    for (int i = 1; i <= 100; i++) {
+      zeros.append(i == 1 ? "" : ",").append("\"f").append(i).append("\":0");
+    }
+    String wide = zeros.append('}').toString();
+    assertEquals(
+        List.of(
+            new Ok(
+                json("{\"byKey\":{\"1\":" + wide + ",\"2\":" + wide + "}}"), 1, new RawSpan(0, 8))),
+        decode(index, new byte[] {0x0A, 2, 8, 1, 0x0A, 2, 8, 2}));
+    byte[] many = new byte[8000];
+    for (int i = 0; i < many.length; i += 4) {
+      many[i] = 0x0A;
+      many[i + 1] = 2;
+      many[i + 2] = 8;
+      many[i + 3] = 1;
+    }
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(many, StandardCharsets.UTF_8),
+                -1,
+                new RawSpan(0, many.length),
+                "MalformedProtobufException: message would build more than 4 values per byte plus 100000",
+                true)),
+        decode(index, many));
   }
 
   @Test
