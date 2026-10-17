@@ -27,10 +27,14 @@ import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.LongFunction;
+import java.util.zip.DeflaterOutputStream;
 import java.util.zip.GZIPOutputStream;
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream;
+import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -207,25 +211,30 @@ class LowMemoryDecodeTest {
 
   @Test
   void otherCodecsDecodeInputsFarLargerThanTheHeap() {
-    long records = TARGET_BYTES / 210;
-    Map<String, Compressor> codecs =
-        Map.of(
-            "zstd", ZstdOutputStreamNoFinalizer::new,
-            "lz4", FramedLZ4CompressorOutputStream::new,
-            "xz", out -> new XZOutputStream(out, new LZMA2Options(1)));
-    for (Map.Entry<String, Compressor> codec : codecs.entrySet()) {
+    record Case(String codec, Compressor compressor, long bytes) {}
+    List<Case> cases =
+        List.of(
+            new Case("zstd", ZstdOutputStreamNoFinalizer::new, TARGET_BYTES),
+            new Case("lz4", FramedLZ4CompressorOutputStream::new, TARGET_BYTES),
+            new Case("snappy", FramedSnappyCompressorOutputStream::new, TARGET_BYTES),
+            new Case("deflate", DeflaterOutputStream::new, TARGET_BYTES),
+            new Case("xz", out -> new XZOutputStream(out, new LZMA2Options(1)), TARGET_BYTES),
+            // bzip2 compresses slowly; 100 MB is still well above the 64 MiB heap.
+            new Case("bzip2", BZip2CompressorOutputStream::new, TARGET_BYTES / 3));
+    for (Case c : cases) {
+      long records = c.bytes() / 210;
       InputStream input =
-          compressed(generated(records, i -> PAD + i + "\n", "", ""), codec.getValue());
+          compressed(generated(records, i -> PAD + i + "\n", "", ""), c.compressor());
       assertEquals(
           Map.of("Decoded", records),
           count(
               decoder(
                   "{\"compression\":\""
-                      + codec.getKey()
+                      + c.codec()
                       + "\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
               input,
               LIMITS),
-          codec.getKey());
+          c.codec());
     }
   }
 

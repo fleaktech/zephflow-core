@@ -15,19 +15,31 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.Zstd;
+import com.github.luben.zstd.ZstdCompressCtx;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.stream.Stream;
+import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
+import java.util.zip.Inflater;
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream;
+import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream.BlockSize;
+import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream.Parameters;
 import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -47,13 +59,23 @@ class CodecDecodeTest {
       String name, Compressor compressor, String garbage, String cutHeader, String notCompressed) {
 
     byte[] compress(String text) {
+      return compressBytes(utf8(text));
+    }
+
+    byte[] compressBytes(byte[] data) {
       ByteArrayOutputStream bytes = new ByteArrayOutputStream();
       try (OutputStream out = compressor.wrap(bytes)) {
-        out.write(utf8(text));
+        out.write(data);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
       return bytes.toByteArray();
+    }
+
+    String config() {
+      return "{\"compression\":\""
+          + name
+          + "\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}";
     }
 
     @Override
@@ -62,51 +84,58 @@ class CodecDecodeTest {
     }
   }
 
+  private static final Codec ZSTD =
+      new Codec(
+          "zstd",
+          OneShotZstd::new,
+          "unexpected bytes after zstd frame 1",
+          "zstd frame 2 is truncated",
+          "input is not in zstd format");
+  private static final Codec SNAPPY =
+      new Codec(
+          "snappy",
+          FramedSnappyCompressorOutputStream::new,
+          "snappy data is corrupt: Unskippable chunk with type 103 (hex 67) detected.",
+          "snappy data is corrupt: Not a framed Snappy stream",
+          "snappy data is corrupt: Not a framed Snappy stream");
+  private static final Codec LZ4 =
+      new Codec(
+          "lz4",
+          FramedLZ4CompressorOutputStream::new,
+          "unexpected bytes after lz4 frame 1",
+          "lz4 frame 2 is truncated",
+          "input is not in lz4 frame format");
+  private static final Codec BZIP2 =
+      new Codec(
+          "bzip2",
+          BZip2CompressorOutputStream::new,
+          "bzip2 data is corrupt: unexpected bytes after bzip2 stream 1",
+          "bzip2 data is corrupt: bzip2 stream 2 is truncated",
+          "bzip2 data is corrupt: input is not in bzip2 format");
+  private static final Codec XZ =
+      new Codec(
+          "xz",
+          out -> new XZOutputStream(out, new LZMA2Options(6)),
+          "xz data is corrupt: Garbage after a valid XZ Stream",
+          "xz data is corrupt: unexpected end of data",
+          "xz data is corrupt: unexpected end of data");
+  private static final Codec DEFLATE =
+      new Codec(
+          "deflate",
+          DeflaterOutputStream::new,
+          "unexpected bytes after zlib stream 1",
+          "zlib stream 2 is truncated",
+          "input is not in zlib format");
+
   static Stream<Codec> codecs() {
-    return Stream.of(
-        new Codec(
-            "zstd",
-            out -> new ZstdBytesOutput(out),
-            "unexpected bytes after zstd frame 1",
-            "zstd frame 2 is truncated",
-            "input is not in zstd format"),
-        new Codec(
-            "snappy",
-            FramedSnappyCompressorOutputStream::new,
-            "snappy data is corrupt: Unskippable chunk with type 103 (hex 67) detected.",
-            "snappy data is corrupt: Not a framed Snappy stream",
-            "snappy data is corrupt: Not a framed Snappy stream"),
-        new Codec(
-            "lz4",
-            FramedLZ4CompressorOutputStream::new,
-            "lz4 data is corrupt: LZ4 frame stream followed by garbage",
-            "lz4 data is corrupt: LZ4 frame stream followed by garbage",
-            "lz4 data is corrupt: Not a LZ4 frame stream"),
-        new Codec(
-            "bzip2",
-            BZip2CompressorOutputStream::new,
-            "bzip2 data is corrupt: unexpected bytes after bzip2 stream 1",
-            "bzip2 data is corrupt: bzip2 stream 2 is truncated",
-            "bzip2 data is corrupt: input is not in bzip2 format"),
-        new Codec(
-            "xz",
-            out -> new XZOutputStream(out, new LZMA2Options(6)),
-            "xz data is corrupt: Garbage after a valid XZ Stream",
-            "xz data is corrupt: unexpected end of data",
-            "xz data is corrupt: unexpected end of data"),
-        new Codec(
-            "deflate",
-            DeflaterOutputStream::new,
-            "unexpected bytes after zlib stream 1",
-            "zlib stream 2 is truncated",
-            "input is not in zlib format"));
+    return Stream.of(ZSTD, SNAPPY, LZ4, BZIP2, XZ, DEFLATE);
   }
 
-  /** zstd-jni's output stream flushes frames oddly for tiny inputs; one-shot frames are plain. */
-  private static final class ZstdBytesOutput extends ByteArrayOutputStream {
+  /** One-shot zstd frames, as most producers write them. */
+  private static final class OneShotZstd extends ByteArrayOutputStream {
     private final OutputStream out;
 
-    ZstdBytesOutput(OutputStream out) {
+    OneShotZstd(OutputStream out) {
       this.out = out;
     }
 
@@ -115,12 +144,6 @@ class CodecDecodeTest {
       out.write(Zstd.compress(toByteArray()));
       out.close();
     }
-  }
-
-  private static String lines(Codec codec) {
-    return "{\"compression\":\""
-        + codec.name()
-        + "\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}";
   }
 
   private static final String FIRST = "line-0\nline-1\n";
@@ -140,12 +163,33 @@ class CodecDecodeTest {
         true);
   }
 
+  private static String numbered(int count) {
+    StringBuilder text = new StringBuilder();
+    for (int i = 0; i < count; i++) {
+      text.append("line-").append(i).append('\n');
+    }
+    return text.toString();
+  }
+
+  /** Expected outcomes for the complete lines of {@code text}, as numbered() writes them. */
+  private static List<Object> completeLines(String text) {
+    List<Object> expected = new ArrayList<>();
+    long offset = 0;
+    int newline;
+    while ((newline = text.indexOf('\n', (int) offset)) >= 0) {
+      String line = text.substring((int) offset, newline);
+      expected.add(new Ok(raw(line), expected.size() + 1, new RawSpan(offset, line.length())));
+      offset = newline + 1;
+    }
+    return expected;
+  }
+
   @ParameterizedTest
   @MethodSource("codecs")
   void concatenatedStreamsAreAllRead(Codec codec) {
     assertEquals(
         List.of(line(0), line(1), line(2), line(3)),
-        decode(lines(codec), concat(codec.compress(FIRST), codec.compress(SECOND))));
+        decode(codec.config(), concat(codec.compress(FIRST), codec.compress(SECOND))));
   }
 
   @ParameterizedTest
@@ -153,7 +197,7 @@ class CodecDecodeTest {
   void garbageAfterTheLastStreamIsCorruptAfterEverythingBeforeIt(Codec codec) {
     assertEquals(
         List.of(line(0), line(1), corrupt(3, 14, codec.garbage())),
-        decode(lines(codec), concat(codec.compress(FIRST), utf8("garbage!garbage!garbage!"))));
+        decode(codec.config(), concat(codec.compress(FIRST), utf8("garbage!garbage!garbage!"))));
   }
 
   @ParameterizedTest
@@ -162,15 +206,16 @@ class CodecDecodeTest {
     byte[] second = codec.compress(SECOND);
     assertEquals(
         List.of(line(0), line(1), corrupt(3, 14, codec.cutHeader())),
-        decode(lines(codec), concat(codec.compress(FIRST), Arrays.copyOf(second, 2))));
+        decode(codec.config(), concat(codec.compress(FIRST), Arrays.copyOf(second, 2))));
   }
 
   @ParameterizedTest
   @MethodSource("codecs")
   void inputThatIsNotCompressedIsCorruptAndEmptyInputIsEmpty(Codec codec) {
     assertEquals(
-        List.of(corrupt(1, 0, codec.notCompressed())), decode(lines(codec), utf8("plain text\n")));
-    assertEquals(List.of(), decode(lines(codec), new byte[0]));
+        List.of(corrupt(1, 0, codec.notCompressed())),
+        decode(codec.config(), utf8("plain text\n")));
+    assertEquals(List.of(), decode(codec.config(), new byte[0]));
   }
 
   @ParameterizedTest
@@ -180,39 +225,197 @@ class CodecDecodeTest {
     byte[] input = concat(first, codec.compress(SECOND));
     assertEquals(
         List.of(line(0), line(1), new Threw("SourceReadException")),
-        decode(decoder(lines(codec)), failingAt(input, first.length + 1), DecodeLimits.UNLIMITED));
+        decode(
+            decoder(codec.config()), failingAt(input, first.length + 1), DecodeLimits.UNLIMITED));
   }
 
   @Test
   void zstdLastFrameCutInTheMiddleIsTruncatedNotACleanEnd() {
-    Codec zstd = codecs().findFirst().orElseThrow();
-    byte[] second = zstd.compress(SECOND.repeat(100));
+    byte[] second = ZSTD.compress(SECOND.repeat(100));
     assertEquals(
         List.of(line(0), line(1), corrupt(3, 14, "zstd frame 2 is truncated")),
         decode(
-            lines(zstd), concat(zstd.compress(FIRST), Arrays.copyOf(second, second.length - 3))));
+            ZSTD.config(), concat(ZSTD.compress(FIRST), Arrays.copyOf(second, second.length - 3))));
+  }
+
+  @Test
+  void lz4FrameCutAfterAnUncompressedBlockSizeIsTruncated() {
+    byte[] random = new byte[100];
+    new Random(1).nextBytes(random);
+    byte[] second = LZ4.compressBytes(concat(random, utf8("\n")));
+    assertTrue(second[10] < 0, "the block must be stored uncompressed");
+    assertEquals(
+        List.of(line(0), line(1), corrupt(3, 14, "lz4 frame 2 is truncated")),
+        decode(LZ4.config(), concat(LZ4.compress(FIRST), Arrays.copyOf(second, 11))));
+  }
+
+  @Test
+  void lz4LinkedBlocksAndChecksumsDecode() throws IOException {
+    String text = numbered(50_000);
+    Parameters parameters = new Parameters(BlockSize.K64, true, true, true);
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (OutputStream out = new FramedLZ4CompressorOutputStream(bytes, parameters)) {
+      out.write(utf8(text));
+    }
+    assertEquals(completeLines(text), decode(LZ4.config(), bytes.toByteArray()));
+    byte[] damaged = bytes.toByteArray();
+    damaged[damaged.length - 1] ^= 1;
+    List<Object> expected = new ArrayList<>(completeLines(text));
+    expected.add(corrupt(50_001, text.length(), "lz4 frame 1 content checksum mismatch"));
+    assertEquals(expected, decode(LZ4.config(), damaged));
+  }
+
+  @Test
+  void lz4BlockChecksumMismatchHandsOnNothingFromThatBlock() throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (OutputStream out =
+        new FramedLZ4CompressorOutputStream(
+            bytes, new Parameters(BlockSize.K64, false, true, false))) {
+      out.write(utf8(FIRST));
+    }
+    byte[] damaged = bytes.toByteArray();
+    damaged[12] ^= 1;
+    assertEquals(
+        List.of(corrupt(1, 0, "lz4 block checksum mismatch in frame 1")),
+        decode(LZ4.config(), damaged));
   }
 
   @Test
   void skippableFramesAndChunksAreSkipped() {
-    byte[] zstdSkippable = {0x50, 0x2A, 0x4D, 0x18, 3, 0, 0, 0, 'a', 'b', 'c'};
-    List<Codec> all = codecs().toList();
+    byte[] skippableFrame = {0x50, 0x2A, 0x4D, 0x18, 3, 0, 0, 0, 'a', 'b', 'c'};
+    List<Object> all = List.of(line(0), line(1), line(2), line(3));
+    assertEquals(
+        all,
+        decode(ZSTD.config(), concat(ZSTD.compress(FIRST), skippableFrame, ZSTD.compress(SECOND))));
+    assertEquals(
+        all,
+        decode(LZ4.config(), concat(LZ4.compress(FIRST), skippableFrame, LZ4.compress(SECOND))));
+    byte[] snappy = SNAPPY.compress(FIRST + SECOND);
+    byte[] skippableChunk = {(byte) 0x80, 2, 0, 0, 'x', 'y'};
+    assertEquals(
+        all,
+        decode(
+            SNAPPY.config(),
+            concat(
+                Arrays.copyOf(snappy, 10),
+                skippableChunk,
+                Arrays.copyOfRange(snappy, 10, snappy.length))));
+  }
+
+  @Test
+  void snappyCutAtAChunkBoundaryEndsCleanlyBecauseTheFormatHasNoEndMark() {
+    byte[] second = SNAPPY.compress(SECOND);
+    assertEquals(
+        List.of(line(0), line(1)),
+        decode(SNAPPY.config(), concat(SNAPPY.compress(FIRST), Arrays.copyOf(second, 10))));
+  }
+
+  @Test
+  void xzStreamPaddingIsAllowed() {
     assertEquals(
         List.of(line(0), line(1), line(2), line(3)),
-        decode(
-            lines(all.get(0)),
-            concat(all.get(0).compress(FIRST), zstdSkippable, all.get(0).compress(SECOND))));
+        decode(XZ.config(), concat(XZ.compress(FIRST), new byte[4], XZ.compress(SECOND))));
+  }
+
+  @Test
+  void xzMemoryLimitIsMaxDocumentBytesInWholeKibibytes() throws Exception {
+    long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
+    byte[] input = XZ.compress(FIRST);
     assertEquals(
-        List.of(line(0), line(1), line(2), line(3)),
-        decode(
-            lines(all.get(2)),
-            concat(all.get(2).compress(FIRST), zstdSkippable, all.get(2).compress(SECOND))));
-    byte[] snappy = all.get(1).compress(FIRST + SECOND);
-    byte[] skippable = {(byte) 0x80, 2, 0, 0, 'x', 'y'};
-    byte[] withSkippable =
-        concat(Arrays.copyOf(snappy, 10), skippable, Arrays.copyOfRange(snappy, 10, snappy.length));
+        List.of(line(0), line(1)),
+        decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed)));
     assertEquals(
-        List.of(line(0), line(1), line(2), line(3)), decode(lines(all.get(1)), withSkippable));
+        List.of(new Big(1, null, needed, "", true)),
+        decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024)));
+  }
+
+  @Test
+  void zstdWindowOverItsLimitIsOversized() {
+    byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
+    assertEquals(List.of(new Big(1, null, 0, "", true)), decode(ZSTD.config(), hugeWindow));
+  }
+
+  @Test
+  void anOuterCodecsLimitStaysOversizedThroughInnerCodecs() throws Exception {
+    long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
+    assertEquals(
+        List.of(new Big(1, null, needed, "", true)),
+        decode(
+            decoder(
+                "{\"compression\":[\"xz\",\"bzip2\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
+            ByteInput.ofBytes(XZ.compressBytes(BZIP2.compress(FIRST))),
+            new DecodeLimits(0, 1 << 20)));
+    byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
+    assertEquals(
+        List.of(new Big(1, null, 0, "", true)),
+        decode(
+            "{\"compression\":[\"zstd\",\"snappy\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}",
+            hugeWindow));
+  }
+
+  @Test
+  void checksumMismatchesAreCorrupt() {
+    byte[] zstd = new ZstdCompressCtx().setChecksum(true).compress(utf8(FIRST));
+    zstd[zstd.length - 1] ^= 1;
+    assertEquals(
+        List.of(corrupt(1, 0, "zstd frame 1 checksum mismatch")), decode(ZSTD.config(), zstd));
+    byte[] zlib = DEFLATE.compress(FIRST);
+    zlib[zlib.length - 1] ^= 1;
+    assertEquals(
+        List.of(line(0), line(1), corrupt(3, 14, "zlib data is corrupt: incorrect data check")),
+        decode(DEFLATE.config(), zlib));
+  }
+
+  @Test
+  void zlibHandsOnEverythingInflatedBeforeDamagedData() {
+    String text = numbered(50_000);
+    byte[] damaged = DEFLATE.compress(text);
+    damaged[damaged.length / 2] ^= (byte) 0xFF;
+    Inflater reference = new Inflater();
+    reference.setInput(damaged);
+    ByteArrayOutputStream released = new ByteArrayOutputStream();
+    byte[] one = new byte[1];
+    String message = null;
+    try {
+      while (!reference.finished() && reference.inflate(one) == 1) {
+        released.write(one[0]);
+      }
+    } catch (DataFormatException e) {
+      message = e.getMessage();
+    } finally {
+      reference.end();
+    }
+    String prefix = released.toString(StandardCharsets.UTF_8);
+    List<Object> expected = new ArrayList<>(completeLines(prefix));
+    long offset = prefix.lastIndexOf('\n') + 1;
+    expected.add(corrupt(expected.size() + 1, offset, "zlib data is corrupt: " + message));
+    assertEquals(expected, decode(DEFLATE.config(), damaged));
+  }
+
+  @Test
+  void libraryCodecsLoseAtMost255BytesBeforeDamagedData() throws IOException {
+    String text = numbered(200_000);
+    byte[] damaged = BZIP2.compress(text);
+    damaged[damaged.length / 2] ^= (byte) 0xFF;
+    ByteArrayOutputStream released = new ByteArrayOutputStream();
+    try (InputStream reference =
+        new BZip2CompressorInputStream(new ByteArrayInputStream(damaged), true)) {
+      int b;
+      while ((b = reference.read()) >= 0) {
+        released.write(b);
+      }
+    } catch (IOException expected) {
+      // The damaged spot.
+    }
+    List<Object> actual = decode(BZIP2.config(), damaged);
+    long delivered =
+        actual.stream()
+            .filter(Ok.class::isInstance)
+            .mapToLong(o -> ((Ok) o).span().length() + 1)
+            .sum();
+    assertTrue(
+        delivered >= released.size() - 255 - 16 && delivered <= released.size(),
+        "delivered " + delivered + " of " + released.size());
   }
 
   @Test
@@ -227,28 +430,11 @@ class CodecDecodeTest {
     }
     assertEquals(
         List.of(corrupt(1, 0, "zlib stream 1 needs a preset dictionary")),
-        decode(lines(codecs().toList().get(5)), bytes.toByteArray()));
-  }
-
-  @Test
-  void codecsOverTheMemoryLimitAreOversized() throws Exception {
-    Codec xz = codecs().toList().get(4);
-    long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
-    assertEquals(
-        List.of(new Big(1, null, needed, "", true)),
-        decode(
-            decoder(lines(xz)),
-            ByteInput.ofBytes(xz.compress(FIRST)),
-            new DecodeLimits(0, 4 << 20)));
-    byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
-    assertEquals(
-        List.of(new Big(1, null, 0, "", true)),
-        decode(lines(codecs().findFirst().orElseThrow()), hugeWindow));
+        decode(DEFLATE.config(), bytes.toByteArray()));
   }
 
   @Test
   void codecsChainFromTheOutermost() {
-    Codec zstd = codecs().findFirst().orElseThrow();
     assertEquals(
         List.of(line(0), line(1)),
         decode(

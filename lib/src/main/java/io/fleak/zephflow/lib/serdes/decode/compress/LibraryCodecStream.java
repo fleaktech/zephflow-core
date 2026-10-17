@@ -23,8 +23,8 @@ import java.io.InputStream;
  * Runs a codec library's stream under the decoder's rules. The library is opened on the first read,
  * and an input with no bytes at all decodes to nothing. Reads are kept small because a library that
  * fails drops what it had already decoded in the same call; at most {@link #MAX_READ} - 1 bytes can
- * be lost that way. Library failures are marked as decompression failures, unless the input itself
- * failed underneath, which stays a read failure.
+ * be lost that way. Library failures are marked as decompression failures, unless a layer
+ * underneath already marked its own failure.
  */
 final class LibraryCodecStream extends InputStream {
 
@@ -90,8 +90,9 @@ final class LibraryCodecStream extends InputStream {
     }
   }
 
+  /** Failures another layer already marked (a read failure, an outer codec's limit) keep it. */
   private IOException classify(Exception e) {
-    if (flags.getReadFailure() != null) {
+    if (flags.anySet()) {
       return e instanceof IOException io ? io : new IOException(e);
     }
     long needed = memoryNeeded.bytes(e);

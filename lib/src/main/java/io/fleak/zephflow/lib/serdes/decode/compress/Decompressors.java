@@ -20,7 +20,6 @@ import io.fleak.zephflow.lib.serdes.decode.internal.PeekedStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorInputStream;
 import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorInputStream;
 import org.tukaani.xz.MemoryLimitException;
 import org.tukaani.xz.XZInputStream;
@@ -42,8 +41,7 @@ public final class Decompressors {
             case ZSTD -> new ZstdFrameStream(current, flags);
             case DEFLATE -> new ZlibStream(current, flags);
             case BZIP2 -> library("bzip2", current, Bzip2Streams::new, flags);
-            case LZ4 ->
-                library("lz4", current, s -> new FramedLZ4CompressorInputStream(s, true), flags);
+            case LZ4 -> new Lz4FrameStream(current, flags);
             case SNAPPY ->
                 library("snappy", current, FramedSnappyCompressorInputStream::new, flags);
             case XZ -> xz(current, flags, limits.maxDocumentBytes());
@@ -57,12 +55,13 @@ public final class Decompressors {
     return new LibraryCodecStream(name, in, opener, e -> -1, flags);
   }
 
-  /** The decoder's memory limit is {@code maxDocumentBytes}; without one, xz has none either. */
+  /** Without a document limit, xz gets zstd's default window limit, so a tiny file cannot OOM. */
+  static final long DEFAULT_MEMORY_LIMIT = 128L * 1024 * 1024;
+
+  /** The memory xz may use is {@code maxDocumentBytes}, rounded up to whole KiB. */
   private static InputStream xz(InputStream in, DecodeFlags flags, long maxDocumentBytes) {
-    int limitKiB =
-        maxDocumentBytes > 0
-            ? (int) Math.min(Integer.MAX_VALUE, (maxDocumentBytes + 1023) / 1024)
-            : -1;
+    long limit = maxDocumentBytes > 0 ? maxDocumentBytes : DEFAULT_MEMORY_LIMIT;
+    int limitKiB = (int) Math.min(Integer.MAX_VALUE, (limit + 1023) / 1024);
     return new LibraryCodecStream(
         "xz",
         in,
