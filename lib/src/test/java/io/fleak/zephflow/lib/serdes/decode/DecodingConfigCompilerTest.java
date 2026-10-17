@@ -100,7 +100,12 @@ class DecodingConfigCompilerTest {
             "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/e:a\"}}",
             "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/Events/Event[1]\"}}",
             "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/1a\"}}",
-            "{\"format\":{\"type\":\"yaml\"}}")) {
+            "{\"format\":{\"type\":\"yaml\"}}",
+            "{\"format\":{\"type\":\"avro\"}}",
+            "{\"format\":{\"type\":\"avro\",\"container\":\"ocf\",\"schema\":{\"type\":\"record\",\"name\":\"R\",\"fields\":[]}}}",
+            "{\"format\":{\"type\":\"avro\",\"container\":\"datum\"}}",
+            "{\"format\":{\"type\":\"avro\",\"container\":\"datum\",\"schema\":{\"type\":\"nope\"}}}",
+            "{\"format\":{\"type\":\"avro\",\"container\":\"datum\",\"schema\":\"string\"}}")) {
       assertThrows(IllegalArgumentException.class, () -> decoder(bad), bad);
     }
     assertThrows(IllegalArgumentException.class, () -> DecodingConfigCompiler.compile(null));
@@ -114,7 +119,8 @@ class DecodingConfigCompilerTest {
             "{\"format\":{\"type\":\"json\",\"mode\":\"nope\"}}",
             "{\"format\":{\"type\":\"csvx\"}}",
             "{\"format\":{\"type\":\"xml\",\"mode\":\"nope\"}}",
-            "{\"format\":{\"type\":\"yaml\",\"mode\":\"nope\"}}")) {
+            "{\"format\":{\"type\":\"yaml\",\"mode\":\"nope\"}}",
+            "{\"format\":{\"type\":\"avro\",\"container\":\"nope\"}}")) {
       UncheckedIOException thrown =
           assertThrows(UncheckedIOException.class, () -> decoder(bad), bad);
       assertTrue(thrown.getCause() instanceof JsonMappingException, bad);

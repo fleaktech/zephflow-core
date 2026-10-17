@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.decode;
 
+import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.concat;
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.decoder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,19 +26,35 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.io.SequenceInputStream;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongFunction;
 import java.util.zip.CRC32;
+import java.util.zip.CheckedInputStream;
+import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.GZIPOutputStream;
+import org.apache.avro.Schema;
+import org.apache.avro.file.CodecFactory;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream;
 import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
+import org.apache.commons.compress.compressors.snappy.SnappyCompressorOutputStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -267,6 +284,169 @@ class LowMemoryDecodeTest {
                 "{\"compression\":\"xz\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
             new ByteArrayInputStream(xz),
             new DecodeLimits(1024 * 1024, 0)));
+  }
+
+  private static final Schema AVRO_SCHEMA =
+      new Schema.Parser()
+          .parse(
+              "{\"type\":\"record\",\"name\":\"R\",\"fields\":[{\"name\":\"i\",\"type\":\"long\"},"
+                  + "{\"name\":\"p\",\"type\":\"string\"}]}");
+
+  /** The header of an avro file with no blocks; its last 16 bytes are the sync marker. */
+  private static byte[] avroHeader() throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (DataFileWriter<GenericRecord> writer =
+        new DataFileWriter<>(new GenericDatumWriter<>(AVRO_SCHEMA))) {
+      writer.create(AVRO_SCHEMA, bytes);
+    }
+    return bytes.toByteArray();
+  }
+
+  private static byte[] avroRecords(long firstRecord, int records) throws IOException {
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(data, null);
+    GenericDatumWriter<GenericRecord> writer = new GenericDatumWriter<>(AVRO_SCHEMA);
+    for (int r = 0; r < records; r++) {
+      GenericRecord record = new GenericData.Record(AVRO_SCHEMA);
+      record.put("i", firstRecord + r);
+      record.put("p", PAD);
+      writer.write(record, encoder);
+    }
+    encoder.flush();
+    return data.toByteArray();
+  }
+
+  private static byte[] avroBlock(byte[] sync, long firstRecord, int records) throws IOException {
+    return avroRawBlock(sync, records, avroRecords(firstRecord, records));
+  }
+
+  @Test
+  void avroFileFarLargerThanTheHeap() throws IOException {
+    byte[] header = avroHeader();
+    byte[] sync = Arrays.copyOfRange(header, header.length - 16, header.length);
+    long blocks = TARGET_BYTES / (210L * 1000);
+    Enumeration<InputStream> parts =
+        new Enumeration<>() {
+          private long next = -1;
+
+          @Override
+          public boolean hasMoreElements() {
+            return next < blocks;
+          }
+
+          @Override
+          public InputStream nextElement() {
+            try {
+              byte[] part = next < 0 ? header : avroBlock(sync, next * 1000, 1000);
+              next++;
+              return new ByteArrayInputStream(part);
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
+          }
+        };
+    assertEquals(
+        Map.of("Decoded", blocks * 1000),
+        count(
+            decoder("{\"format\":{\"type\":\"avro\",\"container\":\"ocf\"}}"),
+            new SequenceInputStream(parts),
+            LIMITS));
+  }
+
+  @Test
+  void hugeAvroBlockIsSkippedAndTheNextBlockDecodes() throws IOException {
+    byte[] header = avroHeader();
+    byte[] sync = Arrays.copyOfRange(header, header.length - 16, header.length);
+    ByteArrayOutputStream hugeHead = new ByteArrayOutputStream();
+    BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(hugeHead, null);
+    long hugeSize = (TARGET_BYTES / 1000) * 1000;
+    encoder.writeLong(1);
+    encoder.writeLong(hugeSize);
+    encoder.flush();
+    InputStream input =
+        new SequenceInputStream(
+            Collections.enumeration(
+                List.of(
+                    new ByteArrayInputStream(concat(header, hugeHead.toByteArray())),
+                    generated(hugeSize / 1000, i -> "x".repeat(1000), "", ""),
+                    new ByteArrayInputStream(concat(sync, avroBlock(sync, 0, 1))))));
+    assertEquals(
+        Map.of("Oversized", 1L, "Decoded", 1L),
+        count(decoder("{\"format\":{\"type\":\"avro\",\"container\":\"ocf\"}}"), input, LIMITS));
+  }
+
+  /** Compresses {@code size} bytes of {@code data} the way avro's codec of that name does. */
+  private static byte[] avroCompress(String codec, InputStream data, long size) throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    if (codec.equals("snappy")) {
+      CheckedInputStream checked = new CheckedInputStream(data, new CRC32());
+      try (OutputStream out = new SnappyCompressorOutputStream(bytes, size)) {
+        checked.transferTo(out);
+      }
+      bytes.write(ByteBuffer.allocate(4).putInt((int) checked.getChecksum().getValue()).array());
+      return bytes.toByteArray();
+    }
+    try (OutputStream out =
+        switch (codec) {
+          case "deflate" -> new DeflaterOutputStream(bytes, new Deflater(1, true));
+          case "zstandard" -> new ZstdOutputStreamNoFinalizer(bytes);
+          case "bzip2" -> new BZip2CompressorOutputStream(bytes);
+          case "xz" -> new XZOutputStream(bytes, new LZMA2Options(1));
+          default -> throw new IllegalArgumentException(codec);
+        }) {
+      data.transferTo(out);
+    }
+    return bytes.toByteArray();
+  }
+
+  private static byte[] avroRawBlock(byte[] sync, long count, byte[] data) throws IOException {
+    ByteArrayOutputStream block = new ByteArrayOutputStream();
+    BinaryEncoder header = EncoderFactory.get().binaryEncoder(block, null);
+    header.writeLong(count);
+    header.writeLong(data.length);
+    header.flush();
+    block.writeBytes(data);
+    block.writeBytes(sync);
+    return block.toByteArray();
+  }
+
+  @Test
+  void avroDecompressionBombsAreOversizedForEveryCodec() throws IOException {
+    for (String codec : List.of("deflate", "snappy", "zstandard", "bzip2", "xz")) {
+      ByteArrayOutputStream headerBytes = new ByteArrayOutputStream();
+      try (DataFileWriter<GenericRecord> writer =
+          new DataFileWriter<>(new GenericDatumWriter<>(AVRO_SCHEMA))) {
+        writer.setCodec(CodecFactory.fromString(codec));
+        writer.create(AVRO_SCHEMA, headerBytes);
+      }
+      byte[] header = headerBytes.toByteArray();
+      byte[] sync = Arrays.copyOfRange(header, header.length - 16, header.length);
+      // One record whose string field is 100 MB of 'x': the long 0, then the string's length.
+      ByteArrayOutputStream prefix = new ByteArrayOutputStream();
+      BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(prefix, null);
+      long length = 100L * 1024 * 1024;
+      encoder.writeLong(0);
+      encoder.writeLong(length);
+      encoder.flush();
+      InputStream bomb =
+          new SequenceInputStream(
+              new ByteArrayInputStream(prefix.toByteArray()),
+              generated(length / 1024, i -> "x".repeat(1024), "", ""));
+      byte[] small = avroRecords(0, 1);
+      InputStream input =
+          new ByteArrayInputStream(
+              concat(
+                  header,
+                  avroRawBlock(sync, 1, avroCompress(codec, bomb, prefix.size() + length)),
+                  avroRawBlock(
+                      sync,
+                      1,
+                      avroCompress(codec, new ByteArrayInputStream(small), small.length))));
+      assertEquals(
+          Map.of("Oversized", 1L, "Decoded", 1L),
+          count(decoder("{\"format\":{\"type\":\"avro\",\"container\":\"ocf\"}}"), input, LIMITS),
+          codec);
+    }
   }
 
   private static Map<String, Long> count(

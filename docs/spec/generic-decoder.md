@@ -111,11 +111,13 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `maxDocumentBytes` bounds a unit held whole: a whole document, a decompressed avro block, a
   parquet row group. Avro and parquet sizes are checked before allocating.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
-  formats and csv continue with the next record (csv stops only when a quote stays open to the end);
-  the others stop (`terminal=true`). xml elements and yaml multi-document cannot locate a record, so
-  their `Oversized` has no preview and no span. A codec over its memory limit gives a terminal
-  `Oversized` with no span or preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does
-  not say.
+  formats, csv and avro blocks continue with the next record or block (csv stops only when a quote
+  stays open to the end); the others stop (`terminal=true`). xml elements and yaml multi-document
+  cannot locate a record, so their `Oversized` has no preview and no span; an avro block's
+  `Oversized` has neither, and its `sizeSoFar` is the block's size, what it decompressed to before
+  the limit, the memory xz needs, or 0 for a zstd window. A codec over its memory limit gives a
+  terminal `Oversized` with no span or preview; `sizeSoFar` is the memory xz needs, or 0 for zstd,
+  which does not say.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -175,7 +177,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `csv` | `delimiter` (default `,`), `quote` (default `"`, `""` turns quoting off), `escape`, `header` (default true), `columns`, `skipLines`, `commentMarker`, `ignoreSurroundingSpaces` (default false), `charset` | One object per row; values are strings |
 | `xml` | `mode`: `document`, or `elements` with `recordPath` (e.g. `/Events/Event`) | Any DTD is refused; values are strings |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
-| `avro` | `container`: `ocf` (schema from the file), `datum` (schema in config) | One record per avro record |
+| `avro` | `container`: `ocf` (an object container file, which carries its schema), or `datum` (the whole input is one record) with `schema` (JSON, or a string holding it) | One record per avro record; the schema must be a record |
 | `protobuf` | `descriptorSet`, `messageType`, `framing`: `single`, `varint_delimited` | One record per message |
 | `parquet` | — | Needs random access; cannot be combined with `compression` |
 
@@ -234,6 +236,27 @@ such as `!foo`, nesting too deep after alias expansion) is `MALFORMED` and decod
 syntax error, too deep nesting in the source, or a global tag such as `!!python/object` is terminal.
 The encoding comes from the byte order mark (UTF-8 without one).
 
+**Avro.** Object container files are parsed here, not by avro's `DataFileStream`, which allocates
+whatever size a block header claims and takes a cut-off file for a clean end. A block's size is
+checked against `maxDocumentBytes` before it is read, and its decompressed size while it is
+decompressed (xz's own memory is capped at 128 MiB or half the heap, whichever is smaller, and a
+zstd window over 128 MiB is oversized too). Blocks are framed, so an oversized block (`Oversized`),
+a damaged compressed block (`CORRUPT_COMPRESSION`), a block claiming more records than it can hold
+(which counts as one record, since its count cannot be trusted), or a record that does not decode
+(`MALFORMED`, including one nested too deeply for the thread stack) loses only the records of its
+block, and decoding goes on with the next block; record numbers still count the lost records. A
+record that decodes but cannot be converted loses only itself, and bytes left after a block's
+records are reported against the block's first record. A wrong sync marker or a file that does not
+end exactly after a block is terminal. Every string, bytes and fixed length is checked against the
+bytes left in the block before anything is allocated. Two budgets bound what one block can make the
+reader do: allocation counts (records in the block, array and map items) may total its byte length
+plus 100,000, since only nulls, empty records and empty fixeds encode in no bytes; and the objects
+built (a record and its fields, array items, map keys and values) may total 16 per byte plus
+1,000,000. A block over either budget loses its records; a block with more than 100,000 records that
+encode in no bytes is one of them. The file header may be up to `maxDocumentBytes` or 16 MiB,
+whichever is larger. In `datum` mode, bytes left after the record are `MALFORMED`, and an empty
+input decodes if the schema fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
+
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
 the charset become U+FFFD.
@@ -252,7 +275,9 @@ syslog, CEF and key=value are `text` + `line`, parsed downstream by the `parser`
 | YAML mapping key that is not a string | its string form; a date key becomes its number |
 | YAML null | null |
 | YAML integer outside int64 | its decimal string |
-| YAML `.inf`, `-.inf`, `.nan` | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
+| YAML `.inf`, `-.inf`, `.nan`; avro float and double infinities and NaN | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
+| avro uuid (on string or a 16-byte fixed) | its string form |
+| null items of an array, null values of a map | null (only null record fields are left out) |
 | enum | string |
 | timestamp | epoch milliseconds (local timestamps, and YAML timestamps without a zone, read as UTC) |
 | date | days since 1970-01-01 |
@@ -273,7 +298,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 3 | `csv` | Done (#341) |
 | 4 | `xml`, `yaml` | Done (#342) |
 | 5 | Remaining codecs | Done (#343) |
-| 6 | `avro` | Planned |
+| 6 | `avro` | Done (#344) |
 | 7 | `protobuf` | Planned |
 | 8 | `parquet`, random-access input | Planned |
 
@@ -305,12 +330,15 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   records have no bytes of their own.
 - Tree formats (json array and object, xml, yaml) hold a record as a tree that can take 10–50 times
   its bytes in memory; only csv caps the number of fields.
+- An avro block may build at most 16 objects per byte (4.2). Records with about 15 or more bare
+  `null` columns per payload byte, or wrapper records nested 8 or more deep around a one-byte value,
+  exceed it and lose their block. In the worst case an avro block holds about 150–250 times
+  `maxDocumentBytes` in memory, about twice what ordinary data of that size can reach.
 - Recursive parsers (Jackson, SnakeYAML) need a normal thread stack (1 MiB or more) to reach their
   nesting limits. On a smaller stack, deep input can overflow it; the cursor then reports a terminal
   `MALFORMED` instead of letting the `StackOverflowError` escape.
 - In a json array, more than 64 KiB of whitespace between elements counts toward the neighbouring
   record's budget.
-- A bad record in the middle of an avro file ends decoding; there is no resync at the next block.
 
 ## 8. PR1 implementation notes
 
@@ -375,3 +403,13 @@ Decisions made while implementing PR1 that refine the design above.
 | P39 | lz4 uses its own frame loop; commons-compress only decodes block contents. Its frame reader ends cleanly when the input stops right after an uncompressed block's size. Skippable frames are skipped by reading, because `FileInputStream.skip` goes past the end of a file without saying so |
 | P40 | A library codec leaves a failure alone when another layer already marked it, so an outer codec's memory limit stays `Oversized` through inner codecs |
 | P41 | ZlibStream's "inflater made no progress" branch cannot be reached under the JDK contract and is not tested, like gzip's (P16) |
+
+## 13. PR6 implementation notes
+
+| # | Note |
+|---|---|
+| P42 | Avro object container files are parsed here; avro's `DataFileStream` allocates the size a block header claims, decompresses without a bound, and treats a cut-off file as a clean end |
+| P43 | A bad avro block or record is not terminal. The earlier plan ended an avro file at its first bad record and at its first oversized block; block boundaries are known, so decoding now goes on with the next block |
+| P44 | Records are decoded with our own bounded `Decoder` over the block bytes instead of avro's `BinaryDecoder`, whose length limits are JVM-wide system properties |
+| P45 | Avro comes in through the `api` module's `api` dependency; nothing new is declared |
+| P46 | Avro allocation counts draw on one budget per block instead of being checked one array block at a time, which rejected valid arrays of nulls near the end of a block and let many small array blocks claim a quadratic number of items. The objects built are budgeted per byte as well, because a count alone does not bound a record with many fields that encode in no bytes; charging each zero-byte value as it was read, as tried in review, rejected valid files with a few null columns. A block's record count is checked against its compressed size only for the null codec. `fixed` sizes, which come from the file's schema, are checked by a `GenericDatumReader` subclass before avro allocates them |

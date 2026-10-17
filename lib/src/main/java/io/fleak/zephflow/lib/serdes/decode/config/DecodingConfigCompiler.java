@@ -13,7 +13,10 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.config;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.avro.AvroDatumFormat;
+import io.fleak.zephflow.lib.serdes.decode.avro.AvroOcfFormat;
 import io.fleak.zephflow.lib.serdes.decode.csv.CsvDialect;
 import io.fleak.zephflow.lib.serdes.decode.csv.CsvFormat;
 import io.fleak.zephflow.lib.serdes.decode.internal.CompiledDecoder;
@@ -38,6 +41,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.IntStream;
+import org.apache.avro.Schema;
 
 /** Validates a config and builds its decoder. Every config error is reported here, not on read. */
 public final class DecodingConfigCompiler {
@@ -72,12 +76,48 @@ public final class DecodingConfigCompiler {
       throw new IllegalArgumentException("decoding format is required");
     }
     return switch (format) {
+      case AvroFormatConfig avro -> avro(avro);
       case CsvFormatConfig csv -> csv(csv);
       case JsonFormatConfig json -> json(json);
       case TextFormatConfig text -> text(text);
       case XmlFormatConfig xml -> xml(xml);
       case YamlFormatConfig yaml -> yaml(yaml);
     };
+  }
+
+  private static FormatFactory avro(AvroFormatConfig avro) {
+    if (avro.container() == null) {
+      throw new IllegalArgumentException("avro format needs a container: ocf or datum");
+    }
+    return switch (avro.container()) {
+      case OCF -> {
+        if (avro.schema() != null) {
+          throw new IllegalArgumentException(
+              "an avro object container file carries its own schema");
+        }
+        yield AvroOcfFormat::new;
+      }
+      case DATUM -> {
+        Schema schema = avroSchema(avro.schema());
+        yield (in, limits, flags) -> new AvroDatumFormat(in, limits, schema);
+      }
+    };
+  }
+
+  private static Schema avroSchema(JsonNode json) {
+    if (json == null || json.isNull()) {
+      throw new IllegalArgumentException("avro datum mode needs a schema");
+    }
+    Schema schema;
+    try {
+      schema = new Schema.Parser().parse(json.isTextual() ? json.asText() : json.toString());
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("invalid avro schema: " + e.getMessage(), e);
+    }
+    if (schema.getType() != Schema.Type.RECORD) {
+      throw new IllegalArgumentException("avro schema must be a record, not " + schema.getType());
+    }
+    return schema;
   }
 
   private static FormatFactory csv(CsvFormatConfig csv) {
