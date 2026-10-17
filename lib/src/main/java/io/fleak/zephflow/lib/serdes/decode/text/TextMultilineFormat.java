@@ -36,7 +36,7 @@ import java.nio.charset.StandardCharsets;
  * until then it is pending, and a failure reports its first byte as the start of the lost range. An
  * event over the byte or line limit is reported whole as oversized, and the lines that continue it
  * are counted into it instead of becoming events of their own. Events of blank lines only are
- * skipped.
+ * skipped unless they are oversized.
  */
 public final class TextMultilineFormat implements FormatCursor {
 
@@ -156,6 +156,7 @@ public final class TextMultilineFormat implements FormatCursor {
         case OversizedLine o -> {
           write(o.preview(), o.size());
           blank = false;
+          terminator = o.terminator();
           end = o.offset() + o.size();
         }
       }

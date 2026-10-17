@@ -32,8 +32,9 @@ public final class LineFramer implements AutoCloseable {
   public record Line(byte[] bytes, long lineNumber, long offset, byte terminator)
       implements Frame {}
 
-  public record OversizedLine(long lineNumber, long offset, long size, byte[] preview)
-      implements Frame {}
+  /** Like {@link Line}, but only the first bytes are kept, as {@code preview}. */
+  public record OversizedLine(
+      long lineNumber, long offset, long size, byte[] preview, byte terminator) implements Frame {}
 
   private static final int CHUNK = 64 * 1024;
   private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
@@ -189,7 +190,7 @@ public final class LineFramer implements AutoCloseable {
   private Frame emit(byte terminator) {
     Frame frame =
         oversized
-            ? new OversizedLine(lineNumber, lineStart, lineSize, preview.toByteArray())
+            ? new OversizedLine(lineNumber, lineStart, lineSize, preview.toByteArray(), terminator)
             : new Line(line.toByteArray(), lineNumber, lineStart, terminator);
     lineNumber++;
     lineSize = 0;

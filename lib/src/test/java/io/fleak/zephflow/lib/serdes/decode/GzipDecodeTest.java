@@ -165,7 +165,6 @@ class GzipDecodeTest {
     }
   }
 
-  /** Inflates one byte at a time to find exactly how much a perfect reader could recover. */
   @Test
   void headerWithEveryOptionalFieldDecodes() throws Exception {
     ByteArrayOutputStream member = new ByteArrayOutputStream();

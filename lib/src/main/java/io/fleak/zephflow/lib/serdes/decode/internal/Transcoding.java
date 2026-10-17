@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 /** Brings text in a configured charset to UTF-8, so framing, offsets and budgets see UTF-8. */
 public final class Transcoding {
@@ -24,6 +25,13 @@ public final class Transcoding {
   public static final Charset UTF_32 = Charset.forName("UTF-32");
   public static final Charset UTF_32BE = Charset.forName("UTF-32BE");
   public static final Charset UTF_32LE = Charset.forName("UTF-32LE");
+
+  /** JDK charsets whose decoders drop a byte order mark on their own, by their fixed-order form. */
+  private static final Map<Charset, Charset> BOM_DROPPING =
+      Map.of(
+          Charset.forName("x-UTF-16LE-BOM"), StandardCharsets.UTF_16LE,
+          Charset.forName("X-UTF-32BE-BOM"), UTF_32BE,
+          Charset.forName("X-UTF-32LE-BOM"), UTF_32LE);
 
   private Transcoding() {}
 
@@ -48,7 +56,7 @@ public final class Transcoding {
           peeked.head().length == 4 && !startsDifferently(peeked.head(), 0xFF, 0xFE, 0, 0);
       return new Utf8TranscodingStream(peeked, little ? UTF_32LE : UTF_32BE);
     }
-    return new Utf8TranscodingStream(in, charset);
+    return new Utf8TranscodingStream(in, BOM_DROPPING.getOrDefault(charset, charset));
   }
 
   /** True once the bytes read so far already differ from {@code mark}. */

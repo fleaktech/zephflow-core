@@ -165,11 +165,14 @@ Compression inside avro and parquet belongs to those formats and is not configur
 **Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
 anchor it with `^`. With `startPattern`, a matching line starts a new event and other lines join the
 current one. With `continuePattern`, a matching line joins the current event and other lines start
-a new one. An event keeps its inner line endings as they were. It is emitted when the next event
+a new one. The first line of the input always starts an event, so lines before the first start
+line, or a leading continuation line, form an event of their own. Blank lines follow the same rule:
+with `startPattern` they stay in the current event, and with `continuePattern` they usually start a
+new one. An event keeps its inner line endings as they were. It is emitted when the next event
 starts or the input ends. Events made only of blank lines are skipped. An event over `maxLines` or
-`maxRecordBytes` is reported whole as `Oversized`, and the lines that continue it are counted into
-it, so a stack trace never splits into records that look valid. An oversized line is matched by its
-4 KiB preview.
+`maxRecordBytes` is reported whole as `Oversized`, even if it is blank, and the lines that continue
+it are counted into it, so a stack trace never splits into records that look valid. An oversized
+line is matched by its 4 KiB preview.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -255,13 +258,13 @@ Decisions made while implementing PR1 that refine the design above.
 | P13 | The json array whitespace limitation in section 7 |
 | P14 | The flags are checked when a format throws, ends, or returns a terminal outcome; decoded records and non-terminal failures pass through unchanged |
 | P15 | Formats are registered through sealed config types and one compiler switch, not ServiceLoader |
-| P16 | Defensive "no progress" branches that cannot be reached under the JDK contract are not tested |
+| P16 | The gzip "inflater made no progress" branch cannot be reached under the JDK contract and is not tested. The transcoder's no-progress guard is tested with a stub charset (PR2) |
 
 ## 9. PR2 implementation notes
 
 | # | Note |
 |---|---|
 | P17 | UTF-32 is decoded by our own decoder. The JDK decoders drop a leading byte order mark on their own and pass surrogate code points through, so D800 followed by DC00 became one valid character. Now each becomes U+FFFD, and exactly one leading U+FEFF is dropped for every charset. A second U+FEFF is kept as text |
-| P18 | Unmarked `UTF-16` and `UTF-32` are resolved to a fixed byte order from the first bytes before decoding, so no JDK decoder drops a mark |
+| P18 | Unmarked `UTF-16` and `UTF-32` are resolved to a fixed byte order from the first bytes before decoding. The JDK charsets that drop a mark themselves (`x-UTF-16LE-BOM`, `X-UTF-32BE-BOM`, `X-UTF-32LE-BOM`) are replaced by their fixed-order forms. So no decoder drops a mark |
 | P19 | Line framing skips a UTF-8 byte order mark only on untranscoded input |
-| P20 | Malformed input skips the length the charset decoder reports. UTF-16 is the exception: it skips one code unit, because the JDK reports a lone high surrogate together with the unit after it |
+| P20 | Malformed input skips the length the charset decoder reports. UTF-16 is the exception: it skips one code unit, because the JDK reports a lone high surrogate together with the unit after it. A pair cut off by the end of the input is one sequence |

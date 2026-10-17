@@ -153,4 +153,55 @@ class TextMultilineDecodeTest {
             "{\"compression\":\"gzip\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"continuePattern\":\"^\\\\s\"}}}",
             input));
   }
+
+  @Test
+  void oversizedLineKeepsItsRealLineEndingInThePreview() {
+    String x = "x".repeat(20);
+    String y = "y".repeat(20);
+    DecodeLimits limits = new DecodeLimits(10, 0);
+    RecordDecoder start = decoder(multiline("\"startPattern\":\"^S\""));
+    assertEquals(
+        List.of(
+            new Big(1, new RawSpan(0, 28), 28, "S" + x + "\n  cont", false),
+            new Ok(raw("S next"), 3, new RawSpan(29, 6))),
+        decode(start, ByteInput.ofBytes(utf8("S" + x + "\n  cont\nS next")), limits));
+    assertEquals(
+        List.of(
+            new Big(1, new RawSpan(0, 26), 26, "S a\n" + y + "\rc", false),
+            new Ok(raw("S z"), 4, new RawSpan(27, 3))),
+        decode(start, ByteInput.ofBytes(utf8("S a\n" + y + "\rc\nS z")), limits));
+  }
+
+  @Test
+  void eventAtMaxLinesDecodes() {
+    assertEquals(
+        List.of(
+            new Ok(raw("a\n b\n c"), 1, new RawSpan(0, 7)), new Ok(raw("d"), 4, new RawSpan(8, 1))),
+        decode(multiline("\"continuePattern\":\"^\\\\s\",\"maxLines\":3"), utf8("a\n b\n c\nd")));
+  }
+
+  @Test
+  void patternIsSearchedAnywhereInTheLine() {
+    String input = "x ERROR 1\n detail\ny ERROR 2";
+    assertEquals(
+        List.of(event(input, "x ERROR 1\n detail", 1), event(input, "y ERROR 2", 3)),
+        decode(multiline("\"startPattern\":\"ERROR\""), utf8(input)));
+  }
+
+  @Test
+  void leadingContinuationLineIsAnEventOfItsOwn() {
+    String input = "\tat x\nfirst\n\tat y";
+    assertEquals(
+        List.of(event(input, "\tat x", 1), event(input, "first\n\tat y", 2)),
+        decode(CONTINUE, utf8(input)));
+  }
+
+  @Test
+  void oversizedEventOfBlankLinesIsStillReported() {
+    assertEquals(
+        List.of(
+            new Big(1, new RawSpan(0, 2), 2, "\n\n", false),
+            new Ok(raw("S1"), 4, new RawSpan(3, 2))),
+        decode(multiline("\"startPattern\":\"^S\",\"maxLines\":2"), utf8("\n\n\nS1")));
+  }
 }

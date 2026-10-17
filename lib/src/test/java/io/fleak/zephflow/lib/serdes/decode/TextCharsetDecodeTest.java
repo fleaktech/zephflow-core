@@ -76,7 +76,8 @@ class TextCharsetDecodeTest {
   void singleByteCharsetIsTranscodedAndUnmappableBytesAreReplaced() {
     assertEquals(
         List.of(
-            new Ok(raw("café"), 1, new RawSpan(0, 5)), new Ok(raw("a�b"), 2, new RawSpan(6, 5))),
+            new Ok(raw("café"), 1, new RawSpan(0, 5)),
+            new Ok(raw("a\uFFFDb"), 2, new RawSpan(6, 5))),
         decode(
             line("windows-1252"),
             new byte[] {'c', 'a', 'f', (byte) 0xE9, '\n', 'a', (byte) 0x81, 'b'}));
@@ -84,15 +85,26 @@ class TextCharsetDecodeTest {
 
   @Test
   void onlyTheFirstByteOrderMarkIsDropped() {
-    String text = "﻿a";
+    String text = "\uFEFFa";
     List<Object> expected = List.of(new Ok(raw(text), 1, new RawSpan(0, 4)));
     List<byte[]> inputs =
         List.of(
             concat(UTF_32BE_BOM, text.getBytes(UTF_32BE)),
             concat(UTF_32LE_BOM, text.getBytes(UTF_32LE)),
             concat(UTF_16BE_BOM, text.getBytes(StandardCharsets.UTF_16BE)),
-            concat(UTF_16LE_BOM, text.getBytes(StandardCharsets.UTF_16LE)));
-    List<String> charsets = List.of("UTF-32", "UTF-32LE", "UTF-16BE", "UTF-16");
+            concat(UTF_16LE_BOM, text.getBytes(StandardCharsets.UTF_16LE)),
+            concat(UTF_16LE_BOM, text.getBytes(StandardCharsets.UTF_16LE)),
+            concat(UTF_32BE_BOM, text.getBytes(UTF_32BE)),
+            concat(UTF_32LE_BOM, text.getBytes(UTF_32LE)));
+    List<String> charsets =
+        List.of(
+            "UTF-32",
+            "UTF-32LE",
+            "UTF-16BE",
+            "UTF-16",
+            "x-UTF-16LE-BOM",
+            "X-UTF-32BE-BOM",
+            "X-UTF-32LE-BOM");
     for (int i = 0; i < inputs.size(); i++) {
       assertEquals(expected, decode(line(charsets.get(i)), inputs.get(i)), charsets.get(i));
       assertEquals(expected, decode(whole(charsets.get(i)), inputs.get(i)), charsets.get(i));
@@ -103,7 +115,8 @@ class TextCharsetDecodeTest {
   void utf32SurrogateCodePointsAreEachReplaced() {
     byte[] input = {0, 0, (byte) 0xD8, 0, 0, 0, (byte) 0xDC, 0, 0, 0x11, 0, 0, 0, 0, 0, 'a'};
     assertEquals(
-        List.of(new Ok(raw("���a"), 1, new RawSpan(0, 10))), decode(line("UTF-32BE"), input));
+        List.of(new Ok(raw("\uFFFD\uFFFD\uFFFDa"), 1, new RawSpan(0, 10))),
+        decode(line("UTF-32BE"), input));
   }
 
   @Test
@@ -134,5 +147,30 @@ class TextCharsetDecodeTest {
             new Ok(raw("b"), 2, new RawSpan(2, 1)),
             new Threw("SourceReadException")),
         decode(decoder(line("UTF-16LE")), failingAt(input, 8), DecodeLimits.UNLIMITED));
+  }
+
+  @Test
+  void bomDroppingJdkUtf32CharsetsReplaceSurrogatesToo() {
+    byte[] surrogates = {0, 0, (byte) 0xD8, 0, 0, 0, (byte) 0xDC, 0};
+    assertEquals(
+        List.of(new Ok(raw("\uFFFD\uFFFD"), 1, new RawSpan(0, 6))),
+        decode(line("X-UTF-32BE-BOM"), concat(UTF_32BE_BOM, surrogates)));
+  }
+
+  @Test
+  void utf16PairCutByTheEndOfInputIsOneReplacement() {
+    assertEquals(
+        List.of(new Ok(raw("a\uFFFD"), 1, new RawSpan(0, 4))),
+        decode(line("UTF-16BE"), new byte[] {0, 'a', (byte) 0xD8, 0x3D, (byte) 0xDE}));
+    assertEquals(
+        List.of(new Ok(raw("\uFFFDa"), 1, new RawSpan(0, 4))),
+        decode(line("UTF-16BE"), new byte[] {(byte) 0xD8, 0x3D, 0, 'a'}));
+  }
+
+  @Test
+  void multiByteCharsetSkipsOnlyTheReportedMalformedLength() {
+    assertEquals(
+        List.of(new Ok(raw("a\uFFFD b"), 1, new RawSpan(0, 6))),
+        decode(line("Shift_JIS"), new byte[] {'a', (byte) 0x81, 0x20, 'b'}));
   }
 }

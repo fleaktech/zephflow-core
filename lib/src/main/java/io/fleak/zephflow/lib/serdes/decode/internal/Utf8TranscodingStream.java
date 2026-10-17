@@ -54,7 +54,6 @@ public final class Utf8TranscodingStream extends InputStream {
   /** {@code charset} must have a fixed byte order; see {@link Transcoding#toUtf8}. */
   public Utf8TranscodingStream(InputStream in, Charset charset) {
     this.in = in;
-    // The JDK UTF-16 decoders report a lone high surrogate together with the unit after it.
     this.codeUnit =
         charset.equals(StandardCharsets.UTF_16BE) || charset.equals(StandardCharsets.UTF_16LE)
             ? 2
@@ -138,7 +137,7 @@ public final class Utf8TranscodingStream extends InputStream {
         if (!chars.hasRemaining()) {
           return;
         }
-        int skip = Math.min(codeUnit > 0 ? codeUnit : result.length(), source.remaining());
+        int skip = Math.min(malformedLength(result), source.remaining());
         source.position(source.position() + Math.max(skip, 1));
         chars.put('\uFFFD');
         continue;
@@ -149,6 +148,15 @@ public final class Utf8TranscodingStream extends InputStream {
       }
       return;
     }
+  }
+
+  /**
+   * The JDK UTF-16 decoders report a lone high surrogate together with the unit after it, so only
+   * one unit is skipped; but a pair cut off by the end of the input is one sequence.
+   */
+  private int malformedLength(CoderResult result) {
+    boolean truncatedTail = sourceEnded && source.remaining() < 2 * codeUnit;
+    return codeUnit > 0 && !truncatedTail ? codeUnit : result.length();
   }
 
   private void dropLeadingBom() {
