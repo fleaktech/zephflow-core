@@ -146,12 +146,15 @@ ByteInput.openStream()
 | P2 | text 支持各种 charset | 只支持 UTF-8，其他 charset 编译时报"暂不支持" | 按设计文档，转码在 PR2 做 |
 | P3 | §5.1：gzip"用 commons-compress 读完一段" | 用 JDK `Inflater(nowrap)` 自己写解压循环，头、尾也自己解析 | 审查 R3-B2/B3：commons-compress 会多读，出错时还会丢掉已经解压出来的数据 |
 | P4 | §4.1：json `object` 设置 Jackson 的 `maxDocumentLength` | 不设置，整个文档的大小由 `WholeInputReader` 精确限制 | 审查 R3-A5/B12：Jackson 超限抛的异常带不了标记，会被误分类 |
-| P5 | json 不转码；计划 §2 曾写"UTF-16 的 span 为 null" | 非 UTF-8 的 JSON（UTF-16、UTF-32，按 RFC 4627 §3 用前 4 个字节判断）先转码成 UTF-8，再走后面的流程；`span` 和 `raw` 都指转码后的 UTF-8 字节，和设计 D9 一样 | 代码审查 R1-A1：直接拒绝会丢数据；不转码的话，json array 的单条预算和 json lines 的切行都做不了 |
-| P6 | §5.1 规则 3“出错前的数据一个字节都不能丢” | 改成：损坏点之前，解压器已经吐出来的数据全部交给下游，一个字节都不丢。JDK 21 的 `Inflater` 即使抛出 `DataFormatException`，也会把这次调用里已经写出的字节计进 `getBytesWritten()`，所以先把这部分交出去，下一次读取时再报错。损坏的数据有可能先被解出一小段看起来合法、其实是错的内容，然后解压器才发现出错，这是压缩格式本身的特性，避免不了 | 代码审查 R1-B1 |
+| P5 | json 不转码；计划 §2 原本写的是"UTF-16 时 span 为 null" | 非 UTF-8 的 JSON 先转成 UTF-8 再处理。编码按 RFC 4627 §3 的 4 字节规则加上 BOM 来识别；只要前两个字节都不是 0、而且不是 UTF-16 的 BOM，就直接认定为 UTF-8，不再往下读。转码用自己写的 `Utf8TranscodingStream`：每读一次底层就把结果交出去，出错时已经转好的字节不会丢；遇到坏的码元只把那一个码元替换成 U+FFFD；转码后的输出不带 BOM。`span` 和 `raw` 都指转码后的 UTF-8 字节，和设计 D9 一样 | 代码审查 R1-A1、R2-B1/B3/B4/B5/B6。直接拒绝会丢数据；commons-io 的 `ReaderInputStream` 要攒满一整块才交出去，出错时会丢数据 |
+| P6 | §5.1 规则 3："出错前的数据一个字节都不能丢" | 改成：解压器在损坏点之前已经吐出来的数据，全部交出去，一个字节都不丢。JDK 21 的 `Inflater` 在抛 `DataFormatException` 之前，会把已经写出的字节计进 `getBytesWritten()`。**注意**：损坏的数据在被发现之前，可能已经解成了一段看起来合法、其实是错的内容；最坏的情况是 zlib 一直没报错，直到这一段（member）末尾的 CRC 校验才发现，这时这一段剩下的全部记录都已经交给下游了。所以一段 member 里的记录，要等它末尾的 CRC 校验通过才算确认无误 | 代码审查 R1-B1、R2-B8 |
 | P7 | 计划 §2 要处理“需要字典”的情况 | 不处理，相关代码已删除 | `Inflater(nowrap=true)` 永远不会要求字典；这个问题只出现在 zlib，留到 PR5 的 deflate |
 | P8 | 计划 §2 R3-A8："清掉 `[预算]` 记号" | 按行切的格式在切分器里自己做精确的单条预算，**不用** `[预算]` 记号；`[预算]` 只给库来解析的格式用（PR1 里只有 json array），它的 Oversized 一律是 terminal | 记号只服务于 terminal 的情况，所以不存在"清掉"这一步 |
 | P9 | R2-A12 只要求 json object 和 json lines 检查尾部多余内容 | json array 的 `]` 后面有别的内容，也报 terminal 的 `MALFORMED` | 和"带结束标记的格式要严格检查"保持一致 |
 | P10 | 设计没定义"空白行" | `skipBlank` 跳过空行，以及只有空格或制表符的行 | — |
-| P11 | — | 公开 API 里多了几个小工具：`DecodeOutcome.terminal()` 默认方法、`RawSpan.toEnd`、`DecodeLimits` 不能为负数的检查、`ByteInput` 上的 `@FunctionalInterface` | 方便调用方使用，没有新增行为 |
+| P11 | — | 公开 API 多了几个小工具：`DecodeOutcome.terminal()` 默认方法、`RawSpan.toEnd`、`DecodeLimits` 不能为负数的检查、`ByteInput` 上的 `@FunctionalInterface`。另外，配置里的名字（压缩算法、json mode）不区分大小写 | 方便使用，没有新增行为 |
 | P12 | 计划 §2：gzip 头的上限是 64 KiB | 改成 1 MiB | RFC 1952 允许合法的 FEXTRA 长度到 65535 字节（代码审查 R1-B7）。头的内容只是跳过、不保存，所以这个上限只用来防止"永远读不完的头" |
-| P13 | — | **已知限制**：json array 里，两个元素之间如果夹着超过 64 KiB 的空白，这些空白会算进下一个元素的预算，可能被误判成 `Oversized` | 代码审查 R1-B6，属于 low，暂不修 |
+| P13 | — | **已知限制**：json array 里，`[` 前面、两个元素之间、`]` 后面的空白，如果连续超过 64 KiB，会被算进前一条或后一条记录的预算，可能被误判成 `Oversized` | 代码审查 R1-B6、R2-A3，影响很小，暂不修 |
+| P14 | 计划 §3："每次要交出结果之前都先查记号" | 只在三种情况下查记号：format 抛异常、到达结尾、给出 terminal 的结果。查到解压错误时，terminal 的结果会被改报成 `CORRUPT_COMPRESSION`。正常解出来的记录、以及非 terminal 的失败照常交出去，不受影响 | 代码审查 R2-A1：每条都查的话，出错前已经解出来的好记录会被扣下；只看 terminal 的结论，就不会再把"解压出错"误报成"格式不对" |
+| P15 | 设计 §6：每个 config 类自己实现 `compile()` | `FormatConfig` 改成 sealed interface，由 `DecodingConfigCompiler` 里的 switch 统一编译；实现接口是 `FormatCursor` / `FormatFactory` | 少写一个子类时编译器会直接报错。代价是加一种格式要改三处：`permits`、switch、`@JsonSubTypes`。设计 §6 已同步修改（代码审查 R2-A4） |
+| P16 | — | `GzipMemberStream` 里"inflate 没有任何进展"那个分支只是防御代码，按 JDK 文档的约定不可能走到，所以没有测试 | 代码审查 R2-A6 |

@@ -22,10 +22,10 @@ import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 
 /**
- * The one place that applies the classification rule: when the format throws or reaches the end,
- * check the flags in priority order read, decompress, budget; otherwise the failure is malformed
- * data. Outcomes the format returns came from bytes delivered before any failure, so they pass
- * through unchanged.
+ * The one place that applies the classification rule. When the format throws, reaches the end, or
+ * gives up with a terminal outcome, the flags decide in priority order read, decompress, budget;
+ * otherwise the failure is malformed data. Records decoded from bytes delivered before a failure
+ * pass through unchanged, so nothing that decoded is withheld.
  */
 public final class GuardedCursor implements RecordCursor {
 
@@ -65,6 +65,10 @@ public final class GuardedCursor implements RecordCursor {
       }
       if (outcome.terminal()) {
         done = true;
+        DecodeOutcome flagged = fromFlags(null);
+        if (flagged != null) {
+          return flagged;
+        }
       }
       return outcome;
     } catch (Exception e) {

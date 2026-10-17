@@ -136,6 +136,29 @@ class DecodingConfigCompilerTest {
   }
 
   @Test
+  void aStreamThatOnlyReturnsZeroBytesFailsAsARead() {
+    ByteInput stuck =
+        () ->
+            new InputStream() {
+              @Override
+              public int read() {
+                return 0;
+              }
+
+              @Override
+              public int read(byte[] b, int off, int len) {
+                return 0;
+              }
+            };
+    assertEquals(
+        List.of(new Threw("SourceReadException")),
+        decode(
+            decoder("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"),
+            stuck,
+            DecodeLimits.UNLIMITED));
+  }
+
+  @Test
   void decodeAllSplitsRecordsAndProblems() {
     DecodeResult result =
         decoder("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}")

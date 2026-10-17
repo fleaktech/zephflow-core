@@ -21,6 +21,8 @@ import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.NumberType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -94,6 +96,103 @@ class JsonLinesDecodeTest {
             new Ok(json("{\"a\":1}"), 1, new RawSpan(0, 7)),
             new Ok(json("{\"b\":\"é\"}"), 2, new RawSpan(8, 10))),
         decode(LINES, input));
+  }
+
+  private static String numberedJsonLines(int n) {
+    StringBuilder text = new StringBuilder();
+    for (int i = 0; i < n; i++) {
+      text.append("{\"i\":").append(i).append("}\n");
+    }
+    return text.toString();
+  }
+
+  private static List<Object> numberedJsonOutcomes(int n) {
+    List<Object> expected = new ArrayList<>();
+    long offset = 0;
+    for (int i = 0; i < n; i++) {
+      String line = "{\"i\":" + i + "}";
+      expected.add(new Ok(json(line), i + 1, new RawSpan(offset, line.length())));
+      offset += line.length() + 1;
+    }
+    return expected;
+  }
+
+  @Test
+  void utf16ReadFailureKeepsEveryLineBeforeTheCut() {
+    String text = numberedJsonLines(20_000);
+    byte[] input = text.getBytes(StandardCharsets.UTF_16LE);
+    int cut = input.length / 2;
+    int before = (int) text.substring(0, cut / 2).chars().filter(c -> c == '\n').count();
+    List<Object> expected = new ArrayList<>(numberedJsonOutcomes(before));
+    expected.add(new Threw("SourceReadException"));
+    assertEquals(expected, decode(decoder(LINES), failingAt(input, cut), DecodeLimits.UNLIMITED));
+  }
+
+  @Test
+  void utf16GzipWithACutTrailerKeepsEveryLine() {
+    String text = numberedJsonLines(20_000);
+    byte[] whole = gzipOne(text.getBytes(StandardCharsets.UTF_16LE));
+    byte[] cut = Arrays.copyOf(whole, whole.length - 8);
+    List<Object> expected = new ArrayList<>(numberedJsonOutcomes(20_000));
+    expected.add(
+        new Bad(
+            ErrorKind.CORRUPT_COMPRESSION,
+            "",
+            20_001,
+            RawSpan.toEnd(text.length()),
+            "CorruptCompressionException: gzip member 1 is truncated",
+            true));
+    assertEquals(
+        expected,
+        decode(
+            "{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}", cut));
+  }
+
+  @Test
+  void loneUtf16SurrogateReplacesOnlyItsOwnUnit() {
+    byte[] input =
+        concat(
+            "{\"s\":\"".getBytes(StandardCharsets.UTF_16LE),
+            new byte[] {0x00, (byte) 0xD8},
+            "x\"}\n{\"t\":1}\n".getBytes(StandardCharsets.UTF_16LE));
+    assertEquals(
+        List.of(
+            new Ok(json("{\"s\":\"\uFFFDx\"}"), 1, new RawSpan(0, 12)),
+            new Ok(json("{\"t\":1}"), 2, new RawSpan(13, 7))),
+        decode(LINES, input));
+  }
+
+  @Test
+  void strayNulAtTheStartOfUtf8IsNotTakenForUtf16() {
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                "x\0",
+                1,
+                new RawSpan(0, 2),
+                "JsonParseException: Unrecognized token 'x': was expecting (JSON String, Number, Array, Object or token 'null', 'true' or 'false')",
+                false),
+            new Ok(json("{\"a\":1}"), 2, new RawSpan(3, 7))),
+        decode(LINES, utf8("x\0\n{\"a\":1}\n")));
+  }
+
+  @Test
+  void shortFirstRecordComesOutBeforeAGzipFailure() {
+    byte[] whole = gzip("{}\n");
+    byte[] cut = Arrays.copyOf(whole, whole.length - 3);
+    assertEquals(
+        List.of(
+            new Ok(json("{}"), 1, new RawSpan(0, 2)),
+            new Bad(
+                ErrorKind.CORRUPT_COMPRESSION,
+                "",
+                2,
+                RawSpan.toEnd(3),
+                "CorruptCompressionException: gzip member 1 is truncated",
+                true)),
+        decode(
+            "{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}", cut));
   }
 
   @Test

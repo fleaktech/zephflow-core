@@ -28,3 +28,21 @@ Verdicts: A = CHANGES, B = CHANGES.
 | B6 | low | deferred: whitespace > 64 KiB between array elements counts toward the next element (plan P13) | — |
 | B7 | low | accepted: header cap raised to 1 MiB (P12); XLEN=65535 header test | GzipDecodeTest `headerWithEveryOptionalFieldDecodes` |
 | B8 | low | accepted: GuardedCursor unit tests incl. wrapped read failure | GuardedCursorTest |
+
+## Round 2 — 396de28
+Verdicts: A = CHANGES, B = CHANGES. All round-1 accepted findings FIXED except A6 (re-raised as R2-B2/A5).
+
+| ID | Sev | Disposition | Where fixed / evidence |
+|---|---|---|---|
+| B1 | blocker | accepted: own `Utf8TranscodingStream` replaces commons-io ReaderInputStream (one source read per returned chunk) | internal/Utf8TranscodingStream; JsonLinesDecodeTest `utf16ReadFailure…`, `utf16GzipWithACutTrailer…` |
+| A1 | high | accepted: shell reclassifies terminal outcomes via flags (P14) | GuardedCursor; GuardedCursorTest `aTerminalOutcomeAfterADecompressFailure…` |
+| B2 / A2 / A5 | high / medium / low | accepted: expected counts derived from the input (byte-at-a-time inflater), exact boundary counts | GzipDecodeTest `truncatedBody…`, `networkFailureAnywhere…` |
+| B3 | medium | accepted: RFC 4627 4-byte patterns + BOM; decide UTF-8 from two non-zero bytes | JsonEncoding; test `strayNulAtTheStartOfUtf8…` |
+| B4 | medium | accepted: only the malformed code unit is replaced | Utf8TranscodingStream; test `loneUtf16Surrogate…` |
+| B5 | low | accepted: peek reads only what is needed; new PeekedStream never reads the source in the same call that replays peeked bytes (JDK PushbackInputStream does, losing them on failure — also fixed in auto-detect) | internal/PeekedStream; test `shortFirstRecordComesOutBeforeAGzipFailure` |
+| B6 | low | accepted: transcoded output drops the BOM | Utf8TranscodingStream |
+| B7 | low | accepted: 1 ms pause between zero-byte retries | ReadGuardStream; test `aStreamThatOnlyReturnsZeroBytes…` |
+| B8 | low | accepted: P6 and design §5.1 wording (member records confirmed only by its CRC) | plan §7, design |
+| A3 | medium | accepted as P13 (wording widened) | plan §7 |
+| A4 | medium | accepted as P15; design §6 updated | plan §7, design |
+| A6 | low | accepted: case-insensitivity recorded (P11); zero-read failure branch tested; no-progress guard recorded as untestable defensive code (P16) | plan §7; DecodingConfigCompilerTest |

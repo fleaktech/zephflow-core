@@ -282,7 +282,7 @@ public record DecodeResult(List<RecordFleakData> records, List<DecodeOutcome> pr
   2. 尾部跟着的字节如果不是压缩数据，报 `CORRUPT_COMPRESSION`；
   3. **出错位置之前已经解压出来的数据，一个字节都不能丢**，前面的记录照常交出去。
 - **各算法的做法：**
-  - **gzip**：完全自己实现（PR1）。用 JDK 的 `Inflater(nowrap)` 写解压循环，自己解析头和尾（CRC32、ISIZE），一段一段读：每读完一段，看后面的字节是不是下一段的开头，再决定接着读还是报错。头的长度上限 1 MiB，防止坏掉的头一直读不完。碰到坏数据时，用 `Inflater.getBytesWritten()` 把那一次调用里已经解压出来的字节先交出去，下一次读取时再报错，所以损坏点之前的数据一个都不丢。
+  - **gzip**：完全自己实现（PR1）。用 JDK 的 `Inflater(nowrap)` 写解压循环，自己解析头和尾（CRC32、ISIZE），一段一段读：每读完一段，看后面的字节是不是下一段的开头，再决定接着读还是报错。头的长度上限 1 MiB，防止坏掉的头一直读不完。碰到坏数据时，用 `Inflater.getBytesWritten()` 把那一次调用里已经解压出来的字节先交出去，下一次读取时再报错，所以损坏点之前的数据一个都不丢。不过损坏的数据在被发现之前，可能已经解成了一段错的内容；最坏要等到这一段 member 末尾的 CRC 才发现，所以一段 member 里的记录要等它的 CRC 通过才算确认无误。
     - 不开 commons-compress 的"多段拼接"模式：那个模式遇到尾部垃圾时，会把同一次读出的好数据一起扔掉。
     - 也不用 JDK 的 `GZIPInputStream`：它读下一段的头时遇到 IOException 会直接吞掉，当成"读完了"。
   - **bzip2、xz、lz4**：打开 commons-compress 的多段模式。算法报告读完以后，再检查后面还有没有剩余字节。
@@ -396,7 +396,7 @@ record Frame(byte[] raw, long recordIndex, RawSpan span) {}
 final class DecodeContext { ... }   // 处理后的流、预算、limits、randomAccess、三个记号
 ```
 
-- **注册**：在 `FormatConfig`、`FramingConfig` 上用 `@JsonSubTypes` 登记，每个 config 类实现 `compile()`。不用 ServiceLoader。
+- **注册**：`FormatConfig`、`FramingConfig` 是 sealed interface，用 `@JsonSubTypes` 登记；由 `DecodingConfigCompiler` 里的 switch 统一编译，漏写一种格式时编译器会报错。不用 ServiceLoader。（PR1 实现时改的）
 - **4.1 的"查记号"硬规则只写在 cursor 外壳这一个地方**，所有格式共用，避免每个格式各写一遍时漏掉。
 - **每种格式只有一份解析代码**。`decodeAll` 就是 `open` 加一个循环。
 

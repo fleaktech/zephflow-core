@@ -17,11 +17,13 @@ import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.locks.LockSupport;
 
 /** Any failure of the caller's stream is a read failure, whatever its type. */
 public final class ReadGuardStream extends FilterInputStream {
 
   private static final int MAX_EMPTY_READS = 1000;
+  private static final long EMPTY_READ_PAUSE_NANOS = 1_000_000;
 
   private final DecodeFlags flags;
 
@@ -51,6 +53,7 @@ public final class ReadGuardStream extends FilterInputStream {
         if (n != 0 || len == 0) {
           return n;
         }
+        LockSupport.parkNanos(EMPTY_READ_PAUSE_NANOS);
       }
       throw new IOException("the input returned no bytes " + MAX_EMPTY_READS + " times in a row");
     } catch (IOException | RuntimeException e) {

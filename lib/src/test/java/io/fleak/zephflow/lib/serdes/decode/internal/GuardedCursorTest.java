@@ -133,6 +133,30 @@ class GuardedCursorTest {
   }
 
   @Test
+  void aTerminalOutcomeAfterADecompressFailureIsReportedAsCorrupt() throws Exception {
+    IOException corrupt = new IOException("bad data");
+    int[] calls = {0};
+    DecodeOutcome.Decoded decoded = new DecodeOutcome.Decoded(null, 1, new RawSpan(0, 1));
+    GuardedCursor cursor =
+        cursor(
+            flags -> {
+              if (calls[0]++ == 0) {
+                flags.markDecompress(corrupt);
+                return decoded;
+              }
+              return new DecodeOutcome.Failed(
+                  ErrorKind.MALFORMED, new byte[0], 2, null, new IllegalArgumentException(), true);
+            });
+    assertSame(decoded, cursor.next());
+    DecodeOutcome.Failed failed = (DecodeOutcome.Failed) cursor.next();
+    assertEquals(
+        new DecodeOutcome.Failed(
+            ErrorKind.CORRUPT_COMPRESSION, failed.raw(), 7, RawSpan.toEnd(42), corrupt, true),
+        failed);
+    assertNull(cursor.next());
+  }
+
+  @Test
   void errorsAreNotCaught() {
     GuardedCursor cursor =
         cursor(

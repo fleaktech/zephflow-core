@@ -126,14 +126,14 @@ class GzipDecodeTest {
   }
 
   @Test
-  void truncatedBodyKeepsCompleteLinesAndPointsAtThePartialOne() {
+  void truncatedBodyKeepsEveryLineTheInflaterReleased() {
     byte[] whole = gzip(numberedText(0, 2000));
-    List<Object> outcomes = decode(GZIP_LINES, Arrays.copyOf(whole, whole.length / 2));
-    int complete = outcomes.size() - 1;
-    List<Object> expected = new ArrayList<>(numberedLines(complete));
-    expected.add(corrupt(complete + 1, offsetOfLine(complete), "gzip member 1 is truncated"));
-    assertEquals(expected, outcomes);
-    assertTrue(complete > 100, "most of the lines before the cut must come out");
+    byte[] cut = Arrays.copyOf(whole, whole.length / 2);
+    int released = completeLines(recoverablePrefix(cut));
+    List<Object> expected = new ArrayList<>(numberedLines(released));
+    expected.add(corrupt(released + 1, offsetOfLine(released), "gzip member 1 is truncated"));
+    assertEquals(expected, decode(GZIP_LINES, cut));
+    assertTrue(released > 500, "most lines before the cut must come out, got " + released);
   }
 
   @Test
@@ -169,6 +169,9 @@ class GzipDecodeTest {
 
   /** Inflates one byte at a time to find exactly how much a perfect reader could recover. */
   private static byte[] recoverablePrefix(byte[] gzip) {
+    if (gzip.length <= 10) {
+      return new byte[0];
+    }
     Inflater inflater = new Inflater(true);
     inflater.setInput(gzip, 10, gzip.length - 10);
     ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -261,16 +264,31 @@ class GzipDecodeTest {
   void networkFailureAnywhereIsAReadFailureAfterTheRecordsBeforeIt() {
     byte[] first = gzip(numberedText(0, 3000));
     byte[] input = concat(first, gzip(numberedText(3000, 3002)));
-    int[] cuts = {
-      5, first.length / 2, first.length - 2, first.length, first.length + 4, input.length - 1
-    };
-    for (int cut : cuts) {
-      List<Object> outcomes =
-          decode(decoder(GZIP_LINES), failingAt(input, cut), DecodeLimits.UNLIMITED);
-      int complete = outcomes.size() - 1;
-      List<Object> expected = new ArrayList<>(numberedLines(complete));
-      expected.add(new Threw("SourceReadException"));
-      assertEquals(expected, outcomes, "cut at " + cut);
+    for (int cut : new int[] {5, first.length / 2, first.length - 2}) {
+      int released = completeLines(recoverablePrefix(Arrays.copyOf(input, cut)));
+      assertReadFailureAfter(released, input, cut);
     }
+    assertReadFailureAfter(3000, input, first.length);
+    assertReadFailureAfter(3000, input, first.length + 4);
+    assertReadFailureAfter(3002, input, input.length - 1);
+  }
+
+  private static void assertReadFailureAfter(int lines, byte[] input, int cut) {
+    List<Object> expected = new ArrayList<>(numberedLines(lines));
+    expected.add(new Threw("SourceReadException"));
+    assertEquals(
+        expected,
+        decode(decoder(GZIP_LINES), failingAt(input, cut), DecodeLimits.UNLIMITED),
+        "cut at " + cut);
+  }
+
+  private static int completeLines(byte[] text) {
+    int lines = 0;
+    for (byte b : text) {
+      if (b == '\n') {
+        lines++;
+      }
+    }
+    return lines;
   }
 }

@@ -15,9 +15,9 @@ package io.fleak.zephflow.lib.serdes.decode.compress;
 
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
+import io.fleak.zephflow.lib.serdes.decode.internal.PeekedStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PushbackInputStream;
 import java.util.List;
 
 public final class Decompressors {
@@ -39,20 +39,10 @@ public final class Decompressors {
   }
 
   private static InputStream autoDetect(InputStream in, DecodeFlags flags) throws IOException {
-    PushbackInputStream pushback = new PushbackInputStream(in, 2);
-    byte[] magic = new byte[2];
-    int read = 0;
-    while (read < 2) {
-      int n = pushback.read(magic, read, 2 - read);
-      if (n < 0) {
-        break;
-      }
-      read += n;
-    }
-    if (read > 0) {
-      pushback.unread(magic, 0, read);
-    }
-    boolean gzip = read == 2 && (magic[0] & 0xFF) == 0x1f && (magic[1] & 0xFF) == 0x8b;
-    return gzip ? new GzipMemberStream(pushback, flags) : pushback;
+    PeekedStream peeked =
+        PeekedStream.peek(in, 2, head -> head.length >= 1 && (head[0] & 0xFF) != 0x1f);
+    byte[] magic = peeked.head();
+    boolean gzip = magic.length == 2 && (magic[0] & 0xFF) == 0x1f && (magic[1] & 0xFF) == 0x8b;
+    return gzip ? new GzipMemberStream(peeked, flags) : peeked;
   }
 }
