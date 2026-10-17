@@ -48,6 +48,12 @@ final class CsvScanner implements AutoCloseable {
     COMMENT
   }
 
+  /**
+   * Excel's column limit. Each field costs far more heap than its bytes, so a row of delimiters
+   * under {@code maxRecordBytes} could otherwise exhaust memory.
+   */
+  static final int MAX_COLUMNS = 16_384;
+
   private static final int CHUNK = 64 * 1024;
   private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
 
@@ -226,6 +232,9 @@ final class CsvScanner implements AutoCloseable {
         if (problem == null) {
           problem = "unexpected character after a closing quote";
         }
+        if (b == dialect.escape()) {
+          yield State.ESCAPED_UNQUOTED;
+        }
         add(b, false);
         yield State.UNQUOTED;
       }
@@ -267,7 +276,11 @@ final class CsvScanner implements AutoCloseable {
   }
 
   private void endField() {
-    if (!oversized) {
+    if (!oversized && fields.size() == MAX_COLUMNS) {
+      if (problem == null) {
+        problem = "row has more than " + MAX_COLUMNS + " columns";
+      }
+    } else if (!oversized) {
       fields.add(field.copy(0, dialect.ignoreSurroundingSpaces() ? keep : field.size()));
     }
     field.clear();

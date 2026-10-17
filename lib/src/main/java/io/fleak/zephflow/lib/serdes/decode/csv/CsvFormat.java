@@ -90,15 +90,14 @@ public final class CsvFormat implements FormatCursor {
   private DecodeOutcome header(Frame frame) {
     return switch (frame) {
       case null -> null;
+      case OversizedRow o when names != null && !o.terminal() -> null;
       case OversizedRow o ->
           oversized(new OversizedRow(o.offset(), o.size(), o.preview(), true), 0);
       case UnclosedQuote u -> unclosed(u, 0);
+      case Row row when names != null -> null;
       case Row row -> {
         if (row.problem() != null) {
-          yield failed(row, 0, "header: " + row.problem(), true);
-        }
-        if (names != null) {
-          yield null;
+          yield headerFailed(row, "header: " + row.problem());
         }
         List<String> fromHeader = new ArrayList<>();
         Set<String> seen = new HashSet<>();
@@ -108,7 +107,7 @@ public final class CsvFormat implements FormatCursor {
             name = generatedName(i);
           }
           if (!seen.add(name)) {
-            yield failed(row, 0, "header has a duplicate column name: " + name, true);
+            yield headerFailed(row, "header has a duplicate column name: " + name);
           }
           fromHeader.add(name);
         }
@@ -120,12 +119,11 @@ public final class CsvFormat implements FormatCursor {
 
   private DecodeOutcome row(Row row) {
     if (row.problem() != null) {
-      return failed(row, index, row.problem(), false);
+      return failed(row, index, row.problem());
     }
     List<byte[]> fields = row.fields();
     if (names != null && fields.size() != names.size()) {
-      return failed(
-          row, index, "row has " + fields.size() + " columns, expected " + names.size(), false);
+      return failed(row, index, "row has " + fields.size() + " columns, expected " + names.size());
     }
     Map<String, FleakData> payload = new HashMap<>();
     for (int i = 0; i < fields.size(); i++) {
@@ -144,14 +142,24 @@ public final class CsvFormat implements FormatCursor {
     return new RawSpan(row.offset(), row.bytes().length);
   }
 
-  private static Failed failed(Row row, long recordIndex, String message, boolean terminal) {
+  private static Failed headerFailed(Row row, String message) {
+    return new Failed(
+        ErrorKind.MALFORMED,
+        row.bytes(),
+        0,
+        RawSpan.toEnd(row.offset()),
+        new MalformedCsvException(message),
+        true);
+  }
+
+  private static Failed failed(Row row, long recordIndex, String message) {
     return new Failed(
         ErrorKind.MALFORMED,
         row.bytes(),
         recordIndex,
         span(row),
         new MalformedCsvException(message),
-        terminal);
+        false);
   }
 
   private static Oversized oversized(OversizedRow o, long recordIndex) {

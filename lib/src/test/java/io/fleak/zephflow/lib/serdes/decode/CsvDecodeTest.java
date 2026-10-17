@@ -214,7 +214,7 @@ class CsvDecodeTest {
                 ErrorKind.MALFORMED,
                 "a,a",
                 0,
-                new RawSpan(0, 3),
+                RawSpan.toEnd(0),
                 "MalformedCsvException: header has a duplicate column name: a",
                 true)),
         decode(CSV, utf8("a,a\n1,2")));
@@ -272,5 +272,100 @@ class CsvDecodeTest {
         decode(
             "{\"compression\":\"gzip\",\"format\":{\"type\":\"csv\"}}",
             concat(gzip("a\n1\n2"), utf8("xy"))));
+  }
+
+  @Test
+  void malformedOrUnclosedHeaderIsTerminalAndCoversTheRest() {
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                "\"a\"x,b",
+                0,
+                RawSpan.toEnd(0),
+                "MalformedCsvException: header: unexpected character after a closing quote",
+                true)),
+        decode(CSV, utf8("\"a\"x,b\n1,2")));
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                "\"a,b\n1,2",
+                0,
+                RawSpan.toEnd(0),
+                "MalformedCsvException: quoted field is not closed before the end of the input",
+                true)),
+        decode(CSV, utf8("\"a,b\n1,2")));
+  }
+
+  @Test
+  void headerLineReplacedByColumnsIsSkippedWithoutBeingChecked() {
+    String columns = csv(",\"columns\":[\"p\",\"q\"]");
+    List<Object> expected =
+        List.of(new Ok(json("{\"p\":\"1\",\"q\":\"2\"}"), 1, new RawSpan(7, 3)));
+    assertEquals(expected, decode(columns, utf8("\"a\"x,b\n1,2")));
+    assertEquals(
+        List.of(new Ok(json("{\"p\":\"1\",\"q\":\"2\"}"), 1, new RawSpan(6, 3))),
+        decode(columns, utf8("a,a,a\n1,2")));
+    assertEquals(
+        List.of(new Ok(json("{\"p\":\"1\",\"q\":\"2\"}"), 1, new RawSpan(8, 3))),
+        decode(decoder(columns), ByteInput.ofBytes(utf8("abcdefg\n1,2")), new DecodeLimits(5, 0)));
+  }
+
+  @Test
+  void headerAtTheRecordLimitDecodes() {
+    assertEquals(
+        List.of(new Ok(json("{\"abc\":\"1\"}"), 1, new RawSpan(4, 1))),
+        decode(decoder(CSV), ByteInput.ofBytes(utf8("abc\n1")), new DecodeLimits(3, 0)));
+  }
+
+  @Test
+  void escapeWorksInsideQuotesAndAcrossLineBreaks() {
+    String escape = csv(",\"header\":false,\"escape\":\"\\\\\"");
+    assertEquals(
+        List.of(
+            new Ok(json("{\"_c0\":\"x\\\"y\"}"), 1, new RawSpan(0, 6)),
+            new Ok(json("{\"_c0\":\"p\\nq\"}"), 2, new RawSpan(7, 4))),
+        decode(escape, utf8("\"x\\\"y\"\np\\\nq")));
+  }
+
+  @Test
+  void escapeAfterAClosingQuoteStillEscapes() {
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                "\"a\"\\\nb",
+                1,
+                new RawSpan(0, 6),
+                "MalformedCsvException: unexpected character after a closing quote",
+                false)),
+        decode(csv(",\"header\":false,\"escape\":\"\\\\\""), utf8("\"a\"\\\nb\n")));
+  }
+
+  @Test
+  void crOnlyLineEndingsSplitRowsButNotQuotedFields() {
+    assertEquals(
+        List.of(
+            new Ok(json("{\"a\":\"1\"}"), 1, new RawSpan(2, 1)),
+            new Ok(json("{\"a\":\"x\\ry\"}"), 2, new RawSpan(4, 5))),
+        decode(CSV, utf8("a\r1\r\"x\ry\"")));
+  }
+
+  @Test
+  void rowWithTooManyColumnsIsMalformedAndDecodingContinues() {
+    String wide = ",".repeat(16_384);
+    List<Object> actual = decode(csv(",\"header\":false"), utf8(wide + "\nlast"));
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                wide,
+                1,
+                new RawSpan(0, wide.length()),
+                "MalformedCsvException: row has more than 16384 columns",
+                false),
+            new Ok(json("{\"_c0\":\"last\"}"), 2, new RawSpan(wide.length() + 1, 4))),
+        actual);
   }
 }
