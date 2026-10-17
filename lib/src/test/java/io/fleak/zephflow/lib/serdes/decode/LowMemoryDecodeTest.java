@@ -454,13 +454,25 @@ class LowMemoryDecodeTest {
     }
   }
 
-  /** A FileDescriptorSet with one message {@code t.M { string p = 1; }}. */
+  /**
+   * A FileDescriptorSet with {@code t.M { string p = 1; repeated Wide w = 2; }} and a {@code Wide}
+   * of 100 int32 fields.
+   */
   private static String protobufConfig() {
+    DescriptorProto.Builder wide = DescriptorProto.newBuilder().setName("Wide");
+    for (int i = 1; i <= 100; i++) {
+      wide.addField(
+          FieldDescriptorProto.newBuilder()
+              .setName("f" + i)
+              .setNumber(i)
+              .setType(FieldDescriptorProto.Type.TYPE_INT32));
+    }
     FileDescriptorProto file =
         FileDescriptorProto.newBuilder()
             .setName("t.proto")
             .setPackage("t")
             .setSyntax("proto3")
+            .addMessageType(wide)
             .addMessageType(
                 DescriptorProto.newBuilder()
                     .setName("M")
@@ -468,7 +480,14 @@ class LowMemoryDecodeTest {
                         FieldDescriptorProto.newBuilder()
                             .setName("p")
                             .setNumber(1)
-                            .setType(FieldDescriptorProto.Type.TYPE_STRING)))
+                            .setType(FieldDescriptorProto.Type.TYPE_STRING))
+                    .addField(
+                        FieldDescriptorProto.newBuilder()
+                            .setName("w")
+                            .setNumber(2)
+                            .setType(FieldDescriptorProto.Type.TYPE_MESSAGE)
+                            .setTypeName(".t.Wide")
+                            .setLabel(FieldDescriptorProto.Label.LABEL_REPEATED)))
             .build();
     String set =
         Base64.getEncoder()
@@ -536,6 +555,20 @@ class LowMemoryDecodeTest {
                     new ByteArrayInputStream(protobufMessage("ok")))));
     assertEquals(
         Map.of("Oversized", 1L, "Decoded", 1L), count(decoder(protobufConfig()), input, LIMITS));
+  }
+
+  @Test
+  void protobufMessageOfEmptyWideSubmessagesIsMalformedNotAnOutOfMemory() {
+    int entries = 512 * 1024 - 8;
+    ByteArrayOutputStream bomb = new ByteArrayOutputStream();
+    writeVarint(bomb, entries * 2L);
+    for (int i = 0; i < entries; i++) {
+      bomb.write(0x12);
+      bomb.write(0);
+    }
+    InputStream input = new ByteArrayInputStream(concat(bomb.toByteArray(), protobufMessage("ok")));
+    assertEquals(
+        Map.of("Failed", 1L, "Decoded", 1L), count(decoder(protobufConfig()), input, LIMITS));
   }
 
   private static Map<String, Long> count(

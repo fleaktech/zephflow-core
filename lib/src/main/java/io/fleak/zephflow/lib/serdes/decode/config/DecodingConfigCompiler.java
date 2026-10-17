@@ -251,26 +251,42 @@ public final class DecodingConfigCompiler {
     }
     FileDescriptorSet set;
     try {
-      set = FileDescriptorSet.parseFrom(Base64.getDecoder().decode(descriptorSet));
+      set = FileDescriptorSet.parseFrom(Base64.getMimeDecoder().decode(descriptorSet));
     } catch (IllegalArgumentException | InvalidProtocolBufferException e) {
       throw new IllegalArgumentException(
           "protobuf descriptorSet is not a base64 FileDescriptorSet: " + e.getMessage(), e);
     }
     Map<String, FileDescriptorProto> protos = new HashMap<>();
     for (FileDescriptorProto file : set.getFileList()) {
-      protos.put(file.getName(), file);
+      FileDescriptorProto earlier = protos.put(file.getName(), file);
+      if (earlier != null && !earlier.equals(file)) {
+        throw new IllegalArgumentException(
+            "protobuf descriptorSet has two different files named " + file.getName());
+      }
     }
     Map<String, FileDescriptor> built = new HashMap<>();
     String wanted = messageType.startsWith(".") ? messageType.substring(1) : messageType;
-    for (FileDescriptorProto file : set.getFileList()) {
+    List<Descriptor> found = new ArrayList<>();
+    for (FileDescriptorProto file : protos.values()) {
       for (Descriptor message : allMessages(build(file, protos, built, new HashSet<>()))) {
         if (message.getFullName().equals(wanted)) {
-          return message;
+          found.add(message);
         }
       }
     }
-    throw new IllegalArgumentException(
-        "protobuf message type " + messageType + " is not in the descriptorSet");
+    if (found.isEmpty()) {
+      throw new IllegalArgumentException(
+          "protobuf message type " + messageType + " is not in the descriptorSet");
+    }
+    if (found.size() > 1) {
+      throw new IllegalArgumentException(
+          "protobuf message type " + messageType + " is defined in more than one file");
+    }
+    if (found.get(0).getOptions().getMapEntry()) {
+      throw new IllegalArgumentException(
+          "protobuf message type " + messageType + " is a map entry, not a message");
+    }
+    return found.get(0);
   }
 
   private static List<Descriptor> allMessages(FileDescriptor file) {

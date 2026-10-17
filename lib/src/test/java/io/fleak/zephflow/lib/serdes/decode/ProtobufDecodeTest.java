@@ -33,15 +33,19 @@ import com.google.protobuf.Descriptors.DescriptorValidationException;
 import com.google.protobuf.Descriptors.FileDescriptor;
 import com.google.protobuf.Duration;
 import com.google.protobuf.DynamicMessage;
+import com.google.protobuf.Int64Value;
 import com.google.protobuf.Message;
 import com.google.protobuf.Timestamp;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class ProtobufDecodeTest {
@@ -59,6 +63,30 @@ class ProtobufDecodeTest {
     return field(name, number, type).toBuilder().setTypeName(typeName).build();
   }
 
+  private static DescriptorProto mapEntry(String name, Type keyType) {
+    return DescriptorProto.newBuilder()
+        .setName(name)
+        .setOptions(MessageOptions.newBuilder().setMapEntry(true))
+        .addField(field("key", 1, keyType))
+        .addField(field("value", 2, Type.TYPE_INT32))
+        .build();
+  }
+
+  private static FieldDescriptorProto mapField(String name, int number, String entry) {
+    return field(name, number, Type.TYPE_MESSAGE, ".test.All." + entry).toBuilder()
+        .setLabel(Label.LABEL_REPEATED)
+        .build();
+  }
+
+  /** A message of 100 int32 fields, so an empty one becomes 100 defaults. */
+  private static DescriptorProto wide() {
+    DescriptorProto.Builder wide = DescriptorProto.newBuilder().setName("Wide");
+    for (int i = 1; i <= 100; i++) {
+      wide.addField(field("f" + i, i, Type.TYPE_INT32));
+    }
+    return wide.build();
+  }
+
   private static final FileDescriptorProto PROTO3 =
       FileDescriptorProto.newBuilder()
           .setName("test.proto")
@@ -66,6 +94,7 @@ class ProtobufDecodeTest {
           .setSyntax("proto3")
           .addDependency("google/protobuf/timestamp.proto")
           .addDependency("google/protobuf/duration.proto")
+          .addDependency("google/protobuf/wrappers.proto")
           .addEnumType(
               EnumDescriptorProto.newBuilder()
                   .setName("Color")
@@ -75,6 +104,13 @@ class ProtobufDecodeTest {
               DescriptorProto.newBuilder()
                   .setName("Inner")
                   .addField(field("x", 1, Type.TYPE_STRING)))
+          .addMessageType(wide())
+          .addMessageType(
+              DescriptorProto.newBuilder()
+                  .setName("Holder")
+                  .addField(
+                      field("w", 1, Type.TYPE_MESSAGE, ".test.Wide").toBuilder()
+                          .setLabel(Label.LABEL_REPEATED)))
           .addMessageType(
               DescriptorProto.newBuilder()
                   .setName("All")
@@ -105,14 +141,22 @@ class ProtobufDecodeTest {
                           .setOneofIndex(1))
                   .addField(field("a", 20, Type.TYPE_STRING).toBuilder().setOneofIndex(0))
                   .addField(field("c", 21, Type.TYPE_INT32).toBuilder().setOneofIndex(0))
+                  .addField(field("s64", 22, Type.TYPE_SINT64))
+                  .addField(field("sf32", 23, Type.TYPE_SFIXED32))
+                  .addField(field("sf64", 24, Type.TYPE_SFIXED64))
+                  .addField(mapField("mi", 25, "MiEntry"))
+                  .addField(mapField("mb", 26, "MbEntry"))
+                  .addField(mapField("mu", 27, "MuEntry"))
+                  .addField(
+                      field("inners", 28, Type.TYPE_MESSAGE, ".test.Inner").toBuilder()
+                          .setLabel(Label.LABEL_REPEATED))
+                  .addField(field("wrapped", 29, Type.TYPE_MESSAGE, ".google.protobuf.Int64Value"))
                   .addOneofDecl(OneofDescriptorProto.newBuilder().setName("choice"))
                   .addOneofDecl(OneofDescriptorProto.newBuilder().setName("_opt"))
-                  .addNestedType(
-                      DescriptorProto.newBuilder()
-                          .setName("MEntry")
-                          .setOptions(MessageOptions.newBuilder().setMapEntry(true))
-                          .addField(field("key", 1, Type.TYPE_STRING))
-                          .addField(field("value", 2, Type.TYPE_INT32))))
+                  .addNestedType(mapEntry("MEntry", Type.TYPE_STRING))
+                  .addNestedType(mapEntry("MiEntry", Type.TYPE_INT32))
+                  .addNestedType(mapEntry("MbEntry", Type.TYPE_BOOL))
+                  .addNestedType(mapEntry("MuEntry", Type.TYPE_UINT64)))
           .build();
 
   private static final FileDescriptorProto PROTO2 =
@@ -125,7 +169,12 @@ class ProtobufDecodeTest {
                   .setName("Req")
                   .addField(
                       field("need", 1, Type.TYPE_INT32).toBuilder().setLabel(Label.LABEL_REQUIRED))
-                  .addField(field("maybe", 2, Type.TYPE_INT32)))
+                  .addField(field("maybe", 2, Type.TYPE_INT32))
+                  .addField(field("color", 3, Type.TYPE_ENUM, ".old.Shade")))
+          .addEnumType(
+              EnumDescriptorProto.newBuilder()
+                  .setName("Shade")
+                  .addValue(EnumValueDescriptorProto.newBuilder().setName("DARK").setNumber(0)))
           .build();
 
   private static final FileDescriptorSet SET =
@@ -134,6 +183,7 @@ class ProtobufDecodeTest {
           .addFile(PROTO2)
           .addFile(Timestamp.getDescriptor().getFile().toProto())
           .addFile(Duration.getDescriptor().getFile().toProto())
+          .addFile(Int64Value.getDescriptor().getFile().toProto())
           .build();
 
   private static final Descriptor ALL;
@@ -145,7 +195,9 @@ class ProtobufDecodeTest {
           FileDescriptor.buildFrom(
               PROTO3,
               new FileDescriptor[] {
-                Timestamp.getDescriptor().getFile(), Duration.getDescriptor().getFile()
+                Timestamp.getDescriptor().getFile(),
+                Duration.getDescriptor().getFile(),
+                Int64Value.getDescriptor().getFile()
               });
       ALL = proto3.findMessageTypeByName("All");
       REQ = FileDescriptor.buildFrom(PROTO2, new FileDescriptor[0]).findMessageTypeByName("Req");
@@ -164,12 +216,21 @@ class ProtobufDecodeTest {
         + "\"}}";
   }
 
+  private static String setConfig(FileDescriptorSet set, String messageType) {
+    return "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
+        + Base64.getEncoder().encodeToString(set.toByteArray())
+        + "\",\"messageType\":\""
+        + messageType
+        + "\",\"framing\":\"single\"}}";
+  }
+
   private static final String SINGLE = config("test.All", "single");
   private static final String DELIMITED = config("test.All", "varint_delimited");
 
   private static final String DEFAULTS =
       "\"i32\":0,\"i64\":0,\"u32\":0,\"u64\":0,\"s32\":0,\"f32\":0,\"f64\":0,\"f\":0.0,\"d\":0.0,"
-          + "\"b\":false,\"s\":\"\",\"by\":\"\",\"e\":\"RED\",\"rep\":[],\"m\":{}";
+          + "\"b\":false,\"s\":\"\",\"by\":\"\",\"e\":\"RED\",\"rep\":[],\"m\":{},\"s64\":0,"
+          + "\"sf32\":0,\"sf64\":0,\"mi\":{},\"mb\":{},\"mu\":{},\"inners\":[]";
 
   private static DynamicMessage.Builder all() {
     return DynamicMessage.newBuilder(ALL);
@@ -190,6 +251,17 @@ class ProtobufDecodeTest {
       throw new UncheckedIOException(e);
     }
     return bytes.toByteArray();
+  }
+
+  private static void putEntry(
+      DynamicMessage.Builder builder, String field, Object key, int value) {
+    Descriptor entry = ALL.findFieldByName(field).getMessageType();
+    builder.addRepeatedField(
+        ALL.findFieldByName(field),
+        DynamicMessage.newBuilder(entry)
+            .setField(entry.findFieldByName("key"), key)
+            .setField(entry.findFieldByName("value"), value)
+            .build());
   }
 
   @Test
@@ -227,6 +299,15 @@ class ProtobufDecodeTest {
     set(b, "dur", Duration.newBuilder().setSeconds(2).setNanos(5_000_000).build());
     set(b, "opt", 0);
     set(b, "c", 3);
+    set(b, "s64", -9L);
+    set(b, "sf32", -3);
+    set(b, "sf64", Long.MIN_VALUE);
+    putEntry(b, "mi", -4, 1);
+    putEntry(b, "mb", true, 2);
+    putEntry(b, "mu", -1L, 3);
+    b.addRepeatedField(ALL.findFieldByName("inners"), inner("p"));
+    b.addRepeatedField(ALL.findFieldByName("inners"), inner("q"));
+    set(b, "wrapped", Int64Value.of(5));
     byte[] input = b.build().toByteArray();
     assertEquals(
         List.of(
@@ -235,7 +316,10 @@ class ProtobufDecodeTest {
                     "{\"i32\":-5,\"i64\":1099511627776,\"u32\":4294967295,\"u64\":18446744073709551615,"
                         + "\"s32\":-7,\"f32\":4294967294,\"f64\":3,\"f\":0.5,\"d\":\"NaN\",\"b\":true,"
                         + "\"s\":\"hi\",\"by\":\"AQID\",\"e\":\"BLUE\",\"inner\":{\"x\":\"in\"},"
-                        + "\"rep\":[4,5],\"m\":{\"k\":9},\"ts\":-500,\"dur\":2005,\"opt\":0,\"c\":3}"),
+                        + "\"rep\":[4,5],\"m\":{\"k\":9},\"ts\":-500,\"dur\":2005,\"opt\":0,\"c\":3,"
+                        + "\"s64\":-9,\"sf32\":-3,\"sf64\":-9223372036854775808,\"mi\":{\"-4\":1},"
+                        + "\"mb\":{\"true\":2},\"mu\":{\"18446744073709551615\":3},"
+                        + "\"inners\":[{\"x\":\"p\"},{\"x\":\"q\"}],\"wrapped\":{\"value\":5}}"),
                 1,
                 new RawSpan(0, input.length))),
         decode(SINGLE, input));
@@ -400,11 +484,165 @@ class ProtobufDecodeTest {
             "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
                 + missingDependency
                 + "\",\"messageType\":\"test.All\",\"framing\":\"single\"}}");
-    for (String config : bad) {
+    FileDescriptorProto otherA = PROTO2.toBuilder().setPackage("other").build();
+    FileDescriptorProto cycleA =
+        FileDescriptorProto.newBuilder().setName("a.proto").addDependency("b.proto").build();
+    FileDescriptorProto cycleB =
+        FileDescriptorProto.newBuilder().setName("b.proto").addDependency("a.proto").build();
+    FileDescriptorProto invalid =
+        FileDescriptorProto.newBuilder()
+            .setName("bad.proto")
+            .setPackage("bad")
+            .addMessageType(
+                DescriptorProto.newBuilder()
+                    .setName("B")
+                    .addField(field("x", 1, Type.TYPE_MESSAGE, ".nope.X")))
+            .build();
+    List<String> moreBad = new ArrayList<>(bad);
+    moreBad.add(
+        setConfig(
+            FileDescriptorSet.newBuilder().addFile(PROTO2).addFile(otherA).build(), "old.Req"));
+    moreBad.add(
+        setConfig(FileDescriptorSet.newBuilder().addFile(cycleA).addFile(cycleB).build(), "x.Y"));
+    moreBad.add(setConfig(FileDescriptorSet.newBuilder().addFile(invalid).build(), "bad.B"));
+    moreBad.add(setConfig(SET, "test.All.MEntry"));
+    moreBad.add(
+        "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\"AAAA\",\"messageType\":\"test.All\",\"framing\":\"single\"}}");
+    moreBad.add(
+        "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
+            + set
+            + "\",\"framing\":\"single\"}}");
+    for (String config : moreBad) {
       assertThrows(IllegalArgumentException.class, () -> decoder(config), config);
     }
+    assertThrows(
+        UncheckedIOException.class,
+        () ->
+            decoder(
+                "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
+                    + set
+                    + "\",\"messageType\":\"test.All\",\"framing\":\"nope\"}}"));
+    String wrapped =
+        Base64.getMimeEncoder().encodeToString(SET.toByteArray()).replace("\r\n", "\\n");
+    assertEquals(
+        List.of(new Ok(json("{\"x\":\"a\"}"), 1, new RawSpan(0, 3))),
+        decode(
+            "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
+                + wrapped
+                + "\",\"messageType\":\"test.Inner\",\"framing\":\"single\"}}",
+            inner("a").toByteArray()));
     assertEquals(
         List.of(new Ok(json("{\"x\":\"a\"}"), 1, new RawSpan(0, 3))),
         decode(config(".test.Inner", "single"), inner("a").toByteArray()));
+  }
+
+  @Test
+  void unsignedValuesAbove2To63AreLargeNumbersNotSaturated() {
+    byte[] input = set(all(), "u64", -1L).build().toByteArray();
+    Map<?, ?> record = (Map<?, ?>) ((Ok) decode(SINGLE, input).get(0)).record().unwrap();
+    assertEquals(1.8446744073709552E19, record.get("u64"));
+  }
+
+  @Test
+  void timesRoundDownAndOverflowIsMalformed() {
+    byte[] negative =
+        set(all(), "dur", Duration.newBuilder().setSeconds(-1).setNanos(-500_000).build())
+            .build()
+            .toByteArray();
+    assertEquals(
+        List.of(
+            new Ok(json("{" + DEFAULTS + ",\"dur\":-1001}"), 1, new RawSpan(0, negative.length))),
+        decode(SINGLE, negative));
+    byte[] overflow =
+        set(all(), "ts", Timestamp.newBuilder().setSeconds(Long.MAX_VALUE).build())
+            .build()
+            .toByteArray();
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(overflow, StandardCharsets.UTF_8),
+                -1,
+                new RawSpan(0, overflow.length),
+                "MalformedProtobufException: google.protobuf.Timestamp of 9223372036854775807 seconds is out of range",
+                true)),
+        decode(SINGLE, overflow));
+  }
+
+  @Test
+  void unknownFieldsAreIgnoredAndClosedEnumsDropUnknownValues() {
+    assertEquals(
+        List.of(new Ok(json("{" + DEFAULTS + "}"), 1, new RawSpan(0, 3))),
+        decode(SINGLE, new byte[] {(byte) 0x98, 0x06, 1}));
+    assertEquals(
+        List.of(new Ok(json("{\"need\":1}"), 1, new RawSpan(0, 4))),
+        decode(config("old.Req", "single"), new byte[] {8, 1, 24, 7}));
+  }
+
+  @Test
+  void emptySubmessagesCannotExpandWithoutBound() {
+    String holder = config("test.Holder", "single");
+    byte[] few = new byte[20];
+    for (int i = 0; i < few.length; i += 2) {
+      few[i] = 0x0A;
+    }
+    StringBuilder zeros = new StringBuilder("{");
+    for (int i = 1; i <= 100; i++) {
+      zeros.append(i == 1 ? "" : ",").append("\"f").append(i).append("\":0");
+    }
+    String wide = zeros.append('}').toString();
+    assertEquals(
+        List.of(
+            new Ok(
+                json("{\"w\":[" + String.join(",", Collections.nCopies(10, wide)) + "]}"),
+                1,
+                new RawSpan(0, 20))),
+        decode(holder, few));
+    byte[] many = new byte[40_000];
+    for (int i = 0; i < many.length; i += 2) {
+      many[i] = 0x0A;
+    }
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(many, StandardCharsets.UTF_8),
+                -1,
+                new RawSpan(0, many.length),
+                "MalformedProtobufException: message would build more than 16 values per byte plus 1000000",
+                true)),
+        decode(holder, many));
+  }
+
+  @Test
+  void limitsAreExactForBothFramings() {
+    byte[] message = inner("abc").toByteArray();
+    byte[] framed = delimited(inner("abc"));
+    String single = config("test.Inner", "single");
+    assertEquals(
+        List.of(new Ok(json("{\"x\":\"abc\"}"), 1, new RawSpan(0, message.length))),
+        decode(decoder(single), ByteInput.ofBytes(message), new DecodeLimits(0, message.length)));
+    assertEquals(
+        List.of(
+            new Big(
+                -1,
+                RawSpan.toEnd(0),
+                message.length,
+                new String(message, StandardCharsets.UTF_8),
+                true)),
+        decode(
+            decoder(single), ByteInput.ofBytes(message), new DecodeLimits(0, message.length - 1)));
+    assertEquals(
+        List.of(new Ok(json("{\"x\":\"abc\"}"), 1, new RawSpan(1, message.length))),
+        decode(decoder(INNER), ByteInput.ofBytes(framed), new DecodeLimits(message.length, 0)));
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                new RawSpan(1, message.length),
+                message.length,
+                new String(message, StandardCharsets.UTF_8),
+                false)),
+        decode(decoder(INNER), ByteInput.ofBytes(framed), new DecodeLimits(message.length - 1, 0)));
   }
 }

@@ -35,27 +35,59 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Protobuf messages to records, by field name. A field with presence (proto2, proto3 {@code
- * optional}, message fields, oneof members) appears only when set; a proto3 scalar without presence
- * always appears, with its default when unset. Unsigned integers are never negative, Timestamp and
- * Duration become milliseconds, bytes become base64, and enums their name (or number when unknown).
+ * Protobuf messages to records, by field name. Unset fields are filled in with defaults, so the
+ * values built are budgeted: {@link #OBJECTS_PER_BYTE} per input byte plus {@link #EXTRA_OBJECTS},
+ * as for avro. Without that, every two-byte empty submessage would become a record of the whole
+ * type's defaults. A field with presence (proto2, proto3 {@code optional}, message fields, oneof
+ * members) appears only when set; a proto3 scalar without presence always appears, with its default
+ * when unset. Unsigned integers are never negative, Timestamp and Duration become milliseconds,
+ * bytes become base64, and enums their name (or number when an open enum has an unknown value;
+ * protobuf drops unknown values of closed proto2 enums).
  */
 final class ProtobufRecords {
 
-  private ProtobufRecords() {}
+  static final long OBJECTS_PER_BYTE = 16;
+  static final long EXTRA_OBJECTS = 1_000_000;
 
-  static RecordFleakData parse(Descriptor type, byte[] bytes) throws IOException {
-    DynamicMessage message =
-        DynamicMessage.newBuilder(type).mergeFrom(CodedInputStream.newInstance(bytes)).build();
-    return message(message);
+  private long objects;
+
+  private ProtobufRecords(long objects) {
+    this.objects = objects;
   }
 
-  private static RecordFleakData message(Message message) {
+  static RecordFleakData parse(Descriptor type, byte[] bytes) throws IOException {
+    long budget = OBJECTS_PER_BYTE * bytes.length + EXTRA_OBJECTS;
+    ObjectBudget.check(type, bytes, budget);
+    DynamicMessage message;
+    try {
+      message =
+          DynamicMessage.newBuilder(type).mergeFrom(CodedInputStream.newInstance(bytes)).build();
+    } catch (StackOverflowError e) {
+      throw new MalformedProtobufException("message nests too deeply for the thread stack", e);
+    }
+    return new ProtobufRecords(budget).message(message);
+  }
+
+  private void build(long count) throws MalformedProtobufException {
+    objects -= count;
+    if (objects < 0) {
+      throw new MalformedProtobufException(
+          "message would build more than "
+              + OBJECTS_PER_BYTE
+              + " values per byte plus "
+              + EXTRA_OBJECTS);
+    }
+  }
+
+  private RecordFleakData message(Message message) throws MalformedProtobufException {
+    build(message.getDescriptorForType().getFields().size() + 1L);
     Map<String, FleakData> fields = new HashMap<>();
     for (FieldDescriptor field : message.getDescriptorForType().getFields()) {
       if (field.isMapField()) {
         Map<String, FleakData> entries = new HashMap<>();
-        for (Object entry : (List<?>) message.getField(field)) {
+        List<?> pairs = (List<?>) message.getField(field);
+        build(2L * pairs.size());
+        for (Object entry : pairs) {
           Message pair = (Message) entry;
           Descriptor pairType = pair.getDescriptorForType();
           FieldDescriptor key = pairType.findFieldByNumber(1);
@@ -64,8 +96,10 @@ final class ProtobufRecords {
         }
         fields.put(field.getName(), new RecordFleakData(entries));
       } else if (field.isRepeated()) {
+        List<?> values = (List<?>) message.getField(field);
+        build(values.size());
         List<FleakData> items = new ArrayList<>();
-        for (Object item : (List<?>) message.getField(field)) {
+        for (Object item : values) {
           items.add(value(field, item));
         }
         fields.put(field.getName(), new ArrayFleakData(items));
@@ -76,7 +110,7 @@ final class ProtobufRecords {
     return new RecordFleakData(fields);
   }
 
-  private static FleakData value(FieldDescriptor field, Object value) {
+  private FleakData value(FieldDescriptor field, Object value) throws MalformedProtobufException {
     return switch (field.getJavaType()) {
       case INT -> {
         int n = (Integer) value;
@@ -85,7 +119,7 @@ final class ProtobufRecords {
       case LONG -> {
         long n = (Long) value;
         yield unsigned64(field) && n < 0
-            ? new NumberPrimitiveFleakData(unsignedAsDouble(n), NumberType.LONG)
+            ? new NumberPrimitiveFleakData(unsignedAsDouble(n), NumberType.DOUBLE)
             : number(n);
       }
       case FLOAT -> real(((Float) value).doubleValue());
@@ -105,17 +139,20 @@ final class ProtobufRecords {
     };
   }
 
-  private static FleakData wellKnownOrMessage(Message message) {
+  /** Timestamp and Duration become milliseconds, rounded down; an overflow is malformed. */
+  private FleakData wellKnownOrMessage(Message message) throws MalformedProtobufException {
     String name = message.getDescriptorForType().getFullName();
     if (name.equals("google.protobuf.Timestamp") || name.equals("google.protobuf.Duration")) {
       Descriptor type = message.getDescriptorForType();
       long seconds = (Long) message.getField(type.findFieldByNumber(1));
       int nanos = (Integer) message.getField(type.findFieldByNumber(2));
-      long millis =
-          name.equals("google.protobuf.Timestamp")
-              ? Math.floorDiv(nanos, 1_000_000)
-              : nanos / 1_000_000;
-      return number(Math.addExact(Math.multiplyExact(seconds, 1000L), millis));
+      try {
+        return number(
+            Math.addExact(Math.multiplyExact(seconds, 1000L), Math.floorDiv(nanos, 1_000_000)));
+      } catch (ArithmeticException e) {
+        throw new MalformedProtobufException(
+            name + " of " + seconds + " seconds is out of range", e);
+      }
     }
     return message(message);
   }
