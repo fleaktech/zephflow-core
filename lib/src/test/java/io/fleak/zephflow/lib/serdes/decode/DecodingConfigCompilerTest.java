@@ -60,7 +60,18 @@ class DecodingConfigCompilerTest {
             "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\"}}}",
             "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"a\",\"continuePattern\":\"b\"}}}",
             "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"(\"}}}",
-            "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"a\",\"maxLines\":0}}}")) {
+            "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"a\",\"maxLines\":0}}}",
+            "{\"format\":{\"type\":\"csv\",\"delimiter\":\";;\"}}",
+            "{\"format\":{\"type\":\"csv\",\"delimiter\":\"\"}}",
+            "{\"format\":{\"type\":\"csv\",\"delimiter\":\"\\n\"}}",
+            "{\"format\":{\"type\":\"csv\",\"delimiter\":\"\u00a7\"}}",
+            "{\"format\":{\"type\":\"csv\",\"delimiter\":\"'\",\"quote\":\"'\"}}",
+            "{\"format\":{\"type\":\"csv\",\"escape\":\"#\",\"commentMarker\":\"#\"}}",
+            "{\"format\":{\"type\":\"csv\",\"skipLines\":-1}}",
+            "{\"format\":{\"type\":\"csv\",\"columns\":[]}}",
+            "{\"format\":{\"type\":\"csv\",\"columns\":[\"a\",\"a\"]}}",
+            "{\"format\":{\"type\":\"csv\",\"columns\":[\"\"]}}",
+            "{\"format\":{\"type\":\"csv\",\"charset\":\"nope\"}}")) {
       assertThrows(IllegalArgumentException.class, () -> decoder(bad), bad);
     }
     assertThrows(IllegalArgumentException.class, () -> DecodingConfigCompiler.compile(null));

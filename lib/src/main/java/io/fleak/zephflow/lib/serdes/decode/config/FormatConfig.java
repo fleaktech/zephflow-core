@@ -18,7 +18,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
+  @JsonSubTypes.Type(value = CsvFormatConfig.class, name = "csv"),
   @JsonSubTypes.Type(value = JsonFormatConfig.class, name = "json"),
   @JsonSubTypes.Type(value = TextFormatConfig.class, name = "text"),
 })
-public sealed interface FormatConfig permits JsonFormatConfig, TextFormatConfig {}
+public sealed interface FormatConfig permits CsvFormatConfig, JsonFormatConfig, TextFormatConfig {}

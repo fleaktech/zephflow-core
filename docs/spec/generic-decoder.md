@@ -104,12 +104,13 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 ### 3.4 Limits
 
 - `maxRecordBytes` bounds one record. Formats the decoder frames itself (line, multiline, json
-  lines, length-prefixed protobuf) enforce it exactly. Library-parsed formats (json array, csv,
+  lines, csv, length-prefixed protobuf) enforce it exactly. Library-parsed formats (json array,
   xml elements, yaml multi-document) enforce it with 64 KiB of slack for parser read-ahead.
 - `maxDocumentBytes` bounds a unit held whole: a whole document, a decompressed avro block, a
   parquet row group. Avro and parquet sizes are checked before allocating.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
-  formats continue with the next record; the others stop (`terminal=true`).
+  formats and csv continue with the next record (csv stops only when a quote stays open to the end);
+  the others stop (`terminal=true`).
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -119,8 +120,8 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `recordIndex`: physical line number for line framing (first line for multiline), otherwise the
   record ordinal starting at 1.
 - `span` is the record's offset and length in the stream after decompression and transcoding. It is
-  given where exact (line-based formats, json array elements, whole documents) and null otherwise
-  (csv, xml elements, yaml multi-document, avro, parquet).
+  given where exact (line-based formats, csv, json array elements, whole documents) and null
+  otherwise (xml elements, yaml multi-document, avro, parquet).
 - `Failed.raw` holds the record's bytes where they can be located; otherwise it is empty and the
   caller uses `span`, or fetches the input again.
 
@@ -155,7 +156,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 |---|---|---|
 | `json` | `mode`: `object`, `array`, `lines` | Each record must be an object. UTF-16/UTF-32 input is detected (RFC 4627 §3) and transcoded |
 | `text` | `charset` (default UTF-8); `framing`: `line` (`skipBlank`, default true), `multiline` (`startPattern` or `continuePattern`, `maxLines`), `whole` | `{"__raw__": "<text>"}`. Lines split on LF, CRLF, CR; one leading BOM is removed |
-| `csv` | `delimiter`, `quote`, `escape`, `header` (`first_line`, `none`, or names), `skipLines`, `commentMarker`, `ignoreSurroundingSpaces`, `charset` | One object per row; values are strings |
+| `csv` | `delimiter` (default `,`), `quote` (default `"`, `""` turns quoting off), `escape`, `header` (default true), `columns`, `skipLines`, `commentMarker`, `ignoreSurroundingSpaces` (default false), `charset` | One object per row; values are strings |
 | `xml` | `mode`: `document`, or `elements` with `recordPath` | DTDs and external entities are disabled |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (schema from the file), `datum` (schema in config) | One record per avro record |
@@ -164,15 +165,35 @@ Compression inside avro and parquet belongs to those formats and is not configur
 
 **Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
 anchor it with `^`. With `startPattern`, a matching line starts a new event and other lines join the
-current one. With `continuePattern`, a matching line joins the current event and other lines start
-a new one. The first line of the input always starts an event, so lines before the first start
-line, or a leading continuation line, form an event of their own. Blank lines follow the same rule:
-with `startPattern` they stay in the current event, and with `continuePattern` they start a new one
-unless the pattern matches them. An event keeps its inner line endings as they were. It is emitted when the next event
-starts or the input ends. Events made only of blank lines are skipped. An event over `maxLines` or
-`maxRecordBytes` is reported whole as `Oversized`, even if it is blank, and the lines that continue
-it are counted into it, so a stack trace never splits into records that look valid. An oversized
-line is matched by its 4 KiB preview.
+current one. With `continuePattern`, a matching line joins the current event and other lines start a
+new one. The first line of the input always starts an event, so lines before the first start line,
+or a leading continuation line, form an event of their own. Blank lines follow the same rule: with
+`startPattern` they stay in the current event, and with `continuePattern` they start a new one
+unless the pattern matches them. An event keeps its inner line endings as they were. It is emitted
+when the next event starts or the input ends. Events made only of blank lines are skipped. An event
+over `maxLines` or `maxRecordBytes` is reported whole as `Oversized`, even if it is blank, and the
+lines that continue it are counted into it, so a stack trace never splits into records that look
+valid. An oversized line is matched by its 4 KiB preview.
+
+**CSV.** Records follow RFC 4180: they end at LF, CRLF or CR outside quotes; a quoted field may hold
+delimiters and line breaks, and `""` inside it is one quote. A quote inside an unquoted field is a
+literal character. `escape`, when set, makes the next character literal anywhere, including a line
+break. The single-character options must be ASCII, differ from each other and not be CR or LF; an
+empty `escape` or `commentMarker` means off. `ignoreSurroundingSpaces` trims spaces and tabs (except
+the delimiter) around fields and outside quotes.
+
+Names come from `columns` if given, otherwise from the header line when `header` is true, otherwise
+`_c0`, `_c1`, … (rows may then differ in length). An empty header name becomes `_c<i>`. With
+`header` true and `columns` given, the header line is skipped without being checked. `skipLines`
+drops physical lines before anything else, ignoring quotes. Empty lines and lines starting with
+`commentMarker` are skipped; a line of only spaces is a row.
+
+Text after a closing quote (other than ignored spaces) is `MALFORMED`, as are a row whose column
+count differs from the names and a row over 16,384 columns (Excel's limit; each field costs far more
+memory than its bytes). Decoding continues with the next row. A quote left open until the end of the
+input is terminal. When names come from the header line, a header that is malformed, oversized or
+has duplicate names is terminal, reported with `recordIndex` 0 and a span to the end of the input;
+data rows count from 1.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -206,7 +227,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 |---|---|---|
 | 1 | API, config and compiler, error classification, budgets, `gzip` + `auto`, `json` (all modes), `text` `line` + `whole` (UTF-8), `lowMemoryTest` task | Done (#339) |
 | 2 | `text` `multiline`, non-UTF-8 text | Done (#340) |
-| 3 | `csv` | Planned |
+| 3 | `csv` | Done (#341) |
 | 4 | `xml`, `yaml` | Planned |
 | 5 | Remaining codecs | Planned |
 | 6 | `avro` | Planned |
@@ -235,8 +256,8 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   emitted; the terminal outcome's `span` starts at its first byte.
 - An oversized record in a library-parsed format ends decoding of that input, because the start of
   the next record cannot be found.
-- csv `raw` is the row re-joined; xml elements and yaml multi-document have empty `raw`; avro and
-  parquet records have no bytes of their own.
+- xml elements and yaml multi-document have empty `raw`; avro and parquet records have no bytes of
+  their own.
 - In a json array, more than 64 KiB of whitespace between elements counts toward the neighbouring
   record's budget.
 - A bad record in the middle of an avro file ends decoding; there is no resync at the next block.
@@ -268,3 +289,13 @@ Decisions made while implementing PR1 that refine the design above.
 | P18 | Unmarked `UTF-16` and `UTF-32` are resolved to a fixed byte order from the first bytes before decoding. `x-UTF-16LE-BOM` is handled like unmarked `UTF-16` but defaults to little-endian. The JDK UTF-32 charsets that drop a mark themselves (`X-UTF-32BE-BOM`, `X-UTF-32LE-BOM`) are replaced by their fixed-order forms. So no decoder drops a mark |
 | P19 | Line framing skips a UTF-8 byte order mark only on untranscoded input |
 | P20 | Malformed input skips the length the charset decoder reports. UTF-16 is the exception: it skips one code unit, because the JDK reports a lone high surrogate together with the unit after it. A pair cut off by the end of the input is one sequence |
+
+## 10. PR3 implementation notes
+
+| # | Note |
+|---|---|
+| P21 | CSV is scanned by our own byte-level parser, not commons-csv. All special characters are ASCII, so scanning UTF-8 bytes is safe. This gives every row an exact `span` and raw bytes, an exact `maxRecordBytes`, and an oversized row that is skipped to its end instead of ending the input. commons-csv only reports character positions, buffers ahead and has no per-record limit |
+| P22 | The header options are `header` (boolean) and `columns` (names) instead of `header: first_line \| none \| [names]`. It mirrors what FLE-2796 asks of the CSV serializer (an explicit column list and a header on/off switch), so reading and writing can use the same option names |
+| P23 | Quoting is turned off with `"quote": ""`, because an explicit JSON null cannot be told apart from an absent field |
+| P24 | RFC 4180 quoting by default: without `ignoreSurroundingSpaces`, a space before an opening quote makes the field unquoted, and a space after a closing quote is `MALFORMED` |
+| P25 | Rows are capped at 16,384 columns. A row of delimiters under `maxRecordBytes` costs about 200 bytes of heap per field, so without a cap one row could exhaust memory |
