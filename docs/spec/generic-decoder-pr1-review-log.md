@@ -1,5 +1,7 @@
 # PR1 code review log
 
+Spec: `docs/spec/generic-decoder.md`. P-numbers refer to its section 8.
+
 Tier M (A+B, cap 3). Mode: code. Base bcda85e (feature/generic-decoder).
 
 ## Round 1 — a550001
@@ -16,16 +18,16 @@ Verdicts: A = CHANGES, B = CHANGES.
 | A6 | medium | accepted: cuts inside a deflate body; whole outcome list compared | GzipDecodeTest `networkFailureAnywhere…` |
 | A7 | medium | accepted: after a read failure every later next() throws again | GuardedCursor; DecodingConfigCompilerTest `readFailureIsNotFollowedByACleanEnd` |
 | A8 / B3 | medium | accepted: ReadGuardStream retries 0-byte reads (up to 1000), then fails as a read failure | ReadGuardStream; test `zeroByteReadsAreRetried…` |
-| A9 | medium | accepted as plan deviation P8 (line framing never uses the budget flag; budget outcomes are terminal-only) | plan §7 |
-| A10 | medium | accepted: deviations P3–P13 recorded | plan §7; design doc §4.1/§5.1/§5.2 updated |
+| A9 | medium | accepted as P8 (line framing never uses the budget flag; budget outcomes are terminal-only) | spec §8 |
+| A10 | medium | accepted: deviations P3–P13 recorded | spec §8 |
 | A11 | low | accepted: text whole exact-limit test | TextDecodeTest |
 | A12 | low | accepted: unknown names assert UncheckedIOException caused by JsonMappingException | DecodingConfigCompilerTest |
 | A13 / B9 | low | accepted: whitespace-only array input → MALFORMED | JsonArrayFormat; test `whitespaceOnlyInputIsMalformed` |
-| A14 | medium (scope) | accepted as deviation P9 (kept) | plan §7 |
-| A15 | medium (scope) | accepted as deviation P11 (kept) | plan §7 |
-| A16 | low (scope) | accepted: blank definition recorded P10 | plan §7 |
+| A14 | medium (scope) | accepted as deviation P9 (kept) | spec §8 |
+| A15 | medium (scope) | accepted as deviation P11 (kept) | spec §8 |
+| A16 | low (scope) | accepted: blank definition recorded P10 | spec §8 |
 | B2 | medium | accepted: budget comparison rewritten to avoid overflow | BudgetCaptureStream; test `hugeLimitsDoNotOverflow` |
-| B6 | low | deferred: whitespace > 64 KiB between array elements counts toward the next element (plan P13) | — |
+| B6 | low | deferred: whitespace > 64 KiB between array elements counts toward the next element (P13) | — |
 | B7 | low | accepted: header cap raised to 1 MiB (P12); XLEN=65535 header test | GzipDecodeTest `headerWithEveryOptionalFieldDecodes` |
 | B8 | low | accepted: GuardedCursor unit tests incl. wrapped read failure | GuardedCursorTest |
 
@@ -42,10 +44,10 @@ Verdicts: A = CHANGES, B = CHANGES. All round-1 accepted findings FIXED except A
 | B5 | low | accepted: peek reads only what is needed; new PeekedStream never reads the source in the same call that replays peeked bytes (JDK PushbackInputStream does, losing them on failure — also fixed in auto-detect) | internal/PeekedStream; test `shortFirstRecordComesOutBeforeAGzipFailure` |
 | B6 | low | accepted: transcoded output drops the BOM | Utf8TranscodingStream |
 | B7 | low | accepted: 1 ms pause between zero-byte retries | ReadGuardStream; test `aStreamThatOnlyReturnsZeroBytes…` |
-| B8 | low | accepted: P6 and design §5.1 wording (member records confirmed only by its CRC) | plan §7, design |
-| A3 | medium | accepted as P13 (wording widened) | plan §7 |
-| A4 | medium | accepted as P15; design §6 updated | plan §7, design |
-| A6 | low | accepted: case-insensitivity recorded (P11); zero-read failure branch tested; no-progress guard recorded as untestable defensive code (P16) | plan §7; DecodingConfigCompilerTest |
+| B8 | low | accepted: P6 wording (member records confirmed only by its CRC) | spec §8 |
+| A3 | medium | accepted as P13 (wording widened) | spec §8 |
+| A4 | medium | accepted as P15 | spec §8 |
+| A6 | low | accepted: case-insensitivity recorded (P11); zero-read failure branch tested; no-progress guard recorded as untestable defensive code (P16) | spec §8; DecodingConfigCompilerTest |
 
 ## Round 3 (cap) — 719221b
 Verdicts: A = CHANGES (medium/low only), B = CHANGES (1 blocker). All round-2 accepted findings FIXED.
@@ -63,8 +65,8 @@ Verdicts: A = CHANGES (medium/low only), B = CHANGES (1 blocker). All round-2 ac
 Verdict: CLEAN. All five post-cap fixes FIXED (fuzz: 15,200 UTF-16/UTF-32 cases, 0 mismatches; the same fuzz hangs on 719221b).
 Accepted medium/low findings, recorded and not fixed here (carried into PR2):
 - RC-1 medium: JsonArrayDecodeTest gzip-cut test derives its expected count from the output; should use an independent inflater count like GzipDecodeTest.
-- RC-2 low: Utf8TranscodingStream no-progress guard has no test and is not in plan §7.
-- RC-3 low: plan P5 says every bad UTF-32 unit becomes its own U+FFFD, but D800+DC00 written as two code points is combined (deferred item).
+- RC-2 low: Utf8TranscodingStream no-progress guard has no test and is not in spec §8.
+- RC-3 low: P5 says every bad UTF-32 unit becomes its own U+FFFD, but D800+DC00 written as two code points is combined (deferred item).
 - RC-4 low: UTF-32 with a BOM followed by a real U+FEFF loses that U+FEFF (JDK strips the BOM, then dropLeadingBom drops the next one).
 
 ## Result
