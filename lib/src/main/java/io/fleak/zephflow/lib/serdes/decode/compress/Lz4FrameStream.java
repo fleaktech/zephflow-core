@@ -19,7 +19,6 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Arrays;
 import org.apache.commons.compress.compressors.lz4.BlockLZ4CompressorInputStream;
 import org.apache.commons.compress.compressors.lz4.XXHash32;
 
@@ -27,8 +26,8 @@ import org.apache.commons.compress.compressors.lz4.XXHash32;
  * The LZ4 frame format with our own frame loop; commons-compress only decodes block contents.
  * commons-compress's frame reader ends cleanly when the input stops right after an uncompressed
  * block's size, so the structure is checked here: a frame ends only at its end mark (and content
- * checksum), anything else at the end of the input is truncation. A block is handed on after its
- * checksum, when the frame has one, has been checked.
+ * checksum), anything else at the end of the input is truncation. A block without a checksum is
+ * decoded as it arrives and handed on in small pieces; a block with one is held until it matches.
  */
 final class Lz4FrameStream extends InputStream {
 
@@ -40,7 +39,10 @@ final class Lz4FrameStream extends InputStream {
   private final DecodeFlags flags;
   private byte[] block = new byte[0];
   private int blockPos;
-  private byte[] dictionary = new byte[0];
+  private InputStream streamed;
+  private Bounded streamedInput;
+  private long streamedSize;
+  private final Window window = new Window();
   private final XXHash32 content = new XXHash32();
   private boolean inFrame;
   private boolean independent;
@@ -72,15 +74,62 @@ final class Lz4FrameStream extends InputStream {
     if (len == 0) {
       return 0;
     }
-    while (blockPos == block.length) {
+    while (true) {
+      if (blockPos < block.length) {
+        int n = Math.min(len, block.length - blockPos);
+        System.arraycopy(block, blockPos, b, off, n);
+        blockPos += n;
+        return n;
+      }
+      if (streamed != null) {
+        int n = readStreamed(b, off, Math.min(len, LibraryCodecStream.MAX_READ));
+        if (n > 0) {
+          return n;
+        }
+        streamed = null;
+        continue;
+      }
       if (!nextBlock()) {
         return -1;
       }
     }
-    int n = Math.min(len, block.length - blockPos);
-    System.arraycopy(block, blockPos, b, off, n);
-    blockPos += n;
+  }
+
+  /** -1 once the block is complete; a block cut short or decoding too much is corrupt. */
+  private int readStreamed(byte[] b, int off, int len) throws IOException {
+    int n;
+    try {
+      n = streamed.read(b, off, len);
+    } catch (IOException | RuntimeException e) {
+      if (flags.anySet()) {
+        throw e;
+      }
+      throw corrupt(
+          streamedInput.truncated
+              ? "lz4 frame " + (frames + 1) + " is truncated"
+              : "lz4 block is corrupt: " + e.getMessage(),
+          e);
+    }
+    if (n < 0) {
+      if (streamedInput.remaining > 0) {
+        throw corrupt("lz4 frame " + (frames + 1) + " is truncated", null);
+      }
+      return -1;
+    }
+    streamedSize += n;
+    if (streamedSize > maxBlock) {
+      throw corrupt("lz4 block decodes to more than the frame's block size", null);
+    }
+    produce(b, off, n);
     return n;
+  }
+
+  private void produce(byte[] data, int off, int n) {
+    content.update(data, off, n);
+    produced += n;
+    if (!independent) {
+      window.add(data, off, n);
+    }
   }
 
   /** False at a clean end of the input, between frames. */
@@ -99,27 +148,34 @@ final class Lz4FrameStream extends InputStream {
     if (length > maxBlock) {
       throw corrupt("lz4 block of " + length + " bytes exceeds the frame's block size", null);
     }
+    if (!blockChecksum) {
+      streamedInput = new Bounded(in, length);
+      streamed = uncompressed ? streamedInput : blockDecoder(streamedInput);
+      streamedSize = 0;
+      setBlock(new byte[0]);
+      return true;
+    }
     byte[] data = readExactly(length);
-    if (blockChecksum && readInt("lz4 frame " + (frames + 1) + " is truncated") != hash(data)) {
+    if (readInt("lz4 frame " + (frames + 1) + " is truncated") != hash(data)) {
       throw corrupt("lz4 block checksum mismatch in frame " + (frames + 1), null);
     }
     byte[] decoded = uncompressed ? data : decompress(data);
-    content.update(decoded, 0, decoded.length);
-    produced += decoded.length;
-    if (!independent) {
-      remember(decoded);
-    }
+    produce(decoded, 0, decoded.length);
     setBlock(decoded);
     return true;
   }
 
+  private BlockLZ4CompressorInputStream blockDecoder(InputStream compressed) throws IOException {
+    BlockLZ4CompressorInputStream decoder = new BlockLZ4CompressorInputStream(compressed);
+    if (!independent && window.size() > 0) {
+      decoder.prefill(window.contents());
+    }
+    return decoder;
+  }
+
   private byte[] decompress(byte[] data) throws IOException {
     ByteBuilder out = new ByteBuilder();
-    try (BlockLZ4CompressorInputStream block =
-        new BlockLZ4CompressorInputStream(new ByteArrayInputStream(data))) {
-      if (!independent && dictionary.length > 0) {
-        block.prefill(dictionary);
-      }
+    try (BlockLZ4CompressorInputStream block = blockDecoder(new ByteArrayInputStream(data))) {
       byte[] buf = new byte[8 * 1024];
       int n;
       while ((n = block.read(buf, 0, buf.length)) >= 0) {
@@ -134,18 +190,6 @@ final class Lz4FrameStream extends InputStream {
       throw corrupt("lz4 block is corrupt: " + e.getMessage(), e);
     }
     return out.toByteArray();
-  }
-
-  private void remember(byte[] decoded) {
-    if (decoded.length >= WINDOW) {
-      dictionary = Arrays.copyOfRange(decoded, decoded.length - WINDOW, decoded.length);
-      return;
-    }
-    int keep = Math.min(dictionary.length, WINDOW - decoded.length);
-    byte[] next = new byte[keep + decoded.length];
-    System.arraycopy(dictionary, dictionary.length - keep, next, 0, keep);
-    System.arraycopy(decoded, 0, next, keep, decoded.length);
-    dictionary = next;
   }
 
   private void setBlock(byte[] data) {
@@ -211,7 +255,7 @@ final class Lz4FrameStream extends InputStream {
       throw corrupt("lz4 frame " + (frames + 1) + " header checksum mismatch", null);
     }
     inFrame = true;
-    dictionary = new byte[0];
+    window.clear();
     content.reset();
     produced = 0;
   }
@@ -273,17 +317,16 @@ final class Lz4FrameStream extends InputStream {
     return data;
   }
 
+  /** Skips by reading: some streams' skip() goes past the end of the input without saying so. */
   private void skipFrame(long length) throws IOException {
+    byte[] scratch = new byte[(int) Math.min(length, 8 * 1024)];
     long left = length;
     while (left > 0) {
-      long skipped = in.skip(left);
-      if (skipped <= 0) {
-        if (in.read() < 0) {
-          throw corrupt("lz4 skippable frame is truncated", null);
-        }
-        skipped = 1;
+      int n = in.read(scratch, 0, (int) Math.min(left, scratch.length));
+      if (n < 0) {
+        throw corrupt("lz4 skippable frame is truncated", null);
       }
-      left -= skipped;
+      left -= n;
     }
   }
 
@@ -304,5 +347,72 @@ final class Lz4FrameStream extends InputStream {
   @Override
   public void close() throws IOException {
     in.close();
+  }
+
+  /** The block's compressed bytes; notes whether the input ended before the block did. */
+  private static final class Bounded extends InputStream {
+    private final InputStream in;
+    private long remaining;
+    private boolean truncated;
+
+    Bounded(InputStream in, long length) {
+      this.in = in;
+      this.remaining = length;
+    }
+
+    @Override
+    public int read() throws IOException {
+      byte[] one = new byte[1];
+      int n = read(one, 0, 1);
+      return n < 0 ? -1 : one[0] & 0xFF;
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      if (remaining == 0) {
+        return -1;
+      }
+      int n = in.read(b, off, (int) Math.min(len, remaining));
+      if (n < 0) {
+        truncated = true;
+        return -1;
+      }
+      remaining -= n;
+      return n;
+    }
+  }
+
+  /** The last 64 KiB of a frame's output, which linked blocks may refer back to. */
+  private static final class Window {
+    private final byte[] ring = new byte[WINDOW];
+    private int end;
+    private int size;
+
+    void add(byte[] data, int off, int n) {
+      int from = n > WINDOW ? off + n - WINDOW : off;
+      for (int i = from; i < off + n; i++) {
+        ring[end] = data[i];
+        end = (end + 1) % WINDOW;
+      }
+      size = Math.min(WINDOW, size + n);
+    }
+
+    int size() {
+      return size;
+    }
+
+    byte[] contents() {
+      byte[] out = new byte[size];
+      int start = (end - size + WINDOW) % WINDOW;
+      for (int i = 0; i < size; i++) {
+        out[i] = ring[(start + i) % WINDOW];
+      }
+      return out;
+    }
+
+    void clear() {
+      end = 0;
+      size = 0;
+    }
   }
 }

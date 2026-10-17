@@ -21,11 +21,14 @@ import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,11 +40,14 @@ import java.util.zip.DeflaterOutputStream;
 import java.util.zip.Inflater;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorInputStream;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream.BlockSize;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream.Parameters;
+import org.apache.commons.compress.compressors.lz4.XXHash32;
 import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.tukaani.xz.LZMA2Options;
@@ -392,30 +398,147 @@ class CodecDecodeTest {
     assertEquals(expected, decode(DEFLATE.config(), damaged));
   }
 
+  /** What a library stream releases before failing when read the way the decoder reads it. */
+  private static List<Object> releasedInPieces(InputStream library, String messagePrefix) {
+    ByteArrayOutputStream released = new ByteArrayOutputStream();
+    String message = null;
+    byte[] piece = new byte[256];
+    try (library) {
+      int n;
+      while ((n = library.read(piece, 0, piece.length)) >= 0) {
+        released.write(piece, 0, n);
+      }
+    } catch (IOException e) {
+      message = e.getMessage();
+    }
+    String prefix = released.toString(StandardCharsets.UTF_8);
+    List<Object> expected = new ArrayList<>(completeLines(prefix));
+    expected.add(
+        corrupt(expected.size() + 1, prefix.lastIndexOf('\n') + 1, messagePrefix + message));
+    return expected;
+  }
+
   @Test
-  void libraryCodecsLoseAtMost255BytesBeforeDamagedData() throws IOException {
-    String text = numbered(200_000);
-    byte[] damaged = BZIP2.compress(text);
+  void libraryCodecsHandOnWhatTheyReleaseInPiecesBeforeDamagedData() throws IOException {
+    byte[] damaged = BZIP2.compress(numbered(200_000));
     damaged[damaged.length / 2] ^= (byte) 0xFF;
+    assertEquals(
+        releasedInPieces(
+            new BZip2CompressorInputStream(new ByteArrayInputStream(damaged), false),
+            "bzip2 data is corrupt: "),
+        decode(BZIP2.config(), damaged));
+  }
+
+  @Test
+  void lz4BlockWithoutChecksumIsHandedOnAsItDecodes() throws IOException {
+    String text = numbered(200_000);
+    byte[] whole = LZ4.compress(text);
+    byte[] cut = Arrays.copyOf(whole, whole.length / 2);
     ByteArrayOutputStream released = new ByteArrayOutputStream();
     try (InputStream reference =
-        new BZip2CompressorInputStream(new ByteArrayInputStream(damaged), true)) {
+        new FramedLZ4CompressorInputStream(new ByteArrayInputStream(cut))) {
       int b;
       while ((b = reference.read()) >= 0) {
         released.write(b);
       }
     } catch (IOException expected) {
-      // The damaged spot.
+      // The cut.
     }
-    List<Object> actual = decode(BZIP2.config(), damaged);
+    List<Object> actual = decode(LZ4.config(), cut);
     long delivered =
         actual.stream()
             .filter(Ok.class::isInstance)
             .mapToLong(o -> ((Ok) o).span().length() + 1)
             .sum();
+    // Piece boundaries inside the block decoder differ from a byte-at-a-time read, so the
+    // documented bound is checked rather than an exact list.
     assertTrue(
-        delivered >= released.size() - 255 - 16 && delivered <= released.size(),
+        delivered > released.size() - 256 - 16 && delivered <= released.size(),
         "delivered " + delivered + " of " + released.size());
+    assertEquals(
+        corrupt(actual.size(), delivered, "lz4 frame 1 is truncated"),
+        actual.get(actual.size() - 1));
+  }
+
+  @Test
+  void lz4SkippableFrameCutShortIsCorruptEvenFromAFile(@TempDir Path dir) throws IOException {
+    byte[] skippable = {
+      0x50, 0x2A, 0x4D, 0x18, (byte) 0xE8, 3, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+    };
+    Path file = dir.resolve("cut.lz4");
+    Files.write(file, concat(LZ4.compress(FIRST), skippable));
+    assertEquals(
+        List.of(line(0), line(1), corrupt(3, 14, "lz4 skippable frame is truncated")),
+        decode(
+            decoder(LZ4.config()),
+            () -> new FileInputStream(file.toFile()),
+            DecodeLimits.UNLIMITED));
+  }
+
+  /** A frame of {@code blocks} with the given FLG and BD bytes and a correct header checksum. */
+  private static byte[] lz4Frame(int flg, int bd, byte[] contentSize, byte[]... blocks) {
+    ByteArrayOutputStream descriptor = new ByteArrayOutputStream();
+    descriptor.write(flg);
+    descriptor.write(bd);
+    descriptor.writeBytes(contentSize);
+    XXHash32 hash = new XXHash32();
+    hash.update(descriptor.toByteArray(), 0, descriptor.size());
+    ByteArrayOutputStream frame = new ByteArrayOutputStream();
+    frame.writeBytes(new byte[] {0x04, 0x22, 0x4D, 0x18});
+    frame.writeBytes(descriptor.toByteArray());
+    frame.write((int) (hash.getValue() >> 8) & 0xFF);
+    for (byte[] block : blocks) {
+      frame.writeBytes(block);
+    }
+    frame.writeBytes(new byte[4]);
+    return frame.toByteArray();
+  }
+
+  private static byte[] storedBlock(byte[] data, int declaredSize) {
+    return concat(
+        new byte[] {
+          (byte) declaredSize,
+          (byte) (declaredSize >> 8),
+          (byte) (declaredSize >> 16),
+          (byte) ((declaredSize >> 24) | 0x80)
+        },
+        data);
+  }
+
+  @Test
+  void lz4FrameHeadersAreChecked() {
+    byte[] data = utf8(FIRST);
+    byte[] good = lz4Frame(0x60, 0x40, new byte[0], storedBlock(data, data.length));
+    assertEquals(List.of(line(0), line(1)), decode(LZ4.config(), good));
+    byte[] badChecksum = good.clone();
+    badChecksum[6] ^= 1;
+    byte[] sizeEight = {(byte) 99, 0, 0, 0, 0, 0, 0, 0};
+    List<Object[]> cases =
+        List.of(
+            new Object[] {badChecksum, "lz4 frame 1 header checksum mismatch"},
+            new Object[] {
+              lz4Frame(0x61, 0x40, new byte[0]), "lz4 frames with a dictionary are not supported"
+            },
+            new Object[] {
+              lz4Frame(0x20, 0x40, new byte[0]), "lz4 frame 1 has an unsupported header"
+            },
+            new Object[] {
+              lz4Frame(0x60, 0x30, new byte[0]), "lz4 frame 1 has an invalid block size"
+            },
+            new Object[] {
+              lz4Frame(0x60, 0x40, new byte[0], storedBlock(data, 70_000)),
+              "lz4 block of 70000 bytes exceeds the frame's block size"
+            },
+            new Object[] {
+              lz4Frame(0x68, 0x40, sizeEight, storedBlock(data, data.length)),
+              "lz4 frame 1 content size mismatch"
+            });
+    for (Object[] c : cases) {
+      List<Object> actual = decode(LZ4.config(), (byte[]) c[0]);
+      Bad last = (Bad) actual.get(actual.size() - 1);
+      assertEquals(
+          corrupt(last.recordIndex(), last.span().offset(), (String) c[1]), last, (String) c[1]);
+    }
   }
 
   @Test

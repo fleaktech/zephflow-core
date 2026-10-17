@@ -96,9 +96,10 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - **`terminal`.** `false` means the next record can still be found and decoding continues. `true`
   means it cannot; the cursor ends after this outcome. When given, the terminal `span` starts at the
   first byte not yet returned, so the caller can recover the rest.
-- **Strictness.** Formats with an end marker (json array/object, xml, avro, parquet,
-  length-prefixed protobuf, every compression format except snappy, see 4.1) report truncation as
-  `Failed`, never as a clean end. Trailing content after a JSON root, or after the last compressed stream, is an error.
+- **Strictness.** Formats with an end marker (json array/object, xml, avro, parquet, length-prefixed
+  protobuf, every compression format except snappy, see 4.1) report truncation as `Failed`, never
+  as a clean end. Trailing content after a JSON root, or after the last compressed stream, is an
+  error.
 - **`CORRUPT_COMPRESSION` is its own kind**, because it may mean a file that was still being written.
   The caller decides whether to drop or retry.
 
@@ -153,8 +154,8 @@ in one switch, so a missing case fails to compile. A format implements `FormatFa
 | `deflate` | The zlib format (RFC 1950); concatenated streams are all read; a stream that needs a preset dictionary is `CORRUPT_COMPRESSION` |
 | `zstd` | Concatenated and skippable frames; input that ends inside a frame is `CORRUPT_COMPRESSION`. A frame whose window needs more than zstd's default 128 MiB is `Oversized` |
 | `bzip2` | Concatenated streams |
-| `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxDocumentBytes` (in whole KiB), or 128 MiB without that limit, is `Oversized` |
-| `lz4` | The LZ4 frame format only, with skippable frames; not the raw block format, and not frames that need a dictionary. A block is handed on after its checksum, when the frame has one, matches |
+| `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxDocumentBytes` (in whole KiB) is `Oversized`; without that limit, the cap is 128 MiB or half the heap, whichever is smaller |
+| `lz4` | The LZ4 frame format only, with skippable frames; not the raw block format, and not frames that need a dictionary. A block without a checksum is handed on as it decodes; a block with one is held until it matches, so up to one block (at most 4 MiB) can be lost when it does not |
 | `snappy` | The Snappy framing format only, with skippable chunks; not raw or Hadoop snappy. The format has no end mark, so input cut exactly between chunks ends cleanly; only the `ByteInput` contract (3.2) catches that |
 
 Every codec follows the same rules: concatenated streams are all read, bytes after the last stream
@@ -293,7 +294,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 - Damaged compressed data can decode into wrong but well-formed bytes before the codec notices, for
   every codec. A stream's records are only confirmed once its checksum, if it has one, matches.
 - zstd, bzip2, xz, lz4 and snappy can lose up to 255 decoded bytes that came just before damaged
-  data (see 4.1).
+  data, and lz4 a whole block whose block checksum fails (see 4.1).
 - For non-UTF-8 input, `raw`, `span` and the limits refer to the transcoded UTF-8 bytes, not the
   original.
 - A multiline event is held until the next event starts. When the input then fails, the event is not
@@ -369,8 +370,8 @@ Decisions made while implementing PR1 that refine the design above.
 | P34 | zstd uses its own loop over zstd-jni's streaming context. zstd-jni's input stream reports a clean end when the last of several frames is cut short |
 | P35 | bzip2 streams are chained here, one library stream each. commons-compress's concatenated mode looks for the next stream inside the read that ends the previous one, so a failure there loses the previous stream's tail |
 | P36 | Library codecs are read 256 bytes at a time. In a local measurement on 40 MB of log lines this cost under 5% of throughput, while byte-by-byte reads, which would lose nothing, ran at a third to three quarters of the speed |
-| P37 | The xz memory limit is `maxDocumentBytes`, not `max(maxDocumentBytes, 128 MiB)`: with a floor the caller's limit could never apply. Without `maxDocumentBytes` it is 128 MiB, zstd's default window limit, so a tiny file cannot exhaust the heap. zstd's own limit cannot be configured through zstd-jni's context and stays at 128 MiB. Going over it, or over zstd's window limit, is reported through the budget flag as `Oversized`, not as corrupt data |
+| P37 | The xz memory limit is `maxDocumentBytes`, not `max(maxDocumentBytes, 128 MiB)`: with a floor the caller's limit could never apply. Without `maxDocumentBytes` it is 128 MiB (zstd's default window limit) or half the heap, whichever is smaller, so a tiny file declaring a huge dictionary cannot exhaust the heap. zstd's own limit cannot be configured through zstd-jni's context and stays at 128 MiB. Going over it, or over zstd's window limit, is reported through the budget flag as `Oversized`, not as corrupt data |
 | P38 | commons-compress, zstd-jni and `org.tukaani:xz` are declared in `lib`; the first two were only transitive before |
-| P39 | lz4 uses its own frame loop; commons-compress only decodes block contents. Its frame reader ends cleanly when the input stops right after an uncompressed block's size |
+| P39 | lz4 uses its own frame loop; commons-compress only decodes block contents. Its frame reader ends cleanly when the input stops right after an uncompressed block's size. Skippable frames are skipped by reading, because `FileInputStream.skip` goes past the end of a file without saying so |
 | P40 | A library codec leaves a failure alone when another layer already marked it, so an outer codec's memory limit stays `Oversized` through inner codecs |
 | P41 | ZlibStream's "inflater made no progress" branch cannot be reached under the JDK contract and is not tested, like gzip's (P16) |

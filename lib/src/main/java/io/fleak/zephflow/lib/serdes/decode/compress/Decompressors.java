@@ -55,12 +55,16 @@ public final class Decompressors {
     return new LibraryCodecStream(name, in, opener, e -> -1, flags);
   }
 
-  /** Without a document limit, xz gets zstd's default window limit, so a tiny file cannot OOM. */
-  static final long DEFAULT_MEMORY_LIMIT = 128L * 1024 * 1024;
-
-  /** The memory xz may use is {@code maxDocumentBytes}, rounded up to whole KiB. */
+  /**
+   * The memory xz may use is {@code maxDocumentBytes}, rounded up to whole KiB. Without that limit
+   * it is zstd's default window limit or half the heap, whichever is smaller, so a tiny file
+   * declaring a huge dictionary cannot exhaust the heap.
+   */
   private static InputStream xz(InputStream in, DecodeFlags flags, long maxDocumentBytes) {
-    long limit = maxDocumentBytes > 0 ? maxDocumentBytes : DEFAULT_MEMORY_LIMIT;
+    long limit =
+        maxDocumentBytes > 0
+            ? maxDocumentBytes
+            : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
     int limitKiB = (int) Math.min(Integer.MAX_VALUE, (limit + 1023) / 1024);
     return new LibraryCodecStream(
         "xz",
