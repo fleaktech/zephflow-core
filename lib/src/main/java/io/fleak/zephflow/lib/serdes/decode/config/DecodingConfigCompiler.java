@@ -27,9 +27,11 @@ import io.fleak.zephflow.lib.serdes.decode.csv.CsvDialect;
 import io.fleak.zephflow.lib.serdes.decode.csv.CsvFormat;
 import io.fleak.zephflow.lib.serdes.decode.internal.CompiledDecoder;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatFactory;
+import io.fleak.zephflow.lib.serdes.decode.internal.RandomAccessDecoder;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonArrayFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonLinesFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonObjectFormat;
+import io.fleak.zephflow.lib.serdes.decode.parquet.ParquetFormat;
 import io.fleak.zephflow.lib.serdes.decode.protobuf.ProtobufDelimitedFormat;
 import io.fleak.zephflow.lib.serdes.decode.protobuf.ProtobufSingleFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.MultilineRule;
@@ -69,7 +71,33 @@ public final class DecodingConfigCompiler {
     if (config == null) {
       throw new IllegalArgumentException("decoding config is required");
     }
-    return new CompiledDecoder(compression(config.compression()), format(config.format()));
+    List<DecompressionCodec> codecs = compression(config.compression());
+    FormatConfig format = config.format();
+    if (format == null) {
+      throw new IllegalArgumentException("decoding format is required");
+    }
+    return switch (format) {
+      case AvroFormatConfig avro -> streamed(codecs, avro(avro));
+      case CsvFormatConfig csv -> streamed(codecs, csv(csv));
+      case JsonFormatConfig json -> streamed(codecs, json(json));
+      case ParquetFormatConfig parquet -> parquet(codecs);
+      case ProtobufFormatConfig protobuf -> streamed(codecs, protobuf(protobuf));
+      case TextFormatConfig text -> streamed(codecs, text(text));
+      case XmlFormatConfig xml -> streamed(codecs, xml(xml));
+      case YamlFormatConfig yaml -> streamed(codecs, yaml(yaml));
+    };
+  }
+
+  private static RecordDecoder streamed(List<DecompressionCodec> codecs, FormatFactory format) {
+    return new CompiledDecoder(codecs, format);
+  }
+
+  private static RecordDecoder parquet(List<DecompressionCodec> codecs) {
+    if (!codecs.isEmpty()) {
+      throw new IllegalArgumentException(
+          "parquet cannot be combined with compression; its pages carry their own");
+    }
+    return new RandomAccessDecoder("parquet", ParquetFormat::new);
   }
 
   private static List<DecompressionCodec> compression(List<DecompressionCodec> codecs) {
@@ -83,21 +111,6 @@ public final class DecodingConfigCompiler {
       throw new IllegalArgumentException("compression \"auto\" cannot be combined with others");
     }
     return List.copyOf(codecs);
-  }
-
-  private static FormatFactory format(FormatConfig format) {
-    if (format == null) {
-      throw new IllegalArgumentException("decoding format is required");
-    }
-    return switch (format) {
-      case AvroFormatConfig avro -> avro(avro);
-      case CsvFormatConfig csv -> csv(csv);
-      case JsonFormatConfig json -> json(json);
-      case ProtobufFormatConfig protobuf -> protobuf(protobuf);
-      case TextFormatConfig text -> text(text);
-      case XmlFormatConfig xml -> xml(xml);
-      case YamlFormatConfig yaml -> yaml(yaml);
-    };
   }
 
   private static FormatFactory avro(AvroFormatConfig avro) {

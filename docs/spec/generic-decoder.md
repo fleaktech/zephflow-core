@@ -75,6 +75,11 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `ByteInput` supplies the raw (still compressed) stream. An input that knows its length must throw
   on a premature end rather than return EOF, because formats without an end marker cannot detect
   truncation themselves.
+- `ByteInput.randomAccess()` offers a `RandomAccessInput` (`length()`, and `read(offset, length)`
+  of one bounded range) for formats that start from a footer (parquet). It must not read itself.
+  Opening a parquet decoder on an input without it throws `IllegalStateException` from `open`,
+  because that is the caller's mistake, not bad data. `ByteInput.ofBytes`, and so `decodeAll`,
+  offer it.
 - `DecodeLimits(maxRecordBytes, maxDocumentBytes)` is chosen by the caller; 0 means unlimited.
 - `DecodeOutcome` is one of:
   - `Decoded(record, recordIndex, span)`
@@ -109,15 +114,18 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   lines, csv, length-prefixed protobuf) enforce it exactly. Library-parsed formats (json array,
   xml elements, yaml multi-document) enforce it with 64 KiB of slack for parser read-ahead.
 - `maxDocumentBytes` bounds a unit held whole: a whole document, a decompressed avro block, a
-  parquet row group. Avro and parquet sizes are checked before allocating.
+  parquet footer, and a parquet row group both as stored and as its pages claim to decompress.
+  Avro and parquet sizes are checked before allocating. Parquet rows have no bytes of their own,
+  so `maxRecordBytes` applies to an estimate: 8 bytes per value plus the bytes of its strings and
+  binaries.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
-  formats, csv, avro blocks and length-delimited protobuf continue with the next record or block
-  (csv stops only when a quote stays open to the end); the others stop (`terminal=true`). xml
-  elements and yaml multi-document cannot locate a record, so their `Oversized` has no preview and
-  no span; an avro block's `Oversized` has neither, and its `sizeSoFar` is the block's size, what
-  it decompressed to before the limit, the memory xz needs, or 0 for a zstd window. A codec over
-  its memory limit gives a terminal `Oversized` with no span or preview; `sizeSoFar` is the memory
-  xz needs, or 0 for zstd, which does not say.
+  formats, csv, avro blocks, parquet row groups and rows, and length-delimited protobuf continue
+  with the next record or block (csv stops only when a quote stays open to the end); the others stop
+  (`terminal=true`). xml elements and yaml multi-document cannot locate a record, so their
+  `Oversized` has no preview and no span; an avro block's `Oversized` has neither, and its
+  `sizeSoFar` is the block's size, what it decompressed to before the limit, the memory xz needs, or
+  0 for a zstd window. A codec over its memory limit gives a terminal `Oversized` with no span or
+  preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does not say.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -179,7 +187,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (an object container file, which carries its schema), or `datum` (the whole input is one record) with `schema` (JSON, or a string holding it) | One record per avro record; the schema must be a record |
 | `protobuf` | `descriptorSet` (a base64 `FileDescriptorSet` with every dependency; line breaks are allowed), `messageType` (full name), `framing`: `single`, `varint_delimited` | One record per message, by proto field name |
-| `parquet` | — | Needs random access; cannot be combined with `compression` |
+| `parquet` | — | One record per row, by column name. Needs random access; cannot be combined with `compression` |
 
 **Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
 anchor it with `^`. With `startPattern`, a matching line starts a new event and other lines join the
@@ -273,6 +281,22 @@ message that does not parse is `MALFORMED`, and one over `maxRecordBytes` is `Ov
 preview; both lose only themselves. A broken prefix or an input that ends inside a message is
 terminal.
 
+**Parquet.** The file is read through random access without parquet's file reader, which
+allocates whatever the footer and page headers claim; parquet's schema, column decoders and record
+assembly are used as they are. The footer is read first, may be up to `maxDocumentBytes`, and is
+parsed so that no list or string can claim more elements than bytes are left. Its schema may nest
+32 levels. Each row group is checked before any of it is decoded: its column chunks must lie
+inside the file, every page header is read, the chunks and what their pages claim to decompress
+to must fit `maxDocumentBytes`, a column that does not repeat must have exactly one value per row,
+and repeated columns may add at most 32 list items per decompressed byte plus 1,000,000. Each page
+is then decompressed into exactly its claimed size and checked before parquet's decoders read it.
+Codecs: uncompressed, snappy, gzip, zstd, lz4 (Hadoop framing) and lz4_raw; brotli and lzo are
+`MALFORMED`. A missing or damaged footer, or a file that does not start and end with `PAR1`, is
+terminal. A row group over `maxDocumentBytes` is skipped unread as `Oversized`, and one that is
+damaged loses its remaining rows as one `Failed`; a row over `maxRecordBytes` (estimated, see 3.4)
+or with a value that does not convert loses only itself. Decoding then goes on. LIST and MAP
+groups follow the parquet spec's compatibility rules, and an unannotated repeated field is an array.
+
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
 the charset become U+FFFD.
@@ -292,7 +316,8 @@ syslog, CEF and key=value are `text` + `line`, parsed downstream by the `parser`
 | YAML null | null |
 | YAML integer outside int64 | its decimal string |
 | YAML `.inf`, `-.inf`, `.nan`; avro float and double infinities and NaN | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
-| avro uuid (on string or a 16-byte fixed) | its string form |
+| avro uuid (on string or a 16-byte fixed), parquet uuid | its string form |
+| parquet INT96 | epoch milliseconds |
 | null items of an array, null values of a map | null (only null record fields are left out) |
 | enum | string |
 | timestamp | epoch milliseconds (local timestamps, and YAML timestamps without a zone, read as UTC) |
@@ -316,7 +341,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 5 | Remaining codecs | Done (#343) |
 | 6 | `avro` | Done (#344) |
 | 7 | `protobuf` | Done (#345) |
-| 8 | `parquet`, random-access input | Planned |
+| 8 | `parquet`, random-access input | In review |
 
 ## 6. Testing
 
@@ -355,6 +380,12 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   `null` columns per payload byte, or wrapper records nested 8 or more deep around a one-byte value,
   exceed it and lose their block. In the worst case an avro block holds about 150–250 times
   `maxDocumentBytes` in memory, about twice what ordinary data of that size can reach.
+- A parquet row group's memory is bounded by `maxDocumentBytes` for its stored chunks, its
+  decompressed pages and its delta decoders, plus its decoded dictionaries, which take about 10–15
+  times their bytes. With `maxDocumentBytes` unlimited, page and delta claims are bounded only by
+  the file. Delta-encoded pages may hold at most 32 values per byte plus 65,536.
+- Parquet rejects schemas deeper than 32 levels, column chunks in other files, and row groups whose
+  repeated columns claim more than 32 list items per decompressed byte plus 1,000,000.
 - Recursive parsers (Jackson, SnakeYAML) need a normal thread stack (1 MiB or more) to reach their
   nesting limits. On a smaller stack, deep input can overflow it; the cursor then reports a terminal
   `MALFORMED` instead of letting the `StackOverflowError` escape.
@@ -443,3 +474,15 @@ Decisions made while implementing PR1 that refine the design above.
 | P48 | The length prefix is read here rather than with `parseDelimitedFrom`, so an oversized message is skipped by reading (with a preview) instead of being buffered, and a broken prefix is told apart from a message that does not parse |
 | P49 | Protobuf comes in through `lib`'s existing `protobuf-java` dependency |
 | P50 | uint64 and fixed64 values of 2^63 and above are doubles, not longs: a long-typed number saturates at 2^63 - 1 when serialized. Timestamp and Duration both round down, like avro times |
+
+## 15. PR8 implementation notes
+
+| # | Note |
+|---|---|
+| P51 | Parquet is read without `ParquetFileReader`. It parses the footer and page headers with an unbounded thrift protocol (a few bytes can claim a list of millions or a string of 100 MB), reads a whole row group in one allocation sized by unchecked footer offsets, reads past a chunk when a page claims more than is left, and allocates each page's claimed decompressed size; none of this can be hooked. Our reader uses parquet's thrift structures, schema conversion, page classes and `MessageColumnIO` record assembly |
+| P52 | Thrift is read with a `TCompactProtocol` subclass: strings and containers may claim at most the bytes of the structure being read (and no more elements than bytes are left), and structures nest at most 64 deep, which also bounds skipping unknown fields. The schema is walked without recursion before parquet converts it, so that its depth (32) and the record reader's per-leaf tables (depth × definition × repetition levels) stay small. The schema is converted through `fromParquetMetadata` with the row groups removed, so that a codec parquet 1.12.3 does not know (LZ4_RAW) does not fail the whole file |
+| P53 | A row group is read whole only after its column chunks are checked against the file and `maxDocumentBytes`, and every page header is read before any page is decompressed. Values are bounded by rows rather than bytes, because legitimate sparse columns hold millions of nulls in a few bytes: a column that does not repeat has exactly one value per row, and only list items are budgeted per byte |
+| P54 | Pages are decompressed into exactly the size their header claims (snappy's own length must agree), and then checked before parquet's decoders read them, because those decoders allocate from in-page fields and cannot be replaced: bit-packed run lengths in levels, dictionary ids and booleans, delta block sizes and value counts, DELTA_BYTE_ARRAY prefix lengths, and dictionary entry counts against the dictionary's bytes. Delta decoders hold every value of a page, so a delta-encoded page counts 8 bytes per value (16 for DELTA_BYTE_ARRAY) against `maxDocumentBytes` |
+| P55 | A missing random access is an `IllegalStateException` from `open`, not an outcome, so `randomAccess()` must not do I/O. Every call on the caller's `RandomAccessInput`, and a range that ends early, is a read failure |
+| P56 | `parquet-hadoop` is pinned to 1.12.3, the version delta-kernel already resolves, so Delta's reading is unchanged. snappy-java and lz4 are declared because pages are decompressed here; Hadoop's codecs are not used |
+| P57 | A parquet row has no bytes of its own, so its size is estimated (8 bytes per value plus string and binary bytes) and compared with `maxRecordBytes`; once over, the rest of the row is still read but not built |
