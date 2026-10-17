@@ -16,7 +16,9 @@ package io.fleak.zephflow.lib.serdes.decode;
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +38,34 @@ class JsonObjectDecodeTest {
     assertEquals(
         List.of(new Ok(json("{\"a\":\"é\"}"), 1, new RawSpan(0, 10))),
         decode(OBJECT, "{\"a\":\"é\"}".getBytes(StandardCharsets.UTF_16BE)));
+  }
+
+  @Test
+  void utf32LittleEndianWithBomIsTranscoded() {
+    assertEquals(
+        List.of(new Ok(json("{\"a\":1}"), 1, new RawSpan(0, 7))),
+        decode(
+            OBJECT,
+            concat(
+                new byte[] {(byte) 0xFF, (byte) 0xFE, 0, 0},
+                "{\"a\":1}".getBytes(Charset.forName("UTF-32LE")))));
+  }
+
+  @Test
+  void cutGzipDocumentIsCorruptWithRecordIndexMinusOne() {
+    byte[] whole = gzip("{\"a\":\"" + "x".repeat(5000) + "\"}");
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.CORRUPT_COMPRESSION,
+                "",
+                -1,
+                RawSpan.toEnd(0),
+                "CorruptCompressionException: gzip member 1 is truncated",
+                true)),
+        decode(
+            "{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"object\"}}",
+            Arrays.copyOf(whole, whole.length - 4)));
   }
 
   @Test

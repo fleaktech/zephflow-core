@@ -27,15 +27,22 @@ import java.nio.charset.StandardCharsets;
 /**
  * Re-encodes a stream into UTF-8. Each read hands back what one read of the source produced, so a
  * later source failure cannot take already-decoded bytes with it. A malformed code unit becomes one
- * U+FFFD and only that unit is skipped. A leading byte order mark is dropped.
+ * U+FFFD and only that unit is skipped; so does a lone surrogate, which UTF-32 decoders emit for
+ * code points D800–DFFF. A leading byte order mark is dropped.
  */
 public final class Utf8TranscodingStream extends InputStream {
 
   private static final int CHUNK = 8 * 1024;
+  private static final byte[] REPLACEMENT_UTF8 = {(byte) 0xEF, (byte) 0xBF, (byte) 0xBD};
 
   private final InputStream in;
   private final CharsetDecoder decoder;
-  private final CharsetEncoder encoder = StandardCharsets.UTF_8.newEncoder();
+  private final CharsetEncoder encoder =
+      StandardCharsets.UTF_8
+          .newEncoder()
+          .onMalformedInput(CodingErrorAction.REPLACE)
+          .onUnmappableCharacter(CodingErrorAction.REPLACE)
+          .replaceWith(REPLACEMENT_UTF8);
   private final int codeUnit;
   private final ByteBuffer source = ByteBuffer.allocate(CHUNK);
   private final CharBuffer chars = CharBuffer.allocate(CHUNK);
@@ -84,45 +91,60 @@ public final class Utf8TranscodingStream extends InputStream {
   }
 
   private void convertOneRead() throws IOException {
+    int sourceBefore = source.remaining();
+    int charsBefore = chars.remaining();
+    int read = 0;
     if (!sourceEnded) {
       source.compact();
-      int n = in.read(source.array(), source.position(), source.remaining());
-      if (n < 0) {
+      read = in.read(source.array(), source.position(), source.remaining());
+      if (read < 0) {
         sourceEnded = true;
       } else {
-        source.position(source.position() + n);
+        source.position(source.position() + read);
       }
       source.flip();
     }
     chars.compact();
     decode();
-    if (sourceEnded && !source.hasRemaining()) {
+    boolean sourceDrained = sourceEnded && !source.hasRemaining();
+    if (sourceDrained) {
       decoder.flush(chars);
     }
     chars.flip();
     dropLeadingBom();
     out.compact();
-    encoder.encode(chars, out, false);
-    if (sourceEnded && !source.hasRemaining()) {
-      encoder.encode(chars, out, true);
+    encoder.encode(chars, out, sourceDrained);
+    if (sourceDrained) {
       encoder.flush(out);
-      done = true;
+      done = !chars.hasRemaining();
     }
     out.flip();
+    boolean progressed =
+        read != 0
+            || out.hasRemaining()
+            || done
+            || source.remaining() != sourceBefore
+            || chars.remaining() != charsBefore;
+    if (!progressed) {
+      throw new IOException("transcoding to UTF-8 made no progress");
+    }
   }
 
   private void decode() {
     while (true) {
       CoderResult result = decoder.decode(source, chars, sourceEnded);
       if (result.isError()) {
+        if (!chars.hasRemaining()) {
+          return;
+        }
         int skip = Math.min(codeUnit, source.remaining());
         source.position(source.position() + Math.max(skip, 1));
-        chars.put('�');
+        chars.put('\uFFFD');
         continue;
       }
-      if (sourceEnded && result.isUnderflow() && source.hasRemaining()) {
+      if (sourceEnded && result.isUnderflow() && source.hasRemaining() && chars.hasRemaining()) {
         source.position(source.limit());
-        chars.put('�');
+        chars.put('\uFFFD');
       }
       return;
     }
@@ -131,7 +153,7 @@ public final class Utf8TranscodingStream extends InputStream {
   private void dropLeadingBom() {
     if (!leadingCheckDone && chars.hasRemaining()) {
       leadingCheckDone = true;
-      if (chars.get(chars.position()) == '﻿') {
+      if (chars.get(chars.position()) == '\uFEFF') {
         chars.get();
       }
     }

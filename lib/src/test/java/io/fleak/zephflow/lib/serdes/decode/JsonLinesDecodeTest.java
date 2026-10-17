@@ -15,12 +15,15 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.NumberType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -149,6 +152,19 @@ class JsonLinesDecodeTest {
   }
 
   @Test
+  void utf16LittleEndianWithBomStartsOffsetsAtZero() {
+    byte[] input =
+        concat(
+            new byte[] {(byte) 0xFF, (byte) 0xFE},
+            "{\"a\":1}\n{\"b\":2}\n".getBytes(StandardCharsets.UTF_16LE));
+    assertEquals(
+        List.of(
+            new Ok(json("{\"a\":1}"), 1, new RawSpan(0, 7)),
+            new Ok(json("{\"b\":2}"), 2, new RawSpan(8, 7))),
+        decode(LINES, input));
+  }
+
+  @Test
   void loneUtf16SurrogateReplacesOnlyItsOwnUnit() {
     byte[] input =
         concat(
@@ -160,6 +176,33 @@ class JsonLinesDecodeTest {
             new Ok(json("{\"s\":\"\uFFFDx\"}"), 1, new RawSpan(0, 12)),
             new Ok(json("{\"t\":1}"), 2, new RawSpan(13, 7))),
         decode(LINES, input));
+  }
+
+  @Test
+  void invalidUtf32CodePointsBecomeOneReplacementEachAndLaterLinesSurvive() {
+    Charset utf32 = Charset.forName("UTF-32BE");
+    for (int bad : new int[] {0xD800, 0xDC00, 0x110000}) {
+      StringBuilder tail = new StringBuilder();
+      for (int i = 0; i < 5000; i++) {
+        tail.append("{\"x\":").append(i).append("}\n");
+      }
+      byte[] input =
+          concat(
+              "{\"s\":\"a".getBytes(utf32),
+              new byte[] {(byte) (bad >>> 24), (byte) (bad >>> 16), (byte) (bad >>> 8), (byte) bad},
+              ("b\"}\n" + tail).getBytes(utf32));
+      List<Object> expected = new ArrayList<>();
+      expected.add(new Ok(json("{\"s\":\"a\uFFFDb\"}"), 1, new RawSpan(0, 13)));
+      long offset = 14;
+      for (int i = 0; i < 5000; i++) {
+        String line = "{\"x\":" + i + "}";
+        expected.add(new Ok(json(line), i + 2, new RawSpan(offset, line.length())));
+        offset += line.length() + 1;
+      }
+      List<Object> actual =
+          assertTimeoutPreemptively(Duration.ofSeconds(20), () -> decode(LINES, input));
+      assertEquals(expected, actual, "bad code point " + Integer.toHexString(bad));
+    }
   }
 
   @Test

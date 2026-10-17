@@ -13,15 +13,9 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.internal;
 
-import java.util.Arrays;
-
 public final class Previews {
 
   public static final int PREVIEW_BYTES = 4096;
 
   private Previews() {}
-
-  public static byte[] head(byte[] bytes, int length) {
-    return Arrays.copyOf(bytes, Math.min(length, PREVIEW_BYTES));
-  }
 }

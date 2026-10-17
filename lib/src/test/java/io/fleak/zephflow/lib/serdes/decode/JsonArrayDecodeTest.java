@@ -15,9 +15,12 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -130,6 +133,52 @@ class JsonArrayDecodeTest {
     assertEquals(expected, decode(ARRAY, input.getBytes(StandardCharsets.UTF_16LE)));
     assertEquals(expected, decode(ARRAY, input.getBytes(StandardCharsets.UTF_16BE)));
     assertEquals(expected, decode(ARRAY, input.getBytes(Charset.forName("UTF-32LE"))));
+  }
+
+  @Test
+  void utf16BigEndianWithBomAndUtf32BigEndianWithoutBom() {
+    List<Object> expected =
+        List.of(
+            new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)),
+            new Ok(json("{\"b\":2}"), 2, new RawSpan(9, 7)));
+    String input = "[{\"a\":1},{\"b\":2}]";
+    assertEquals(
+        expected,
+        decode(
+            ARRAY,
+            concat(
+                new byte[] {(byte) 0xFE, (byte) 0xFF}, input.getBytes(StandardCharsets.UTF_16BE))));
+    assertEquals(expected, decode(ARRAY, input.getBytes(Charset.forName("UTF-32BE"))));
+  }
+
+  @Test
+  void cutGzipKeepsEveryElementTheInflaterReleased() {
+    StringBuilder text = new StringBuilder("[");
+    for (int i = 0; i < 3000; i++) {
+      text.append(i == 0 ? "" : ",").append("{\"i\":").append(i).append('}');
+    }
+    byte[] whole = gzip(text.append(']').toString());
+    byte[] cut = Arrays.copyOf(whole, whole.length / 2);
+    List<Object> outcomes =
+        decode("{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"array\"}}", cut);
+    int decoded = outcomes.size() - 1;
+    List<Object> expected = new ArrayList<>();
+    long offset = 1;
+    for (int i = 0; i < decoded; i++) {
+      String element = "{\"i\":" + i + "}";
+      expected.add(new Ok(json(element), i + 1, new RawSpan(offset, element.length())));
+      offset += element.length() + 1;
+    }
+    expected.add(
+        new Bad(
+            ErrorKind.CORRUPT_COMPRESSION,
+            "",
+            decoded + 1,
+            RawSpan.toEnd(offset),
+            "CorruptCompressionException: gzip member 1 is truncated",
+            true));
+    assertEquals(expected, outcomes);
+    assertTrue(decoded > 1000, "elements before the cut must come out, got " + decoded);
   }
 
   @Test

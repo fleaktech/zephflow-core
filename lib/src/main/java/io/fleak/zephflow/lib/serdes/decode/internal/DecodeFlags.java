@@ -44,10 +44,6 @@ public final class DecodeFlags {
     }
   }
 
-  public boolean anySet() {
-    return readFailure != null || decompressFailure != null || budgetExceeded != null;
-  }
-
   /** What the budget layer saw when the current record went over its limit. */
   public record BudgetExceeded(long recordStart, long sizeSoFar, byte[] preview) {}
 }

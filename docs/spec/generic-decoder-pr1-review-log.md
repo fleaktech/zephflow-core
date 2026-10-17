@@ -46,3 +46,15 @@ Verdicts: A = CHANGES, B = CHANGES. All round-1 accepted findings FIXED except A
 | A3 | medium | accepted as P13 (wording widened) | plan §7 |
 | A4 | medium | accepted as P15; design §6 updated | plan §7, design |
 | A6 | low | accepted: case-insensitivity recorded (P11); zero-read failure branch tested; no-progress guard recorded as untestable defensive code (P16) | plan §7; DecodingConfigCompilerTest |
+
+## Round 3 (cap) — 719221b
+Verdicts: A = CHANGES (medium/low only), B = CHANGES (1 blocker). All round-2 accepted findings FIXED.
+
+| ID | Sev | Disposition | Where fixed / evidence |
+|---|---|---|---|
+| B1 | blocker | accepted; fixed after the cap under the user's standing instruction to keep going without asking — reviewed only by the confirmation round below. UTF-8 encoder replaces lone surrogates (UTF-32 D800–DFFF); a full char buffer no longer overflows on malformed input; `done` is never set while chars remain; a no-progress guard stops any spin | internal/Utf8TranscodingStream; JsonLinesDecodeTest `invalidUtf32CodePoints…` (D800, DC00, 0x110000, 5000 following records, 20 s timeout) |
+| A1 | medium | accepted: BOM tests for UTF-16LE (lines), UTF-16BE (array), UTF-32LE (object), UTF-32BE without BOM. Adding them exposed a false "no progress" when a read returned only the BOM; the progress check now counts bytes read from the source | JsonLines/JsonArray/JsonObject tests |
+| A2 | low | accepted: gzip-cut tests for json array (exact element count from the input) and json object (recordIndex -1) | JsonArrayDecodeTest, JsonObjectDecodeTest |
+| A3 | low | accepted: char literals written as escapes | Utf8TranscodingStream |
+| A4 | low | accepted: unused DecodeFlags.anySet and Previews.head removed | — |
+| (B probe) | low | deferred: a UTF-32 surrogate pair written as two code points is combined into one character instead of two U+FFFD | — |
