@@ -49,6 +49,25 @@ class DecodingConfigCompilerTest {
   }
 
   @Test
+  void everyCodecNameParses() throws Exception {
+    assertEquals(
+        new DecodingConfig(
+            List.of(
+                DecompressionCodec.ZSTD,
+                DecompressionCodec.SNAPPY,
+                DecompressionCodec.LZ4,
+                DecompressionCodec.BZIP2,
+                DecompressionCodec.XZ,
+                DecompressionCodec.DEFLATE,
+                DecompressionCodec.GZIP),
+            new JsonFormatConfig(JsonFormatConfig.Mode.LINES)),
+        JsonUtils.OBJECT_MAPPER.readValue(
+            "{\"compression\":[\"zstd\",\"snappy\",\"lz4\",\"bzip2\",\"xz\",\"deflate\",\"gzip\"],"
+                + "\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}",
+            DecodingConfig.class));
+  }
+
+  @Test
   void configErrorsAreReportedAtCompileTime() {
     for (String bad :
         List.of(
