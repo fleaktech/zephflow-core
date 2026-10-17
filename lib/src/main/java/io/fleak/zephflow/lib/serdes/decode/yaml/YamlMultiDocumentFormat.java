@@ -36,6 +36,7 @@ import org.yaml.snakeyaml.constructor.ConstructorException;
 public final class YamlMultiDocumentFormat implements FormatCursor {
 
   private static final byte[] EMPTY = new byte[0];
+  private static final int PARSER_BUFFER = 16 * 1024;
 
   private final InputStream in;
   private final long maxRecordBytes;
@@ -81,9 +82,14 @@ public final class YamlMultiDocumentFormat implements FormatCursor {
     return null;
   }
 
-  /** What the budget lets through for one document, slack included. */
+  /**
+   * What the budget can let through for one document: the limit, its slack, and the parser's
+   * buffer, which the budget does not see because it restarts at the bytes read so far.
+   */
   private long recordSizeLimit() {
-    return maxRecordBytes > 0 ? maxRecordBytes + BudgetCaptureStream.READ_AHEAD_SLACK : 0;
+    return maxRecordBytes > 0
+        ? maxRecordBytes + BudgetCaptureStream.READ_AHEAD_SLACK + PARSER_BUFFER
+        : 0;
   }
 
   @Override

@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
@@ -37,16 +38,25 @@ import java.util.Set;
  * Turns a constructed YAML document into a record. Aliases are expanded into separate copies and a
  * structure that contains itself is rejected. Expansion is capped at the number of values an
  * alias-free document within the size limit could hold (one per two bytes), so aliases cannot make
- * a record larger than the limit already allows. Without a limit there is no cap, as elsewhere.
+ * a record larger than the limit already allows. Without a limit, the values copied through aliases
+ * are capped at {@link #UNLIMITED_ALIAS_COPIES}, because their growth is exponential, not linear in
+ * the input. Expanded nesting is capped at {@link YamlSupport#MAX_NESTING}, as source nesting is.
  */
 final class YamlRecords {
 
-  private final Set<Object> path = Collections.newSetFromMap(new IdentityHashMap<>());
-  private final long maxValues;
-  private long values;
+  static final long UNLIMITED_ALIAS_COPIES = 1_000_000;
 
-  private YamlRecords(long maxValues) {
+  private final Set<Object> path = Collections.newSetFromMap(new IdentityHashMap<>());
+  private final Set<Object> converted = Collections.newSetFromMap(new IdentityHashMap<>());
+  private final long maxValues;
+  private final long maxCopies;
+  private long values;
+  private long copies;
+  private int copying;
+
+  private YamlRecords(long maxValues, long maxCopies) {
     this.maxValues = maxValues;
+    this.maxCopies = maxCopies;
   }
 
   /** {@code sizeLimit} is the byte limit the document is held to, 0 when unlimited. */
@@ -55,18 +65,25 @@ final class YamlRecords {
       throw new MalformedYamlException(
           "expected a mapping but found " + document.getClass().getSimpleName());
     }
-    long maxValues = sizeLimit > 0 ? Math.max(1, sizeLimit / 2) : Long.MAX_VALUE;
-    return (RecordFleakData) new YamlRecords(maxValues).convert(map);
+    YamlRecords records =
+        sizeLimit > 0
+            ? new YamlRecords(Math.max(1, sizeLimit / 2), Long.MAX_VALUE)
+            : new YamlRecords(Long.MAX_VALUE, UNLIMITED_ALIAS_COPIES);
+    return (RecordFleakData) records.convert(map);
   }
 
   private FleakData convert(Object value) throws MalformedYamlException {
     if (++values > maxValues) {
       throw new MalformedYamlException("document expands to more than " + maxValues + " values");
     }
+    if (copying > 0 && ++copies > maxCopies) {
+      throw new MalformedYamlException(
+          "aliases copy more than " + maxCopies + " values into the document");
+    }
     return switch (value) {
       case null -> null;
       case Map<?, ?> map -> {
-        enter(map);
+        boolean copy = enter(map);
         Map<String, FleakData> payload = new HashMap<>();
         for (Map.Entry<?, ?> entry : map.entrySet()) {
           String key = key(entry.getKey());
@@ -75,27 +92,11 @@ final class YamlRecords {
           }
           payload.put(key, convert(entry.getValue()));
         }
-        path.remove(map);
+        leave(map, copy);
         yield new RecordFleakData(payload);
       }
-      case Object[] items -> {
-        enter(items);
-        List<FleakData> array = new ArrayList<>(items.length);
-        for (Object item : items) {
-          array.add(convert(item));
-        }
-        path.remove(items);
-        yield new ArrayFleakData(array);
-      }
-      case Collection<?> items -> {
-        enter(items);
-        List<FleakData> array = new ArrayList<>(items.size());
-        for (Object item : items) {
-          array.add(convert(item));
-        }
-        path.remove(items);
-        yield new ArrayFleakData(array);
-      }
+      case Object[] items -> array(items, Arrays.asList(items));
+      case Collection<?> items -> array(items, items);
       case Integer n -> new NumberPrimitiveFleakData(n, NumberType.LONG);
       case Long n -> new NumberPrimitiveFleakData(n, NumberType.LONG);
       case BigInteger n when n.bitLength() < 64 ->
@@ -111,9 +112,40 @@ final class YamlRecords {
     };
   }
 
-  private void enter(Object container) throws MalformedYamlException {
+  private ArrayFleakData array(Object container, Collection<?> items)
+      throws MalformedYamlException {
+    boolean copy = enter(container);
+    List<FleakData> array = new ArrayList<>(items.size());
+    for (Object item : items) {
+      array.add(convert(item));
+    }
+    leave(container, copy);
+    return new ArrayFleakData(array);
+  }
+
+  /**
+   * Returns whether the container was converted before, i.e. is reached again through an alias, so
+   * that everything inside it is a copy.
+   */
+  private boolean enter(Object container) throws MalformedYamlException {
     if (!path.add(container)) {
       throw new MalformedYamlException("document contains itself through an alias");
+    }
+    if (path.size() > YamlSupport.MAX_NESTING) {
+      throw new MalformedYamlException(
+          "document nests deeper than " + YamlSupport.MAX_NESTING + " levels");
+    }
+    boolean copy = !converted.add(container);
+    if (copy) {
+      copying++;
+    }
+    return copy;
+  }
+
+  private void leave(Object container, boolean copy) {
+    path.remove(container);
+    if (copy) {
+      copying--;
     }
   }
 

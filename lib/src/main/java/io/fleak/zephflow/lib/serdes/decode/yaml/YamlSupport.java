@@ -34,6 +34,9 @@ import org.yaml.snakeyaml.nodes.Tag;
  */
 final class YamlSupport {
 
+  /** Kept well below what the recursive composer, constructor and converter need in stack. */
+  static final int MAX_NESTING = 500;
+
   private static final Pattern DATE = Pattern.compile("^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})$");
 
   private YamlSupport() {}
@@ -45,7 +48,7 @@ final class YamlSupport {
     options.setCodePointLimit(Integer.MAX_VALUE);
     // SnakeYAML counts aliases over the whole stream, not per document; YamlRecords caps expansion.
     options.setMaxAliasesForCollections(Integer.MAX_VALUE);
-    options.setNestingDepthLimit(1000);
+    options.setNestingDepthLimit(MAX_NESTING);
     return new Yaml(new DateAwareConstructor(options));
   }
 

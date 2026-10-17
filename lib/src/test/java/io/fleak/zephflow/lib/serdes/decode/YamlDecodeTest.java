@@ -182,7 +182,7 @@ class YamlDecodeTest {
     assertEquals(
         List.of(
             malformed(
-                1, "MalformedYamlException: document expands to more than 82768 values", false),
+                1, "MalformedYamlException: document expands to more than 90960 values", false),
             new Ok(json("{\"z\":1}"), 2, null)),
         decode(
             decoder(MULTI),
@@ -271,5 +271,42 @@ class YamlDecodeTest {
     assertEquals(
         List.of(new Threw("SourceReadException")),
         decode(decoder(MULTI), failingAt(utf8("a: 1\n---\nb: 2\n"), 3), DecodeLimits.UNLIMITED));
+  }
+
+  @Test
+  void nestingIsLimitedInTheSourceAndAfterAliasExpansion() {
+    StringBuilder chain = new StringBuilder("k0: &a0 [1]\n");
+    for (int n = 1; n <= 2; n++) {
+      chain.append('k').append(n).append(": &a").append(n).append(' ');
+      chain.append("[".repeat(300)).append("*a").append(n - 1).append("]".repeat(300)).append('\n');
+    }
+    assertEquals(
+        List.of(
+            malformed(1, "MalformedYamlException: document nests deeper than 500 levels", false),
+            new Ok(json("{\"z\":1}"), 2, null)),
+        decode(MULTI, utf8(chain + "---\nz: 1\n")));
+    assertEquals(
+        List.of(malformed(1, "YAMLException: Nesting Depth exceeded max 500", true)),
+        decode(MULTI, utf8("a: " + "[".repeat(501) + "]".repeat(501) + "\n---\nz: 1\n")));
+  }
+
+  @Test
+  void aliasCopiesAreCappedEvenWithoutLimits() {
+    StringBuilder bomb = new StringBuilder("l0: &l0 [1,1,1,1,1,1,1,1,1,1]\n");
+    for (int n = 1; n <= 7; n++) {
+      bomb.append('l').append(n).append(": &l").append(n).append(" [");
+      for (int i = 0; i < 10; i++) {
+        bomb.append(i == 0 ? "" : ",").append("*l").append(n - 1);
+      }
+      bomb.append("]\n");
+    }
+    assertEquals(
+        List.of(
+            malformed(
+                1,
+                "MalformedYamlException: aliases copy more than 1000000 values into the document",
+                false),
+            new Ok(json("{\"z\":1}"), 2, null)),
+        decode(MULTI, utf8(bomb + "---\nz: 1\n")));
   }
 }
