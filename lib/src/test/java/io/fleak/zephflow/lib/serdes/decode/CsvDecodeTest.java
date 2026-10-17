@@ -16,7 +16,11 @@ package io.fleak.zephflow.lib.serdes.decode;
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class CsvDecodeTest {
@@ -354,18 +358,35 @@ class CsvDecodeTest {
 
   @Test
   void rowWithTooManyColumnsIsMalformedAndDecodingContinues() {
-    String wide = ",".repeat(16_384);
-    List<Object> actual = decode(csv(",\"header\":false"), utf8(wide + "\nlast"));
+    String atCap = ",".repeat(16_383);
+    String wide = atCap + ",";
+    List<Object> actual = decode(csv(",\"header\":false"), utf8(atCap + "\n" + wide + "\nlast"));
+    Map<String, Object> empty = new LinkedHashMap<>();
+    for (int i = 0; i < 16_384; i++) {
+      empty.put("_c" + i, "");
+    }
     assertEquals(
         List.of(
+            new Ok((RecordFleakData) FleakData.wrap(empty), 1, new RawSpan(0, atCap.length())),
             new Bad(
                 ErrorKind.MALFORMED,
                 wide,
-                1,
-                new RawSpan(0, wide.length()),
+                2,
+                new RawSpan(atCap.length() + 1, wide.length()),
                 "MalformedCsvException: row has more than 16384 columns",
                 false),
-            new Ok(json("{\"_c0\":\"last\"}"), 2, new RawSpan(wide.length() + 1, 4))),
+            new Ok(
+                json("{\"_c0\":\"last\"}"), 3, new RawSpan(atCap.length() + wide.length() + 2, 4))),
         actual);
+  }
+
+  @Test
+  void headerLeftOpenIsTerminalEvenWhenColumnsReplaceIt() {
+    assertEquals(
+        List.of(new Big(0, RawSpan.toEnd(0), 11, "\"abcdefgh\n1", true)),
+        decode(
+            decoder(csv(",\"columns\":[\"p\"]")),
+            ByteInput.ofBytes(utf8("\"abcdefgh\n1")),
+            new DecodeLimits(5, 0)));
   }
 }

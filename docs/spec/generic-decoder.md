@@ -179,20 +179,21 @@ valid. An oversized line is matched by its 4 KiB preview.
 delimiters and line breaks, and `""` inside it is one quote. A quote inside an unquoted field is a
 literal character. `escape`, when set, makes the next character literal anywhere, including a line
 break. The single-character options must be ASCII, differ from each other and not be CR or LF; an
-empty `escape` or `commentMarker` means off. `ignoreSurroundingSpaces` trims spaces and tabs (unless
-tab is the delimiter) around fields and outside quotes.
+empty `escape` or `commentMarker` means off. `ignoreSurroundingSpaces` trims spaces and tabs (except
+the delimiter) around fields and outside quotes.
 
 Names come from `columns` if given, otherwise from the header line when `header` is true, otherwise
-`_c0`, `_c1`, … (rows may then differ in length). An empty header name becomes `_c<i>`. With `header`
-true and `columns` given, the header line is skipped without being checked. `skipLines` drops
-physical lines before anything else, ignoring quotes. Empty lines and lines starting with
+`_c0`, `_c1`, … (rows may then differ in length). An empty header name becomes `_c<i>`. With
+`header` true and `columns` given, the header line is skipped without being checked. `skipLines`
+drops physical lines before anything else, ignoring quotes. Empty lines and lines starting with
 `commentMarker` are skipped; a line of only spaces is a row.
 
 Text after a closing quote (other than ignored spaces) is `MALFORMED`, as are a row whose column
-count differs from the names and a row over 16,384 columns (Excel's limit; each field costs far
-more memory than its bytes). Decoding continues with the next row. A quote left open until the end
-of the input is terminal. A header that is malformed, oversized or has duplicate names is terminal,
-reported with `recordIndex` 0 and a span to the end of the input; data rows count from 1.
+count differs from the names and a row over 16,384 columns (Excel's limit; each field costs far more
+memory than its bytes). Decoding continues with the next row. A quote left open until the end of the
+input is terminal. When names come from the header line, a header that is malformed, oversized or
+has duplicate names is terminal, reported with `recordIndex` 0 and a span to the end of the input;
+data rows count from 1.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
