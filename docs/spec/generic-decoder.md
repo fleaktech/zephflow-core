@@ -127,9 +127,8 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `recordIndex`: physical line number for line framing (first line for multiline), otherwise the
   record ordinal starting at 1.
 - `span` is the record's offset and length in the stream after decompression and transcoding. It is
-  given where exact (line-based formats, csv, json array elements, length-delimited protobuf, whole
-  documents) and null
-  otherwise (xml elements, yaml multi-document, avro, parquet).
+  given where exact (line-based formats, csv, json array elements, length-delimited protobuf,
+  whole documents) and null otherwise (xml elements, yaml multi-document, avro, parquet).
 - `Failed.raw` holds the record's bytes where they can be located; otherwise it is empty and the
   caller uses `span`, or fetches the input again.
 
