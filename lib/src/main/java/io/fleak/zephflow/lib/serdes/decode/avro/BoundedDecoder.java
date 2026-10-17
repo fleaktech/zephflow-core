@@ -26,23 +26,45 @@ import org.apache.avro.util.Utf8;
  * checked against the bytes left before anything is allocated, so a wrong schema or a flipped bit
  * cannot ask for gigabytes. Avro's own limits are JVM-wide system properties, so they are not used.
  * Array, map and record counts all draw on one item budget per block: its byte length (an item
- * takes at least one byte) plus {@link #ZERO_BYTE_ITEMS} for items that encode in no bytes at all,
- * such as nulls or empty records.
+ * takes at least one byte) plus an allowance for items that encode in no bytes at all, such as
+ * nulls or empty records. Values read without consuming a byte since the previous such value draw
+ * on that allowance too, so a block cannot make the reader build or walk more than it allows.
  */
 final class BoundedDecoder extends Decoder {
 
-  static final long ZERO_BYTE_ITEMS = 100_000;
+  private static final long MIN_ZERO_BYTE_ITEMS = 100_000;
 
   private final byte[] buf;
   private int pos;
   private final int end;
   private long items;
+  private long zeroByteValues;
+  private int lastZeroBytePos = -1;
 
-  BoundedDecoder(byte[] buf, int off, int len) {
+  BoundedDecoder(byte[] buf, int off, int len, long zeroByteAllowance) {
     this.buf = buf;
     this.pos = off;
     this.end = off + len;
-    this.items = len + ZERO_BYTE_ITEMS;
+    this.items = len + zeroByteAllowance;
+    this.zeroByteValues = zeroByteAllowance;
+  }
+
+  /** At least 100,000, or an eighth of the document limit when that is larger. */
+  static long zeroByteAllowance(long maxDocumentBytes) {
+    return Math.max(MIN_ZERO_BYTE_ITEMS, maxDocumentBytes / 8);
+  }
+
+  int position() {
+    return pos;
+  }
+
+  /** Called for a value that encodes in no bytes; charged unless a byte was read since the last. */
+  void zeroByteValue(String what) throws MalformedAvroException {
+    if (pos == lastZeroBytePos && --zeroByteValues < 0) {
+      throw new MalformedAvroException(
+          "avro block has more " + what + " values that encode in no bytes than it allows");
+    }
+    lastZeroBytePos = pos;
   }
 
   /** Charges {@code count} items (records, array or map entries) against the block's budget. */
@@ -70,7 +92,9 @@ final class BoundedDecoder extends Decoder {
   }
 
   @Override
-  public void readNull() {}
+  public void readNull() throws IOException {
+    zeroByteValue("null");
+  }
 
   @Override
   public boolean readBoolean() throws IOException {
@@ -150,6 +174,9 @@ final class BoundedDecoder extends Decoder {
   @Override
   public void readFixed(byte[] bytes, int start, int length) throws IOException {
     need(length, "fixed");
+    if (length == 0) {
+      zeroByteValue("fixed");
+    }
     System.arraycopy(buf, pos, bytes, start, length);
     pos += length;
   }
@@ -157,6 +184,9 @@ final class BoundedDecoder extends Decoder {
   @Override
   public void skipFixed(int length) throws IOException {
     need(length, "fixed");
+    if (length == 0) {
+      zeroByteValue("fixed");
+    }
     pos += length;
   }
 

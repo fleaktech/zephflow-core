@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.luben.zstd.Zstd;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -687,12 +688,13 @@ class AvroDecodeTest {
         decode(OCF, craftedOcf(schemaMeta(SMALL), rawBlock(-1, new byte[0]))));
   }
 
+  static Stream<String> compressedCodecs() {
+    return codecs().filter(codec -> !codec.equals("null"));
+  }
+
   @ParameterizedTest
-  @MethodSource("codecs")
+  @MethodSource("compressedCodecs")
   void blockThatDecompressesOverTheLimitIsOversizedForEveryCodec(String codec) {
-    if (codec.equals("null")) {
-      return;
-    }
     byte[] file = ocf(SMALL, codec, List.of(small("x".repeat(100_000))), List.of(small("b")));
     List<Object> actual = decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 5_000));
     long size = ((Big) actual.get(0)).sizeSoFar();
@@ -712,6 +714,104 @@ class AvroDecodeTest {
                 new String(input, StandardCharsets.UTF_8),
                 true)),
         decode(decoder(datumConfig(SMALL)), ByteInput.ofBytes(input), new DecodeLimits(0, 50)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("compressedCodecs")
+  void compressedBlockMayHoldFarMoreRecordsThanCompressedBytes(String codec) throws IOException {
+    Schema flag =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"B\",\"fields\":[{\"name\":\"b\",\"type\":\"boolean\"}]}");
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (DataFileWriter<GenericRecord> writer =
+        new DataFileWriter<>(new GenericDatumWriter<>(flag))) {
+      writer.setCodec(codec(codec));
+      writer.setSyncInterval(1 << 20);
+      writer.create(flag, bytes);
+      GenericRecord record = new GenericData.Record(flag);
+      record.put("b", true);
+      for (int i = 0; i < 300_000; i++) {
+        writer.append(record);
+      }
+    }
+    List<Object> expected = new ArrayList<>();
+    for (int i = 1; i <= 300_000; i++) {
+      expected.add(new Ok(json("{\"b\":true}"), i, null));
+    }
+    assertEquals(expected, decode(OCF, bytes.toByteArray()), codec);
+  }
+
+  @Test
+  void wideRecordsOfNullsDrawOnTheZeroByteAllowance() throws IOException {
+    StringBuilder fields = new StringBuilder();
+    for (int i = 0; i < 100; i++) {
+      fields
+          .append(i == 0 ? "" : ",")
+          .append("{\"name\":\"n")
+          .append(i)
+          .append("\",\"type\":\"null\"}");
+    }
+    Schema schema =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"W\",\"fields\":[{\"name\":\"a\",\"type\":{\"type\":\"array\",\"items\":"
+                    + "{\"type\":\"record\",\"name\":\"R\",\"fields\":["
+                    + fields
+                    + "]}}}]}");
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(bytes, null);
+    encoder.writeLong(100_000);
+    encoder.writeLong(0);
+    encoder.flush();
+    byte[] input = bytes.toByteArray();
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(input, StandardCharsets.UTF_8),
+                -1,
+                new RawSpan(0, input.length),
+                "MalformedAvroException: avro block has more null values that encode in no bytes than it allows",
+                true)),
+        decode(datumConfig(schema), input));
+  }
+
+  @Test
+  void zeroByteAllowanceGrowsWithTheDocumentLimit() throws IOException {
+    Schema empty = new Schema.Parser().parse("{\"type\":\"record\",\"name\":\"E\",\"fields\":[]}");
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (DataFileWriter<GenericRecord> writer =
+        new DataFileWriter<>(new GenericDatumWriter<>(empty))) {
+      writer.create(empty, bytes);
+      GenericRecord record = new GenericData.Record(empty);
+      for (int i = 0; i < 200_000; i++) {
+        writer.append(record);
+      }
+    }
+    List<Object> expected = new ArrayList<>();
+    for (int i = 1; i <= 200_000; i++) {
+      expected.add(new Ok(json("{}"), i, null));
+    }
+    assertEquals(
+        expected,
+        decode(decoder(OCF), ByteInput.ofBytes(bytes.toByteArray()), new DecodeLimits(0, 4 << 20)));
+    assertEquals(
+        List.of(malformed(1, "avro block 1 claims 200000 records in 0 bytes", false)),
+        decode(OCF, bytes.toByteArray()));
+  }
+
+  @Test
+  void zstdBlockWithTooLargeAWindowIsOversized() {
+    byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
+    assertEquals(
+        List.of(new Big(1, null, 0, "", false), smallRecord("b", 2)),
+        decode(
+            OCF,
+            craftedOcf(
+                Map.of("avro.schema", SMALL.toString(), "avro.codec", "zstandard"),
+                rawBlock(1, hugeWindow),
+                rawBlock(1, Zstd.compress(datum(small("b")))))));
   }
 
   private static int indexOf(byte[] haystack, byte[] needle) {

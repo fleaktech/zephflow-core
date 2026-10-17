@@ -60,7 +60,9 @@ public final class AvroDatumFormat implements FormatCursor {
   private DecodeOutcome decode(byte[] bytes) {
     RawSpan span = new RawSpan(0, bytes.length);
     try {
-      BoundedDecoder decoder = new BoundedDecoder(bytes, 0, bytes.length);
+      BoundedDecoder decoder =
+          new BoundedDecoder(
+              bytes, 0, bytes.length, BoundedDecoder.zeroByteAllowance(maxDocumentBytes));
       IndexedRecord record = new BoundedDatumReader(schema).read(decoder);
       if (!decoder.isEnd()) {
         throw new MalformedAvroException(

@@ -149,7 +149,9 @@ public final class AvroOcfFormat implements FormatCursor {
     blocks++;
     long firstIndex = index + 1;
     blockFirstIndex = firstIndex;
-    if (count > size + BoundedDecoder.ZERO_BYTE_ITEMS) {
+    long zeroByteAllowance = BoundedDecoder.zeroByteAllowance(maxDocumentBytes);
+    long mostRecords = (codec.equals("null") ? size : AvroBlocks.MAX_BLOCK) + zeroByteAllowance;
+    if (count > mostRecords) {
       skip(size);
       checkSync();
       index++;
@@ -180,7 +182,7 @@ public final class AvroOcfFormat implements FormatCursor {
       index += count;
       return new Failed(ErrorKind.CORRUPT_COMPRESSION, EMPTY, firstIndex, null, e, false);
     }
-    block = new BoundedDecoder(data, 0, data.length);
+    block = new BoundedDecoder(data, 0, data.length, zeroByteAllowance);
     try {
       block.takeItems(count, "avro block " + blocks);
     } catch (MalformedAvroException e) {
@@ -210,10 +212,16 @@ public final class AvroOcfFormat implements FormatCursor {
         count = -count;
         readLong(in.read());
       }
+      if (count < 0) {
+        throw new MalformedAvroException("avro file header has an invalid entry count");
+      }
       for (long i = 0; i < count; i++) {
         byte[] key = readLengthPrefixed(limit - headerBytes);
         byte[] value = readLengthPrefixed(limit - headerBytes - key.length);
-        headerBytes += key.length + value.length;
+        headerBytes += key.length + value.length + 2;
+        if (headerBytes > limit) {
+          throw new MalformedAvroException("avro file header is longer than " + limit + " bytes");
+        }
         metadata.put(new String(key, StandardCharsets.UTF_8), value);
       }
     }

@@ -18,6 +18,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.avro.io.Decoder;
+import org.apache.avro.io.ResolvingDecoder;
 
 /**
  * GenericDatumReader that checks a fixed's size, which comes from the (possibly untrusted) schema,
@@ -35,6 +36,16 @@ final class BoundedDatumReader extends GenericDatumReader<IndexedRecord> {
   IndexedRecord read(BoundedDecoder decoder) throws IOException {
     current = decoder;
     return read(null, decoder);
+  }
+
+  @Override
+  protected Object readRecord(Object old, Schema expected, ResolvingDecoder in) throws IOException {
+    int before = current.position();
+    Object record = super.readRecord(old, expected, in);
+    if (current.position() == before) {
+      current.zeroByteValue("record");
+    }
+    return record;
   }
 
   @Override

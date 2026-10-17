@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.avro;
 
+import com.github.luben.zstd.Zstd;
+import com.github.luben.zstd.ZstdIOException;
 import com.github.luben.zstd.ZstdInputStreamNoFinalizer;
 import io.fleak.zephflow.lib.serdes.decode.internal.ByteBuilder;
 import java.io.ByteArrayInputStream;
@@ -72,6 +74,11 @@ final class AvroBlocks {
       };
     } catch (MemoryLimitException e) {
       throw new TooLarge(e.getMemoryNeeded() * 1024L);
+    } catch (ZstdIOException e) {
+      if (e.getErrorCode() == Zstd.errFrameParameterWindowTooLarge()) {
+        throw new TooLarge(0);
+      }
+      throw new CorruptBlockException("avro zstandard block is corrupt: " + e.getMessage(), e);
     } catch (CorruptBlockException e) {
       throw e;
     } catch (IOException | RuntimeException e) {
