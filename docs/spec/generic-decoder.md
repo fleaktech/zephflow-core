@@ -111,8 +111,8 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `maxDocumentBytes` bounds a unit held whole: a whole document, a decompressed avro block, a
   parquet row group. Avro and parquet sizes are checked before allocating.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
-  formats and csv continue with the next record (csv stops only when a quote stays open to the end);
-  the others stop (`terminal=true`). xml elements and yaml multi-document cannot locate a record, so
+  formats, csv and avro blocks continue with the next record or block (csv stops only when a quote
+  stays open to the end); the others stop (`terminal=true`). xml elements and yaml multi-document cannot locate a record, so
   their `Oversized` has no preview and no span. A codec over its memory limit gives a terminal
   `Oversized` with no span or preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does
   not say.
@@ -175,7 +175,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `csv` | `delimiter` (default `,`), `quote` (default `"`, `""` turns quoting off), `escape`, `header` (default true), `columns`, `skipLines`, `commentMarker`, `ignoreSurroundingSpaces` (default false), `charset` | One object per row; values are strings |
 | `xml` | `mode`: `document`, or `elements` with `recordPath` (e.g. `/Events/Event`) | Any DTD is refused; values are strings |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
-| `avro` | `container`: `ocf` (schema from the file), `datum` (schema in config) | One record per avro record |
+| `avro` | `container`: `ocf` (an object container file, which carries its schema), or `datum` (the whole input is one record) with `schema` (JSON, or a string holding it) | One record per avro record; the schema must be a record |
 | `protobuf` | `descriptorSet`, `messageType`, `framing`: `single`, `varint_delimited` | One record per message |
 | `parquet` | — | Needs random access; cannot be combined with `compression` |
 
@@ -234,6 +234,18 @@ such as `!foo`, nesting too deep after alias expansion) is `MALFORMED` and decod
 syntax error, too deep nesting in the source, or a global tag such as `!!python/object` is terminal.
 The encoding comes from the byte order mark (UTF-8 without one).
 
+**Avro.** Object container files are parsed here, not by avro's `DataFileStream`, which allocates
+whatever size a block header claims and takes a cut-off file for a clean end. A block's size is
+checked against `maxDocumentBytes` before it is read, and its decompressed size while it is
+decompressed. Blocks are framed, so an oversized block (`Oversized`), a damaged compressed block
+(`CORRUPT_COMPRESSION`) or a record that does not decode (`MALFORMED`) loses only the records of its
+block, and decoding goes on with the next block; record numbers still count the lost records. A
+wrong sync marker or a file that does not end exactly after a block is terminal. Every string,
+bytes, array and map length is checked against the bytes left in the block before anything is
+allocated; items that encode in zero bytes count as one byte, so an array of a billion nulls is
+`MALFORMED`. In `datum` mode, bytes left after the record are `MALFORMED`, and an empty input decodes
+if the schema fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
+
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
 the charset become U+FFFD.
@@ -273,7 +285,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 3 | `csv` | Done (#341) |
 | 4 | `xml`, `yaml` | Done (#342) |
 | 5 | Remaining codecs | Done (#343) |
-| 6 | `avro` | Planned |
+| 6 | `avro` | In review |
 | 7 | `protobuf` | Planned |
 | 8 | `parquet`, random-access input | Planned |
 
@@ -310,7 +322,6 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   `MALFORMED` instead of letting the `StackOverflowError` escape.
 - In a json array, more than 64 KiB of whitespace between elements counts toward the neighbouring
   record's budget.
-- A bad record in the middle of an avro file ends decoding; there is no resync at the next block.
 
 ## 8. PR1 implementation notes
 
@@ -375,3 +386,12 @@ Decisions made while implementing PR1 that refine the design above.
 | P39 | lz4 uses its own frame loop; commons-compress only decodes block contents. Its frame reader ends cleanly when the input stops right after an uncompressed block's size. Skippable frames are skipped by reading, because `FileInputStream.skip` goes past the end of a file without saying so |
 | P40 | A library codec leaves a failure alone when another layer already marked it, so an outer codec's memory limit stays `Oversized` through inner codecs |
 | P41 | ZlibStream's "inflater made no progress" branch cannot be reached under the JDK contract and is not tested, like gzip's (P16) |
+
+## 13. PR6 implementation notes
+
+| # | Note |
+|---|---|
+| P42 | Avro object container files are parsed here; avro's `DataFileStream` allocates the size a block header claims, decompresses without a bound, and treats a cut-off file as a clean end |
+| P43 | A bad avro block or record is not terminal, unlike the earlier plan (D12, D13): block boundaries are known, so decoding goes on with the next block |
+| P44 | Records are decoded with our own bounded `Decoder` over the block bytes instead of avro's `BinaryDecoder`, whose length limits are JVM-wide system properties |
+| P45 | Avro comes in through the `api` module's `api` dependency; nothing new is declared |
