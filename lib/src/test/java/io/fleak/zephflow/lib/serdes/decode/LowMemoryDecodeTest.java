@@ -19,6 +19,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.ZstdOutputStreamNoFinalizer;
+import com.google.protobuf.DescriptorProtos.DescriptorProto;
+import com.google.protobuf.DescriptorProtos.FieldDescriptorProto;
+import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
+import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -32,6 +36,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -447,6 +452,153 @@ class LowMemoryDecodeTest {
           count(decoder("{\"format\":{\"type\":\"avro\",\"container\":\"ocf\"}}"), input, LIMITS),
           codec);
     }
+  }
+
+  /**
+   * A FileDescriptorSet with {@code t.M { string p = 1; repeated Wide w = 2; }} and a {@code Wide}
+   * of 100 int32 fields.
+   */
+  private static String protobufConfig() {
+    DescriptorProto.Builder wide = DescriptorProto.newBuilder().setName("Wide");
+    for (int i = 1; i <= 100; i++) {
+      wide.addField(
+          FieldDescriptorProto.newBuilder()
+              .setName("f" + i)
+              .setNumber(i)
+              .setType(FieldDescriptorProto.Type.TYPE_INT32));
+    }
+    FileDescriptorProto file =
+        FileDescriptorProto.newBuilder()
+            .setName("t.proto")
+            .setPackage("t")
+            .setSyntax("proto3")
+            .addMessageType(wide)
+            .addMessageType(
+                DescriptorProto.newBuilder()
+                    .setName("M")
+                    .addField(
+                        FieldDescriptorProto.newBuilder()
+                            .setName("p")
+                            .setNumber(1)
+                            .setType(FieldDescriptorProto.Type.TYPE_STRING))
+                    .addField(
+                        FieldDescriptorProto.newBuilder()
+                            .setName("w")
+                            .setNumber(2)
+                            .setType(FieldDescriptorProto.Type.TYPE_MESSAGE)
+                            .setTypeName(".t.Wide")
+                            .setLabel(FieldDescriptorProto.Label.LABEL_REPEATED)))
+            .build();
+    String set =
+        Base64.getEncoder()
+            .encodeToString(FileDescriptorSet.newBuilder().addFile(file).build().toByteArray());
+    return "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
+        + set
+        + "\",\"messageType\":\"t.M\",\"framing\":\"varint_delimited\"}}";
+  }
+
+  /** A length-delimited message whose string field 1 holds {@code text}. */
+  private static byte[] protobufMessage(String text) {
+    byte[] value = text.getBytes(StandardCharsets.UTF_8);
+    ByteArrayOutputStream message = new ByteArrayOutputStream();
+    message.write(0x0A);
+    writeVarint(message, value.length);
+    message.writeBytes(value);
+    ByteArrayOutputStream framed = new ByteArrayOutputStream();
+    writeVarint(framed, message.size());
+    framed.writeBytes(message.toByteArray());
+    return framed.toByteArray();
+  }
+
+  private static void writeVarint(ByteArrayOutputStream out, long value) {
+    while ((value & ~0x7FL) != 0) {
+      out.write((int) ((value & 0x7F) | 0x80));
+      value >>>= 7;
+    }
+    out.write((int) value);
+  }
+
+  @Test
+  void protobufMessagesFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 210;
+    InputStream input =
+        new SequenceInputStream(
+            new Enumeration<>() {
+              private long next;
+
+              @Override
+              public boolean hasMoreElements() {
+                return next < records;
+              }
+
+              @Override
+              public InputStream nextElement() {
+                return new ByteArrayInputStream(protobufMessage(PAD + next++));
+              }
+            });
+    assertEquals(Map.of("Decoded", records), count(decoder(protobufConfig()), input, LIMITS));
+  }
+
+  @Test
+  void hugeProtobufMessageIsSkippedAndTheNextOneDecodes() {
+    long length = (TARGET_BYTES / 1000) * 1000;
+    ByteArrayOutputStream head = new ByteArrayOutputStream();
+    writeVarint(head, length + 1 + 5);
+    head.write(0x0A);
+    writeVarint(head, length);
+    InputStream input =
+        new SequenceInputStream(
+            Collections.enumeration(
+                List.of(
+                    new ByteArrayInputStream(head.toByteArray()),
+                    generated(length / 1000, i -> "x".repeat(1000), "", ""),
+                    new ByteArrayInputStream(protobufMessage("ok")))));
+    assertEquals(
+        Map.of("Oversized", 1L, "Decoded", 1L), count(decoder(protobufConfig()), input, LIMITS));
+  }
+
+  @Test
+  void protobufMessageOfEmptyWideSubmessagesIsMalformedNotAnOutOfMemory() {
+    int entries = 512 * 1024 - 8;
+    ByteArrayOutputStream bomb = new ByteArrayOutputStream();
+    writeVarint(bomb, entries * 2L);
+    for (int i = 0; i < entries; i++) {
+      bomb.write(0x12);
+      bomb.write(0);
+    }
+    InputStream input = new ByteArrayInputStream(concat(bomb.toByteArray(), protobufMessage("ok")));
+    assertEquals(
+        Map.of("Failed", 1L, "Decoded", 1L), count(decoder(protobufConfig()), input, LIMITS));
+  }
+
+  /**
+   * A 16 KiB length-delimited message of {@code empties} empty {@code Wide} submessages, padded
+   * with field 1. It builds {@code 4 + 102 * empties} values against a budget of 4 per byte plus
+   * 100,000.
+   */
+  private static byte[] protobufWideMessage(int empties) {
+    int padding = 16 * 1024 - 2 * empties - 3;
+    ByteArrayOutputStream message = new ByteArrayOutputStream();
+    message.write(0x0A);
+    writeVarint(message, padding);
+    message.writeBytes("x".repeat(padding).getBytes(StandardCharsets.UTF_8));
+    for (int i = 0; i < empties; i++) {
+      message.write(0x12);
+      message.write(0);
+    }
+    ByteArrayOutputStream framed = new ByteArrayOutputStream();
+    writeVarint(framed, message.size());
+    framed.writeBytes(message.toByteArray());
+    return framed.toByteArray();
+  }
+
+  @Test
+  void protobufMessageJustInsideTheObjectBudgetFitsTheHeap() {
+    InputStream input =
+        new ByteArrayInputStream(
+            concat(protobufWideMessage(1622), protobufWideMessage(1623), protobufMessage("ok")));
+    assertEquals(
+        Map.of("Decoded", 2L, "Failed", 1L), count(decoder(protobufConfig()), input, LIMITS));
   }
 
   private static Map<String, Long> count(

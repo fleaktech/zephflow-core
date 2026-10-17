@@ -14,6 +14,12 @@
 package io.fleak.zephflow.lib.serdes.decode.config;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
+import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
+import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.DescriptorValidationException;
+import com.google.protobuf.Descriptors.FileDescriptor;
+import com.google.protobuf.InvalidProtocolBufferException;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.avro.AvroDatumFormat;
 import io.fleak.zephflow.lib.serdes.decode.avro.AvroOcfFormat;
@@ -24,6 +30,8 @@ import io.fleak.zephflow.lib.serdes.decode.internal.FormatFactory;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonArrayFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonLinesFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonObjectFormat;
+import io.fleak.zephflow.lib.serdes.decode.protobuf.ProtobufDelimitedFormat;
+import io.fleak.zephflow.lib.serdes.decode.protobuf.ProtobufSingleFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.MultilineRule;
 import io.fleak.zephflow.lib.serdes.decode.text.TextLineFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.TextMultilineFormat;
@@ -34,8 +42,14 @@ import io.fleak.zephflow.lib.serdes.decode.yaml.YamlDocumentFormat;
 import io.fleak.zephflow.lib.serdes.decode.yaml.YamlMultiDocumentFormat;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -79,6 +93,7 @@ public final class DecodingConfigCompiler {
       case AvroFormatConfig avro -> avro(avro);
       case CsvFormatConfig csv -> csv(csv);
       case JsonFormatConfig json -> json(json);
+      case ProtobufFormatConfig protobuf -> protobuf(protobuf);
       case TextFormatConfig text -> text(text);
       case XmlFormatConfig xml -> xml(xml);
       case YamlFormatConfig yaml -> yaml(yaml);
@@ -215,6 +230,108 @@ public final class DecodingConfigCompiler {
       case DOCUMENT -> (in, limits, flags) -> new YamlDocumentFormat(in, limits);
       case MULTI_DOCUMENT -> YamlMultiDocumentFormat::new;
     };
+  }
+
+  private static FormatFactory protobuf(ProtobufFormatConfig protobuf) {
+    if (protobuf.framing() == null) {
+      throw new IllegalArgumentException(
+          "protobuf format needs a framing: single or varint_delimited");
+    }
+    Descriptor type = messageType(protobuf.descriptorSet(), protobuf.messageType());
+    return switch (protobuf.framing()) {
+      case SINGLE -> (in, limits, flags) -> new ProtobufSingleFormat(in, limits, type);
+      case VARINT_DELIMITED -> (in, limits, flags) -> new ProtobufDelimitedFormat(in, limits, type);
+    };
+  }
+
+  /** Builds every file of the set, each after its dependencies, and finds the message. */
+  private static Descriptor messageType(String descriptorSet, String messageType) {
+    if (descriptorSet == null || messageType == null) {
+      throw new IllegalArgumentException("protobuf format needs a descriptorSet and a messageType");
+    }
+    FileDescriptorSet set;
+    try {
+      set =
+          FileDescriptorSet.parseFrom(
+              Base64.getDecoder().decode(descriptorSet.replaceAll("\\s", "")));
+    } catch (IllegalArgumentException | InvalidProtocolBufferException e) {
+      throw new IllegalArgumentException(
+          "protobuf descriptorSet is not a base64 FileDescriptorSet: " + e.getMessage(), e);
+    }
+    Map<String, FileDescriptorProto> protos = new HashMap<>();
+    for (FileDescriptorProto file : set.getFileList()) {
+      FileDescriptorProto earlier = protos.put(file.getName(), file);
+      if (earlier != null && !earlier.equals(file)) {
+        throw new IllegalArgumentException(
+            "protobuf descriptorSet has two different files named " + file.getName());
+      }
+    }
+    Map<String, FileDescriptor> built = new HashMap<>();
+    String wanted = messageType.startsWith(".") ? messageType.substring(1) : messageType;
+    List<Descriptor> found = new ArrayList<>();
+    for (FileDescriptorProto file : protos.values()) {
+      for (Descriptor message : allMessages(build(file, protos, built, new HashSet<>()))) {
+        if (message.getFullName().equals(wanted)) {
+          found.add(message);
+        }
+      }
+    }
+    if (found.isEmpty()) {
+      throw new IllegalArgumentException(
+          "protobuf message type " + messageType + " is not in the descriptorSet");
+    }
+    if (found.size() > 1) {
+      throw new IllegalArgumentException(
+          "protobuf message type " + messageType + " is defined in more than one file");
+    }
+    if (found.get(0).getOptions().getMapEntry()) {
+      throw new IllegalArgumentException(
+          "protobuf message type " + messageType + " is a map entry, not a message");
+    }
+    return found.get(0);
+  }
+
+  private static List<Descriptor> allMessages(FileDescriptor file) {
+    List<Descriptor> all = new ArrayList<>();
+    Deque<Descriptor> pending = new ArrayDeque<>(file.getMessageTypes());
+    while (!pending.isEmpty()) {
+      Descriptor next = pending.pop();
+      all.add(next);
+      pending.addAll(next.getNestedTypes());
+    }
+    return all;
+  }
+
+  private static FileDescriptor build(
+      FileDescriptorProto file,
+      Map<String, FileDescriptorProto> protos,
+      Map<String, FileDescriptor> built,
+      Set<String> visiting) {
+    FileDescriptor done = built.get(file.getName());
+    if (done != null) {
+      return done;
+    }
+    if (!visiting.add(file.getName())) {
+      throw new IllegalArgumentException(
+          "protobuf descriptorSet has a dependency cycle at " + file.getName());
+    }
+    List<FileDescriptor> dependencies = new ArrayList<>();
+    for (String dependency : file.getDependencyList()) {
+      FileDescriptorProto proto = protos.get(dependency);
+      if (proto == null) {
+        throw new IllegalArgumentException(
+            "protobuf descriptorSet is missing " + dependency + ", needed by " + file.getName());
+      }
+      dependencies.add(build(proto, protos, built, visiting));
+    }
+    try {
+      FileDescriptor descriptor =
+          FileDescriptor.buildFrom(file, dependencies.toArray(new FileDescriptor[0]));
+      built.put(file.getName(), descriptor);
+      return descriptor;
+    } catch (DescriptorValidationException e) {
+      throw new IllegalArgumentException("protobuf descriptorSet is invalid: " + e.getMessage(), e);
+    }
   }
 
   private static FormatFactory json(JsonFormatConfig json) {

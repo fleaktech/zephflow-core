@@ -111,13 +111,13 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `maxDocumentBytes` bounds a unit held whole: a whole document, a decompressed avro block, a
   parquet row group. Avro and parquet sizes are checked before allocating.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
-  formats, csv and avro blocks continue with the next record or block (csv stops only when a quote
-  stays open to the end); the others stop (`terminal=true`). xml elements and yaml multi-document
-  cannot locate a record, so their `Oversized` has no preview and no span; an avro block's
-  `Oversized` has neither, and its `sizeSoFar` is the block's size, what it decompressed to before
-  the limit, the memory xz needs, or 0 for a zstd window. A codec over its memory limit gives a
-  terminal `Oversized` with no span or preview; `sizeSoFar` is the memory xz needs, or 0 for zstd,
-  which does not say.
+  formats, csv, avro blocks and length-delimited protobuf continue with the next record or block
+  (csv stops only when a quote stays open to the end); the others stop (`terminal=true`). xml
+  elements and yaml multi-document cannot locate a record, so their `Oversized` has no preview and
+  no span; an avro block's `Oversized` has neither, and its `sizeSoFar` is the block's size, what
+  it decompressed to before the limit, the memory xz needs, or 0 for a zstd window. A codec over
+  its memory limit gives a terminal `Oversized` with no span or preview; `sizeSoFar` is the memory
+  xz needs, or 0 for zstd, which does not say.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -127,8 +127,8 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
 - `recordIndex`: physical line number for line framing (first line for multiline), otherwise the
   record ordinal starting at 1.
 - `span` is the record's offset and length in the stream after decompression and transcoding. It is
-  given where exact (line-based formats, csv, json array elements, whole documents) and null
-  otherwise (xml elements, yaml multi-document, avro, parquet).
+  given where exact (line-based formats, csv, json array elements, length-delimited protobuf,
+  whole documents) and null otherwise (xml elements, yaml multi-document, avro, parquet).
 - `Failed.raw` holds the record's bytes where they can be located; otherwise it is empty and the
   caller uses `span`, or fetches the input again.
 
@@ -178,7 +178,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `xml` | `mode`: `document`, or `elements` with `recordPath` (e.g. `/Events/Event`) | Any DTD is refused; values are strings |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (an object container file, which carries its schema), or `datum` (the whole input is one record) with `schema` (JSON, or a string holding it) | One record per avro record; the schema must be a record |
-| `protobuf` | `descriptorSet`, `messageType`, `framing`: `single`, `varint_delimited` | One record per message |
+| `protobuf` | `descriptorSet` (a base64 `FileDescriptorSet` with every dependency; line breaks are allowed), `messageType` (full name), `framing`: `single`, `varint_delimited` | One record per message, by proto field name |
 | `parquet` | — | Needs random access; cannot be combined with `compression` |
 
 **Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
@@ -257,6 +257,22 @@ encode in no bytes is one of them. The file header may be up to `maxDocumentByte
 whichever is larger. In `datum` mode, bytes left after the record are `MALFORMED`, and an empty
 input decodes if the schema fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
 
+**Protobuf.** Messages are parsed as `DynamicMessage` with protobuf's default nesting limit (100).
+Repeated and map fields always appear (empty when unset); other fields follow 4.3 (a field with
+presence appears only when set, a proto3 scalar without presence always appears). Well-known wrapper
+types stay objects; unknown fields are ignored, and so are unknown values of a closed (proto2) enum,
+which protobuf drops; a proto2 message missing a required field is `MALFORMED`, and so is a
+Timestamp or Duration whose milliseconds overflow. Unset fields are filled in with defaults, so
+before a message is parsed its wire format is scanned to count what it would build (each message
+with the fields it always has, every field occurrence, map entries twice, and the defaults of a
+missing map value), and a message over 4 per byte plus 100,000 is `MALFORMED`. In `single` framing
+the whole input is one message, and an empty input is a message with every field at its default. In
+`varint_delimited` framing each message is preceded by its length (a 32-bit varint, as
+`writeDelimitedTo` writes it); a record's `span` and raw bytes are the message without its prefix. A
+message that does not parse is `MALFORMED`, and one over `maxRecordBytes` is `Oversized` with a
+preview; both lose only themselves. A broken prefix or an input that ends inside a message is
+terminal.
+
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
 the charset become U+FFFD.
@@ -299,7 +315,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 4 | `xml`, `yaml` | Done (#342) |
 | 5 | Remaining codecs | Done (#343) |
 | 6 | `avro` | Done (#344) |
-| 7 | `protobuf` | Planned |
+| 7 | `protobuf` | Done (#345) |
 | 8 | `parquet`, random-access input | Planned |
 
 ## 6. Testing
@@ -330,6 +346,11 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   records have no bytes of their own.
 - Tree formats (json array and object, xml, yaml) hold a record as a tree that can take 10–50 times
   its bytes in memory; only csv caps the number of fields.
+- A protobuf message may build at most 4 values per byte plus 100,000. Repeated submessages that
+  set only one or two of many proto3 fields without presence exceed it and are `MALFORMED`; fields
+  with presence cost nothing when unset. In the worst case a message holds about 300 times
+  `maxRecordBytes` (`maxDocumentBytes` in `single` framing) in memory while it is converted, about
+  twice what ordinary data of that size reaches.
 - An avro block may build at most 16 objects per byte (4.2). Records with about 15 or more bare
   `null` columns per payload byte, or wrapper records nested 8 or more deep around a one-byte value,
   exceed it and lose their block. In the worst case an avro block holds about 150–250 times
@@ -413,3 +434,12 @@ Decisions made while implementing PR1 that refine the design above.
 | P44 | Records are decoded with our own bounded `Decoder` over the block bytes instead of avro's `BinaryDecoder`, whose length limits are JVM-wide system properties |
 | P45 | Avro comes in through the `api` module's `api` dependency; nothing new is declared |
 | P46 | Avro allocation counts draw on one budget per block instead of being checked one array block at a time, which rejected valid arrays of nulls near the end of a block and let many small array blocks claim a quadratic number of items. The objects built are budgeted per byte as well, because a count alone does not bound a record with many fields that encode in no bytes; charging each zero-byte value as it was read, as tried in review, rejected valid files with a few null columns. A block's record count is checked against its compressed size only for the null codec. `fixed` sizes, which come from the file's schema, are checked by a `GenericDatumReader` subclass before avro allocates them |
+
+## 14. PR7 implementation notes
+
+| # | Note |
+|---|---|
+| P47 | Protobuf gets an object budget like avro's even though the descriptor is trusted: each two-byte empty submessage becomes a record of its type's defaults, so the data decides how often the defaults are filled in. The budget is checked by scanning the wire format before parsing, because protobuf's own parse already builds a tree of that shape. An instance is charged only for the fields that appear when unset, so sparse proto2 or `optional` data is not rejected, and unknown fields are charged because protobuf keeps them. A value costs 55–70 bytes of heap; 16 per byte plus 1,000,000, as first tried, let a 1 MiB message hold about 1 GB. The scan follows a field only in the wire type protobuf reads it with, so a group sent length-delimited stays unknown, as it does for protobuf |
+| P48 | The length prefix is read here rather than with `parseDelimitedFrom`, so an oversized message is skipped by reading (with a preview) instead of being buffered, and a broken prefix is told apart from a message that does not parse |
+| P49 | Protobuf comes in through `lib`'s existing `protobuf-java` dependency |
+| P50 | uint64 and fixed64 values of 2^63 and above are doubles, not longs: a long-typed number saturates at 2^63 - 1 when serialized. Timestamp and Duration both round down, like avro times |
