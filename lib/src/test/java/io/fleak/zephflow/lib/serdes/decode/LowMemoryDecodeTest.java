@@ -19,6 +19,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.ZstdOutputStreamNoFinalizer;
+import com.google.protobuf.DescriptorProtos.DescriptorProto;
+import com.google.protobuf.DescriptorProtos.FieldDescriptorProto;
+import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
+import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -32,6 +36,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -447,6 +452,90 @@ class LowMemoryDecodeTest {
           count(decoder("{\"format\":{\"type\":\"avro\",\"container\":\"ocf\"}}"), input, LIMITS),
           codec);
     }
+  }
+
+  /** A FileDescriptorSet with one message {@code t.M { string p = 1; }}. */
+  private static String protobufConfig() {
+    FileDescriptorProto file =
+        FileDescriptorProto.newBuilder()
+            .setName("t.proto")
+            .setPackage("t")
+            .setSyntax("proto3")
+            .addMessageType(
+                DescriptorProto.newBuilder()
+                    .setName("M")
+                    .addField(
+                        FieldDescriptorProto.newBuilder()
+                            .setName("p")
+                            .setNumber(1)
+                            .setType(FieldDescriptorProto.Type.TYPE_STRING)))
+            .build();
+    String set =
+        Base64.getEncoder()
+            .encodeToString(FileDescriptorSet.newBuilder().addFile(file).build().toByteArray());
+    return "{\"format\":{\"type\":\"protobuf\",\"descriptorSet\":\""
+        + set
+        + "\",\"messageType\":\"t.M\",\"framing\":\"varint_delimited\"}}";
+  }
+
+  /** A length-delimited message whose string field 1 holds {@code text}. */
+  private static byte[] protobufMessage(String text) {
+    byte[] value = text.getBytes(StandardCharsets.UTF_8);
+    ByteArrayOutputStream message = new ByteArrayOutputStream();
+    message.write(0x0A);
+    writeVarint(message, value.length);
+    message.writeBytes(value);
+    ByteArrayOutputStream framed = new ByteArrayOutputStream();
+    writeVarint(framed, message.size());
+    framed.writeBytes(message.toByteArray());
+    return framed.toByteArray();
+  }
+
+  private static void writeVarint(ByteArrayOutputStream out, long value) {
+    while ((value & ~0x7FL) != 0) {
+      out.write((int) ((value & 0x7F) | 0x80));
+      value >>>= 7;
+    }
+    out.write((int) value);
+  }
+
+  @Test
+  void protobufMessagesFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 210;
+    InputStream input =
+        new SequenceInputStream(
+            new Enumeration<>() {
+              private long next;
+
+              @Override
+              public boolean hasMoreElements() {
+                return next < records;
+              }
+
+              @Override
+              public InputStream nextElement() {
+                return new ByteArrayInputStream(protobufMessage(PAD + next++));
+              }
+            });
+    assertEquals(Map.of("Decoded", records), count(decoder(protobufConfig()), input, LIMITS));
+  }
+
+  @Test
+  void hugeProtobufMessageIsSkippedAndTheNextOneDecodes() {
+    long length = (TARGET_BYTES / 1000) * 1000;
+    ByteArrayOutputStream head = new ByteArrayOutputStream();
+    writeVarint(head, length + 1 + 5);
+    head.write(0x0A);
+    writeVarint(head, length);
+    InputStream input =
+        new SequenceInputStream(
+            Collections.enumeration(
+                List.of(
+                    new ByteArrayInputStream(head.toByteArray()),
+                    generated(length / 1000, i -> "x".repeat(1000), "", ""),
+                    new ByteArrayInputStream(protobufMessage("ok")))));
+    assertEquals(
+        Map.of("Oversized", 1L, "Decoded", 1L), count(decoder(protobufConfig()), input, LIMITS));
   }
 
   private static Map<String, Long> count(
