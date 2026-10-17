@@ -20,6 +20,15 @@ import java.util.Locale;
 
 public enum DecompressionCodec {
   GZIP,
+  ZSTD,
+  /** The Snappy framing format. */
+  SNAPPY,
+  /** The LZ4 frame format. */
+  LZ4,
+  BZIP2,
+  XZ,
+  /** The zlib format (RFC 1950). */
+  DEFLATE,
   /** Gzip when the input starts with the gzip magic bytes, otherwise no decompression. */
   AUTO;
 

@@ -53,7 +53,7 @@ public final class CompiledDecoder implements RecordDecoder {
     }
     InputStream guarded = new ReadGuardStream(raw, flags);
     try {
-      return format.create(Decompressors.wrap(codecs, guarded, flags), limits, flags);
+      return format.create(Decompressors.wrap(codecs, guarded, flags, limits), limits, flags);
     } catch (IOException | RuntimeException e) {
       guarded.close();
       throw e;

@@ -17,6 +17,9 @@ import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.decoder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.luben.zstd.ZstdOutputStreamNoFinalizer;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,12 +29,21 @@ import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.LongFunction;
+import java.util.zip.CRC32;
+import java.util.zip.DeflaterOutputStream;
 import java.util.zip.GZIPOutputStream;
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream;
+import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.tukaani.xz.LZMA2InputStream;
+import org.tukaani.xz.LZMA2Options;
+import org.tukaani.xz.XZOutputStream;
 
 /**
  * Runs in the lowMemoryTest task with a 64 MiB heap. Every input here is several times larger than
@@ -201,6 +213,62 @@ class LowMemoryDecodeTest {
     assertEquals(Map.of("Decoded", 1L, "Oversized", 1L), count(decoder(YAML_MULTI), input, LIMITS));
   }
 
+  @Test
+  void otherCodecsDecodeInputsFarLargerThanTheHeap() {
+    record Case(String codec, Compressor compressor, long bytes) {}
+    List<Case> cases =
+        List.of(
+            new Case("zstd", ZstdOutputStreamNoFinalizer::new, TARGET_BYTES),
+            new Case("lz4", FramedLZ4CompressorOutputStream::new, TARGET_BYTES),
+            new Case("snappy", FramedSnappyCompressorOutputStream::new, TARGET_BYTES),
+            new Case("deflate", DeflaterOutputStream::new, TARGET_BYTES),
+            new Case("xz", out -> new XZOutputStream(out, new LZMA2Options(1)), TARGET_BYTES),
+            // bzip2 compresses slowly; 100 MB is still well above the 64 MiB heap.
+            new Case("bzip2", BZip2CompressorOutputStream::new, TARGET_BYTES / 3));
+    for (Case c : cases) {
+      long records = c.bytes() / 210;
+      InputStream input =
+          compressed(generated(records, i -> PAD + i + "\n", "", ""), c.compressor());
+      assertEquals(
+          Map.of("Decoded", records),
+          count(
+              decoder(
+                  "{\"compression\":\""
+                      + c.codec()
+                      + "\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
+              input,
+              LIMITS),
+          c.codec());
+    }
+  }
+
+  @Test
+  void xzWithoutADocumentLimitIsCappedAtHalfTheHeap() throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (OutputStream out = new XZOutputStream(bytes, new LZMA2Options(0))) {
+      out.write("a\n".getBytes(StandardCharsets.UTF_8));
+    }
+    byte[] xz = bytes.toByteArray();
+    // Declare a 48 MiB dictionary (LZMA2 property 27) and fix the block header's CRC32.
+    int headerSize = ((xz[12] & 0xFF) + 1) * 4;
+    xz[16] = 27;
+    CRC32 crc = new CRC32();
+    crc.update(xz, 12, headerSize - 4);
+    for (int i = 0; i < 4; i++) {
+      xz[12 + headerSize - 4 + i] = (byte) (crc.getValue() >>> (8 * i));
+    }
+    long needed = LZMA2InputStream.getMemoryUsage(48 << 20) * 1024L;
+    assertTrue(
+        needed > Runtime.getRuntime().maxMemory() / 2, "the dictionary must exceed half the heap");
+    assertEquals(
+        Map.of("Oversized", 1L),
+        count(
+            decoder(
+                "{\"compression\":\"xz\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
+            new ByteArrayInputStream(xz),
+            new DecodeLimits(1024 * 1024, 0)));
+  }
+
   private static Map<String, Long> count(
       RecordDecoder decoder, InputStream input, DecodeLimits limits) {
     Map<String, Long> counts = new LinkedHashMap<>();
@@ -255,15 +323,24 @@ class LowMemoryDecodeTest {
     };
   }
 
+  @FunctionalInterface
+  interface Compressor {
+    OutputStream wrap(OutputStream out) throws IOException;
+  }
+
   private static InputStream gzipped(InputStream plain) {
+    return compressed(plain, out -> new GZIPOutputStream(out, 64 * 1024));
+  }
+
+  private static InputStream compressed(InputStream plain, Compressor compressor) {
     try {
       PipedInputStream in = new PipedInputStream(64 * 1024);
       OutputStream out = new PipedOutputStream(in);
       Thread writer =
           new Thread(
               () -> {
-                try (GZIPOutputStream gz = new GZIPOutputStream(out, 64 * 1024)) {
-                  plain.transferTo(gz);
+                try (OutputStream compressing = compressor.wrap(out)) {
+                  plain.transferTo(compressing);
                 } catch (IOException ignored) {
                   // The reader closed early.
                 }
