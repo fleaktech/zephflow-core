@@ -48,6 +48,10 @@ final class YamlRecords {
 
   private final Set<Object> path = Collections.newSetFromMap(new IdentityHashMap<>());
   private final Set<Object> converted = Collections.newSetFromMap(new IdentityHashMap<>());
+
+  /** Aliases share one scalar object; its text is made once so copies share it too. */
+  private final Map<Object, String> scalarText = new IdentityHashMap<>();
+
   private final long maxValues;
   private final long maxCopies;
   private long values;
@@ -67,9 +71,14 @@ final class YamlRecords {
     }
     YamlRecords records =
         sizeLimit > 0
-            ? new YamlRecords(Math.max(1, sizeLimit / 2), Long.MAX_VALUE)
+            ? new YamlRecords(maxValues(sizeLimit), Long.MAX_VALUE)
             : new YamlRecords(Long.MAX_VALUE, UNLIMITED_ALIAS_COPIES);
     return (RecordFleakData) records.convert(map);
+  }
+
+  /** The value cap for a size limit, or the alias-copy cap without one. */
+  static long maxValues(long sizeLimit) {
+    return sizeLimit > 0 ? Math.max(1, sizeLimit / 2) : UNLIMITED_ALIAS_COPIES;
   }
 
   private FleakData convert(Object value) throws MalformedYamlException {
@@ -101,15 +110,22 @@ final class YamlRecords {
       case Long n -> new NumberPrimitiveFleakData(n, NumberType.LONG);
       case BigInteger n when n.bitLength() < 64 ->
           new NumberPrimitiveFleakData(n.longValue(), NumberType.LONG);
-      case BigInteger n -> new StringPrimitiveFleakData(n.toString());
+      case BigInteger n -> new StringPrimitiveFleakData(text(n));
       case Double n when !Double.isFinite(n) -> new StringPrimitiveFleakData(n.toString());
       case Number n -> new NumberPrimitiveFleakData(n.doubleValue(), NumberType.DOUBLE);
       case Boolean b -> new BooleanPrimitiveFleakData(b);
       case Date date -> new NumberPrimitiveFleakData(date.getTime(), NumberType.LONG);
       case LocalDate date -> new NumberPrimitiveFleakData(date.toEpochDay(), NumberType.LONG);
-      case byte[] bytes -> new StringPrimitiveFleakData(Base64.getEncoder().encodeToString(bytes));
-      default -> new StringPrimitiveFleakData(value.toString());
+      case String text -> new StringPrimitiveFleakData(text);
+      case byte[] bytes -> new StringPrimitiveFleakData(text(bytes));
+      default -> new StringPrimitiveFleakData(text(value));
     };
+  }
+
+  private String text(Object scalar) {
+    return scalarText.computeIfAbsent(
+        scalar,
+        s -> s instanceof byte[] bytes ? Base64.getEncoder().encodeToString(bytes) : s.toString());
   }
 
   private ArrayFleakData array(Object container, Collection<?> items)

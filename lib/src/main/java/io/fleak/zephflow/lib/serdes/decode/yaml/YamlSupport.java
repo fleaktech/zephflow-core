@@ -22,6 +22,7 @@ import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.AbstractConstruct;
 import org.yaml.snakeyaml.constructor.ConstructorException;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
 import org.yaml.snakeyaml.nodes.ScalarNode;
 import org.yaml.snakeyaml.nodes.Tag;
@@ -42,14 +43,15 @@ final class YamlSupport {
   private YamlSupport() {}
 
   /** A new instance per cursor: SnakeYAML objects are not thread-safe. */
-  static Yaml yaml() {
+  /** {@code maxValues} also caps the entries SnakeYAML copies while resolving merge keys. */
+  static Yaml yaml(long maxValues) {
     LoaderOptions options = new LoaderOptions();
     options.setAllowDuplicateKeys(false);
     options.setCodePointLimit(Integer.MAX_VALUE);
     // SnakeYAML counts aliases over the whole stream, not per document; YamlRecords caps expansion.
     options.setMaxAliasesForCollections(Integer.MAX_VALUE);
     options.setNestingDepthLimit(MAX_NESTING);
-    return new Yaml(new DateAwareConstructor(options));
+    return new Yaml(new DateAwareConstructor(options, maxValues));
   }
 
   /**
@@ -59,8 +61,12 @@ final class YamlSupport {
    */
   private static final class DateAwareConstructor extends SafeConstructor {
 
-    DateAwareConstructor(LoaderOptions options) {
+    private final long maxMergedEntries;
+    private long mergedEntries;
+
+    DateAwareConstructor(LoaderOptions options, long maxMergedEntries) {
       super(options);
+      this.maxMergedEntries = maxMergedEntries;
       ConstructYamlTimestamp timestamp = new ConstructYamlTimestamp();
       yamlConstructors.put(
           Tag.TIMESTAMP,
@@ -79,12 +85,28 @@ final class YamlSupport {
           });
     }
 
+    /** Merge-key chains copy entries quadratically before any record is built, so count them. */
+    @Override
+    protected void flattenMapping(MappingNode node, boolean forceStringKeys) {
+      super.flattenMapping(node, forceStringKeys);
+      if (node.isMerged()) {
+        mergedEntries += node.getValue().size();
+        if (mergedEntries > maxMergedEntries) {
+          throw new DocumentConstructionException(
+              node,
+              new IllegalStateException(
+                  "merge keys copy more than " + maxMergedEntries + " entries into the document"));
+        }
+      }
+    }
+
     @Override
     public Object getData() {
       if (!composer.checkNode()) {
         throw new NoSuchElementException("No document is available.");
       }
       Node node = composer.getNode();
+      mergedEntries = 0;
       try {
         return constructDocument(node);
       } catch (ConstructorException e) {

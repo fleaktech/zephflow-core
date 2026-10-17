@@ -54,7 +54,9 @@ public final class YamlDocumentFormat implements FormatCursor {
   private DecodeOutcome parse(byte[] bytes) {
     RawSpan span = new RawSpan(0, bytes.length);
     try {
-      Object document = YamlSupport.yaml().load(new ByteArrayInputStream(bytes));
+      Object document =
+          YamlSupport.yaml(YamlRecords.maxValues(maxDocumentBytes))
+              .load(new ByteArrayInputStream(bytes));
       return document == null
           ? null
           : new Decoded(YamlRecords.toRecord(document, maxDocumentBytes), 1, span);

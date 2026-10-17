@@ -208,15 +208,16 @@ expanded and nothing is fetched. The encoding comes from the XML declaration or 
 are expanded into separate copies, up to one value per two bytes of the size limit (the most an
 alias-free document within the limit could hold), so aliases never make a record larger than the
 limit allows (without a limit, aliases may copy at most 1,000,000 values, since their growth is
-exponential); a document that contains itself is `MALFORMED`. Duplicate keys are `MALFORMED`, and so
-are a mapping key that is not a scalar and two keys that become the same name (`1` and `'1'`).
-Nesting is limited to 500 levels, in the source and after alias expansion, to stay clear of stack
-overflows in the recursive parser. An empty or null document gives no record. In `multi_document`
-mode a document that fails to construct (not a mapping, duplicate keys, an alias loop, an invalid
-date such as `2024-02-30`, a value that does not fit its tag, an unknown local tag such as `!foo`,
-nesting too deep after alias expansion) is `MALFORMED` and decoding goes on; a syntax error, too
-deep nesting in the source, or a global tag such as `!!python/object` is terminal. The encoding
-comes from the byte order mark (UTF-8 without one).
+exponential); entries copied by merge keys (`<<`) count against the same cap, and copies of one
+scalar share its text; a document that contains itself is `MALFORMED`. Duplicate keys are
+`MALFORMED`, and so are a mapping key that is not a scalar and two keys that become the same name
+(`1` and `'1'`). Nesting is limited to 500 levels, in the source and after alias expansion, to stay
+clear of stack overflows in the recursive parser. An empty or null document gives no record. In
+`multi_document` mode a document that fails to construct (not a mapping, duplicate keys, an alias
+loop, an invalid date such as `2024-02-30`, a value that does not fit its tag, an unknown local tag
+such as `!foo`, nesting too deep after alias expansion) is `MALFORMED` and decoding goes on; a
+syntax error, too deep nesting in the source, or a global tag such as `!!python/object` is terminal.
+The encoding comes from the byte order mark (UTF-8 without one).
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -287,6 +288,9 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   records have no bytes of their own.
 - Tree formats (json array and object, xml, yaml) hold a record as a tree that can take 10–50 times
   its bytes in memory; only csv caps the number of fields.
+- Recursive parsers (Jackson, SnakeYAML) need a normal thread stack (1 MiB or more) to reach their
+  nesting limits. On a smaller stack, deep input can overflow it; the cursor then reports a terminal
+  `MALFORMED` instead of letting the `StackOverflowError` escape.
 - In a json array, more than 64 KiB of whitespace between elements counts toward the neighbouring
   record's budget.
 - A bad record in the middle of an avro file ends decoding; there is no resync at the next block.
@@ -340,3 +344,4 @@ Decisions made while implementing PR1 that refine the design above.
 | P30 | Woodstox, Jackson XML and SnakeYAML come in through the existing Jackson XML and YAML dependencies; no new dependency is declared |
 | P31 | SnakeYAML's own alias limit (50 per stream) is lifted because it counts across documents and would end a valid stream; the size-based cap in `YamlRecords` replaces it, plus a cap on values copied through aliases when no limit is set, and a depth check after expansion. Any failure while constructing a composed document is reported per document, so it never ends a multi-document stream |
 | P32 | Woodstox's limit of 1,000 attributes per element is lifted, like the attribute length, so only the decoder's limits decide |
+| P33 | Merge-key chains are counted while SnakeYAML flattens mappings, against the same value cap, because they grow quadratically before `YamlRecords` sees them. The text of a shared scalar (`!!binary`, big integers) is made once per object, so alias copies share it |

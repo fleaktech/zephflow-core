@@ -15,12 +15,15 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.fleak.zephflow.api.structure.ArrayFleakData;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
@@ -308,5 +311,51 @@ class YamlDecodeTest {
                 false),
             new Ok(json("{\"z\":1}"), 2, null)),
         decode(MULTI, utf8(bomb + "---\nz: 1\n")));
+  }
+
+  @Test
+  void mergeKeyChainsAreCapped() {
+    StringBuilder chain = new StringBuilder("m0: &m0 {k0: 0}\n");
+    for (int n = 1; n <= 400; n++) {
+      chain.append('m').append(n).append(": &m").append(n);
+      chain
+          .append(" {<<: *m")
+          .append(n - 1)
+          .append(", k")
+          .append(n)
+          .append(": ")
+          .append(n)
+          .append("}\n");
+    }
+    assertEquals(
+        List.of(
+            malformed(
+                1,
+                "DocumentConstructionException: IllegalStateException: merge keys copy more than"
+                    + " 40960 entries into the document",
+                false),
+            new Ok(json("{\"z\":1}"), 2, null)),
+        decode(
+            decoder(MULTI),
+            ByteInput.ofBytes(utf8(chain + "---\nz: 1\n")),
+            new DecodeLimits(1, 0)));
+  }
+
+  @Test
+  void aliasesToALargeScalarShareItsText() {
+    String big = "x".repeat(300_000);
+    String encoded = Base64.getEncoder().encodeToString(utf8(big));
+    StringBuilder input = new StringBuilder("b: &b !!binary ").append(encoded).append("\nc: [");
+    StringBuilder json = new StringBuilder("{\"b\":\"").append(encoded).append("\",\"c\":[");
+    for (int i = 0; i < 200; i++) {
+      input.append(i == 0 ? "" : ",").append("*b");
+      json.append(i == 0 ? "" : ",").append('"').append(encoded).append('"');
+    }
+    List<Object> actual = decode(MULTI, utf8(input.append("]\n").toString()));
+    assertEquals(List.of(new Ok(json(json.append("]}").toString()), 1, null)), actual);
+    ArrayFleakData copies = (ArrayFleakData) ((Ok) actual.get(0)).record().getPayload().get("c");
+    assertSame(
+        copies.getArrayPayload().get(0).getStringValue(),
+        copies.getArrayPayload().get(199).getStringValue());
   }
 }

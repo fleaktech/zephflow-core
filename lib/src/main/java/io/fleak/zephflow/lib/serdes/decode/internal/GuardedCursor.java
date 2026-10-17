@@ -75,6 +75,10 @@ public final class GuardedCursor implements RecordCursor {
       done = true;
       DecodeOutcome outcome = fromFlags(e);
       return outcome != null ? outcome : malformed(e);
+    } catch (StackOverflowError e) {
+      // Recursive parsers can still run out of a small thread stack below their nesting limits.
+      done = true;
+      return malformed(new IllegalStateException("input nests too deeply for the thread stack", e));
     }
   }
 

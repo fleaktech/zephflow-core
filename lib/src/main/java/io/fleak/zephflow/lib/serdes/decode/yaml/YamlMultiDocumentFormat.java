@@ -55,7 +55,8 @@ public final class YamlMultiDocumentFormat implements FormatCursor {
   public DecodeOutcome next() throws MalformedYamlException {
     if (documents == null) {
       budget = new BudgetCaptureStream(in, maxRecordBytes, flags, false);
-      documents = YamlSupport.yaml().loadAll(budget).iterator();
+      documents =
+          YamlSupport.yaml(YamlRecords.maxValues(recordSizeLimit())).loadAll(budget).iterator();
     }
     while (documents.hasNext()) {
       Object document;
