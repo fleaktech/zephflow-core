@@ -58,7 +58,7 @@ class TextDecodeTest {
   @Test
   void invalidUtf8IsReplacedInTheText() {
     byte[] input = {'a', (byte) 0xFF, 'b'};
-    assertEquals(List.of(new Ok(raw("a�b"), 1, new RawSpan(0, 3))), decode(LINE, input));
+    assertEquals(List.of(new Ok(raw("a\uFFFDb"), 1, new RawSpan(0, 3))), decode(LINE, input));
   }
 
   @Test

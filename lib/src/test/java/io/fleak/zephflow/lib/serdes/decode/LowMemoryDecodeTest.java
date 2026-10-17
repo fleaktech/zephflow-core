@@ -23,6 +23,7 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,6 +43,8 @@ class LowMemoryDecodeTest {
   private static final long TARGET_BYTES = 300L * 1024 * 1024;
   private static final DecodeLimits LIMITS = new DecodeLimits(1024 * 1024, 4 * 1024 * 1024);
   private static final String PAD = "x".repeat(200);
+  private static final String MULTILINE =
+      "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"continuePattern\":\"^\\\\s\"}}}";
 
   @BeforeAll
   static void heapIsSmallerThanTheInputs() {
@@ -112,6 +115,33 @@ class LowMemoryDecodeTest {
         count(decoder("{\"format\":{\"type\":\"json\",\"mode\":\"object\"}}"), input, LIMITS));
   }
 
+  @Test
+  void multilineEventsFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 220;
+    InputStream input = generated(records, i -> "E" + i + "\n\tat " + PAD + "\n\tat x\n", "", "");
+    assertEquals(Map.of("Decoded", records), count(decoder(MULTILINE), input, LIMITS));
+  }
+
+  @Test
+  void hugeMultilineEventIsOversizedAndTheNextEventStillDecodes() {
+    InputStream input =
+        generated(TARGET_BYTES / 1000, i -> "\t" + "x".repeat(999) + "\n", "start\n", "next\n");
+    assertEquals(Map.of("Oversized", 1L, "Decoded", 1L), count(decoder(MULTILINE), input, LIMITS));
+  }
+
+  @Test
+  void utf16TextLinesFarLargerThanTheHeap() {
+    long records = TARGET_BYTES / 420;
+    InputStream input = generated(records, i -> PAD + i + "\n", "", "", StandardCharsets.UTF_16LE);
+    assertEquals(
+        Map.of("Decoded", records),
+        count(
+            decoder(
+                "{\"format\":{\"type\":\"text\",\"charset\":\"UTF-16LE\",\"framing\":{\"type\":\"line\"}}}"),
+            input,
+            LIMITS));
+  }
+
   private static Map<String, Long> count(
       RecordDecoder decoder, InputStream input, DecodeLimits limits) {
     Map<String, Long> counts = new LinkedHashMap<>();
@@ -128,9 +158,14 @@ class LowMemoryDecodeTest {
 
   private static InputStream generated(
       long count, LongFunction<String> item, String prefix, String suffix) {
+    return generated(count, item, prefix, suffix, StandardCharsets.UTF_8);
+  }
+
+  private static InputStream generated(
+      long count, LongFunction<String> item, String prefix, String suffix, Charset charset) {
     return new InputStream() {
       private long next;
-      private byte[] current = prefix.getBytes(StandardCharsets.UTF_8);
+      private byte[] current = prefix.getBytes(charset);
       private int pos;
       private boolean suffixDone;
 
@@ -144,10 +179,10 @@ class LowMemoryDecodeTest {
       public int read(byte[] b, int off, int len) {
         while (pos == current.length) {
           if (next < count) {
-            current = item.apply(next++).getBytes(StandardCharsets.UTF_8);
+            current = item.apply(next++).getBytes(charset);
           } else if (!suffixDone) {
             suffixDone = true;
-            current = suffix.getBytes(StandardCharsets.UTF_8);
+            current = suffix.getBytes(charset);
           } else {
             return -1;
           }

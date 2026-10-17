@@ -25,6 +25,7 @@ import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import io.fleak.zephflow.lib.serdes.decode.internal.LineFramer;
 import io.fleak.zephflow.lib.serdes.decode.internal.LineFramer.Line;
 import io.fleak.zephflow.lib.serdes.decode.internal.LineFramer.OversizedLine;
+import io.fleak.zephflow.lib.serdes.decode.internal.Utf8TranscodingStream;
 import io.fleak.zephflow.lib.serdes.decode.text.Blank;
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,7 +44,8 @@ public final class JsonLinesFormat implements FormatCursor {
   @Override
   public DecodeOutcome next() throws IOException {
     if (framer == null) {
-      framer = new LineFramer(JsonEncoding.toUtf8(in), maxRecordBytes);
+      InputStream utf8 = JsonEncoding.toUtf8(in);
+      framer = new LineFramer(utf8, maxRecordBytes, !(utf8 instanceof Utf8TranscodingStream));
     }
     while (true) {
       LineFramer.Frame frame = framer.next();

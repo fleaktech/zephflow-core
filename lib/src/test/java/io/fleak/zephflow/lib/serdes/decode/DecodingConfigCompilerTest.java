@@ -56,8 +56,11 @@ class DecodingConfigCompilerTest {
             "{\"format\":{\"type\":\"json\"}}",
             "{\"compression\":[\"auto\",\"gzip\"],\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}",
             "{\"format\":{\"type\":\"text\"}}",
-            "{\"format\":{\"type\":\"text\",\"charset\":\"UTF-16\",\"framing\":{\"type\":\"line\"}}}",
-            "{\"format\":{\"type\":\"text\",\"charset\":\"nope\",\"framing\":{\"type\":\"line\"}}}")) {
+            "{\"format\":{\"type\":\"text\",\"charset\":\"nope\",\"framing\":{\"type\":\"line\"}}}",
+            "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\"}}}",
+            "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"a\",\"continuePattern\":\"b\"}}}",
+            "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"(\"}}}",
+            "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"a\",\"maxLines\":0}}}")) {
       assertThrows(IllegalArgumentException.class, () -> decoder(bad), bad);
     }
     assertThrows(IllegalArgumentException.class, () -> DecodingConfigCompiler.compile(null));
