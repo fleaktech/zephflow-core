@@ -29,7 +29,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.DataFormatException;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.Inflater;
 
 /** Turns outcomes into plain comparable values so tests can compare whole expected lists. */
 final class DecodeTestSupport {
@@ -193,5 +195,29 @@ final class DecodeTestSupport {
             return n;
           }
         };
+  }
+
+  /**
+   * What a byte-at-a-time inflater releases from a single-member gzip before it is cut or damaged:
+   * an independent account of the bytes the decoder can deliver.
+   */
+  static byte[] recoverablePrefix(byte[] gzip) {
+    if (gzip.length <= 10) {
+      return new byte[0];
+    }
+    Inflater inflater = new Inflater(true);
+    inflater.setInput(gzip, 10, gzip.length - 10);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    byte[] one = new byte[1];
+    try {
+      while (!inflater.finished() && inflater.inflate(one) == 1) {
+        out.write(one[0]);
+      }
+    } catch (DataFormatException expected) {
+      // The damaged spot.
+    } finally {
+      inflater.end();
+    }
+    return out.toByteArray();
   }
 }

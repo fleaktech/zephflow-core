@@ -25,8 +25,12 @@ public final class LineFramer implements AutoCloseable {
 
   public sealed interface Frame {}
 
-  /** A line without its terminator. */
-  public record Line(byte[] bytes, long lineNumber, long offset) implements Frame {}
+  /**
+   * A line without its terminator. {@code terminator} is its first terminator byte, or 0 at the end
+   * of the input; a CR followed by LF shows as the next line starting two bytes later.
+   */
+  public record Line(byte[] bytes, long lineNumber, long offset, byte terminator)
+      implements Frame {}
 
   public record OversizedLine(long lineNumber, long offset, long size, byte[] preview)
       implements Frame {}
@@ -36,6 +40,7 @@ public final class LineFramer implements AutoCloseable {
 
   private final InputStream in;
   private final long maxRecordBytes;
+  private final boolean skipBom;
   private final byte[] chunk = new byte[CHUNK];
   private int pos;
   private int limit;
@@ -51,21 +56,28 @@ public final class LineFramer implements AutoCloseable {
   private long lineStart;
   private long lineNumber = 1;
 
-  public LineFramer(InputStream in, long maxRecordBytes) {
+  /**
+   * @param skipBom whether a leading UTF-8 byte order mark is skipped; false for transcoded input,
+   *     where the mark was already removed and a U+FEFF that remains is text
+   */
+  public LineFramer(InputStream in, long maxRecordBytes, boolean skipBom) {
     this.in = in;
     this.maxRecordBytes = maxRecordBytes;
+    this.skipBom = skipBom;
   }
 
   /** The next line, an oversized line, or null at the end. */
   public Frame next() throws IOException {
     if (!started) {
       started = true;
-      skipBom();
+      if (skipBom) {
+        skipBom();
+      }
     }
     while (true) {
       if (pos == limit) {
         if (eof) {
-          return lineSize > 0 || oversized ? emit() : null;
+          return lineSize > 0 || oversized ? emit((byte) 0) : null;
         }
         fill();
         continue;
@@ -99,7 +111,7 @@ public final class LineFramer implements AutoCloseable {
           skipLeadingLf = true;
         }
       }
-      Frame frame = emit();
+      Frame frame = emit(terminator);
       lineStart = afterTerminator;
       return frame;
     }
@@ -174,11 +186,11 @@ public final class LineFramer implements AutoCloseable {
     lineSize += len;
   }
 
-  private Frame emit() {
+  private Frame emit(byte terminator) {
     Frame frame =
         oversized
             ? new OversizedLine(lineNumber, lineStart, lineSize, preview.toByteArray())
-            : new Line(line.toByteArray(), lineNumber, lineStart);
+            : new Line(line.toByteArray(), lineNumber, lineStart, terminator);
     lineNumber++;
     lineSize = 0;
     oversized = false;

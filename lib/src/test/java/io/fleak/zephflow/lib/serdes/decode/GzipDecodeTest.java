@@ -28,9 +28,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
-import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
-import java.util.zip.Inflater;
 import org.junit.jupiter.api.Test;
 
 class GzipDecodeTest {
@@ -168,26 +166,6 @@ class GzipDecodeTest {
   }
 
   /** Inflates one byte at a time to find exactly how much a perfect reader could recover. */
-  private static byte[] recoverablePrefix(byte[] gzip) {
-    if (gzip.length <= 10) {
-      return new byte[0];
-    }
-    Inflater inflater = new Inflater(true);
-    inflater.setInput(gzip, 10, gzip.length - 10);
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
-    byte[] one = new byte[1];
-    try {
-      while (!inflater.finished() && inflater.inflate(one) == 1) {
-        out.write(one[0]);
-      }
-    } catch (DataFormatException expected) {
-      // The damaged spot.
-    } finally {
-      inflater.end();
-    }
-    return out.toByteArray();
-  }
-
   @Test
   void headerWithEveryOptionalFieldDecodes() throws Exception {
     ByteArrayOutputStream member = new ByteArrayOutputStream();

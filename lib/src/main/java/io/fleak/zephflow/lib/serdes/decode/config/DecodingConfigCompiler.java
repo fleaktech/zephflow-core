@@ -19,12 +19,16 @@ import io.fleak.zephflow.lib.serdes.decode.internal.FormatFactory;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonArrayFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonLinesFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonObjectFormat;
+import io.fleak.zephflow.lib.serdes.decode.text.MultilineRule;
 import io.fleak.zephflow.lib.serdes.decode.text.TextLineFormat;
+import io.fleak.zephflow.lib.serdes.decode.text.TextMultilineFormat;
 import io.fleak.zephflow.lib.serdes.decode.text.TextWholeFormat;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /** Validates a config and builds its decoder. Every config error is reported here, not on read. */
 public final class DecodingConfigCompiler {
@@ -74,19 +78,40 @@ public final class DecodingConfigCompiler {
 
   private static FormatFactory text(TextFormatConfig text) {
     Charset charset = charset(text.charset());
-    if (!StandardCharsets.UTF_8.equals(charset)) {
-      throw new IllegalArgumentException("text charset " + charset + " is not supported yet");
-    }
     if (text.framing() == null) {
-      throw new IllegalArgumentException("text format needs a framing: line or whole");
+      throw new IllegalArgumentException("text format needs a framing: line, multiline or whole");
     }
     return switch (text.framing()) {
       case FramingConfig.Line line -> {
         boolean skipBlank = line.skipBlank() == null || line.skipBlank();
-        yield (in, limits, flags) -> new TextLineFormat(in, limits, skipBlank);
+        yield (in, limits, flags) -> new TextLineFormat(in, limits, charset, skipBlank);
       }
-      case FramingConfig.Whole whole -> TextWholeFormat::new;
+      case FramingConfig.Multiline multiline -> {
+        MultilineRule rule = multilineRule(multiline);
+        yield (in, limits, flags) -> new TextMultilineFormat(in, limits, charset, rule);
+      }
+      case FramingConfig.Whole whole ->
+          (in, limits, flags) -> new TextWholeFormat(in, limits, charset);
     };
+  }
+
+  private static MultilineRule multilineRule(FramingConfig.Multiline multiline) {
+    boolean start = multiline.startPattern() != null;
+    if (start == (multiline.continuePattern() != null)) {
+      throw new IllegalArgumentException(
+          "multiline framing needs exactly one of startPattern and continuePattern");
+    }
+    int maxLines = multiline.maxLines() == null ? 0 : multiline.maxLines();
+    if (multiline.maxLines() != null && maxLines < 1) {
+      throw new IllegalArgumentException("multiline maxLines must be at least 1");
+    }
+    String regex = start ? multiline.startPattern() : multiline.continuePattern();
+    try {
+      return new MultilineRule(Pattern.compile(regex), start, maxLines);
+    } catch (PatternSyntaxException e) {
+      throw new IllegalArgumentException(
+          "invalid " + (start ? "startPattern" : "continuePattern") + ": " + e.getMessage(), e);
+    }
   }
 
   private static Charset charset(String name) {

@@ -154,13 +154,26 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `type` | Parameters | Record |
 |---|---|---|
 | `json` | `mode`: `object`, `array`, `lines` | Each record must be an object. UTF-16/UTF-32 input is detected (RFC 4627 §3) and transcoded |
-| `text` | `charset` (default UTF-8); `framing`: `line` (`skipBlank`, default true), `multiline` (`startPattern` or `continuePattern`, `maxLines`), `whole` | `{"__raw__": "<text>"}`. Lines split on LF, CRLF, CR; a leading BOM is removed |
+| `text` | `charset` (default UTF-8); `framing`: `line` (`skipBlank`, default true), `multiline` (`startPattern` or `continuePattern`, `maxLines`), `whole` | `{"__raw__": "<text>"}`. Lines split on LF, CRLF, CR; one leading BOM is removed |
 | `csv` | `delimiter`, `quote`, `escape`, `header` (`first_line`, `none`, or names), `skipLines`, `commentMarker`, `ignoreSurroundingSpaces`, `charset` | One object per row; values are strings |
 | `xml` | `mode`: `document`, or `elements` with `recordPath` | DTDs and external entities are disabled |
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (schema from the file), `datum` (schema in config) | One record per avro record |
 | `protobuf` | `descriptorSet`, `messageType`, `framing`: `single`, `varint_delimited` | One record per message |
 | `parquet` | — | Needs random access; cannot be combined with `compression` |
+
+**Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
+anchor it with `^`. With `startPattern`, a matching line starts a new event and other lines join the
+current one. With `continuePattern`, a matching line joins the current event and other lines start
+a new one. An event keeps its inner line endings as they were. It is emitted when the next event
+starts or the input ends. Events made only of blank lines are skipped. An event over `maxLines` or
+`maxRecordBytes` is reported whole as `Oversized`, and the lines that continue it are counted into
+it, so a stack trace never splits into records that look valid. An oversized line is matched by its
+4 KiB preview.
+
+**Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
+take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
+the charset become U+FFFD.
 
 Examples: a Java stack trace is `text` + `multiline` with `continuePattern: "^(\\s|Caused by: )"`;
 syslog, CEF and key=value are `text` + `line`, parsed downstream by the `parser` node.
@@ -188,8 +201,8 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 
 | PR | Scope | Status |
 |---|---|---|
-| 1 | API, config and compiler, error classification, budgets, `gzip` + `auto`, `json` (all modes), `text` `line` + `whole` (UTF-8), `lowMemoryTest` task | In review (#339) |
-| 2 | `text` `multiline`, non-UTF-8 text | Planned |
+| 1 | API, config and compiler, error classification, budgets, `gzip` + `auto`, `json` (all modes), `text` `line` + `whole` (UTF-8), `lowMemoryTest` task | Done (#339) |
+| 2 | `text` `multiline`, non-UTF-8 text | In review |
 | 3 | `csv` | Planned |
 | 4 | `xml`, `yaml` | Planned |
 | 5 | Remaining codecs | Planned |
@@ -213,7 +226,10 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 - The decoder is not used by any source yet.
 - Damaged compressed data can inflate into wrong but well-formed bytes before zlib notices. A gzip
   member's records are only confirmed once its trailer CRC matches.
-- For non-UTF-8 input, `raw` and `span` refer to the transcoded UTF-8 bytes, not the original.
+- For non-UTF-8 input, `raw`, `span` and the limits refer to the transcoded UTF-8 bytes, not the
+  original.
+- A multiline event is held until the next event starts. When the input then fails, the event is not
+  emitted; the terminal outcome's `span` starts at its first byte.
 - An oversized record in a library-parsed format ends decoding of that input, because the start of
   the next record cannot be found.
 - csv `raw` is the row re-joined; xml elements and yaml multi-document have empty `raw`; avro and
@@ -240,3 +256,12 @@ Decisions made while implementing PR1 that refine the design above.
 | P14 | The flags are checked when a format throws, ends, or returns a terminal outcome; decoded records and non-terminal failures pass through unchanged |
 | P15 | Formats are registered through sealed config types and one compiler switch, not ServiceLoader |
 | P16 | Defensive "no progress" branches that cannot be reached under the JDK contract are not tested |
+
+## 9. PR2 implementation notes
+
+| # | Note |
+|---|---|
+| P17 | UTF-32 is decoded by our own decoder. The JDK decoders drop a leading byte order mark on their own and pass surrogate code points through, so D800 followed by DC00 became one valid character. Now each becomes U+FFFD, and exactly one leading U+FEFF is dropped for every charset. A second U+FEFF is kept as text |
+| P18 | Unmarked `UTF-16` and `UTF-32` are resolved to a fixed byte order from the first bytes before decoding, so no JDK decoder drops a mark |
+| P19 | Line framing skips a UTF-8 byte order mark only on untranscoded input |
+| P20 | Malformed input skips the length the charset decoder reports. UTF-16 is the exception: it skips one code unit, because the JDK reports a lone high surrogate together with the unit after it |

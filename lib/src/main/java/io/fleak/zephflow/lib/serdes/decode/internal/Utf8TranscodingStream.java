@@ -26,9 +26,9 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Re-encodes a stream into UTF-8. Each read hands back what one read of the source produced, so a
- * later source failure cannot take already-decoded bytes with it. A malformed code unit becomes one
- * U+FFFD and only that unit is skipped; so does a lone surrogate, which UTF-32 decoders emit for
- * code points D800–DFFF. A leading byte order mark is dropped.
+ * later source failure cannot take already-decoded bytes with it. A malformed sequence becomes one
+ * U+FFFD and only that sequence is skipped. No decoder used here drops a byte order mark on its
+ * own, so exactly one leading U+FEFF is dropped here.
  */
 public final class Utf8TranscodingStream extends InputStream {
 
@@ -51,15 +51,16 @@ public final class Utf8TranscodingStream extends InputStream {
   private boolean done;
   private boolean leadingCheckDone;
 
-  /**
-   * @param codeUnit bytes skipped per malformed unit: 2 for UTF-16, 4 for UTF-32
-   */
-  public Utf8TranscodingStream(InputStream in, Charset charset, int codeUnit) {
+  /** {@code charset} must have a fixed byte order; see {@link Transcoding#toUtf8}. */
+  public Utf8TranscodingStream(InputStream in, Charset charset) {
     this.in = in;
-    this.codeUnit = codeUnit;
+    // The JDK UTF-16 decoders report a lone high surrogate together with the unit after it.
+    this.codeUnit =
+        charset.equals(StandardCharsets.UTF_16BE) || charset.equals(StandardCharsets.UTF_16LE)
+            ? 2
+            : 0;
     this.decoder =
-        charset
-            .newDecoder()
+        newDecoder(charset)
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT);
     source.flip();
@@ -137,7 +138,7 @@ public final class Utf8TranscodingStream extends InputStream {
         if (!chars.hasRemaining()) {
           return;
         }
-        int skip = Math.min(codeUnit, source.remaining());
+        int skip = Math.min(codeUnit > 0 ? codeUnit : result.length(), source.remaining());
         source.position(source.position() + Math.max(skip, 1));
         chars.put('\uFFFD');
         continue;
@@ -157,6 +158,16 @@ public final class Utf8TranscodingStream extends InputStream {
         chars.get();
       }
     }
+  }
+
+  private static CharsetDecoder newDecoder(Charset charset) {
+    if (charset.equals(Transcoding.UTF_32BE)) {
+      return new Utf32Decoder(charset, true);
+    }
+    if (charset.equals(Transcoding.UTF_32LE)) {
+      return new Utf32Decoder(charset, false);
+    }
+    return charset.newDecoder();
   }
 
   @Override

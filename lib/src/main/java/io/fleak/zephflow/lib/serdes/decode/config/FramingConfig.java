@@ -19,12 +19,21 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
   @JsonSubTypes.Type(value = FramingConfig.Line.class, name = "line"),
+  @JsonSubTypes.Type(value = FramingConfig.Multiline.class, name = "multiline"),
   @JsonSubTypes.Type(value = FramingConfig.Whole.class, name = "whole"),
 })
 public sealed interface FramingConfig {
 
   /** One record per line (LF, CRLF or CR). {@code skipBlank} defaults to true. */
   record Line(Boolean skipBlank) implements FramingConfig {}
+
+  /**
+   * Several lines become one record. Exactly one pattern is set: a line matching {@code
+   * startPattern} starts a new event, or a line matching {@code continuePattern} continues the
+   * current one. {@code maxLines} is unlimited when absent.
+   */
+  record Multiline(String startPattern, String continuePattern, Integer maxLines)
+      implements FramingConfig {}
 
   /** The whole input is one record. */
   record Whole() implements FramingConfig {}

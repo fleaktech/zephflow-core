@@ -24,20 +24,29 @@ import io.fleak.zephflow.lib.serdes.decode.internal.LineFramer.Line;
 import io.fleak.zephflow.lib.serdes.decode.internal.LineFramer.OversizedLine;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 public final class TextLineFormat implements FormatCursor {
 
-  private final LineFramer framer;
+  private final InputStream in;
+  private final Charset charset;
+  private final long maxRecordBytes;
   private final boolean skipBlank;
+  private LineFramer framer;
 
-  public TextLineFormat(InputStream in, DecodeLimits limits, boolean skipBlank) {
-    this.framer = new LineFramer(in, limits.maxRecordBytes());
+  public TextLineFormat(InputStream in, DecodeLimits limits, Charset charset, boolean skipBlank) {
+    this.in = in;
+    this.charset = charset;
+    this.maxRecordBytes = limits.maxRecordBytes();
     this.skipBlank = skipBlank;
   }
 
   @Override
   public DecodeOutcome next() throws IOException {
+    if (framer == null) {
+      framer = TextInput.lineFramer(in, charset, maxRecordBytes);
+    }
     while (true) {
       LineFramer.Frame frame = framer.next();
       switch (frame) {
@@ -63,16 +72,16 @@ public final class TextLineFormat implements FormatCursor {
 
   @Override
   public long pendingRecordIndex() {
-    return framer.pendingLineNumber();
+    return framer == null ? 1 : framer.pendingLineNumber();
   }
 
   @Override
   public long pendingOffset() {
-    return framer.pendingOffset();
+    return framer == null ? 0 : framer.pendingOffset();
   }
 
   @Override
   public void close() {
-    framer.close();
+    TextInput.close(framer, in);
   }
 }

@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.serdes.decode.json;
 
 import io.fleak.zephflow.lib.serdes.decode.internal.PeekedStream;
+import io.fleak.zephflow.lib.serdes.decode.internal.Transcoding;
 import io.fleak.zephflow.lib.serdes.decode.internal.Utf8TranscodingStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,9 +28,6 @@ import java.nio.charset.StandardCharsets;
  */
 final class JsonEncoding {
 
-  private static final Charset UTF_32BE = Charset.forName("UTF-32BE");
-  private static final Charset UTF_32LE = Charset.forName("UTF-32LE");
-
   private JsonEncoding() {}
 
   static InputStream toUtf8(InputStream in) throws IOException {
@@ -39,8 +37,7 @@ final class JsonEncoding {
     if (charset == null) {
       return peeked;
     }
-    int codeUnit = charset == UTF_32BE || charset == UTF_32LE ? 4 : 2;
-    return new Utf8TranscodingStream(peeked, charset, codeUnit);
+    return new Utf8TranscodingStream(peeked, charset);
   }
 
   /** Two non-zero bytes that are not a UTF-16 byte order mark already mean UTF-8. */
@@ -52,16 +49,16 @@ final class JsonEncoding {
   private static Charset detect(byte[] b, int n) {
     if (n >= 4) {
       if (b[0] == 0 && b[1] == 0 && b[2] == (byte) 0xFE && b[3] == (byte) 0xFF) {
-        return UTF_32BE;
+        return Transcoding.UTF_32BE;
       }
       if (b[0] == (byte) 0xFF && b[1] == (byte) 0xFE && b[2] == 0 && b[3] == 0) {
-        return UTF_32LE;
+        return Transcoding.UTF_32LE;
       }
       if (b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] != 0) {
-        return UTF_32BE;
+        return Transcoding.UTF_32BE;
       }
       if (b[0] != 0 && b[1] == 0 && b[2] == 0 && b[3] == 0) {
-        return UTF_32LE;
+        return Transcoding.UTF_32LE;
       }
       if (b[0] == 0 && b[1] != 0 && b[2] == 0 && b[3] != 0) {
         return StandardCharsets.UTF_16BE;

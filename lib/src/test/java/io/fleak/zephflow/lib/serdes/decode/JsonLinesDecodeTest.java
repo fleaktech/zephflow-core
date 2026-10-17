@@ -206,6 +206,19 @@ class JsonLinesDecodeTest {
   }
 
   @Test
+  void utf32SurrogatePairWrittenAsTwoCodePointsIsTwoReplacements() {
+    Charset utf32 = Charset.forName("UTF-32BE");
+    byte[] input =
+        concat(
+            "{\"s\":\"a".getBytes(utf32),
+            new byte[] {0, 0, (byte) 0xD8, 0, 0, 0, (byte) 0xDC, 0},
+            "b\"}".getBytes(utf32));
+    assertEquals(
+        List.of(new Ok(json("{\"s\":\"a\uFFFD\uFFFDb\"}"), 1, new RawSpan(0, 16))),
+        decode(LINES, input));
+  }
+
+  @Test
   void strayNulAtTheStartOfUtf8IsNotTakenForUtf16() {
     assertEquals(
         List.of(

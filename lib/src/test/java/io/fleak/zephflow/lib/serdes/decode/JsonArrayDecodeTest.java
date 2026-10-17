@@ -159,9 +159,8 @@ class JsonArrayDecodeTest {
     }
     byte[] whole = gzip(text.append(']').toString());
     byte[] cut = Arrays.copyOf(whole, whole.length / 2);
-    List<Object> outcomes =
-        decode("{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"array\"}}", cut);
-    int decoded = outcomes.size() - 1;
+    String released = new String(recoverablePrefix(cut), StandardCharsets.UTF_8);
+    int decoded = (int) released.chars().filter(c -> c == '}').count();
     List<Object> expected = new ArrayList<>();
     long offset = 1;
     for (int i = 0; i < decoded; i++) {
@@ -177,7 +176,10 @@ class JsonArrayDecodeTest {
             RawSpan.toEnd(offset),
             "CorruptCompressionException: gzip member 1 is truncated",
             true));
-    assertEquals(expected, outcomes);
+    assertEquals(
+        expected,
+        decode(
+            "{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"array\"}}", cut));
     assertTrue(decoded > 1000, "elements before the cut must come out, got " + decoded);
   }
 
