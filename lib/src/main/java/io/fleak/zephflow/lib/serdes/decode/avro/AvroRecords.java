@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -39,8 +40,9 @@ import org.apache.avro.generic.IndexedRecord;
 /**
  * Avro values to records, following the schema. Timestamps become epoch milliseconds (finer units
  * rounded down), local timestamps are read as UTC, dates are days since 1970-01-01, times of day
- * are milliseconds, decimals are exact strings, bytes and fixed are base64, and null fields are
- * left out. Non-finite floating point values become strings, since JSON has no such numbers.
+ * are milliseconds, decimals are exact strings, uuids are strings, other bytes and fixed are
+ * base64, and null record fields are left out (null array items and map values stay). Non-finite
+ * floating point values become strings, since JSON has no such numbers.
  */
 final class AvroRecords {
 
@@ -64,7 +66,7 @@ final class AvroRecords {
       case DOUBLE -> real((Double) value);
       case STRING, ENUM -> new StringPrimitiveFleakData(value.toString());
       case BYTES -> bytes(logical, toArray((ByteBuffer) value));
-      case FIXED -> bytes(logical, ((GenericFixed) value).bytes());
+      case FIXED -> fixed(logical, ((GenericFixed) value).bytes());
       case ARRAY -> {
         List<FleakData> items = new ArrayList<>();
         for (Object item : (Collection<?>) value) {
@@ -117,6 +119,15 @@ final class AvroRecords {
           new BigDecimal(new BigInteger(bytes), decimal.getScale()).toPlainString());
     }
     return new StringPrimitiveFleakData(Base64.getEncoder().encodeToString(bytes));
+  }
+
+  /** A uuid on a 16-byte fixed becomes the same string a uuid on a string would be. */
+  private static FleakData fixed(LogicalType logical, byte[] bytes) {
+    if (logical != null && "uuid".equals(logical.getName()) && bytes.length == 16) {
+      ByteBuffer buffer = ByteBuffer.wrap(bytes);
+      return new StringPrimitiveFleakData(new UUID(buffer.getLong(), buffer.getLong()).toString());
+    }
+    return bytes(logical, bytes);
   }
 
   private static byte[] toArray(ByteBuffer buffer) {

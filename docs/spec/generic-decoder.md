@@ -112,10 +112,11 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   parquet row group. Avro and parquet sizes are checked before allocating.
 - An oversized record keeps only a 4 KiB preview; the rest is read, counted and dropped. Line-based
   formats, csv and avro blocks continue with the next record or block (csv stops only when a quote
-  stays open to the end); the others stop (`terminal=true`). xml elements and yaml multi-document cannot locate a record, so
-  their `Oversized` has no preview and no span. A codec over its memory limit gives a terminal
-  `Oversized` with no span or preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does
-  not say.
+  stays open to the end); the others stop (`terminal=true`). xml elements and yaml multi-document
+  cannot locate a record, so their `Oversized` has no preview and no span; an avro block's
+  `Oversized` has neither, and its `sizeSoFar` is the block's size, or what it decompressed to
+  before the limit. A codec over its memory limit gives a terminal `Oversized` with no span or
+  preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does not say.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -237,14 +238,19 @@ The encoding comes from the byte order mark (UTF-8 without one).
 **Avro.** Object container files are parsed here, not by avro's `DataFileStream`, which allocates
 whatever size a block header claims and takes a cut-off file for a clean end. A block's size is
 checked against `maxDocumentBytes` before it is read, and its decompressed size while it is
-decompressed. Blocks are framed, so an oversized block (`Oversized`), a damaged compressed block
-(`CORRUPT_COMPRESSION`) or a record that does not decode (`MALFORMED`) loses only the records of its
-block, and decoding goes on with the next block; record numbers still count the lost records. A
-wrong sync marker or a file that does not end exactly after a block is terminal. Every string,
-bytes, array and map length is checked against the bytes left in the block before anything is
-allocated; items that encode in zero bytes count as one byte, so an array of a billion nulls is
-`MALFORMED`. In `datum` mode, bytes left after the record are `MALFORMED`, and an empty input decodes
-if the schema fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
+decompressed (xz's own memory follows the codec default of 4.1, not this limit). Blocks are framed,
+so an oversized block (`Oversized`), a damaged compressed block (`CORRUPT_COMPRESSION`), a block
+claiming more records than it can hold, or a record that does not decode (`MALFORMED`, including one
+nested too deeply for the thread stack) loses only the records of its block, and decoding goes on
+with the next block; record numbers still count the lost records. A record that decodes but cannot
+be converted loses only itself, and bytes left after a block's records are reported against the
+block's first record. A wrong sync marker or a file that does not end exactly after a block is
+terminal. Every string, bytes and fixed length is checked against the bytes left in the block before
+anything is allocated, and record, array and map counts all draw on one budget per block: its byte
+length plus 100,000 items that encode in no bytes (nulls, empty records). The file header may be up
+to `maxDocumentBytes` or 16 MiB, whichever is larger. In `datum` mode, bytes left after the record
+are `MALFORMED`, and an empty input decodes if the schema fits in zero bytes. Codecs: null, deflate,
+snappy, zstandard, bzip2, xz.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -264,7 +270,9 @@ syslog, CEF and key=value are `text` + `line`, parsed downstream by the `parser`
 | YAML mapping key that is not a string | its string form; a date key becomes its number |
 | YAML null | null |
 | YAML integer outside int64 | its decimal string |
-| YAML `.inf`, `-.inf`, `.nan` | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
+| YAML `.inf`, `-.inf`, `.nan`; avro float and double infinities and NaN | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
+| avro uuid (on string or a 16-byte fixed) | its string form |
+| null items of an array, null values of a map | null (only null record fields are left out) |
 | enum | string |
 | timestamp | epoch milliseconds (local timestamps, and YAML timestamps without a zone, read as UTC) |
 | date | days since 1970-01-01 |
@@ -392,6 +400,7 @@ Decisions made while implementing PR1 that refine the design above.
 | # | Note |
 |---|---|
 | P42 | Avro object container files are parsed here; avro's `DataFileStream` allocates the size a block header claims, decompresses without a bound, and treats a cut-off file as a clean end |
-| P43 | A bad avro block or record is not terminal, unlike the earlier plan (D12, D13): block boundaries are known, so decoding goes on with the next block |
+| P43 | A bad avro block or record is not terminal. The earlier plan ended an avro file at its first bad record and at its first oversized block; block boundaries are known, so decoding now goes on with the next block |
+| P46 | Avro counts draw on one item budget per block instead of being checked one array block at a time: a per-block check rejected valid arrays of nulls near the end of a block, and many small array blocks could still claim a quadratic number of items. `fixed` sizes, which come from the file's schema, are checked by a `GenericDatumReader` subclass before avro allocates them |
 | P44 | Records are decoded with our own bounded `Decoder` over the block bytes instead of avro's `BinaryDecoder`, whose length limits are JVM-wide system properties |
 | P45 | Avro comes in through the `api` module's `api` dependency; nothing new is declared |

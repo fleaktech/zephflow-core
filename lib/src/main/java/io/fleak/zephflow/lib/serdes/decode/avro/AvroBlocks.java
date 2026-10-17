@@ -48,20 +48,25 @@ final class AvroBlocks {
 
   private AvroBlocks() {}
 
-  /** {@code limit} 0 means unlimited. */
+  /** The largest block a byte array can hold. */
+  static final long MAX_BLOCK = Integer.MAX_VALUE - 8;
+
+  /**
+   * {@code limit} caps the decompressed size; 0 means no cap beyond what a byte array can hold. The
+   * xz decoder's memory is a separate matter: it follows the codec default, not this limit.
+   */
   static byte[] decompress(String codec, byte[] block, long limit)
       throws TooLarge, CorruptBlockException {
+    long cap = limit > 0 ? limit : MAX_BLOCK;
     try {
       return switch (codec) {
         case "null" -> block;
-        case "deflate" -> inflate(block, limit);
-        case "snappy" -> snappy(block, limit);
+        case "deflate" -> inflate(block, cap);
+        case "snappy" -> snappy(block, cap);
         case "zstandard" ->
-            drain(new ZstdInputStreamNoFinalizer(new ByteArrayInputStream(block)), limit);
-        case "bzip2" ->
-            drain(new BZip2CompressorInputStream(new ByteArrayInputStream(block)), limit);
-        case "xz" ->
-            drain(new XZInputStream(new ByteArrayInputStream(block), xzLimitKiB(limit)), limit);
+            drain(new ZstdInputStreamNoFinalizer(new ByteArrayInputStream(block)), cap);
+        case "bzip2" -> drain(new BZip2CompressorInputStream(new ByteArrayInputStream(block)), cap);
+        case "xz" -> drain(new XZInputStream(new ByteArrayInputStream(block), xzMemoryKiB()), cap);
         default ->
             throw new IllegalStateException("codec checked when the header was read: " + codec);
       };
@@ -74,10 +79,9 @@ final class AvroBlocks {
     }
   }
 
-  private static int xzLimitKiB(long limit) {
-    long bytes =
-        limit > 0 ? limit : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
-    return (int) Math.min(Integer.MAX_VALUE, (bytes + 1023) / 1024);
+  private static int xzMemoryKiB() {
+    long bytes = Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
+    return (int) ((bytes + 1023) / 1024);
   }
 
   /** Avro's deflate codec is raw deflate (RFC 1951), without a zlib header. */
@@ -147,7 +151,7 @@ final class AvroBlocks {
   }
 
   private static void append(ByteBuilder out, byte[] buf, int n, long limit) throws TooLarge {
-    if (limit > 0 && out.size() + (long) n > limit) {
+    if (out.size() + (long) n > limit) {
       throw new TooLarge(out.size() + (long) n);
     }
     out.append(buf, 0, n);

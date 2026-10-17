@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -22,7 +23,9 @@ import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -198,13 +201,10 @@ class AvroDecodeTest {
             List.of(small("a")),
             List.of(small("x".repeat(5_000)), small("y")),
             List.of(small("b")));
-    List<Object> actual = decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 1_000));
+    long blockSize = datum(small("x".repeat(5_000))).length + datum(small("y")).length;
     assertEquals(
-        List.of(
-            smallRecord("a", 1),
-            new Big(2, null, ((Big) actual.get(1)).sizeSoFar(), "", false),
-            smallRecord("b", 4)),
-        actual);
+        List.of(smallRecord("a", 1), new Big(2, null, blockSize, "", false), smallRecord("b", 4)),
+        decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 1_000)));
   }
 
   @Test
@@ -367,6 +367,351 @@ class AvroDecodeTest {
                 "MalformedAvroException: varint of 1 bytes is longer than the 0 bytes left",
                 true)),
         decode(datumConfig(SMALL), new byte[0]));
+  }
+
+  /** An object container file with the given metadata and raw blocks, using a fixed sync. */
+  private static byte[] craftedOcf(Map<String, String> metadata, byte[]... blocks) {
+    try {
+      ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+      bytes.write(new byte[] {'O', 'b', 'j', 1});
+      BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(bytes, null);
+      encoder.writeLong(metadata.size());
+      for (Map.Entry<String, String> entry : metadata.entrySet()) {
+        encoder.writeString(entry.getKey());
+        encoder.writeBytes(utf8(entry.getValue()));
+      }
+      encoder.writeLong(0);
+      encoder.flush();
+      bytes.write(SYNC);
+      for (byte[] block : blocks) {
+        bytes.write(block);
+      }
+      return bytes.toByteArray();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  private static final byte[] SYNC = new byte[16];
+
+  private static byte[] rawBlock(long count, byte[] data) {
+    try {
+      ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+      BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(bytes, null);
+      encoder.writeLong(count);
+      encoder.writeLong(data.length);
+      encoder.flush();
+      bytes.write(data);
+      bytes.write(SYNC);
+      return bytes.toByteArray();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  private static Map<String, String> schemaMeta(Schema schema) {
+    return Map.of("avro.schema", schema.toString());
+  }
+
+  private static Bad malformed(long index, String message, boolean terminal) {
+    return new Bad(
+        ErrorKind.MALFORMED, "", index, null, "MalformedAvroException: " + message, terminal);
+  }
+
+  @Test
+  void remainingTypeMappingRows() {
+    Schema schema =
+        new Schema.Parser()
+            .parse(
+                """
+                {"type":"record","name":"T","fields":[
+                  {"name":"lms","type":{"type":"long","logicalType":"local-timestamp-millis"}},
+                  {"name":"ns","type":{"type":"long","logicalType":"timestamp-nanos"}},
+                  {"name":"lns","type":{"type":"long","logicalType":"local-timestamp-nanos"}},
+                  {"name":"fdec","type":{"type":"fixed","name":"D","size":4,"logicalType":"decimal","precision":8,"scale":3}},
+                  {"name":"us","type":{"type":"string","logicalType":"uuid"}},
+                  {"name":"uf","type":{"type":"fixed","name":"U","size":16,"logicalType":"uuid"}},
+                  {"name":"multi","type":["null","int","string"]},
+                  {"name":"f","type":"float"},
+                  {"name":"nan","type":"double"},
+                  {"name":"ninf","type":"double"},
+                  {"name":"arr","type":{"type":"array","items":["null","int"]}},
+                  {"name":"m","type":{"type":"map","values":["null","int"]}}
+                ]}
+                """);
+    GenericRecord r = new GenericData.Record(schema);
+    r.put("lms", 1_000L);
+    r.put("ns", -1L);
+    r.put("lns", 2_500_000L);
+    r.put(
+        "fdec",
+        new GenericData.Fixed(
+            schema.getField("fdec").schema(),
+            new byte[] {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0x85}));
+    r.put("us", "123e4567-e89b-12d3-a456-426614174000");
+    ByteBuffer uuid =
+        ByteBuffer.allocate(16).putLong(0x123e4567e89b12d3L).putLong(0xa456426614174000L);
+    r.put("uf", new GenericData.Fixed(schema.getField("uf").schema(), uuid.array()));
+    r.put("multi", "text");
+    r.put("f", 0.5f);
+    r.put("nan", Double.NaN);
+    r.put("ninf", Double.NEGATIVE_INFINITY);
+    List<Integer> items = new ArrayList<>();
+    items.add(null);
+    items.add(3);
+    r.put("arr", items);
+    HashMap<String, Integer> map = new HashMap<>();
+    map.put("k", null);
+    r.put("m", map);
+    GenericRecord other = new GenericData.Record(schema);
+    for (Schema.Field field : schema.getFields()) {
+      other.put(field.name(), r.get(field.name()));
+    }
+    other.put("multi", 7);
+    assertEquals(
+        List.of(
+            new Ok(
+                json(
+                    "{\"lms\":1000,\"ns\":-1,\"lns\":2,\"fdec\":\"-0.123\","
+                        + "\"us\":\"123e4567-e89b-12d3-a456-426614174000\","
+                        + "\"uf\":\"123e4567-e89b-12d3-a456-426614174000\",\"multi\":\"text\",\"f\":0.5,"
+                        + "\"nan\":\"NaN\",\"ninf\":\"-Infinity\",\"arr\":[null,3],\"m\":{\"k\":null}}"),
+                1,
+                null),
+            new Ok(
+                json(
+                    "{\"lms\":1000,\"ns\":-1,\"lns\":2,\"fdec\":\"-0.123\","
+                        + "\"us\":\"123e4567-e89b-12d3-a456-426614174000\","
+                        + "\"uf\":\"123e4567-e89b-12d3-a456-426614174000\",\"multi\":7,\"f\":0.5,"
+                        + "\"nan\":\"NaN\",\"ninf\":\"-Infinity\",\"arr\":[null,3],\"m\":{\"k\":null}}"),
+                2,
+                null)),
+        decode(OCF, ocf(schema, "null", List.of(r, other))));
+  }
+
+  @Test
+  void arraysOfZeroByteItemsNearTheEndOfABlockDecode() {
+    Schema schema =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"A\",\"fields\":[{\"name\":\"a\",\"type\":{\"type\":\"array\",\"items\":\"null\"}}]}");
+    List<GenericRecord> records = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      GenericRecord record = new GenericData.Record(schema);
+      List<Object> nulls = new ArrayList<>();
+      nulls.add(null);
+      nulls.add(null);
+      nulls.add(null);
+      record.put("a", nulls);
+      records.add(record);
+    }
+    Ok expected = new Ok(json("{\"a\":[null,null,null]}"), 0, null);
+    assertEquals(
+        List.of(
+            new Ok(expected.record(), 1, null),
+            new Ok(expected.record(), 2, null),
+            new Ok(expected.record(), 3, null)),
+        decode(OCF, ocf(schema, "null", records)));
+  }
+
+  @Test
+  void zeroByteItemsDrawOnOneBudgetPerBlock() throws IOException {
+    Schema schema =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"A\",\"fields\":[{\"name\":\"a\",\"type\":{\"type\":\"array\",\"items\":\"null\"}}]}");
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(bytes, null);
+    for (int i = 0; i < 10; i++) {
+      encoder.writeLong(30_000);
+    }
+    encoder.writeLong(0);
+    encoder.flush();
+    int length = bytes.size();
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                new String(bytes.toByteArray(), StandardCharsets.UTF_8),
+                -1,
+                new RawSpan(0, length),
+                "MalformedAvroException: array block of 30000 items is more than the block's "
+                    + (length + 10_000)
+                    + " items left",
+                true)),
+        decode(datumConfig(schema), bytes.toByteArray()));
+  }
+
+  @Test
+  void blockClaimingMoreRecordsThanItCanHoldLosesOnlyItself() {
+    Schema empty = new Schema.Parser().parse("{\"type\":\"record\",\"name\":\"E\",\"fields\":[]}");
+    assertEquals(
+        List.of(
+            malformed(1, "avro block 1 claims 9223372036854775807 records in 0 bytes", false),
+            new Ok(json("{}"), 2, null)),
+        decode(
+            OCF,
+            craftedOcf(
+                schemaMeta(empty),
+                rawBlock(Long.MAX_VALUE, new byte[0]),
+                rawBlock(1, new byte[0]))));
+  }
+
+  @Test
+  void fixedSizeFromTheFileIsCheckedBeforeAllocating() {
+    Schema huge =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"H\",\"fields\":[{\"name\":\"f\",\"type\":{\"type\":\"fixed\",\"name\":\"F\",\"size\":1500000000}}]}");
+    assertEquals(
+        List.of(malformed(1, "fixed of 1500000000 bytes is longer than the 1 bytes left", false)),
+        decode(OCF, craftedOcf(schemaMeta(huge), rawBlock(1, new byte[] {1}))));
+  }
+
+  @Test
+  void deepRecordLosesOnlyItsBlock() {
+    Schema list =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"L\",\"fields\":[{\"name\":\"next\",\"type\":[\"null\",\"L\"]}]}");
+    byte[] deep = new byte[200_001];
+    Arrays.fill(deep, 0, 200_000, (byte) 2);
+    assertEquals(
+        List.of(
+            new Ok(json("{}"), 1, null),
+            malformed(2, "avro record nests too deeply for the thread stack", false),
+            new Ok(json("{}"), 3, null)),
+        decode(
+            OCF,
+            craftedOcf(
+                schemaMeta(list),
+                rawBlock(1, new byte[] {0}),
+                rawBlock(1, deep),
+                rawBlock(1, new byte[] {0}))));
+  }
+
+  @Test
+  void recordThatDecodesButDoesNotConvertLosesOnlyItself() {
+    Schema decimal =
+        new Schema.Parser()
+            .parse(
+                "{\"type\":\"record\",\"name\":\"D\",\"fields\":[{\"name\":\"d\",\"type\":{\"type\":\"bytes\",\"logicalType\":\"decimal\",\"precision\":4,\"scale\":2}}]}");
+    List<GenericRecord> records = new ArrayList<>();
+    for (byte[] value : List.of(new byte[] {1}, new byte[0], new byte[] {2})) {
+      GenericRecord record = new GenericData.Record(decimal);
+      record.put("d", ByteBuffer.wrap(value));
+      records.add(record);
+    }
+    assertEquals(
+        List.of(
+            new Ok(json("{\"d\":\"0.01\"}"), 1, null),
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                2,
+                null,
+                "NumberFormatException: Zero length BigInteger",
+                false),
+            new Ok(json("{\"d\":\"0.02\"}"), 3, null)),
+        decode(OCF, ocf(decimal, "null", records)));
+  }
+
+  @Test
+  void bytesLeftAfterABlocksRecordsAreReportedAgainstTheBlock() {
+    assertEquals(
+        List.of(
+            smallRecord("a", 1),
+            malformed(1, "avro block 1 has 1 bytes left after its records", false),
+            smallRecord("b", 2)),
+        decode(
+            OCF,
+            craftedOcf(
+                schemaMeta(SMALL),
+                rawBlock(1, concat(datum(small("a")), new byte[] {0})),
+                rawBlock(1, datum(small("b"))))));
+  }
+
+  @Test
+  void xzBlockDecodesUnderASmallDocumentLimit() {
+    assertEquals(
+        List.of(smallRecord("a", 1)),
+        decode(
+            decoder(OCF),
+            ByteInput.ofBytes(ocf(SMALL, "xz", List.of(small("a")))),
+            new DecodeLimits(0, 1 << 20)));
+  }
+
+  @Test
+  void snappyBlockChecksumIsVerified() {
+    byte[] file = ocf(SMALL, "snappy", List.of(small("abc")));
+    file[file.length - 17] ^= 1;
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.CORRUPT_COMPRESSION,
+                "",
+                1,
+                null,
+                "CorruptBlockException: avro snappy block checksum mismatch",
+                false)),
+        decode(OCF, file));
+  }
+
+  @Test
+  void headerProblemsAreTerminal() {
+    String invalidSchemaMessage;
+    try {
+      new Schema.Parser().parse("{\"type\":");
+      throw new AssertionError("expected a parse failure");
+    } catch (RuntimeException e) {
+      invalidSchemaMessage = e.getMessage().lines().findFirst().orElse("");
+    }
+    assertEquals(
+        List.of(malformed(1, "avro file header has no schema", true)),
+        decode(OCF, craftedOcf(Map.of("x", "y"))));
+    assertEquals(
+        List.of(malformed(1, "avro file schema is a STRING, not a record", true)),
+        decode(OCF, craftedOcf(Map.of("avro.schema", "\"string\""))));
+    assertEquals(
+        List.of(malformed(1, "avro codec lzo is not supported", true)),
+        decode(OCF, craftedOcf(Map.of("avro.schema", SMALL.toString(), "avro.codec", "lzo"))));
+    assertEquals(
+        List.of(malformed(1, "avro file schema is invalid: " + invalidSchemaMessage, true)),
+        decode(OCF, craftedOcf(Map.of("avro.schema", "{\"type\":"))));
+  }
+
+  @Test
+  void negativeBlockCountIsTerminal() {
+    assertEquals(
+        List.of(malformed(1, "avro block 1 has a negative count or size", true)),
+        decode(OCF, craftedOcf(schemaMeta(SMALL), rawBlock(-1, new byte[0]))));
+  }
+
+  @ParameterizedTest
+  @MethodSource("codecs")
+  void blockThatDecompressesOverTheLimitIsOversizedForEveryCodec(String codec) {
+    if (codec.equals("null")) {
+      return;
+    }
+    byte[] file = ocf(SMALL, codec, List.of(small("x".repeat(100_000))), List.of(small("b")));
+    List<Object> actual = decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 5_000));
+    long size = ((Big) actual.get(0)).sizeSoFar();
+    assertTrue(size > 5_000 && size <= 5_000 + 64 * 1024, codec + " size " + size);
+    assertEquals(List.of(new Big(1, null, size, "", false), smallRecord("b", 2)), actual, codec);
+  }
+
+  @Test
+  void datumOverTheDocumentLimitIsOversized() {
+    byte[] input = datum(small("x".repeat(100)));
+    assertEquals(
+        List.of(
+            new Big(
+                -1,
+                RawSpan.toEnd(0),
+                input.length,
+                new String(input, StandardCharsets.UTF_8),
+                true)),
+        decode(decoder(datumConfig(SMALL)), ByteInput.ofBytes(input), new DecodeLimits(0, 50)));
   }
 
   private static int indexOf(byte[] haystack, byte[] needle) {

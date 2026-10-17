@@ -25,19 +25,33 @@ import org.apache.avro.util.Utf8;
  * Avro binary decoding over one block (or one datum) in memory. Every length and item count is
  * checked against the bytes left before anything is allocated, so a wrong schema or a flipped bit
  * cannot ask for gigabytes. Avro's own limits are JVM-wide system properties, so they are not used.
- * Items that encode in zero bytes (null, empty records) count as one byte each against the bytes
- * left, which bounds arrays and maps of them too.
+ * Array, map and record counts all draw on one item budget per block: its byte length (an item
+ * takes at least one byte) plus {@link #ZERO_BYTE_ITEMS} for items that encode in no bytes at all,
+ * such as nulls or empty records.
  */
 final class BoundedDecoder extends Decoder {
+
+  static final long ZERO_BYTE_ITEMS = 100_000;
 
   private final byte[] buf;
   private int pos;
   private final int end;
+  private long items;
 
   BoundedDecoder(byte[] buf, int off, int len) {
     this.buf = buf;
     this.pos = off;
     this.end = off + len;
+    this.items = len + ZERO_BYTE_ITEMS;
+  }
+
+  /** Charges {@code count} items (records, array or map entries) against the block's budget. */
+  void takeItems(long count, String what) throws MalformedAvroException {
+    if (count < 0 || count > items) {
+      throw new MalformedAvroException(
+          what + " of " + count + " items is more than the block's " + items + " items left");
+    }
+    items -= count;
   }
 
   int remaining() {
@@ -192,10 +206,7 @@ final class BoundedDecoder extends Decoder {
       count = -count;
       readLong();
     }
-    if (count > end - pos) {
-      throw new MalformedAvroException(
-          what + " block of " + count + " items is longer than the " + (end - pos) + " bytes left");
-    }
+    takeItems(count, what + " block");
     return count;
   }
 
@@ -206,11 +217,11 @@ final class BoundedDecoder extends Decoder {
     while (true) {
       long count = readLong();
       if (count >= 0) {
-        if (count > end - pos) {
-          throw new MalformedAvroException(
-              what + " block of " + count + " items is longer than the bytes left");
-        }
+        takeItems(count, what + " block");
         return count;
+      }
+      if (count == Long.MIN_VALUE) {
+        throw new MalformedAvroException(what + " block count is out of range");
       }
       long size = readLong();
       need(size, what + " block");

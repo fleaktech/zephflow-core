@@ -30,7 +30,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.IndexedRecord;
 
 /**
@@ -46,11 +45,11 @@ public final class AvroOcfFormat implements FormatCursor {
   private static final byte[] MAGIC = {'O', 'b', 'j', 1};
   private static final Set<String> CODECS =
       Set.of("null", "deflate", "snappy", "zstandard", "bzip2", "xz");
-  private static final long DEFAULT_HEADER_LIMIT = 64L * 1024 * 1024;
-  private static final byte[] EMPTY = new byte[0];
 
-  /** The largest block a byte array can hold. */
-  private static final long MAX_BLOCK = Integer.MAX_VALUE - 8;
+  /** Headers hold the schema and are small; the limit only stops a header that never ends. */
+  private static final long MIN_HEADER_LIMIT = 16L * 1024 * 1024;
+
+  private static final byte[] EMPTY = new byte[0];
 
   private final InputStream in;
   private final long maxDocumentBytes;
@@ -58,10 +57,11 @@ public final class AvroOcfFormat implements FormatCursor {
   private boolean started;
   private String codec;
   private byte[] sync;
-  private GenericDatumReader<IndexedRecord> reader;
+  private BoundedDatumReader reader;
   private BoundedDecoder block;
   private long recordsLeft;
   private long blocks;
+  private long blockFirstIndex;
   private long index;
 
   public AvroOcfFormat(InputStream in, DecodeLimits limits, DecodeFlags flags) {
@@ -88,7 +88,7 @@ public final class AvroOcfFormat implements FormatCursor {
         return new Failed(
             ErrorKind.MALFORMED,
             EMPTY,
-            index,
+            blockFirstIndex,
             null,
             new MalformedAvroException(
                 "avro block " + blocks + " has " + left + " bytes left after its records"),
@@ -105,21 +105,33 @@ public final class AvroOcfFormat implements FormatCursor {
     }
   }
 
-  private DecodeOutcome nextRecord() throws IOException {
+  /**
+   * A record that does not decode leaves the block position unknown, so the rest of the block is
+   * skipped; one that decodes but does not convert loses only itself.
+   */
+  private DecodeOutcome nextRecord() {
     long recordIndex = ++index;
     recordsLeft--;
+    IndexedRecord record;
     try {
-      IndexedRecord record = reader.read(null, block);
-      return new Decoded(AvroRecords.toRecord(record), recordIndex, null);
-    } catch (IOException | RuntimeException e) {
-      if (flags.anySet()) {
-        throw e;
-      }
+      record = reader.read(block);
+    } catch (IOException | RuntimeException | StackOverflowError e) {
       index += recordsLeft;
       recordsLeft = 0;
       block = null;
-      return new Failed(ErrorKind.MALFORMED, EMPTY, recordIndex, null, e, false);
+      return new Failed(ErrorKind.MALFORMED, EMPTY, recordIndex, null, failure(e), false);
     }
+    try {
+      return new Decoded(AvroRecords.toRecord(record), recordIndex, null);
+    } catch (RuntimeException | StackOverflowError e) {
+      return new Failed(ErrorKind.MALFORMED, EMPTY, recordIndex, null, failure(e), false);
+    }
+  }
+
+  static Exception failure(Throwable e) {
+    return e instanceof Exception exception
+        ? exception
+        : new MalformedAvroException("avro record nests too deeply for the thread stack", e);
   }
 
   /** Reads the next block; null with no block at a clean end, or an outcome for a skipped block. */
@@ -136,7 +148,21 @@ public final class AvroOcfFormat implements FormatCursor {
     }
     blocks++;
     long firstIndex = index + 1;
-    if ((maxDocumentBytes > 0 && size > maxDocumentBytes) || size > MAX_BLOCK) {
+    blockFirstIndex = firstIndex;
+    if (count > size + BoundedDecoder.ZERO_BYTE_ITEMS) {
+      skip(size);
+      checkSync();
+      index++;
+      return new Failed(
+          ErrorKind.MALFORMED,
+          EMPTY,
+          firstIndex,
+          null,
+          new MalformedAvroException(
+              "avro block " + blocks + " claims " + count + " records in " + size + " bytes"),
+          false);
+    }
+    if ((maxDocumentBytes > 0 && size > maxDocumentBytes) || size > AvroBlocks.MAX_BLOCK) {
       skip(size);
       checkSync();
       index += count;
@@ -155,6 +181,13 @@ public final class AvroOcfFormat implements FormatCursor {
       return new Failed(ErrorKind.CORRUPT_COMPRESSION, EMPTY, firstIndex, null, e, false);
     }
     block = new BoundedDecoder(data, 0, data.length);
+    try {
+      block.takeItems(count, "avro block " + blocks);
+    } catch (MalformedAvroException e) {
+      block = null;
+      index++;
+      return new Failed(ErrorKind.MALFORMED, EMPTY, firstIndex, null, e, false);
+    }
     recordsLeft = count;
     return null;
   }
@@ -168,7 +201,7 @@ public final class AvroOcfFormat implements FormatCursor {
     if (!Arrays.equals(magic, MAGIC)) {
       throw new MalformedAvroException("input is not an avro object container file");
     }
-    long limit = maxDocumentBytes > 0 ? maxDocumentBytes : DEFAULT_HEADER_LIMIT;
+    long limit = Math.max(maxDocumentBytes, MIN_HEADER_LIMIT);
     Map<String, byte[]> metadata = new HashMap<>();
     long headerBytes = 0;
     long count;
@@ -204,7 +237,7 @@ public final class AvroOcfFormat implements FormatCursor {
     if (!CODECS.contains(codec)) {
       throw new MalformedAvroException("avro codec " + codec + " is not supported");
     }
-    reader = new GenericDatumReader<>(schema);
+    reader = new BoundedDatumReader(schema);
     return true;
   }
 

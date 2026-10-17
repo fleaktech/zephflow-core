@@ -25,7 +25,6 @@ import io.fleak.zephflow.lib.serdes.decode.internal.WholeInputReader;
 import java.io.IOException;
 import java.io.InputStream;
 import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.IndexedRecord;
 
 /**
@@ -62,14 +61,14 @@ public final class AvroDatumFormat implements FormatCursor {
     RawSpan span = new RawSpan(0, bytes.length);
     try {
       BoundedDecoder decoder = new BoundedDecoder(bytes, 0, bytes.length);
-      IndexedRecord record = new GenericDatumReader<IndexedRecord>(schema).read(null, decoder);
+      IndexedRecord record = new BoundedDatumReader(schema).read(decoder);
       if (!decoder.isEnd()) {
         throw new MalformedAvroException(
             decoder.remaining() + " bytes are left after the avro datum");
       }
       return new Decoded(AvroRecords.toRecord(record), 1, span);
-    } catch (IOException | RuntimeException e) {
-      return new Failed(ErrorKind.MALFORMED, bytes, -1, span, e, true);
+    } catch (IOException | RuntimeException | StackOverflowError e) {
+      return new Failed(ErrorKind.MALFORMED, bytes, -1, span, AvroOcfFormat.failure(e), true);
     }
   }
 
