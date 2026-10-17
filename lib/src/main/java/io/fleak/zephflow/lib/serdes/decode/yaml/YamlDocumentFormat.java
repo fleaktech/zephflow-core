@@ -51,11 +51,13 @@ public final class YamlDocumentFormat implements FormatCursor {
     };
   }
 
-  private static DecodeOutcome parse(byte[] bytes) {
+  private DecodeOutcome parse(byte[] bytes) {
     RawSpan span = new RawSpan(0, bytes.length);
     try {
       Object document = YamlSupport.yaml().load(new ByteArrayInputStream(bytes));
-      return document == null ? null : new Decoded(YamlRecords.toRecord(document), 1, span);
+      return document == null
+          ? null
+          : new Decoded(YamlRecords.toRecord(document, maxDocumentBytes), 1, span);
     } catch (MalformedYamlException | RuntimeException e) {
       return new Failed(ErrorKind.MALFORMED, bytes, -1, span, e, true);
     }

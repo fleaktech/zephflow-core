@@ -79,6 +79,8 @@ class DecodingConfigCompilerTest {
             "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/a//b\"}}",
             "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/a/*\"}}",
             "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/e:a\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/Events/Event[1]\"}}",
+            "{\"format\":{\"type\":\"xml\",\"mode\":\"elements\",\"recordPath\":\"/1a\"}}",
             "{\"format\":{\"type\":\"yaml\"}}")) {
       assertThrows(IllegalArgumentException.class, () -> decoder(bad), bad);
     }

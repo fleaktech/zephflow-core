@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
@@ -169,11 +170,10 @@ class XmlDecodeTest {
             "<Events><Event>1</Event><Header>" + text + "</Header><Event/></Events>")) {
       List<Object> actual =
           decode(decoder(EVENTS), ByteInput.ofBytes(utf8(input)), new DecodeLimits(1000, 0));
-      Big big = (Big) actual.get(1);
+      long size = ((Big) actual.get(1)).sizeSoFar();
+      assertTrue(size > 1000 + 65_536 && size <= 1000 + 65_536 + 16_384, "size " + size);
       assertEquals(
-          List.of(
-              new Ok(json("{\"\":\"1\"}"), 1, null), new Big(2, null, big.sizeSoFar(), "", true)),
-          actual);
+          List.of(new Ok(json("{\"\":\"1\"}"), 1, null), new Big(2, null, size, "", true)), actual);
     }
   }
 
@@ -196,5 +196,46 @@ class XmlDecodeTest {
             "{\"compression\":\"gzip\",\"format\":{\"type\":\"xml\",\"mode\":\"elements\","
                 + "\"recordPath\":\"/Events/Event\"}}",
             Arrays.copyOf(gzipOne(input), 20)));
+  }
+
+  @Test
+  void encodingComesFromTheXmlDeclaration() {
+    byte[] input =
+        concat(
+            utf8("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><r>caf"),
+            new byte[] {(byte) 0xE9},
+            utf8("</r>"));
+    assertEquals(
+        List.of(new Ok(json("{\"\":\"café\"}"), 1, new RawSpan(0, input.length))),
+        decode(DOCUMENT, input));
+  }
+
+  @Test
+  void contentAfterTheRootEndsElementsModeAfterTheRecords() {
+    assertEquals(
+        List.of(
+            new Ok(json("{\"\":\"1\"}"), 1, null),
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                2,
+                null,
+                "WstxParsingException: Illegal to have multiple roots (start tag in epilog?).",
+                true)),
+        decode(EVENTS, utf8("<Events><Event>1</Event></Events><x/>")));
+  }
+
+  @Test
+  void manyAttributesAreAllowed() {
+    StringBuilder input = new StringBuilder("<r");
+    StringBuilder json = new StringBuilder("{");
+    for (int i = 0; i < 1500; i++) {
+      input.append(" a").append(i).append("=\"").append(i).append('"');
+      json.append(i == 0 ? "" : ",").append("\"a").append(i).append("\":\"").append(i).append('"');
+    }
+    String xml = input.append("/>").toString();
+    assertEquals(
+        List.of(new Ok(json(json.append('}').toString()), 1, new RawSpan(0, xml.length()))),
+        decode(DOCUMENT, utf8(xml)));
   }
 }

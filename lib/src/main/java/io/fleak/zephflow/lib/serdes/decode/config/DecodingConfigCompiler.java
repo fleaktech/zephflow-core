@@ -42,8 +42,8 @@ import java.util.stream.IntStream;
 /** Validates a config and builds its decoder. Every config error is reported here, not on read. */
 public final class DecodingConfigCompiler {
 
-  /** Absolute; each step is one element name, without namespace prefix or wildcard. */
-  private static final Pattern RECORD_PATH = Pattern.compile("(/[^/:*\\s]+)+");
+  /** Absolute; each step is one XML element name, without namespace prefix, wildcard or index. */
+  private static final Pattern RECORD_PATH = Pattern.compile("(/[\\p{L}_][\\p{L}\\p{N}_.\\-]*)+");
 
   private DecodingConfigCompiler() {}
 

@@ -20,6 +20,7 @@ import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.NumberType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -33,30 +34,34 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Turns a constructed YAML document into a record. Aliases are expanded into separate copies, a
- * structure that contains itself is rejected, and expansion stops at {@link #MAX_VALUES} so that a
- * few aliases cannot multiply a small document into a huge record.
+ * Turns a constructed YAML document into a record. Aliases are expanded into separate copies and a
+ * structure that contains itself is rejected. Expansion is capped at the number of values an
+ * alias-free document within the size limit could hold (one per two bytes), so aliases cannot make
+ * a record larger than the limit already allows. Without a limit there is no cap, as elsewhere.
  */
 final class YamlRecords {
 
-  static final int MAX_VALUES = 1_000_000;
-
   private final Set<Object> path = Collections.newSetFromMap(new IdentityHashMap<>());
-  private int values;
+  private final long maxValues;
+  private long values;
 
-  private YamlRecords() {}
+  private YamlRecords(long maxValues) {
+    this.maxValues = maxValues;
+  }
 
-  static RecordFleakData toRecord(Object document) throws MalformedYamlException {
+  /** {@code sizeLimit} is the byte limit the document is held to, 0 when unlimited. */
+  static RecordFleakData toRecord(Object document, long sizeLimit) throws MalformedYamlException {
     if (!(document instanceof Map<?, ?> map)) {
       throw new MalformedYamlException(
           "expected a mapping but found " + document.getClass().getSimpleName());
     }
-    return (RecordFleakData) new YamlRecords().convert(map);
+    long maxValues = sizeLimit > 0 ? Math.max(1, sizeLimit / 2) : Long.MAX_VALUE;
+    return (RecordFleakData) new YamlRecords(maxValues).convert(map);
   }
 
   private FleakData convert(Object value) throws MalformedYamlException {
-    if (++values > MAX_VALUES) {
-      throw new MalformedYamlException("document expands to more than " + MAX_VALUES + " values");
+    if (++values > maxValues) {
+      throw new MalformedYamlException("document expands to more than " + maxValues + " values");
     }
     return switch (value) {
       case null -> null;
@@ -64,10 +69,23 @@ final class YamlRecords {
         enter(map);
         Map<String, FleakData> payload = new HashMap<>();
         for (Map.Entry<?, ?> entry : map.entrySet()) {
-          payload.put(key(entry.getKey()), convert(entry.getValue()));
+          String key = key(entry.getKey());
+          if (payload.containsKey(key)) {
+            throw new MalformedYamlException("two keys map to the same name: " + key);
+          }
+          payload.put(key, convert(entry.getValue()));
         }
         path.remove(map);
         yield new RecordFleakData(payload);
+      }
+      case Object[] items -> {
+        enter(items);
+        List<FleakData> array = new ArrayList<>(items.length);
+        for (Object item : items) {
+          array.add(convert(item));
+        }
+        path.remove(items);
+        yield new ArrayFleakData(array);
       }
       case Collection<?> items -> {
         enter(items);
@@ -80,6 +98,10 @@ final class YamlRecords {
       }
       case Integer n -> new NumberPrimitiveFleakData(n, NumberType.LONG);
       case Long n -> new NumberPrimitiveFleakData(n, NumberType.LONG);
+      case BigInteger n when n.bitLength() < 64 ->
+          new NumberPrimitiveFleakData(n.longValue(), NumberType.LONG);
+      case BigInteger n -> new StringPrimitiveFleakData(n.toString());
+      case Double n when !Double.isFinite(n) -> new StringPrimitiveFleakData(n.toString());
       case Number n -> new NumberPrimitiveFleakData(n.doubleValue(), NumberType.DOUBLE);
       case Boolean b -> new BooleanPrimitiveFleakData(b);
       case Date date -> new NumberPrimitiveFleakData(date.getTime(), NumberType.LONG);

@@ -199,18 +199,21 @@ data rows count from 1.
 **XML.** Elements map the way Jackson's `XmlMapper` maps them: attributes and child elements become
 fields, repeated children become an array, an empty element is `""`, and text next to attributes or
 children goes under the key `""`. In `document` mode only comments, processing instructions and
-whitespace may follow the root. In `elements` mode `recordPath` is absolute, matched by local name
-with namespaces ignored; other elements are skipped, and a non-empty input where it matches nothing
-is `MALFORMED`. Any `DOCTYPE` is `MALFORMED` and terminal, so no entity is expanded and nothing is
-fetched. The encoding comes from the XML declaration or byte order mark.
+whitespace may follow the root. In `elements` mode `recordPath` is absolute (each step an XML name),
+matched by local name with namespaces ignored; other elements are skipped, and a non-empty input
+where it matches nothing is `MALFORMED`. Any `DOCTYPE` is `MALFORMED` and terminal, so no entity is
+expanded and nothing is fetched. The encoding comes from the XML declaration or byte order mark.
 
-**YAML.** YAML 1.1 as SnakeYAML reads it (so `yes`/`no` are booleans and `012` is octal). Aliases are
-expanded into separate copies, up to 1,000,000 values per document; a document that contains itself
-is `MALFORMED`. Duplicate keys are `MALFORMED`, and a mapping key that is not a scalar is too. An
-empty or null document gives no record. In `multi_document` mode a document that fails to construct
-(not a mapping, duplicate keys, an alias loop) is `MALFORMED` and decoding goes on; a syntax error, a
-global tag such as `!!python/object`, or more than 50 aliases to collections is terminal. The
-encoding comes from the byte order mark (UTF-8 without one).
+**YAML.** YAML 1.1 as SnakeYAML reads it (so `yes`/`no` are booleans and `012` is octal). Aliases
+are expanded into separate copies, up to one value per two bytes of the size limit (the most an
+alias-free document within the limit could hold), so aliases never make a record larger than the
+limit allows; a document that contains itself is `MALFORMED`. Duplicate keys are `MALFORMED`, and so
+are a mapping key that is not a scalar and two keys that become the same name (`1` and `'1'`).
+Nesting is limited to 1,000 levels. An empty or null document gives no record. In `multi_document`
+mode a document that fails to construct (not a mapping, duplicate keys, an alias loop, an invalid
+date such as `2024-02-30`, a value that does not fit its tag, an unknown local tag such as `!foo`)
+is `MALFORMED` and decoding goes on; a syntax error, too deep nesting, or a global tag such as
+`!!python/object` is terminal. The encoding comes from the byte order mark (UTF-8 without one).
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -229,6 +232,8 @@ syslog, CEF and key=value are `text` + `line`, parsed downstream by the `parser`
 | bytes, fixed, YAML `!!binary` | base64 string |
 | YAML mapping key that is not a string | its string form; a date key becomes its number |
 | YAML null | null |
+| YAML integer outside int64 | its decimal string |
+| YAML `.inf`, `-.inf`, `.nan` | the strings `Infinity`, `-Infinity`, `NaN` (JSON has no such numbers) |
 | enum | string |
 | timestamp | epoch milliseconds (local timestamps, and YAML timestamps without a zone, read as UTC) |
 | date | days since 1970-01-01 |
@@ -330,3 +335,5 @@ Decisions made while implementing PR1 that refine the design above.
 | P28 | A DTD is refused as soon as it is seen, rather than parsed with DTD support off: there is then no partial DTD processing to reason about |
 | P29 | xml elements and yaml multi-document restart their budget at the bytes read so far after each record (and, for xml, after each event outside a record), because both parsers buffer ahead and give no byte offsets. The limit is therefore approximate by up to one parser buffer, and `Oversized` has no span or preview |
 | P30 | Woodstox, Jackson XML and SnakeYAML come in through the existing Jackson XML and YAML dependencies; no new dependency is declared |
+| P31 | SnakeYAML's own alias limit (50 per stream) is lifted because it counts across documents and would end a valid stream; the size-based cap in `YamlRecords` replaces it. Any failure while constructing a composed document is reported per document, so it never ends a multi-document stream |
+| P32 | Woodstox's limit of 1,000 attributes per element is lifted, like the attribute length, so only the decoder's limits decide |

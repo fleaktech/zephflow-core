@@ -15,10 +15,12 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
@@ -142,7 +144,7 @@ class YamlDecodeTest {
   }
 
   @Test
-  void syntaxErrorsGlobalTagsAndAliasFloodsAreTerminal() {
+  void syntaxErrorsAndGlobalTagsAreTerminal() {
     assertEquals(
         List.of(
             new Ok(json("{\"a\":1}"), 1, null),
@@ -156,33 +158,101 @@ class YamlDecodeTest {
                     + " tag:yaml.org,2002:python/object:os.system",
                 true)),
         decode(MULTI, utf8("a: !!python/object:os.system x\n---\nb: 1\n")));
-    StringBuilder flood = new StringBuilder("a: &a [1]\n");
-    for (int i = 0; i < 60; i++) {
-      flood.append('b').append(i).append(": *a\n");
+  }
+
+  @Test
+  void aliasesAreCountedPerDocumentNotOverTheStream() {
+    StringBuilder input = new StringBuilder();
+    List<Object> expected = new ArrayList<>();
+    for (int d = 0; d < 3; d++) {
+      input.append("---\na: &a [1]\n");
+      StringBuilder json = new StringBuilder("{\"a\":[1]");
+      for (int i = 0; i < 30; i++) {
+        input.append('b').append(i).append(": *a\n");
+        json.append(",\"b").append(i).append("\":[1]");
+      }
+      expected.add(new Ok(json(json.append('}').toString()), d + 1, null));
     }
+    assertEquals(expected, decode(MULTI, utf8(input.toString())));
+  }
+
+  @Test
+  void aliasExpansionIsCappedByTheSizeLimit() {
+    String anchored = "a: &a [" + "1,".repeat(999) + "1]\nb: [" + "*a,".repeat(99) + "*a]\n";
+    assertEquals(
+        List.of(
+            malformed(
+                1, "MalformedYamlException: document expands to more than 82768 values", false),
+            new Ok(json("{\"z\":1}"), 2, null)),
+        decode(
+            decoder(MULTI),
+            ByteInput.ofBytes(utf8(anchored + "---\nz: 1\n")),
+            new DecodeLimits(100_000, 0)));
+    assertEquals(
+        List.of(
+            malformedDocument(
+                anchored, "MalformedYamlException: document expands to more than 5000 values")),
+        decode(decoder(DOCUMENT), ByteInput.ofBytes(utf8(anchored)), new DecodeLimits(0, 10_000)));
+  }
+
+  @Test
+  void documentsThatFailToConstructDoNotStopTheRest() {
+    String input =
+        "a: 2024-02-30\n---\nb: !!int x\n---\nc: !!binary \"@@@\"\n---\nd: &x {*x : 1}\n---\n"
+            + "e: !foo x\n---\n1: a\n'1': b\n---\n? [a]\n: 1\n---\nx: &y [*y]\n---\nok: 1\n";
     assertEquals(
         List.of(
             malformed(
                 1,
-                "YAMLException: Number of aliases for non-scalar nodes exceeds the specified max=50",
-                true)),
-        decode(MULTI, utf8(flood + "---\nz: 1\n")));
+                "DocumentConstructionException: DateTimeException: Invalid date 'FEBRUARY 30'",
+                false),
+            malformed(
+                2,
+                "DocumentConstructionException: NumberFormatException: For input string: \"x\"",
+                false),
+            malformed(
+                3,
+                "DocumentConstructionException: IllegalArgumentException: Illegal base64 character 40",
+                false),
+            malformed(
+                4,
+                "DocumentConstructionException: YAMLException: Recursive key for mapping is detected"
+                    + " but it is not configured to be allowed.",
+                false),
+            malformed(
+                5,
+                "ConstructorException: could not determine a constructor for the tag !foo",
+                false),
+            malformed(6, "MalformedYamlException: two keys map to the same name: 1", false),
+            malformed(7, "MalformedYamlException: mapping key is not a scalar", false),
+            malformed(
+                8, "MalformedYamlException: document contains itself through an alias", false),
+            new Ok(json("{\"ok\":1}"), 9, null)),
+        decode(MULTI, utf8(input)));
   }
 
   @Test
-  void aliasExpansionIsCapped() {
-    StringBuilder input = new StringBuilder("a: &a [").append("1,".repeat(25_000)).append("1]\n");
-    input.append("b: [");
-    for (int i = 0; i < 45; i++) {
-      input.append(i == 0 ? "" : ",").append("*a");
-    }
-    input.append("]\n---\nz: 1\n");
+  void unusualScalarsAndCollectionsMap() {
+    String input =
+        "2024-01-15: d\np: !!pairs [x: 1, x: 2]\n"
+            + "n: [12345678901234567890, .inf, -.inf, .nan]\nd: "
+            + "[".repeat(60)
+            + "]".repeat(60)
+            + "\n";
     assertEquals(
         List.of(
-            malformed(
-                1, "MalformedYamlException: document expands to more than 1000000 values", false),
-            new Ok(json("{\"z\":1}"), 2, null)),
-        decode(MULTI, utf8(input.toString())));
+            new Ok(
+                json(
+                    "{\""
+                        + LocalDate.of(2024, 1, 15).toEpochDay()
+                        + "\":\"d\",\"p\":[[\"x\",1],[\"x\",2]],"
+                        + "\"n\":[\"12345678901234567890\",\"Infinity\",\"-Infinity\",\"NaN\"],\"d\":"
+                        + "[".repeat(60)
+                        + "]".repeat(60)
+                        + "}"),
+                1,
+                new RawSpan(0, input.length()))),
+        decode(DOCUMENT, utf8(input)));
   }
 
   @Test
@@ -190,10 +260,10 @@ class YamlDecodeTest {
     String input = "a: 1\n---\nb: " + "x".repeat(200_000) + "\n---\nc: 2\n";
     List<Object> actual =
         decode(decoder(MULTI), ByteInput.ofBytes(utf8(input)), new DecodeLimits(1000, 0));
-    Big big = (Big) actual.get(1);
+    long size = ((Big) actual.get(1)).sizeSoFar();
+    assertTrue(size > 1000 + 65_536 && size <= 1000 + 65_536 + 16_384, "size " + size);
     assertEquals(
-        List.of(new Ok(json("{\"a\":1}"), 1, null), new Big(2, null, big.sizeSoFar(), "", true)),
-        actual);
+        List.of(new Ok(json("{\"a\":1}"), 1, null), new Big(2, null, size, "", true)), actual);
   }
 
   @Test

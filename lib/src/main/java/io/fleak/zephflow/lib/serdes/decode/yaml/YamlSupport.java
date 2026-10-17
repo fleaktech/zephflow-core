@@ -14,11 +14,13 @@
 package io.fleak.zephflow.lib.serdes.decode.yaml;
 
 import java.time.LocalDate;
+import java.util.NoSuchElementException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.AbstractConstruct;
+import org.yaml.snakeyaml.constructor.ConstructorException;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
 import org.yaml.snakeyaml.nodes.Node;
 import org.yaml.snakeyaml.nodes.ScalarNode;
@@ -27,7 +29,8 @@ import org.yaml.snakeyaml.nodes.Tag;
 /**
  * SnakeYAML used directly, because Jackson's YAML reader turns aliases into the anchor's name and
  * cannot tell a timestamp from a quoted string. Only the safe constructor is used, duplicate keys
- * are errors, and the per-document size limit is lifted so that the decoder's budget decides.
+ * are errors, and the size and alias limits are lifted so that the decoder's budget and {@link
+ * YamlRecords} decide.
  */
 final class YamlSupport {
 
@@ -40,10 +43,17 @@ final class YamlSupport {
     LoaderOptions options = new LoaderOptions();
     options.setAllowDuplicateKeys(false);
     options.setCodePointLimit(Integer.MAX_VALUE);
+    // SnakeYAML counts aliases over the whole stream, not per document; YamlRecords caps expansion.
+    options.setMaxAliasesForCollections(Integer.MAX_VALUE);
+    options.setNestingDepthLimit(1000);
     return new Yaml(new DateAwareConstructor(options));
   }
 
-  /** A date without time becomes a {@link LocalDate}, so it is not mistaken for a timestamp. */
+  /**
+   * A date without time becomes a {@link LocalDate}, so it is not mistaken for a timestamp. Any
+   * failure while constructing a fully composed document is reported as a {@link
+   * ConstructorException}, so a multi-document stream can go on with the next document.
+   */
   private static final class DateAwareConstructor extends SafeConstructor {
 
     DateAwareConstructor(LoaderOptions options) {
@@ -64,6 +74,33 @@ final class YamlSupport {
               return timestamp.construct(node);
             }
           });
+    }
+
+    @Override
+    public Object getData() {
+      if (!composer.checkNode()) {
+        throw new NoSuchElementException("No document is available.");
+      }
+      Node node = composer.getNode();
+      try {
+        return constructDocument(node);
+      } catch (ConstructorException e) {
+        throw e;
+      } catch (RuntimeException e) {
+        throw new DocumentConstructionException(node, e);
+      }
+    }
+  }
+
+  private static final class DocumentConstructionException extends ConstructorException {
+
+    DocumentConstructionException(Node node, RuntimeException cause) {
+      super(
+          null,
+          null,
+          cause.getClass().getSimpleName() + ": " + cause.getMessage(),
+          node.getStartMark(),
+          cause);
     }
   }
 }

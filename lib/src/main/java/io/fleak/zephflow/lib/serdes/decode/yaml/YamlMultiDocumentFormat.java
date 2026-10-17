@@ -73,12 +73,17 @@ public final class YamlMultiDocumentFormat implements FormatCursor {
       }
       index++;
       try {
-        return new Decoded(YamlRecords.toRecord(document), index, null);
+        return new Decoded(YamlRecords.toRecord(document, recordSizeLimit()), index, null);
       } catch (MalformedYamlException e) {
         return new Failed(ErrorKind.MALFORMED, EMPTY, index, null, e, false);
       }
     }
     return null;
+  }
+
+  /** What the budget lets through for one document, slack included. */
+  private long recordSizeLimit() {
+    return maxRecordBytes > 0 ? maxRecordBytes + BudgetCaptureStream.READ_AHEAD_SLACK : 0;
   }
 
   @Override
