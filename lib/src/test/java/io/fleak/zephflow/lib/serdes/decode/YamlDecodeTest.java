@@ -19,12 +19,16 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.fleak.zephflow.api.structure.ArrayFleakData;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 
@@ -357,5 +361,24 @@ class YamlDecodeTest {
     assertSame(
         copies.getArrayPayload().get(0).getStringValue(),
         copies.getArrayPayload().get(199).getStringValue());
+  }
+
+  @Test
+  void aliasesToAMapWithALargeBinaryKeyShareTheKeyText() {
+    String encoded = Base64.getEncoder().encodeToString(utf8("k".repeat(300_000)));
+    StringBuilder input =
+        new StringBuilder("m: &m {? !!binary ").append(encoded).append(" : 1}\nl: [");
+    for (int i = 0; i < 200; i++) {
+      input.append(i == 0 ? "" : ",").append("*m");
+    }
+    Map<String, Integer> m = Map.of(encoded, 1);
+    RecordFleakData expected =
+        (RecordFleakData) FleakData.wrap(Map.of("m", m, "l", Collections.nCopies(200, m)));
+    List<Object> actual = decode(MULTI, utf8(input.append("]\n").toString()));
+    assertEquals(List.of(new Ok(expected, 1, null)), actual);
+    List<FleakData> copies = ((Ok) actual.get(0)).record().getPayload().get("l").getArrayPayload();
+    assertSame(
+        copies.get(0).getPayload().keySet().iterator().next(),
+        copies.get(199).getPayload().keySet().iterator().next());
   }
 }

@@ -256,7 +256,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 1 | API, config and compiler, error classification, budgets, `gzip` + `auto`, `json` (all modes), `text` `line` + `whole` (UTF-8), `lowMemoryTest` task | Done (#339) |
 | 2 | `text` `multiline`, non-UTF-8 text | Done (#340) |
 | 3 | `csv` | Done (#341) |
-| 4 | `xml`, `yaml` | In review |
+| 4 | `xml`, `yaml` | In review (#342) |
 | 5 | Remaining codecs | Planned |
 | 6 | `avro` | Planned |
 | 7 | `protobuf` | Planned |

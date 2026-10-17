@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.yaml;
 
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
@@ -73,11 +74,11 @@ public final class YamlMultiDocumentFormat implements FormatCursor {
       if (document == null) {
         continue;
       }
-      index++;
       try {
-        return new Decoded(YamlRecords.toRecord(document, recordSizeLimit()), index, null);
+        RecordFleakData record = YamlRecords.toRecord(document, recordSizeLimit());
+        return new Decoded(record, ++index, null);
       } catch (MalformedYamlException e) {
-        return new Failed(ErrorKind.MALFORMED, EMPTY, index, null, e, false);
+        return new Failed(ErrorKind.MALFORMED, EMPTY, ++index, null, e, false);
       }
     }
     return null;

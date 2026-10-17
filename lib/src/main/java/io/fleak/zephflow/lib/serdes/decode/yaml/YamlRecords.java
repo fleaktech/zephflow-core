@@ -165,15 +165,15 @@ final class YamlRecords {
     }
   }
 
-  private static String key(Object key) throws MalformedYamlException {
+  private String key(Object key) throws MalformedYamlException {
     return switch (key) {
       case null -> "null";
       case Map<?, ?> ignored -> throw new MalformedYamlException("mapping key is not a scalar");
       case Collection<?> ignored -> throw new MalformedYamlException("mapping key is not a scalar");
       case Date date -> String.valueOf(date.getTime());
       case LocalDate date -> String.valueOf(date.toEpochDay());
-      case byte[] bytes -> Base64.getEncoder().encodeToString(bytes);
-      default -> key.toString();
+      case String text -> text;
+      default -> text(key);
     };
   }
 }
