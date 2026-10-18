@@ -21,13 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -273,61 +272,52 @@ class ParquetDecodeTest {
     return decode(decoder(PARQUET), ByteInput.ofBytes(file), new DecodeLimits(0, maxDocumentBytes));
   }
 
-  /**
-   * The footer's estimated memory. An Oversized footer reports what it had reached when it went
-   * over, so the limit is raised to that until the footer fits.
-   */
+  /** The footer's estimated memory: the smallest limit at which it is not Oversized. */
   static long footerEstimate(byte[] file) {
-    long limit = ByteBuffer.wrap(file, file.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
-    while (true) {
-      List<Object> outcomes = decodeWithin(file, limit);
-      if (outcomes.isEmpty() || !(outcomes.get(0) instanceof Big big) || !big.terminal()) {
-        return limit;
-      }
-      limit = big.sizeSoFar();
+    long low = 0;
+    long high = 1024;
+    while (footerOverAt(file, high)) {
+      low = high;
+      high *= 2;
     }
+    while (high - low > 1) {
+      long mid = (low + high) / 2;
+      if (footerOverAt(file, mid)) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return high;
   }
 
-  /**
-   * Each row group's estimated memory, by its first row's index. A row group first reports its
-   * stored size and, once that fits, its whole estimate, so the limit is raised until all fit.
-   */
-  private static Map<Long, Long> rowGroupEstimates(byte[] file) {
-    Map<Long, Long> estimates = new HashMap<>();
-    long limit = footerEstimate(file);
-    while (true) {
-      List<Big> oversized =
-          decodeWithin(file, limit).stream()
-              .filter(Big.class::isInstance)
-              .map(Big.class::cast)
-              .toList();
-      if (oversized.isEmpty()) {
-        return estimates;
-      }
-      for (Big big : oversized) {
-        estimates.merge(big.recordIndex(), big.sizeSoFar(), Math::max);
-        limit = Math.max(limit, big.sizeSoFar());
-      }
-    }
+  private static boolean footerOverAt(byte[] file, long limit) {
+    List<Object> outcomes = decodeWithin(file, limit);
+    return !outcomes.isEmpty() && outcomes.get(0) instanceof Big big && big.terminal();
+  }
+
+  /** A row group's size as its footer declares it: twice stored, or uncompressed if larger. */
+  private static long declaredSize(RowGroup group) {
+    long stored =
+        group.getColumns().stream()
+            .mapToLong(c -> c.getMeta_data().getTotal_compressed_size())
+            .sum();
+    return Math.max(2 * stored, group.getTotal_byte_size());
   }
 
   @Test
   void rowGroupsFollowEachOtherAndOneOverTheDocumentLimitIsSkipped() {
-    byte[] file = numbers(5000, 8 * 1024, CompressionCodecName.UNCOMPRESSED);
+    byte[] file = numbers(5000, 16 * 1024, CompressionCodecName.UNCOMPRESSED);
     List<RowGroup> groups = footer(file).getRow_groups();
-    Map<Long, Long> estimates = rowGroupEstimates(file);
-    assertEquals(groups.size(), estimates.size());
-    assertTrue(groups.size() >= 3, "row groups: " + groups.size());
-    long largest = estimates.values().stream().mapToLong(Long::longValue).max().orElseThrow();
-    long stored = groups.get(0).getColumns().get(0).getMeta_data().getTotal_compressed_size();
-    assertTrue(
-        estimates.get(1L) > stored, "a decompressed page counts as well as the stored chunk");
+    assertTrue(groups.size() >= 2, "row groups: " + groups.size());
+    long largest = groups.stream().mapToLong(ParquetDecodeTest::declaredSize).max().orElseThrow();
+    assertTrue(largest - 1 >= footerEstimate(file));
     assertEquals(numbersDecoded(0, 5000), decodeWithin(file, largest));
     List<Object> expected = new ArrayList<>();
     long index = 1;
     for (RowGroup group : groups) {
       long rows = group.getNum_rows();
-      if (estimates.get(index) == largest) {
+      if (declaredSize(group) == largest) {
         expected.add(new Big(index, null, largest, "", false));
       } else {
         expected.addAll(numbersDecoded((int) index - 1, (int) (index - 1 + rows)));
@@ -337,30 +327,141 @@ class ParquetDecodeTest {
     assertEquals(expected, decodeWithin(file, largest - 1));
   }
 
+  /**
+   * The ranges asked for to check the footer and then by parquet's reader, whose small reads are
+   * widened to 8 KiB or to the end of the file. Row groups are read once by the cursor and lent to
+   * parquet.
+   */
+  private static List<List<Long>> footerRequests(byte[] file) {
+    int footerLength =
+        ByteBuffer.wrap(file, file.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+    long footerStart = file.length - 8L - footerLength;
+    return List.of(
+        List.of(0L, 4L),
+        List.of(file.length - 8L, 8L),
+        List.of(footerStart, (long) footerLength),
+        List.of(file.length - 8L, 8L),
+        List.of(footerStart, Math.min(8192L, file.length - footerStart)));
+  }
+
   @Test
   void rowGroupStoredOverTheDocumentLimitIsSkippedUnread() {
     byte[] file = numbers(3000, 1024 * 1024, CompressionCodecName.UNCOMPRESSED);
-    long stored =
-        footer(file)
-            .getRow_groups()
-            .get(0)
-            .getColumns()
-            .get(0)
-            .getMeta_data()
-            .getTotal_compressed_size();
-    assertTrue(stored > footerEstimate(file));
+    long size = declaredSize(footer(file).getRow_groups().get(0));
+    assertTrue(size > footerEstimate(file));
     Recording recording = new Recording(file, new ArrayList<>());
     assertEquals(
-        List.of(new Big(1, null, stored, "", false)),
-        decode(decoder(PARQUET), ranges(recording), new DecodeLimits(0, stored - 1)));
-    int footerLength =
-        ByteBuffer.wrap(file, file.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+        List.of(new Big(1, null, size, "", false)),
+        decode(decoder(PARQUET), ranges(recording), new DecodeLimits(0, size - 1)));
     assertEquals(
-        List.of(
-            List.of(0L, 4L),
-            List.of(file.length - 8L, 8L),
-            List.of(file.length - 8L - footerLength, (long) footerLength)),
-        recording.requests().stream().map(r -> List.of(r[0], r[1])).toList());
+        footerRequests(file), recording.requests().stream().map(r -> List.of(r[0], r[1])).toList());
+  }
+
+  @Test
+  void rangesAreBoundedAndEachRowGroupIsReadOnceInFileOrder() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType(
+            "message m { required int64 n; required binary s (STRING); optional double d; }");
+    SimpleGroupFactory factory = new SimpleGroupFactory(schema);
+    List<Group> rows =
+        IntStream.range(0, 5000)
+            .mapToObj(i -> factory.newGroup().append("n", (long) i).append("s", "v" + (i % 10)))
+            .toList();
+    byte[] file =
+        ParquetTestFiles.write(
+            schema,
+            rows,
+            options ->
+                options
+                    .withCompressionCodec(CompressionCodecName.SNAPPY)
+                    .withPageSize(1024)
+                    .withRowGroupSize(16 * 1024));
+    Recording recording = new Recording(file, new ArrayList<>());
+    assertEquals(
+        IntStream.range(0, 5000)
+            .mapToObj(
+                i ->
+                    (Object)
+                        new Ok(json("{\"n\":" + i + ",\"s\":\"v" + (i % 10) + "\"}"), i + 1, null))
+            .toList(),
+        decode(decoder(PARQUET), ranges(recording), DecodeLimits.UNLIMITED));
+    List<List<Long>> expected = new ArrayList<>(footerRequests(file));
+    boolean dictionary = false;
+    List<RowGroup> groups = footer(file).getRow_groups();
+    assertTrue(groups.size() > 1);
+    for (RowGroup group : groups) {
+      long start = Long.MAX_VALUE;
+      long size = 0;
+      for (var chunk : group.getColumns()) {
+        var meta = chunk.getMeta_data();
+        long chunkStart =
+            meta.isSetDictionary_page_offset() && meta.getDictionary_page_offset() > 0
+                ? meta.getDictionary_page_offset()
+                : meta.getData_page_offset();
+        dictionary |= chunkStart != meta.getData_page_offset();
+        start = Math.min(start, chunkStart);
+        size += meta.getTotal_compressed_size();
+      }
+      expected.add(List.of(start, size));
+    }
+    assertTrue(dictionary, "the string column has a dictionary page");
+    assertEquals(expected, recording.requests().stream().map(r -> List.of(r[0], r[1])).toList());
+  }
+
+  /** Fails the {@code fail}th range read (0 for the length), by throwing or by ending early. */
+  private static RandomAccessInput failing(byte[] file, int fail, boolean throwing) {
+    int[] calls = {0};
+    return new RandomAccessInput() {
+      @Override
+      public long length() throws IOException {
+        if (fail == 0) {
+          throw new IOException("length lost");
+        }
+        return file.length;
+      }
+
+      @Override
+      public InputStream read(long offset, long length) throws IOException {
+        if (++calls[0] != fail) {
+          return new ByteArrayInputStream(file, (int) offset, (int) length);
+        }
+        if (throwing) {
+          throw new IOException("read lost");
+        }
+        return new ByteArrayInputStream(file, (int) offset, (int) length - 1);
+      }
+    };
+  }
+
+  @Test
+  void readFailuresThrowAfterTheRowsAlreadyRead() {
+    byte[] file = numbers(2000, 8 * 1024, CompressionCodecName.UNCOMPRESSED);
+    Recording recording = new Recording(file, new ArrayList<>());
+    List<Integer> requestsBefore = new ArrayList<>();
+    List<Object> all = new ArrayList<>();
+    try (RecordCursor cursor = decoder(PARQUET).open(ranges(recording), DecodeLimits.UNLIMITED)) {
+      DecodeOutcome outcome;
+      while ((outcome = cursor.next()) != null) {
+        all.add(DecodeTestSupport.view(outcome));
+        requestsBefore.add(recording.requests().size());
+      }
+    } catch (SourceReadException e) {
+      throw new UncheckedIOException(e);
+    }
+    assertEquals(numbersDecoded(0, 2000), all);
+    for (boolean throwing : List.of(true, false)) {
+      for (int fail = 0; fail <= recording.requests().size(); fail++) {
+        List<Object> expected = new ArrayList<>();
+        for (int i = 0; i < all.size() && requestsBefore.get(i) < fail; i++) {
+          expected.add(all.get(i));
+        }
+        expected.add(new Threw("SourceReadException"));
+        assertEquals(
+            expected,
+            decode(decoder(PARQUET), ranges(failing(file, fail, throwing)), DecodeLimits.UNLIMITED),
+            "fail at " + fail + (throwing ? " by throwing" : " by ending early"));
+      }
+    }
   }
 
   @Test
@@ -439,100 +540,6 @@ class ParquetDecodeTest {
         return Optional.of(ranges);
       }
     };
-  }
-
-  @Test
-  void eachByteIsRequestedOnceInBoundedRangesInFileOrder() {
-    MessageType schema =
-        MessageTypeParser.parseMessageType(
-            "message m { required int64 n; required binary s (STRING); optional double d; }");
-    SimpleGroupFactory factory = new SimpleGroupFactory(schema);
-    List<Group> rows =
-        IntStream.range(0, 5000)
-            .mapToObj(i -> factory.newGroup().append("n", (long) i).append("s", "v" + (i % 10)))
-            .toList();
-    byte[] file =
-        ParquetTestFiles.write(
-            schema,
-            rows,
-            options ->
-                options
-                    .withCompressionCodec(CompressionCodecName.SNAPPY)
-                    .withPageSize(1024)
-                    .withRowGroupSize(16 * 1024));
-    Recording recording = new Recording(file, new ArrayList<>());
-    assertEquals(
-        IntStream.range(0, 5000)
-            .mapToObj(
-                i ->
-                    (Object)
-                        new Ok(json("{\"n\":" + i + ",\"s\":\"v" + (i % 10) + "\"}"), i + 1, null))
-            .toList(),
-        decode(decoder(PARQUET), ranges(recording), DecodeLimits.UNLIMITED));
-    int footerLength =
-        ByteBuffer.wrap(file, file.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
-    List<List<Long>> expected = new ArrayList<>();
-    expected.add(List.of(0L, 4L));
-    expected.add(List.of(file.length - 8L, 8L));
-    expected.add(List.of(file.length - 8L - footerLength, (long) footerLength));
-    boolean dictionary = false;
-    for (RowGroup group : footer(file).getRow_groups()) {
-      for (var chunk : group.getColumns()) {
-        var meta = chunk.getMeta_data();
-        long start =
-            meta.isSetDictionary_page_offset() && meta.getDictionary_page_offset() > 0
-                ? meta.getDictionary_page_offset()
-                : meta.getData_page_offset();
-        dictionary |= start != meta.getData_page_offset();
-        expected.add(List.of(start, meta.getTotal_compressed_size()));
-      }
-    }
-    assertTrue(dictionary, "the string column has a dictionary page");
-    assertTrue(footer(file).getRow_groups().size() > 1);
-    assertEquals(expected, recording.requests().stream().map(r -> List.of(r[0], r[1])).toList());
-  }
-
-  /** Fails the {@code fail}th range read (0 for the length), by throwing or by ending early. */
-  private static RandomAccessInput failing(byte[] file, int fail, boolean throwing) {
-    int[] calls = {0};
-    return new RandomAccessInput() {
-      @Override
-      public long length() throws IOException {
-        if (fail == 0) {
-          throw new IOException("length lost");
-        }
-        return file.length;
-      }
-
-      @Override
-      public InputStream read(long offset, long length) throws IOException {
-        if (++calls[0] != fail) {
-          return new ByteArrayInputStream(file, (int) offset, (int) length);
-        }
-        if (throwing) {
-          throw new IOException("read lost");
-        }
-        return new ByteArrayInputStream(file, (int) offset, (int) length - 1);
-      }
-    };
-  }
-
-  @Test
-  void readFailuresThrowAfterTheRowsAlreadyRead() {
-    byte[] file = numbers(2000, 8 * 1024, CompressionCodecName.UNCOMPRESSED);
-    List<RowGroup> groups = footer(file).getRow_groups();
-    for (boolean throwing : List.of(true, false)) {
-      for (int fail = 0; fail <= 3 + groups.size(); fail++) {
-        int decodedGroups = Math.max(0, fail - 4);
-        long rows = groups.stream().limit(decodedGroups).mapToLong(RowGroup::getNum_rows).sum();
-        List<Object> expected = new ArrayList<>(numbersDecoded(0, (int) rows));
-        expected.add(new Threw("SourceReadException"));
-        assertEquals(
-            expected,
-            decode(decoder(PARQUET), ranges(failing(file, fail, throwing)), DecodeLimits.UNLIMITED),
-            "fail at " + fail + (throwing ? " by throwing" : " by ending early"));
-      }
-    }
   }
 
   @Test

@@ -18,35 +18,75 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.zip.GZIPInputStream;
 import net.jpountz.lz4.LZ4Factory;
 import net.jpountz.lz4.LZ4SafeDecompressor;
-import org.apache.parquet.format.CompressionCodec;
+import org.apache.parquet.bytes.BytesInput;
+import org.apache.parquet.compression.CompressionCodecFactory;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.xerial.snappy.Snappy;
 
 /**
- * Decompresses one page into exactly the size its header claims, which has already been checked
- * against the row group's budget; more or less output is malformed. LZ4 is Hadoop's framing, as
- * parquet-mr writes it.
+ * parquet's decompression, replaced: each page is decompressed into exactly the size its header
+ * claims, at most the budget; more or less output is malformed. parquet's own codecs allocate the
+ * claimed size, and its snappy stream never returns when a page holds less than it claims. LZ4 is
+ * Hadoop's framing, as parquet-mr writes it.
  */
-final class PageCodecs {
+final class PageCodecs implements CompressionCodecFactory {
 
   private static final LZ4SafeDecompressor LZ4 = LZ4Factory.fastestInstance().safeDecompressor();
 
-  private PageCodecs() {}
+  private final long budget;
 
-  static byte[] decompress(CompressionCodec codec, byte[] src, int offset, int length, int size)
+  PageCodecs(long budget) {
+    this.budget = budget;
+  }
+
+  @Override
+  public BytesInputDecompressor getDecompressor(CompressionCodecName codec) {
+    return new BytesInputDecompressor() {
+      @Override
+      public BytesInput decompress(BytesInput bytes, int size) throws IOException {
+        if (codec == CompressionCodecName.UNCOMPRESSED) {
+          return bytes;
+        }
+        byte[] src = bytes.toByteArray();
+        return BytesInput.from(PageCodecs.this.decompress(codec, src, 0, src.length, size));
+      }
+
+      @Override
+      public void decompress(ByteBuffer input, int compressedSize, ByteBuffer output, int size)
+          throws IOException {
+        byte[] src = new byte[compressedSize];
+        input.get(src);
+        output.put(
+            codec == CompressionCodecName.UNCOMPRESSED
+                ? src
+                : PageCodecs.this.decompress(codec, src, 0, compressedSize, size));
+      }
+
+      @Override
+      public void release() {}
+    };
+  }
+
+  @Override
+  public BytesInputCompressor getCompressor(CompressionCodecName codec) {
+    throw new UnsupportedOperationException("the decoder does not compress");
+  }
+
+  @Override
+  public void release() {}
+
+  private byte[] decompress(
+      CompressionCodecName codec, byte[] src, int offset, int length, int size)
       throws MalformedParquetException {
     if (size == 0 && length == 0) {
       return new byte[0];
     }
-    if (codec == CompressionCodec.UNCOMPRESSED) {
-      if (length != size) {
-        throw new MalformedParquetException(
-            "uncompressed page of " + length + " bytes claims " + size);
-      }
-      return Arrays.copyOfRange(src, offset, offset + length);
+    if (size < 0 || size > budget) {
+      throw new MalformedParquetException(
+          "parquet page claims " + size + " bytes decompressed, more than " + budget);
     }
     byte[] out = new byte[size];
     int produced;
@@ -57,7 +97,6 @@ final class PageCodecs {
             case GZIP -> gzip(src, offset, length, out);
             case ZSTD -> zstd(src, offset, length, out);
             case LZ4 -> hadoopLz4(src, offset, length, out);
-            case LZ4_RAW -> LZ4.decompress(src, offset, length, out, 0, size);
             default ->
                 throw new MalformedParquetException("parquet codec " + codec + " is not supported");
           };

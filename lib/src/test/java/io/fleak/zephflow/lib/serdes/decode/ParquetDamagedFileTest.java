@@ -38,7 +38,6 @@ import org.apache.parquet.format.CompressionCodec;
 import org.apache.parquet.format.DataPageHeader;
 import org.apache.parquet.format.DataPageHeaderV2;
 import org.apache.parquet.format.DecimalType;
-import org.apache.parquet.format.DictionaryPageHeader;
 import org.apache.parquet.format.Encoding;
 import org.apache.parquet.format.FieldRepetitionType;
 import org.apache.parquet.format.KeyValue;
@@ -52,8 +51,8 @@ import org.apache.parquet.io.api.Binary;
 import org.junit.jupiter.api.Test;
 import org.xerial.snappy.Snappy;
 
-/** Files that lie about their sizes and counts; none may cost more than its bytes. */
-class ParquetHostileTest {
+/** Damaged and truncated files: each loses only what it must, and none may exhaust the heap. */
+class ParquetDamagedFileTest {
 
   private static final String PARQUET = "{\"format\":{\"type\":\"parquet\"}}";
 
@@ -153,7 +152,8 @@ class ParquetHostileTest {
         decode(PARQUET, footerTooLong));
   }
 
-  private static final long PINNED_FOOTER = 4076;
+  private static final long PINNED_FOOTER = 4588;
+  private static final long PINNED_WIDE_FOOTER = 3658;
 
   private static final List<Object> SIX_ROWS =
       List.of(
@@ -291,7 +291,7 @@ class ParquetHostileTest {
   }
 
   @Test
-  void columnChunksOutsideTheDataOrWithWrongCountsLoseTheirRowGroup() {
+  void columnChunksOutsideTheDataOrShortOfValuesLoseTheirRowGroup() {
     assertEquals(
         lostThenIntact(
             "MalformedParquetException: parquet column chunk [n] of 1000000 bytes at 4 is outside the data",
@@ -306,7 +306,7 @@ class ParquetHostileTest {
                 })));
     assertEquals(
         lostThenIntact(
-            "MalformedParquetException: parquet column chunk ends after 3 of 4 values", 4),
+            "MalformedParquetException: parquet column chunk [n] ends after 3 of 4 values", 4),
         decode(
             PARQUET,
             hostileThenIntact(
@@ -316,8 +316,7 @@ class ParquetHostileTest {
                   return group;
                 })));
     assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet row group has 2 column chunks for 1 columns", 4),
+        SIX_ROWS,
         decode(
             PARQUET,
             hostileThenIntact(
@@ -327,38 +326,6 @@ class ParquetHostileTest {
                         List.of(group.getColumns().get(0), group.getColumns().get(0))))));
   }
 
-  @Test
-  void pagesThatClaimMoreThanTheyHoldLoseTheirRowGroup() {
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet page of 13 bytes does not fit its column chunk", 4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(
-                    3,
-                    new RawPage(
-                        new PageHeader(PageType.DATA_PAGE, 12, 13)
-                            .setData_page_header(
-                                new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE)),
-                        ints(1, 2, 3))),
-                group -> group)));
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet column chunk [n] has 2000000 values for 3 rows", 4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(2_000_000, page(2_000_000, Encoding.PLAIN, ints(1, 2, 3))),
-                group -> group)));
-    assertEquals(
-        lostThenIntact("MalformedParquetException: uncompressed page of 12 bytes claims 1000", 4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(3, page(3, Encoding.PLAIN, ints(1, 2, 3), 1000)), group -> group)));
-  }
-
   static byte[] concatAll(byte[]... parts) {
     return concat(parts);
   }
@@ -366,64 +333,6 @@ class ParquetHostileTest {
   /** Optional int32 rows 1, 2, 3: definition levels as one run of three, then the values. */
   static final RawChunk OPTIONAL_VALID =
       column(3, page(3, Encoding.PLAIN, concatAll(new byte[] {2, 0, 0, 0, 6, 1}, ints(1, 2, 3))));
-
-  @Test
-  void runsThatClaimMoreValuesThanThePageHasLoseTheirRowGroup() {
-    byte[] bomb = {6, 0, 0, 0, (byte) 0x81, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x01, 0};
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet bit-packed run of 1073741824 values does not fit the page",
-            4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                FieldRepetitionType.OPTIONAL,
-                column(3, page(3, Encoding.PLAIN, concatAll(bomb, ints(1, 2, 3)))),
-                OPTIONAL_VALID,
-                group -> group)));
-  }
-
-  @Test
-  void dictionaryThatClaimsMoreEntriesThanItsBytesLosesItsRowGroup() {
-    RawPage dictionary =
-        new RawPage(
-            new PageHeader(PageType.DICTIONARY_PAGE, 4, 4)
-                .setDictionary_page_header(new DictionaryPageHeader(1000, Encoding.PLAIN)),
-            ints(9));
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet dictionary of 1000 entries does not fit in 4 bytes",
-            4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(3, dictionary, page(3, Encoding.RLE_DICTIONARY, new byte[] {1, 6, 0})),
-                group -> group)));
-  }
-
-  @Test
-  void deltaHeadersThatClaimTooMuchLoseTheirRowGroup() {
-    byte[] tooManyValues = {
-      (byte) 0x80, 0x01, 0x04, (byte) 0x80, (byte) 0x94, (byte) 0xEB, (byte) 0xDC, 0x03, 0x02
-    };
-    byte[] hugeBlock = {(byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x04, 0x04, 0x03, 0x02};
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet delta encoding claims 1000000000 values in a page of 3",
-            4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(3, page(3, Encoding.DELTA_BINARY_PACKED, tooManyValues)), group -> group)));
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet delta block of 1073741824 values in 4 miniblocks",
-            4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(3, page(3, Encoding.DELTA_BINARY_PACKED, hugeBlock)), group -> group)));
-  }
 
   private static byte[] deltaInts(int... values) {
     DeltaBinaryPackingValuesWriterForInteger writer =
@@ -445,38 +354,15 @@ class ParquetHostileTest {
   }
 
   @Test
-  void deltaEncodedStringsDecodeAndAPrefixLongerThanTheValueBeforeLosesTheRowGroup()
-      throws Exception {
+  void deltaEncodedStringsDecode() throws Exception {
     DeltaLengthByteArrayValuesWriter lengths =
         new DeltaLengthByteArrayValuesWriter(64, 64, HeapByteBufferAllocator.getInstance());
     for (String value : List.of("ab", "c", "def")) {
       lengths.writeBytes(Binary.fromString(value));
     }
     byte[] deltaLength = lengths.getBytes().toByteArray();
-    byte[] tooLongPrefix = concatAll(deltaInts(0, 5, 0), deltaInts(3, 1, 1), utf8("abcdx"));
     byte[] prefixed = concatAll(deltaInts(0, 2, 1), deltaInts(3, 1, 1), utf8("abcdx"));
     RawChunk valid = strings(3, page(3, Encoding.DELTA_BYTE_ARRAY, prefixed));
-    List<Object> expected = new ArrayList<>();
-    expected.add(
-        new Bad(
-            ErrorKind.MALFORMED,
-            "",
-            1,
-            null,
-            "MalformedParquetException: parquet DELTA_BYTE_ARRAY value 1 is invalid",
-            false));
-    expected.add(new Ok(json("{\"n\":\"YWJj\"}"), 4, null));
-    expected.add(new Ok(json("{\"n\":\"YWJk\"}"), 5, null));
-    expected.add(new Ok(json("{\"n\":\"YXg=\"}"), 6, null));
-    assertEquals(
-        expected,
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                FieldRepetitionType.REQUIRED,
-                strings(3, page(3, Encoding.DELTA_BYTE_ARRAY, tooLongPrefix)),
-                valid,
-                group -> group)));
     assertEquals(
         List.of(
             new Ok(json("{\"n\":\"YWI=\"}"), 1, null),
@@ -522,7 +408,10 @@ class ParquetHostileTest {
                     List.of(page(3, Encoding.PLAIN, ints(1, 2, 3)))),
                 group -> group)));
     assertEquals(
-        lostThenIntact("MalformedParquetException: parquet data page v2 header is invalid", 4),
+        lostThenIntact(
+            "ParquetDecodingException: Can't read value in column [n] required int32 n at value 1"
+                + " out of 3, 1 out of 3 in currentPage. repetition level: 0, definition level: 0",
+            4),
         decode(
             PARQUET,
             hostileThenIntact(
@@ -590,7 +479,7 @@ class ParquetHostileTest {
   }
 
   @Test
-  void pagesParquetMrDoesNotWriteStillDecode() {
+  void uncompressedV2PagesDecodeAndLz4RawIsNotSupportedByParquet112() {
     byte[] raw = LZ4Factory.fastestInstance().fastCompressor().compress(ints(1, 2, 3));
     List<Object> twice =
         List.of(
@@ -601,7 +490,9 @@ class ParquetHostileTest {
             new Ok(json("{\"n\":2}"), 5, null),
             new Ok(json("{\"n\":3}"), 6, null));
     assertEquals(
-        twice,
+        List.of(
+            terminal(
+                "MalformedParquetException: parquet codec LZ4_RAW is not supported by parquet 1.12.3")),
         decode(
             PARQUET,
             hostileThenIntact(
@@ -633,60 +524,11 @@ class ParquetHostileTest {
   }
 
   @Test
-  void repeatedColumnsMayClaimOnlySoManyListItemsPerByte() {
-    byte[] levels = {2, 0, 0, 0, 6, 0, 2, 0, 0, 0, 6, 1};
-    RawChunk oneItemEach = column(3, page(3, Encoding.PLAIN, concatAll(levels, ints(1, 2, 3))));
-    RawChunk tooManyItems =
-        column(2_000_000, page(2_000_000, Encoding.PLAIN, concatAll(levels, ints(1, 2, 3))));
-    assertEquals(
-        List.of(
-            new Bad(
-                ErrorKind.MALFORMED,
-                "",
-                1,
-                null,
-                "MalformedParquetException: parquet row group claims 1999997 list items in 24 bytes,"
-                    + " more than 32 per byte plus 1000000",
-                false),
-            new Ok(json("{\"n\":[1]}"), 4, null),
-            new Ok(json("{\"n\":[2]}"), 5, null),
-            new Ok(json("{\"n\":[3]}"), 6, null)),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                FieldRepetitionType.REPEATED, tooManyItems, oneItemEach, group -> group)));
-  }
-
-  @Test
-  void deltaPagesCountWhatTheirDecoderHoldsAgainstTheDocumentLimit() {
-    byte[] header = {(byte) 0x80, 0x01, 0x04, 0x00, 0x02};
-    byte[] file =
-        hostileThenIntact(
-            column(1_000_000, page(1_000_000, Encoding.DELTA_BINARY_PACKED, header)),
-            group -> group.setNum_rows(1_000_000));
-    long limit = ParquetDecodeTest.footerEstimate(file);
-    long estimate = 0;
-    while (decodeWithin(file, limit).get(0) instanceof Big big) {
-      estimate = big.sizeSoFar();
-      limit = estimate;
-    }
-    assertTrue(estimate > 8 * (1_000_000 + 2048), "estimate: " + estimate);
-    assertEquals(
-        List.of(
-            new Big(1, null, estimate, "", false),
-            new Ok(json("{\"n\":1}"), 1_000_001, null),
-            new Ok(json("{\"n\":2}"), 1_000_002, null),
-            new Ok(json("{\"n\":3}"), 1_000_003, null)),
-        decodeWithin(file, estimate - 1));
-  }
-
-  @Test
-  void bitPackedRunsAreCappedButMayRunPastThePage() {
+  void bitPackedRunsMayRunPastThePage() {
     byte[] padded = new byte[4 + 1 + 32];
     padded[0] = 33;
     padded[4] = 0x41;
     padded[5] = 7;
-    byte[] tooLong = {6, 0, 0, 0, (byte) 0x83, 0x10, 0, 0, 0, 0};
     assertEquals(
         List.of(
             new Ok(json("{\"n\":1}"), 1, null),
@@ -700,17 +542,6 @@ class ParquetHostileTest {
             hostileThenIntact(
                 FieldRepetitionType.OPTIONAL,
                 column(3, page(3, Encoding.PLAIN, concatAll(padded, ints(1, 2, 3)))),
-                OPTIONAL_VALID,
-                group -> group)));
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet bit-packed run of 8200 values does not fit the page",
-            4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                FieldRepetitionType.OPTIONAL,
-                column(3, page(3, Encoding.PLAIN, concatAll(tooLong, ints(1, 2, 3)))),
                 OPTIONAL_VALID,
                 group -> group)));
   }
@@ -779,35 +610,6 @@ class ParquetHostileTest {
   }
 
   @Test
-  void deltaBlocksAreCapped() {
-    byte[] hugeBlock = {(byte) 0x80, 0x20, 0x04, 0x03, 0x02};
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet delta block of 4096 values in 4 miniblocks", 4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(3, page(3, Encoding.DELTA_BINARY_PACKED, hugeBlock)), group -> group)));
-  }
-
-  @Test
-  void manyEmptyPagesCountAgainstTheDocumentLimit() {
-    List<RawPage> pages = new ArrayList<>();
-    for (int i = 0; i < 20_000; i++) {
-      pages.add(page(0, Encoding.PLAIN, new byte[0]));
-    }
-    pages.add(page(3, Encoding.PLAIN, ints(1, 2, 3)));
-    byte[] file = hostileThenIntact(column(3, pages.toArray(RawPage[]::new)), group -> group);
-    List<Object> outcomes = decodeWithin(file, 1024 * 1024);
-    long estimate = ((Big) outcomes.get(0)).sizeSoFar();
-    assertTrue(
-        estimate > 1024 * 1024 && estimate < 1024 * 1024 + 1024, "stops at the limit: " + estimate);
-    List<Object> expected = new ArrayList<>(SIX_ROWS.subList(3, 6));
-    expected.add(0, new Big(1, null, estimate, "", false));
-    assertEquals(expected, outcomes);
-  }
-
-  @Test
   void footersThatWouldHoldFarMoreThanTheirBytesAreOversized() {
     byte[] keys =
         ParquetTestFiles.assemble(
@@ -862,37 +664,46 @@ class ParquetHostileTest {
   }
 
   @Test
-  void untrustworthyRowCountsCountAsOneRecord() {
-    long cap = 1024 * 29 + (1L << 26);
+  void rowCountsTheDataCannotFillLoseTheRestOfTheirGroup() {
+    List<Object> expected =
+        new ArrayList<>(
+            List.of(
+                new Ok(json("{\"n\":1}"), 1, null),
+                new Ok(json("{\"n\":2}"), 2, null),
+                new Ok(json("{\"n\":3}"), 3, null),
+                new Bad(
+                    ErrorKind.MALFORMED,
+                    "",
+                    4,
+                    null,
+                    "ParquetDecodingException: Can't read value in column [n] required int32 n at"
+                        + " value 3 out of 3, 3 out of 3 in currentPage. repetition level: 0,"
+                        + " definition level: 0",
+                    false)));
+    expected.addAll(
+        SIX_ROWS.subList(3, 6).stream().map(row -> (Object) shift((Ok) row, 2)).toList());
     assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet column chunk [n] has 3 values for " + cap + " rows",
-            cap + 1),
-        decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(cap))));
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet row group claims "
-                + (cap + 1)
-                + " rows in 29 bytes, more than 1024 per byte plus 67108864",
-            2),
-        decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(cap + 1))));
+        expected, decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(5))));
     assertEquals(
         lostThenIntact("MalformedParquetException: parquet row group claims -1 rows", 2),
         decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(-1))));
-    int[] values = new int[2000];
-    Arrays.setAll(values, i -> i);
-    long bigCap = 1024 * 8020 + (1L << 26);
-    byte[] tooLargeToo =
-        hostileThenIntact(
-            column(2000, page(2000, Encoding.PLAIN, ints(values))),
-            group -> group.setNum_rows(bigCap + 1));
+  }
+
+  private static Ok shift(Ok row, long by) {
+    return new Ok(row.record(), row.recordIndex() + by, row.span());
+  }
+
+  @Test
+  void footerFieldsMayNotClaimMoreBytesThanAreLeft() {
     assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet row group claims "
-                + (bigCap + 1)
-                + " rows in 8020 bytes, more than 1024 per byte plus 67108864",
-            2),
-        decodeWithin(tooLargeToo, ParquetDecodeTest.footerEstimate(tooLargeToo)));
+        List.of(
+            terminal(
+                "MalformedParquetException: parquet FileMetaData does not parse: a field claims"
+                    + " 50000000 bytes with 1 left")),
+        decode(
+            PARQUET,
+            withRawFooter(
+                new byte[] {0x15, 0x02, 0x28, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0})));
   }
 
   @Test
@@ -924,20 +735,19 @@ class ParquetHostileTest {
             List.of(List.of(column(2000, page(2000, Encoding.PLAIN, ints(values))))),
             footer -> footer);
     assertEquals(
-        List.of(3402L, 8020L, 16344L),
+        List.of(PINNED_WIDE_FOOTER, 16040L),
         List.of(
             ParquetDecodeTest.footerEstimate(wide),
-            ((Big) decodeWithin(wide, 3402).get(0)).sizeSoFar(),
-            ((Big) decodeWithin(wide, 8020).get(0)).sizeSoFar()));
+            ((Big) decodeWithin(wide, PINNED_WIDE_FOOTER).get(0)).sizeSoFar()));
     List<Object> rows = new ArrayList<>();
     for (int i = 0; i < 2000; i++) {
       rows.add(new Ok(json("{\"n\":" + i + "}"), i + 1, null));
     }
-    assertEquals(rows, decodeWithin(wide, 16344));
+    assertEquals(rows, decodeWithin(wide, 16040));
   }
 
   @Test
-  void bitPackedRunsOfExactlyTheCapDecode() {
+  void bitPackedRunsOf1024GroupsDecode() {
     byte[] levels = new byte[4 + 2 + 1024];
     levels[0] = 2;
     levels[1] = 4;
@@ -956,22 +766,14 @@ class ParquetHostileTest {
   }
 
   @Test
-  void deltaBlocksOfExactlyTheCapDecode() {
+  void deltaBlocksOf2048ValuesDecode() {
     byte[] atCap = {(byte) 0x80, 0x10, 0x04, 0x03, 0x02, 0x02, 0, 0, 0, 0};
-    byte[] overCap = {(byte) 0xA0, 0x10, 0x04, 0x03, 0x02, 0x02, 0, 0, 0, 0};
     assertEquals(
         SIX_ROWS,
         decode(
             PARQUET,
             hostileThenIntact(
                 column(3, page(3, Encoding.DELTA_BINARY_PACKED, atCap)), group -> group)));
-    assertEquals(
-        lostThenIntact(
-            "MalformedParquetException: parquet delta block of 2080 values in 4 miniblocks", 4),
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                column(3, page(3, Encoding.DELTA_BINARY_PACKED, overCap)), group -> group)));
   }
 
   @Test
@@ -999,38 +801,6 @@ class ParquetHostileTest {
   }
 
   @Test
-  void binaryDictionaryEntriesMustLieInsideThePage() {
-    byte[] entries = concatAll(ints(1000), utf8("abc"));
-    RawPage dictionary =
-        new RawPage(
-            new PageHeader(PageType.DICTIONARY_PAGE, entries.length, entries.length)
-                .setDictionary_page_header(new DictionaryPageHeader(1, Encoding.PLAIN)),
-            entries);
-    List<Object> expected = new ArrayList<>();
-    expected.add(
-        new Bad(
-            ErrorKind.MALFORMED,
-            "",
-            1,
-            null,
-            "MalformedParquetException: parquet dictionary entry 0 of 1000 bytes overflows the page",
-            false));
-    expected.add(new Ok(json("{\"n\":\"YWJj\"}"), 4, null));
-    expected.add(new Ok(json("{\"n\":\"YWJk\"}"), 5, null));
-    expected.add(new Ok(json("{\"n\":\"YXg=\"}"), 6, null));
-    byte[] prefixed = concatAll(deltaInts(0, 2, 1), deltaInts(3, 1, 1), utf8("abcdx"));
-    assertEquals(
-        expected,
-        decode(
-            PARQUET,
-            hostileThenIntact(
-                FieldRepetitionType.REQUIRED,
-                strings(3, dictionary, page(3, Encoding.RLE_DICTIONARY, new byte[] {0, 6})),
-                strings(3, page(3, Encoding.DELTA_BYTE_ARRAY, prefixed)),
-                group -> group)));
-  }
-
-  @Test
   void schemaCellsAtAndOverTheCap() {
     for (int leaves : List.of(413, 414)) {
       List<SchemaElement> nested = new ArrayList<>();
@@ -1053,15 +823,42 @@ class ParquetHostileTest {
               ? List.of(
                   terminal(
                       "MalformedParquetException: parquet schema has too many deeply nested columns"))
-              : List.of(
-                  new Bad(
-                      ErrorKind.MALFORMED,
-                      "",
-                      1,
-                      null,
-                      "MalformedParquetException: parquet row group has 1 column chunks for 413 columns",
-                      false)),
+              : List.of(terminal("InvalidRecordException: n not found in message schema {")),
           outcomes);
     }
+  }
+
+  @Test
+  void pageHeadersThatClaimMoreThanTheFileHoldsLoseTheirRowGroup() {
+    RawPage claimsTooMuch =
+        new RawPage(
+            new PageHeader(PageType.DATA_PAGE, 12, 50_000_000)
+                .setData_page_header(
+                    new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE)),
+            ints(1, 2, 3));
+    assertEquals(
+        lostThenIntact(
+            "MalformedParquetException: parquet page in column chunk [n] claims 50000000 bytes"
+                + " compressed and 12 uncompressed, more than the file or the limit allows",
+            4),
+        decode(PARQUET, hostileThenIntact(column(3, claimsTooMuch), group -> group)));
+    PageHeader header =
+        new PageHeader(PageType.DATA_PAGE, 12, 12)
+            .setData_page_header(new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE));
+    byte[] valid = ParquetTestFiles.thrift(header);
+    byte[] withHugeUnknownField =
+        concatAll(
+            Arrays.copyOf(valid, valid.length - 1),
+            new byte[] {(byte) 0xA8, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0});
+    assertEquals(
+        lostThenIntact(
+            "MalformedParquetException: parquet PageHeader does not parse: a field claims 50000000"
+                + " bytes with 13 left",
+            4),
+        decode(
+            PARQUET,
+            hostileThenIntact(
+                column(3, new RawPage(header, ints(1, 2, 3), withHugeUnknownField)),
+                group -> group)));
   }
 }

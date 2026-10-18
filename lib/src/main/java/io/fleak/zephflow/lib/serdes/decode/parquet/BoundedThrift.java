@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 import org.apache.parquet.format.FileMetaData;
 import org.apache.parquet.format.PageHeader;
 import shaded.parquet.org.apache.thrift.TBase;
+import shaded.parquet.org.apache.thrift.TConfiguration;
 import shaded.parquet.org.apache.thrift.TException;
 import shaded.parquet.org.apache.thrift.protocol.TCompactProtocol;
 import shaded.parquet.org.apache.thrift.protocol.TList;
@@ -25,15 +26,17 @@ import shaded.parquet.org.apache.thrift.protocol.TMap;
 import shaded.parquet.org.apache.thrift.protocol.TProtocolException;
 import shaded.parquet.org.apache.thrift.protocol.TSet;
 import shaded.parquet.org.apache.thrift.protocol.TStruct;
-import shaded.parquet.org.apache.thrift.transport.TIOStreamTransport;
+import shaded.parquet.org.apache.thrift.transport.TTransport;
+import shaded.parquet.org.apache.thrift.transport.TTransportException;
 
 /**
- * Thrift structures read only from the bytes at hand: no string or container may claim more
- * elements than bytes are left (every element takes at least one), and structures nest at most
- * {@value #MAX_DEPTH} deep. parquet's own reader allocates whatever a length or count says. The
- * objects built are estimated as they are read ({@value #STRUCT_BYTES} bytes per structure, {@value
- * #CONTAINER_BYTES} per container and {@value #ELEMENT_BYTES} per element, {@value #STRING_BYTES}
- * per string, plus the bytes read), so a footer stops once it would take more than its budget.
+ * Thrift structures read only from the bytes at hand: no string, binary or container may claim more
+ * bytes or elements than bytes are left (every element takes at least one), and structures nest at
+ * most {@value #MAX_DEPTH} deep. parquet's own reader allocates whatever a length or count says.
+ * The objects built are estimated as they are read ({@value #STRUCT_BYTES} bytes per structure,
+ * {@value #CONTAINER_BYTES} per container and {@value #ELEMENT_BYTES} per element, {@value
+ * #STRING_BYTES} per string, plus the bytes read), so a footer stops once it would take more than
+ * its budget.
  */
 final class BoundedThrift {
 
@@ -52,7 +55,7 @@ final class BoundedThrift {
     return read(new FileMetaData(), bytes, 0, bytes.length, budget);
   }
 
-  /** The page header at {@code offset}, how many bytes it took, and what it holds in memory. */
+  /** The page header at {@code offset}, and how many bytes it took. */
   static Parsed<PageHeader> pageHeader(byte[] bytes, int offset, int end)
       throws MalformedParquetException {
     try {
@@ -68,7 +71,7 @@ final class BoundedThrift {
     ByteArrayInputStream in = new ByteArrayInputStream(bytes, offset, length);
     Protocol protocol;
     try {
-      protocol = new Protocol(new TIOStreamTransport(in), in, length, budget);
+      protocol = new Protocol(new BytesLeft(in), in, length, budget);
       target.read(protocol);
     } catch (OverBudget e) {
       throw new TooLargeException("footer", e.heap, budget);
@@ -78,6 +81,60 @@ final class BoundedThrift {
     }
     int read = length - in.available();
     return new Parsed<>(target, read, protocol.heap + read);
+  }
+
+  /**
+   * Reads the bytes at hand. Thrift asks it before allocating a string or binary, so no length may
+   * be more than the bytes left.
+   */
+  private static final class BytesLeft extends TTransport {
+    private final ByteArrayInputStream in;
+
+    BytesLeft(ByteArrayInputStream in) {
+      this.in = in;
+    }
+
+    @Override
+    public void checkReadBytesAvailable(long count) throws TTransportException {
+      if (count > in.available()) {
+        throw new TTransportException(
+            TTransportException.END_OF_FILE,
+            "a field claims " + count + " bytes with " + in.available() + " left");
+      }
+    }
+
+    @Override
+    public int read(byte[] buf, int off, int len) throws TTransportException {
+      int read = in.read(buf, off, len);
+      if (read < 0) {
+        throw new TTransportException(TTransportException.END_OF_FILE, "the structure is cut off");
+      }
+      return read;
+    }
+
+    @Override
+    public boolean isOpen() {
+      return true;
+    }
+
+    @Override
+    public void open() {}
+
+    @Override
+    public void close() {}
+
+    @Override
+    public void write(byte[] buf, int off, int len) throws TTransportException {
+      throw new TTransportException("read only");
+    }
+
+    @Override
+    public TConfiguration getConfiguration() {
+      return TConfiguration.DEFAULT;
+    }
+
+    @Override
+    public void updateKnownMessageSize(long size) {}
   }
 
   private static final class OverBudget extends RuntimeException {
@@ -96,7 +153,7 @@ final class BoundedThrift {
     private int depth;
     private long heap;
 
-    Protocol(TIOStreamTransport transport, ByteArrayInputStream in, int length, long budget) {
+    Protocol(BytesLeft transport, ByteArrayInputStream in, int length, long budget) {
       super(transport, length, length);
       this.in = in;
       this.budget = budget;

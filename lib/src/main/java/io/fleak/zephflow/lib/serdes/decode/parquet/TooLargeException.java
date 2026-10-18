@@ -15,7 +15,7 @@ package io.fleak.zephflow.lib.serdes.decode.parquet;
 
 import java.io.IOException;
 
-/** A footer or row group whose estimated memory is over the budget; it is not decoded. */
+/** A footer whose length or estimated memory is over the budget; it is not decoded. */
 final class TooLargeException extends IOException {
 
   final long size;

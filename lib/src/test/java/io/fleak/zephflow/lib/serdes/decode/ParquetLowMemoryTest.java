@@ -17,10 +17,8 @@ import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.decoder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
@@ -29,8 +27,8 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,15 +36,15 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
-import org.apache.parquet.format.ColumnChunk;
-import org.apache.parquet.format.ColumnMetaData;
-import org.apache.parquet.format.DictionaryPageHeader;
+import org.apache.parquet.format.CompressionCodec;
+import org.apache.parquet.format.DataPageHeader;
 import org.apache.parquet.format.Encoding;
 import org.apache.parquet.format.FieldRepetitionType;
 import org.apache.parquet.format.FileMetaData;
 import org.apache.parquet.format.PageHeader;
 import org.apache.parquet.format.PageType;
 import org.apache.parquet.format.RowGroup;
+import org.apache.parquet.format.Type;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.MessageTypeParser;
@@ -154,7 +152,10 @@ class ParquetLowMemoryTest {
   void hugeRowGroupIsSkippedUnreadAndTheNextOneDecodes() throws IOException {
     byte[] small =
         ParquetTestFiles.assemble(
-            FieldRepetitionType.REQUIRED, 3, List.of(List.of(ParquetHostileTest.VALID)), f -> f);
+            FieldRepetitionType.REQUIRED,
+            3,
+            List.of(List.of(ParquetDamagedFileTest.VALID)),
+            f -> f);
     FileMetaData footer = ParquetDecodeTest.footer(small);
     int footerLength =
         ByteBuffer.wrap(small, small.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
@@ -179,73 +180,6 @@ class ParquetLowMemoryTest {
       out.write(tail);
     }
     assertEquals(Map.of("Oversized", 1L, "Decoded", 3L), count(ranges(file), LIMITS));
-  }
-
-  /**
-   * Each claim would make parquet allocate tens of megabytes that the heap could just hold: a
-   * 10,000,000-entry dictionary, a bit-packed run of 12,000,000 levels, a 10,000,000-value delta
-   * block, and a 60 MiB page.
-   */
-  @Test
-  void countsThatWouldAllocateTensOfMegabytesAreRejectedFirst() {
-    PageHeader dictionary =
-        new PageHeader(PageType.DICTIONARY_PAGE, 4, 4)
-            .setDictionary_page_header(new DictionaryPageHeader(10_000_000, Encoding.PLAIN));
-    assertEquals(
-        ParquetHostileTest.lostThenIntact(
-            "MalformedParquetException: parquet dictionary of 10000000 entries does not fit in 4 bytes",
-            4),
-        DecodeTestSupport.decode(
-            PARQUET,
-            ParquetHostileTest.hostileThenIntact(
-                ParquetHostileTest.column(
-                    3,
-                    new ParquetTestFiles.RawPage(dictionary, ParquetHostileTest.ints(9)),
-                    ParquetHostileTest.page(3, Encoding.RLE_DICTIONARY, new byte[] {1, 6, 0})),
-                group -> group)));
-    byte[] levels = {6, 0, 0, 0, (byte) 0xC1, (byte) 0x8D, (byte) 0xB7, (byte) 0x01, 0, 0};
-    assertEquals(
-        ParquetHostileTest.lostThenIntact(
-            "MalformedParquetException: parquet bit-packed run of 12000000 values does not fit the page",
-            4),
-        DecodeTestSupport.decode(
-            PARQUET,
-            ParquetHostileTest.hostileThenIntact(
-                FieldRepetitionType.OPTIONAL,
-                ParquetHostileTest.column(
-                    3,
-                    ParquetHostileTest.page(
-                        3,
-                        Encoding.PLAIN,
-                        ParquetHostileTest.concatAll(levels, ParquetHostileTest.ints(1, 2, 3)))),
-                ParquetHostileTest.OPTIONAL_VALID,
-                group -> group)));
-    byte[] delta = {(byte) 0x80, 0x01, 0x04, (byte) 0x80, (byte) 0xAD, (byte) 0xE2, 0x04, 0x02};
-    assertEquals(
-        ParquetHostileTest.lostThenIntact(
-            "MalformedParquetException: parquet delta encoding claims 10000000 values in a page of 3",
-            4),
-        DecodeTestSupport.decode(
-            PARQUET,
-            ParquetHostileTest.hostileThenIntact(
-                ParquetHostileTest.column(
-                    3, ParquetHostileTest.page(3, Encoding.DELTA_BINARY_PACKED, delta)),
-                group -> group)));
-    byte[] page =
-        ParquetHostileTest.hostileThenIntact(
-            ParquetHostileTest.column(
-                3,
-                ParquetHostileTest.page(
-                    3, Encoding.PLAIN, ParquetHostileTest.ints(1, 2, 3), 60 * 1024 * 1024)),
-            group -> group);
-    List<Object> pageOutcomes =
-        DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(page), LIMITS);
-    long pageEstimate = ((DecodeTestSupport.Big) pageOutcomes.get(0)).sizeSoFar();
-    assertTrue(pageEstimate > 60 * 1024 * 1024);
-    List<Object> expected =
-        new ArrayList<>(ParquetHostileTest.lostThenIntact("unused", 4).subList(1, 4));
-    expected.add(0, new DecodeTestSupport.Big(1, null, pageEstimate, "", false));
-    assertEquals(expected, pageOutcomes);
   }
 
   @Test
@@ -316,36 +250,91 @@ class ParquetLowMemoryTest {
   }
 
   @Test
-  void manyEmptyPagesStopAtTheLimitBeforeTheirHeadersFillTheHeap() throws IOException {
-    byte[] template =
-        ParquetHostileTest.hostileThenIntact(ParquetHostileTest.VALID, group -> group);
-    FileMetaData footer = ParquetDecodeTest.footer(template);
-    int footerLength =
-        ByteBuffer.wrap(template, template.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
-    byte[] empty =
-        ParquetTestFiles.thrift(ParquetHostileTest.page(0, Encoding.PLAIN, new byte[0]).header());
-    int pages = 240_000;
-    long inserted = (long) empty.length * pages;
-    ColumnMetaData hostile = footer.getRow_groups().get(0).getColumns().get(0).getMeta_data();
-    hostile.setTotal_compressed_size(hostile.getTotal_compressed_size() + inserted);
-    ColumnChunk intact = footer.getRow_groups().get(1).getColumns().get(0);
-    intact.setFile_offset(intact.getFile_offset() + inserted);
-    intact
-        .getMeta_data()
-        .setData_page_offset(intact.getMeta_data().getData_page_offset() + inserted);
-    Path file = dir.resolve("empty-pages.parquet");
-    try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(file))) {
-      out.write(template, 0, 4);
-      for (int i = 0; i < pages; i++) {
-        out.write(empty);
-      }
-      out.write(template, 4, template.length - 12 - footerLength);
-      out.write(ParquetTestFiles.withFooter(new byte[0], ParquetTestFiles.thrift(footer)));
+  void aPageClaimingMoreThanTheLimitIsNotDecompressed() {
+    byte[] gzipped = DecodeTestSupport.gzipOne(ParquetDamagedFileTest.ints(1, 2, 3));
+    byte[] file =
+        ParquetDamagedFileTest.hostileThenIntact(
+            new ParquetTestFiles.RawChunk(
+                "n",
+                Type.INT32,
+                CompressionCodec.GZIP,
+                3,
+                List.of(ParquetDamagedFileTest.page(3, Encoding.PLAIN, gzipped, 60 * 1024 * 1024))),
+            group -> group);
+    assertEquals(
+        ParquetDamagedFileTest.lostThenIntact(
+            "MalformedParquetException: parquet page in column chunk [n] claims "
+                + gzipped.length
+                + " bytes compressed and 62914560 uncompressed, more than the file or the limit"
+                + " allows",
+            4),
+        DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(file), LIMITS));
+  }
+
+  @Test
+  void aFooterOfManyRowGroupsIsOversizedRatherThanParsedByParquet() throws IOException {
+    Path file = dir.resolve("many-row-groups.parquet");
+    Files.write(
+        file,
+        ParquetTestFiles.assemble(
+            FieldRepetitionType.REQUIRED,
+            3,
+            List.of(List.of(ParquetDamagedFileTest.VALID)),
+            footer ->
+                footer
+                    .setRow_groups(Collections.nCopies(40_000, footer.getRow_groups().get(0)))
+                    .setNum_rows(120_000)));
+    for (DecodeLimits limits : List.of(LIMITS, DecodeLimits.UNLIMITED)) {
+      Map<String, Long> counts = count(ranges(file), limits);
+      assertEquals(Map.of("Oversized", 1L), counts, limits.toString());
     }
-    assertTrue(Files.size(file) > 4_000_000);
+  }
+
+  @Test
+  void aDamagedHeaderFieldClaimingTensOfMegabytesIsNotAllocated() {
+    PageHeader header =
+        new PageHeader(PageType.DATA_PAGE, 12, 12)
+            .setData_page_header(new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE));
+    byte[] valid = ParquetTestFiles.thrift(header);
+    byte[] damaged =
+        ParquetDamagedFileTest.concatAll(
+            Arrays.copyOf(valid, valid.length - 1),
+            new byte[] {(byte) 0xA8, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0});
+    byte[] file =
+        ParquetDamagedFileTest.hostileThenIntact(
+            ParquetDamagedFileTest.column(
+                3,
+                new ParquetTestFiles.RawPage(
+                    header, ParquetDamagedFileTest.ints(1, 2, 3), damaged)),
+            group -> group);
     for (DecodeLimits limits : List.of(LIMITS, DecodeLimits.UNLIMITED)) {
       assertEquals(
-          Map.of("Oversized", 1L, "Decoded", 3L), count(ranges(file), limits), limits.toString());
+          ParquetDamagedFileTest.lostThenIntact(
+              "MalformedParquetException: parquet PageHeader does not parse: a field claims"
+                  + " 50000000 bytes with 13 left",
+              4),
+          DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(file), limits),
+          limits.toString());
     }
+  }
+
+  @Test
+  void withoutLimitsAFooterThatLeavesTooLittleForRowGroupsIsOversized() {
+    byte[] file =
+        ParquetTestFiles.assemble(
+            FieldRepetitionType.REQUIRED,
+            3,
+            List.of(List.of(ParquetDamagedFileTest.VALID)),
+            footer ->
+                footer
+                    .setRow_groups(Collections.nCopies(22_000, footer.getRow_groups().get(0)))
+                    .setNum_rows(66_000));
+    long estimate = ParquetDecodeTest.footerEstimate(file);
+    long budget = Runtime.getRuntime().maxMemory() / 2;
+    assertTrue(estimate > budget / 2 && estimate < budget, "estimate " + estimate);
+    assertEquals(
+        List.of(new DecodeTestSupport.Big(1, null, estimate, "", true)),
+        DecodeTestSupport.decode(
+            decoder(PARQUET), ByteInput.ofBytes(file), DecodeLimits.UNLIMITED));
   }
 }
