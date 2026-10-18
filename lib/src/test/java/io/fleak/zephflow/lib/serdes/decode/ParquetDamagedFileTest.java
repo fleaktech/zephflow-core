@@ -152,7 +152,8 @@ class ParquetDamagedFileTest {
         decode(PARQUET, footerTooLong));
   }
 
-  private static final long PINNED_FOOTER = 6088;
+  private static final long PINNED_FOOTER = 4588;
+  private static final long PINNED_WIDE_FOOTER = 3658;
 
   private static final List<Object> SIX_ROWS =
       List.of(
@@ -693,6 +694,19 @@ class ParquetDamagedFileTest {
   }
 
   @Test
+  void footerFieldsMayNotClaimMoreBytesThanAreLeft() {
+    assertEquals(
+        List.of(
+            terminal(
+                "MalformedParquetException: parquet FileMetaData does not parse: a field claims"
+                    + " 50000000 bytes with 1 left")),
+        decode(
+            PARQUET,
+            withRawFooter(
+                new byte[] {0x15, 0x02, 0x28, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0})));
+  }
+
+  @Test
   void containersMayNotClaimMoreElementsThanBytesLeft() {
     byte[] footer = new byte[25];
     footer[0] = 0x15;
@@ -721,15 +735,15 @@ class ParquetDamagedFileTest {
             List.of(List.of(column(2000, page(2000, Encoding.PLAIN, ints(values))))),
             footer -> footer);
     assertEquals(
-        List.of(4740L, 8020L),
+        List.of(PINNED_WIDE_FOOTER, 16040L),
         List.of(
             ParquetDecodeTest.footerEstimate(wide),
-            ((Big) decodeWithin(wide, 4740).get(0)).sizeSoFar()));
+            ((Big) decodeWithin(wide, PINNED_WIDE_FOOTER).get(0)).sizeSoFar()));
     List<Object> rows = new ArrayList<>();
     for (int i = 0; i < 2000; i++) {
       rows.add(new Ok(json("{\"n\":" + i + "}"), i + 1, null));
     }
-    assertEquals(rows, decodeWithin(wide, 8020));
+    assertEquals(rows, decodeWithin(wide, 16040));
   }
 
   @Test
@@ -838,7 +852,8 @@ class ParquetDamagedFileTest {
             new byte[] {(byte) 0xA8, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0});
     assertEquals(
         lostThenIntact(
-            "MalformedParquetException: parquet PageHeader does not parse: Socket is closed by peer.",
+            "MalformedParquetException: parquet PageHeader does not parse: a field claims 50000000"
+                + " bytes with 13 left",
             4),
         decode(
             PARQUET,

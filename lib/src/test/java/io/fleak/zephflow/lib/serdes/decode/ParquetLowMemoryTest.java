@@ -37,9 +37,12 @@ import java.util.Optional;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.format.CompressionCodec;
+import org.apache.parquet.format.DataPageHeader;
 import org.apache.parquet.format.Encoding;
 import org.apache.parquet.format.FieldRepetitionType;
 import org.apache.parquet.format.FileMetaData;
+import org.apache.parquet.format.PageHeader;
+import org.apache.parquet.format.PageType;
 import org.apache.parquet.format.RowGroup;
 import org.apache.parquet.format.Type;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
@@ -284,6 +287,34 @@ class ParquetLowMemoryTest {
     for (DecodeLimits limits : List.of(LIMITS, DecodeLimits.UNLIMITED)) {
       Map<String, Long> counts = count(ranges(file), limits);
       assertEquals(Map.of("Oversized", 1L), counts, limits.toString());
+    }
+  }
+
+  @Test
+  void aDamagedHeaderFieldClaimingTensOfMegabytesIsNotAllocated() {
+    PageHeader header =
+        new PageHeader(PageType.DATA_PAGE, 12, 12)
+            .setData_page_header(new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE));
+    byte[] valid = ParquetTestFiles.thrift(header);
+    byte[] damaged =
+        ParquetDamagedFileTest.concatAll(
+            Arrays.copyOf(valid, valid.length - 1),
+            new byte[] {(byte) 0xA8, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0});
+    byte[] file =
+        ParquetDamagedFileTest.hostileThenIntact(
+            ParquetDamagedFileTest.column(
+                3,
+                new ParquetTestFiles.RawPage(
+                    header, ParquetDamagedFileTest.ints(1, 2, 3), damaged)),
+            group -> group);
+    for (DecodeLimits limits : List.of(LIMITS, DecodeLimits.UNLIMITED)) {
+      assertEquals(
+          ParquetDamagedFileTest.lostThenIntact(
+              "MalformedParquetException: parquet PageHeader does not parse: a field claims"
+                  + " 50000000 bytes with 13 left",
+              4),
+          DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(file), limits),
+          limits.toString());
     }
   }
 }

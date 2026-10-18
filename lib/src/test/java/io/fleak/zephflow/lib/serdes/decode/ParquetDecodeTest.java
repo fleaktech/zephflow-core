@@ -296,13 +296,13 @@ class ParquetDecodeTest {
     return !outcomes.isEmpty() && outcomes.get(0) instanceof Big big && big.terminal();
   }
 
-  /** A row group's size as its footer declares it: stored, or uncompressed if larger. */
+  /** A row group's size as its footer declares it: twice stored, or uncompressed if larger. */
   private static long declaredSize(RowGroup group) {
     long stored =
         group.getColumns().stream()
             .mapToLong(c -> c.getMeta_data().getTotal_compressed_size())
             .sum();
-    return Math.max(stored, group.getTotal_byte_size());
+    return Math.max(2 * stored, group.getTotal_byte_size());
   }
 
   @Test

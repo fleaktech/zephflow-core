@@ -40,15 +40,16 @@ import org.apache.parquet.schema.MessageType;
 /**
  * A parquet file, one row group at a time, read by parquet's own {@link ParquetFileReader}. Before
  * it parses the footer, the footer is checked ({@link ParquetFooter}); before it reads a row group,
- * the row group's column chunks must lie between the leading magic and the footer, and its stored
- * and its declared uncompressed size must each fit {@code maxDocumentBytes} (without it, half the
- * heap, shared with the footer); its chunks are then read once, their page headers checked ({@link
- * PageHeaderScan}) and the bytes lent to parquet. Pages are decompressed by {@link PageCodecs},
- * into exactly their claimed size; their contents are not checked, since inputs are trusted not to
- * be crafted. A footer that does not parse or does not fit is terminal. A row group that does not
- * fit is skipped unread as {@code Oversized}; one that is damaged loses its remaining rows as one
- * {@code Failed}; decoding then goes on with the next row group. A row over {@code maxRecordBytes},
- * or one whose value does not convert, loses only itself. Records have no raw bytes and no span.
+ * the row group's column chunks must lie between the leading magic and the footer, and twice its
+ * stored size (it is held twice while read) and its declared uncompressed size must each fit {@code
+ * maxDocumentBytes} (without it, half the heap, shared with the footer); its chunks are then read
+ * once, their page headers checked ({@link PageHeaderScan}) and the bytes lent to parquet. Pages
+ * are decompressed by {@link PageCodecs}, into exactly their claimed size; their contents are not
+ * checked, since inputs are trusted not to be crafted. A footer that does not parse or does not fit
+ * is terminal. A row group that does not fit is skipped unread as {@code Oversized}; one that is
+ * damaged loses its remaining rows as one {@code Failed}; decoding then goes on with the next row
+ * group. A row over {@code maxRecordBytes}, or one whose value does not convert, loses only itself.
+ * Records have no raw bytes and no span.
  */
 public final class ParquetFormat implements FormatCursor {
 
@@ -108,6 +109,9 @@ public final class ParquetFormat implements FormatCursor {
                   budget
                       - footer.heap()
                       - (limits.maxRecordBytes() > 0 ? 0 : ROW_MULTIPLE * rowLimit));
+      if (limits.maxDocumentBytes() == 0 && rowGroupBudget < budget / 4) {
+        return new Oversized(nextIndex, null, footer.heap(), EMPTY, true);
+      }
       ParquetReadOptions options =
           ParquetReadOptions.builder()
               .useStatsFilter(false)
@@ -150,7 +154,7 @@ public final class ParquetFormat implements FormatCursor {
         reader.skipNextRowGroup();
         return skipGroup(groupFailure(new MalformedParquetException(misplaced)));
       }
-      long size = Math.max(group.getCompressedSize(), group.getTotalByteSize());
+      long size = Math.max(2 * group.getCompressedSize(), group.getTotalByteSize());
       if (size > rowGroupBudget) {
         reader.skipNextRowGroup();
         return skipGroup(new Oversized(nextIndex, null, size, EMPTY, false));
