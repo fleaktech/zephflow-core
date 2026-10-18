@@ -43,9 +43,13 @@ public final class ParquetFormat implements FormatCursor {
   private static final byte[] EMPTY = new byte[0];
 
   /**
-   * A row takes up to about 14 times its estimate, so without a limit it gets 1/16 of the budget.
+   * Without {@code maxRecordBytes} a row may take this share of the budget. A row takes up to about
+   * {@value #ROW_MULTIPLE} times its estimate, which without {@code maxDocumentBytes} is reserved
+   * out of the row group's share so that the two together stay within the budget.
    */
-  private static final long ROW_SHARE = 16;
+  private static final long ROW_SHARE = 64;
+
+  private static final long ROW_MULTIPLE = 16;
 
   private final RandomAccessInput in;
   private final DecodeLimits limits;
@@ -79,11 +83,16 @@ public final class ParquetFormat implements FormatCursor {
         return new Oversized(nextIndex, null, e.size, EMPTY, true);
       }
       columns = new ColumnIOFactory().getColumnIO(footer.schema());
-      rowGroupBudget = limits.maxDocumentBytes() > 0 ? budget : Math.max(0, budget - footer.heap());
-      records =
-          new ParquetRecords(
-              footer.schema(),
-              limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : rowGroupBudget / ROW_SHARE);
+      long rowLimit = limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : budget / ROW_SHARE;
+      rowGroupBudget =
+          limits.maxDocumentBytes() > 0
+              ? budget
+              : Math.max(
+                  0,
+                  budget
+                      - footer.heap()
+                      - (limits.maxRecordBytes() > 0 ? 0 : ROW_MULTIPLE * rowLimit));
+      records = new ParquetRecords(footer.schema(), rowLimit);
     }
     while (true) {
       if (nextIndex < groupEnd) {

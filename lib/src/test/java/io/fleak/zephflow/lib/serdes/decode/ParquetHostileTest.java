@@ -879,6 +879,20 @@ class ParquetHostileTest {
     assertEquals(
         lostThenIntact("MalformedParquetException: parquet row group claims -1 rows", 2),
         decode(PARQUET, hostileThenIntact(VALID, group -> group.setNum_rows(-1))));
+    int[] values = new int[2000];
+    Arrays.setAll(values, i -> i);
+    long bigCap = 1024 * 8020 + (1L << 26);
+    byte[] tooLargeToo =
+        hostileThenIntact(
+            column(2000, page(2000, Encoding.PLAIN, ints(values))),
+            group -> group.setNum_rows(bigCap + 1));
+    assertEquals(
+        lostThenIntact(
+            "MalformedParquetException: parquet row group claims "
+                + (bigCap + 1)
+                + " rows in 8020 bytes, more than 1024 per byte plus 67108864",
+            2),
+        decodeWithin(tooLargeToo, ParquetDecodeTest.footerEstimate(tooLargeToo)));
   }
 
   @Test
