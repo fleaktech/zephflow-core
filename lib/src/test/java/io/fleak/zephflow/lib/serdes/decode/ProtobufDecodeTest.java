@@ -578,9 +578,13 @@ class ProtobufDecodeTest {
 
   @Test
   void unsignedValuesAbove2To63AreLargeNumbersNotSaturated() {
-    byte[] input = set(all(), "u64", -1L).build().toByteArray();
-    Map<?, ?> record = (Map<?, ?>) ((Ok) decode(SINGLE, input).get(0)).record().unwrap();
-    assertEquals(1.8446744073709552E19, record.get("u64"));
+    for (Map.Entry<Long, Double> unsigned :
+        Map.of(-1L, 1.8446744073709552E19, -4530646269038590975L, 1.3916097804670962E19)
+            .entrySet()) {
+      byte[] input = set(all(), "u64", unsigned.getKey()).build().toByteArray();
+      Map<?, ?> record = (Map<?, ?>) ((Ok) decode(SINGLE, input).get(0)).record().unwrap();
+      assertEquals(unsigned.getValue(), record.get("u64"));
+    }
   }
 
   @Test
