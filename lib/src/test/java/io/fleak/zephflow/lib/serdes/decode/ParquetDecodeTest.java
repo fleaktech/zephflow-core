@@ -272,19 +272,28 @@ class ParquetDecodeTest {
     return decode(decoder(PARQUET), ByteInput.ofBytes(file), new DecodeLimits(0, maxDocumentBytes));
   }
 
-  /**
-   * The footer's estimated memory. An Oversized footer reports what it had reached when it went
-   * over, so the limit is raised to that until the footer fits.
-   */
+  /** The footer's estimated memory: the smallest limit at which it is not Oversized. */
   static long footerEstimate(byte[] file) {
-    long limit = ByteBuffer.wrap(file, file.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
-    while (true) {
-      List<Object> outcomes = decodeWithin(file, limit);
-      if (outcomes.isEmpty() || !(outcomes.get(0) instanceof Big big) || !big.terminal()) {
-        return limit;
-      }
-      limit = big.sizeSoFar();
+    long low = 0;
+    long high = 1024;
+    while (footerOverAt(file, high)) {
+      low = high;
+      high *= 2;
     }
+    while (high - low > 1) {
+      long mid = (low + high) / 2;
+      if (footerOverAt(file, mid)) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return high;
+  }
+
+  private static boolean footerOverAt(byte[] file, long limit) {
+    List<Object> outcomes = decodeWithin(file, limit);
+    return !outcomes.isEmpty() && outcomes.get(0) instanceof Big big && big.terminal();
   }
 
   /** A row group's size as its footer declares it: stored, or uncompressed if larger. */
@@ -319,8 +328,9 @@ class ParquetDecodeTest {
   }
 
   /**
-   * The ranges asked for to check the footer and then by parquet's reader; reads under 8 KiB are
-   * widened to 8 KiB, or to the end of the file.
+   * The ranges asked for to check the footer and then by parquet's reader, whose small reads are
+   * widened to 8 KiB or to the end of the file. Row groups are read once by the cursor and lent to
+   * parquet.
    */
   private static List<List<Long>> footerRequests(byte[] file) {
     int footerLength =
@@ -392,7 +402,7 @@ class ParquetDecodeTest {
         start = Math.min(start, chunkStart);
         size += meta.getTotal_compressed_size();
       }
-      expected.add(List.of(start, size >= 8192 ? size : Math.min(8192, file.length - start)));
+      expected.add(List.of(start, size));
     }
     assertTrue(dictionary, "the string column has a dictionary page");
     assertEquals(expected, recording.requests().stream().map(r -> List.of(r[0], r[1])).toList());

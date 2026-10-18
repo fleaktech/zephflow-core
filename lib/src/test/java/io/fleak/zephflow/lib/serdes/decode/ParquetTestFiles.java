@@ -140,7 +140,18 @@ final class ParquetTestFiles {
     }
   }
 
-  record RawPage(PageHeader header, byte[] data) {}
+  /**
+   * A page as its header and data; {@code headerBytes}, when set, is written instead of the header.
+   */
+  record RawPage(PageHeader header, byte[] data, byte[] headerBytes) {
+    RawPage(PageHeader header, byte[] data) {
+      this(header, data, null);
+    }
+
+    byte[] headerOrBytes() {
+      return headerBytes != null ? headerBytes : thrift(header);
+    }
+  }
 
   /** One column chunk: {@code numValues} values in {@code pages}, stored with {@code codec}. */
   record RawChunk(
@@ -172,9 +183,9 @@ final class ParquetTestFiles {
         long dataOffset = offset;
         for (RawPage page : chunk.pages()) {
           if (page.header().getType() == PageType.DICTIONARY_PAGE) {
-            dataOffset = offset + thrift(page.header()).length + page.data().length;
+            dataOffset = offset + page.headerOrBytes().length + page.data().length;
           }
-          out.writeBytes(thrift(page.header()));
+          out.writeBytes(page.headerOrBytes());
           out.writeBytes(page.data());
         }
         long size = out.size() - offset;

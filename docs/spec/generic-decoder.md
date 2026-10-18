@@ -296,19 +296,22 @@ metadata is read with a parser that no list or string can make claim more than t
 it would hold in memory (its thrift objects, and per leaf column its schema, readers and
 record-assembly tables) may be up to `maxDocumentBytes`, and its schema may nest 32 levels. Before a
 row group is read, its column chunks must lie between the leading magic and the footer, and the
-larger of its declared stored and uncompressed size must fit `maxDocumentBytes`. Pages are
-decompressed by our own codecs into exactly the size their header claims, at most `maxDocumentBytes`
-(parquet-mr's codecs allocate the claimed size, and its snappy stream never returns when a page
-holds less); their contents are not checked. Codecs: uncompressed, snappy, gzip, zstd and lz4
-(Hadoop framing); brotli and lzo are `MALFORMED`, and lz4_raw, which parquet 1.12.3 does not know,
-fails the footer. A footer that is missing, damaged or over the limit, or a file that does not start
-and end with `PAR1`, is terminal. A row group over the limit is skipped unread as `Oversized`, and
-one that is damaged, or whose rows its data cannot fill, loses its remaining rows as one `Failed`; a
-row over `maxRecordBytes` (estimated, see 3.4) or with a value that does not convert loses only
-itself. Decoding then goes on. LIST and MAP groups follow the parquet spec's compatibility rules,
-and an unannotated repeated field is an array. Map keys must be primitive (a map whose key is a
-group stays a record), a null key loses its row, and a repeated key keeps its last value. A decimal
-with a scale over 1,000 loses its row.
+larger of its declared stored and uncompressed size must fit `maxDocumentBytes`. Its chunks are then
+read once and their page headers checked with the bounded parser (each page within the file's data,
+claiming at most the limit, the headers reaching the chunk's value count), and the bytes are lent to
+parquet's reader. Compressed pages are decompressed by our own codecs into exactly the size their
+header claims, at most the limit (parquet-mr's codecs allocate the claimed size, and its snappy
+stream never returns when a page holds less); uncompressed pages pass as parquet reads them, and
+page contents are not checked. Codecs: uncompressed, snappy, gzip, zstd and lz4 (Hadoop framing);
+brotli and lzo are `MALFORMED`, and a file with an lz4_raw chunk, which parquet 1.12.3 does not
+know, is a terminal `MALFORMED`. A footer that is missing, damaged or over the limit, or a file that
+does not start and end with `PAR1`, is terminal. A row group over the limit is skipped unread as
+`Oversized`, and one that is damaged, or whose rows its data cannot fill, loses its remaining rows
+as one `Failed` (a negative row count counts as one record); a row over `maxRecordBytes` (estimated,
+see 3.4) or with a value that does not convert loses only itself. Decoding then goes on. LIST and
+MAP groups follow the parquet spec's compatibility rules, and an unannotated repeated field is an
+array. Map keys must be primitive (a map whose key is a group stays a record), a null key loses its
+row, and a repeated key keeps its last value. A decimal with a scale over 1,000 loses its row.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -396,17 +399,21 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
   exceed it and lose their block. In the worst case an avro block holds about 150–250 times
   `maxDocumentBytes` in memory, about twice what ordinary data of that size can reach.
 - Parquet holds at most its footer and one row group, each within `maxDocumentBytes` (or together
-  half the heap without a limit), plus the current row. The footer estimate counts 128 bytes per
-  thrift structure and 40 per container, 64 per string and 2 KiB per leaf column; a row group is
-  bounded by what its footer declares, and parquet's reader holds its stored chunks plus one
-  decompressed page and dictionary per column. A row takes about 4–14 times its estimated size
-  (measured: repeated numbers 3.7, empty list items 9–10, a 3,000-field record 14). Without limits,
-  avro bounds a block's objects by its bytes but not the rows built from zero-byte values, so it is
-  not OOM-safe against such data.
-- Parquet pages are not checked before parquet's decoders read them, so a file crafted, or damaged,
-  to claim huge counts inside a page (run lengths, delta headers, dictionary sizes) can make parquet
-  allocate far more than its bytes. Inputs are trusted not to be crafted; a damaged page of that
-  kind fails its own pipeline's process, which restarts. Parquet also rejects schemas deeper than 32
+  half the heap without a limit), plus the current row. The footer estimate counts twice its thrift
+  objects (128 bytes per structure, 40 per container, 64 per string), since parquet's reader keeps
+  its own and converts them again, plus 2 KiB per leaf column; a row group is bounded by what its
+  footer declares, and while it is read, its stored chunks are held twice (once to check the page
+  headers, once by parquet's reader), and while decoded, the chunks plus one decompressed page and
+  dictionary per column. A row takes about 4–14 times its estimated size (measured: repeated numbers
+  3.7, empty list items 9–10, a 3,000-field record 14). Without limits, avro bounds a block's
+  objects by its bytes but not the rows built from zero-byte values, so it is not OOM-safe against
+  such data.
+- The contents of parquet pages, unlike their headers, are not checked before parquet's decoders
+  read them, so a file crafted, or damaged, to claim huge counts inside a page (run lengths, delta
+  headers, dictionary sizes) can make parquet allocate far more than its bytes. Inputs are trusted
+  not to be crafted; a damaged page of that kind (about one in 2,000 random single-bit flips in
+  review) fails its own pipeline's process, which restarts and reads the same file again, so the
+  source should move past a file that keeps crashing it. Parquet also rejects schemas deeper than 32
   levels or whose record-assembly tables would exceed 500,000 cells, and at 2 KiB per leaf column a
   footer within `maxDocumentBytes` allows about one column per 2 KiB of it.
 - Recursive parsers (Jackson, SnakeYAML) need a normal thread stack (1 MiB or more) to reach their
@@ -519,7 +526,8 @@ P51–P54 and P58–P60 describe PR8's own reader, which PR9 replaced (section 1
 
 | # | Note |
 |---|---|
-| P61 | Parquet is read by `ParquetFileReader` again. PR8's own reader also bounded page contents against crafted files, but it rejected valid files from writers it did not know (DuckDB and pyarrow layouts were each found in review) and gave up parquet-mr's workarounds for old writers. Every zephflow pipeline runs in its own JVM and no untrusted party can place input files, so crafted files are out of scope (section 2); damaged and oversized ones still are |
-| P62 | The footer is checked with the bounded parser before parquet parses it, because a damaged footer is the one place where a few bytes make parquet allocate hundreds of megabytes before anything else can be checked. A row group is checked against what its footer declares, which honest large files state truthfully, and is skipped unread when it does not fit |
+| P61 | Parquet is read by `ParquetFileReader` again. PR8's own reader also bounded page contents against crafted files, but it rejected valid files from writers it did not know (DuckDB and pyarrow layouts were each found in review) and gave up parquet-mr's workarounds for old writers. Every zephflow pipeline runs in its own JVM and no untrusted party can place input files, so crafted files are defended only where it is cheap (section 2); damaged and oversized ones still are |
+| P62 | The footer is checked with the bounded parser before parquet parses it, because a damaged footer is one place where a few bytes make parquet allocate hundreds of megabytes before anything else can be checked; its estimate counts its thrift objects twice, because review measured parquet's reader running out of memory on a footer of 40,000 row groups that the single count let through. A row group is checked against what its footer declares, which honest large files state truthfully, and is skipped unread when it does not fit |
 | P63 | parquet's decompression is replaced through `ParquetReadOptions.withCodecFactory`, which every page passes through: our codecs decompress into exactly the claimed size, at most the budget, because parquet-mr's snappy stream loops forever on a page that holds less than its header claims, and a hang, unlike a crash, is not recovered by restarting |
 | P64 | `readNextRowGroup` does not advance past a row group that fails, and refuses one of 0 rows, so the cursor skips such groups itself; a row group whose rows its data cannot fill loses the rows from the first one that cannot be read |
+| P65 | Page headers are the other place: parquet-mr parses them with an unbounded thrift protocol, and reads the last chunk of a row group into a buffer of whatever size a page claims, so one flipped bit in a header could allocate tens of megabytes. The cursor therefore reads each run of consecutive chunks itself, walks their headers as parquet will, and lends the bytes to parquet's reader through the `InputFile`, so nothing is read twice from the input. A page may run past its chunk, as parquet tolerates for old writers, but not past the file's data |

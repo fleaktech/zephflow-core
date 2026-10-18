@@ -21,17 +21,20 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.parquet.format.ColumnChunk;
+import org.apache.parquet.format.CompressionCodec;
 import org.apache.parquet.format.FileMetaData;
+import org.apache.parquet.format.RowGroup;
 import org.apache.parquet.format.SchemaElement;
 
 /**
  * Checks the file's footer before parquet's reader parses it, which allocates whatever its lists
  * and strings claim: the trailing length and magic, then the metadata, read with {@link
- * BoundedThrift}. What the footer holds in memory is estimated and must stay within the budget: its
- * thrift objects (see {@link BoundedThrift}), and per leaf column {@value #LEAF_BYTES} bytes of
- * schema, column readers and converters plus {@value #CELL_BYTES} per cell of parquet's record
- * reader tables, which grow with each leaf's depth and levels. The schema is checked without
- * recursion, because parquet builds it recursively.
+ * BoundedThrift}. What the footer holds in memory is estimated and must stay within the budget:
+ * {@value #COPIES} times its thrift objects (see {@link BoundedThrift}), and per leaf column
+ * {@value #LEAF_BYTES} bytes of schema, column readers and converters plus {@value #CELL_BYTES} per
+ * cell of parquet's record reader tables, which grow with each leaf's depth and levels. The schema
+ * is checked without recursion, because parquet builds it recursively.
  */
 record ParquetFooter(long metadataStart, long heap) {
 
@@ -40,6 +43,9 @@ record ParquetFooter(long metadataStart, long heap) {
   private static final long MAX_LEVEL_CELLS = 500_000;
   private static final long LEAF_BYTES = 2048;
   private static final long CELL_BYTES = 16;
+
+  /** parquet's reader keeps its own thrift objects and converts them into its metadata again. */
+  private static final long COPIES = 2;
 
   static ParquetFooter check(RandomAccessInput in, long budget) throws IOException {
     long length = in.length();
@@ -67,11 +73,29 @@ record ParquetFooter(long metadataStart, long heap) {
     }
     BoundedThrift.Parsed<FileMetaData> parsed =
         BoundedThrift.fileMetaData(bytes(in, metadataStart, (int) metadataLength), budget);
-    long heap = parsed.heap() + schemaHeap(parsed.value().getSchema());
+    long heap = COPIES * parsed.heap() + schemaHeap(parsed.value().getSchema());
     if (heap > budget) {
       throw new TooLargeException("footer", heap, budget);
     }
+    rejectUnknownCodecs(parsed.value());
     return new ParquetFooter(metadataStart, heap);
+  }
+
+  /** parquet 1.12.3 cannot convert a footer that names LZ4_RAW, so it fails the whole file. */
+  private static void rejectUnknownCodecs(FileMetaData metadata) throws MalformedParquetException {
+    if (metadata.getRow_groups() == null) {
+      return;
+    }
+    for (RowGroup group : metadata.getRow_groups()) {
+      for (ColumnChunk chunk :
+          group.getColumns() == null ? List.<ColumnChunk>of() : group.getColumns()) {
+        if (chunk.getMeta_data() != null
+            && chunk.getMeta_data().getCodec() == CompressionCodec.LZ4_RAW) {
+          throw new MalformedParquetException(
+              "parquet codec LZ4_RAW is not supported by parquet 1.12.3");
+        }
+      }
+    }
   }
 
   /**

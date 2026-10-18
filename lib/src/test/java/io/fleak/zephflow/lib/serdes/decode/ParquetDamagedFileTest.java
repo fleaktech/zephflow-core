@@ -51,8 +51,8 @@ import org.apache.parquet.io.api.Binary;
 import org.junit.jupiter.api.Test;
 import org.xerial.snappy.Snappy;
 
-/** Files that lie about their sizes and counts; none may cost more than its bytes. */
-class ParquetHostileTest {
+/** Damaged and truncated files: each loses only what it must, and none may exhaust the heap. */
+class ParquetDamagedFileTest {
 
   private static final String PARQUET = "{\"format\":{\"type\":\"parquet\"}}";
 
@@ -152,7 +152,7 @@ class ParquetHostileTest {
         decode(PARQUET, footerTooLong));
   }
 
-  private static final long PINNED_FOOTER = 4076;
+  private static final long PINNED_FOOTER = 6088;
 
   private static final List<Object> SIX_ROWS =
       List.of(
@@ -290,7 +290,7 @@ class ParquetHostileTest {
   }
 
   @Test
-  void columnChunksOutsideTheDataOrWithWrongCountsLoseTheirRowGroup() {
+  void columnChunksOutsideTheDataOrShortOfValuesLoseTheirRowGroup() {
     assertEquals(
         lostThenIntact(
             "MalformedParquetException: parquet column chunk [n] of 1000000 bytes at 4 is outside the data",
@@ -305,8 +305,7 @@ class ParquetHostileTest {
                 })));
     assertEquals(
         lostThenIntact(
-            "IOException: can not read class org.apache.parquet.format.PageHeader: Socket is closed by peer.",
-            4),
+            "MalformedParquetException: parquet column chunk [n] ends after 3 of 4 values", 4),
         decode(
             PARQUET,
             hostileThenIntact(
@@ -492,8 +491,7 @@ class ParquetHostileTest {
     assertEquals(
         List.of(
             terminal(
-                "IllegalArgumentException: No enum constant"
-                    + " org.apache.parquet.hadoop.metadata.CompressionCodecName.LZ4_RAW")),
+                "MalformedParquetException: parquet codec LZ4_RAW is not supported by parquet 1.12.3")),
         decode(
             PARQUET,
             hostileThenIntact(
@@ -723,10 +721,10 @@ class ParquetHostileTest {
             List.of(List.of(column(2000, page(2000, Encoding.PLAIN, ints(values))))),
             footer -> footer);
     assertEquals(
-        List.of(3402L, 8020L),
+        List.of(4740L, 8020L),
         List.of(
             ParquetDecodeTest.footerEstimate(wide),
-            ((Big) decodeWithin(wide, 3402).get(0)).sizeSoFar()));
+            ((Big) decodeWithin(wide, 4740).get(0)).sizeSoFar()));
     List<Object> rows = new ArrayList<>();
     for (int i = 0; i < 2000; i++) {
       rows.add(new Ok(json("{\"n\":" + i + "}"), i + 1, null));
@@ -735,7 +733,7 @@ class ParquetHostileTest {
   }
 
   @Test
-  void bitPackedRunsOfExactlyTheCapDecode() {
+  void bitPackedRunsOf1024GroupsDecode() {
     byte[] levels = new byte[4 + 2 + 1024];
     levels[0] = 2;
     levels[1] = 4;
@@ -814,5 +812,38 @@ class ParquetHostileTest {
               : List.of(terminal("InvalidRecordException: n not found in message schema {")),
           outcomes);
     }
+  }
+
+  @Test
+  void pageHeadersThatClaimMoreThanTheFileHoldsLoseTheirRowGroup() {
+    RawPage claimsTooMuch =
+        new RawPage(
+            new PageHeader(PageType.DATA_PAGE, 12, 50_000_000)
+                .setData_page_header(
+                    new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE)),
+            ints(1, 2, 3));
+    assertEquals(
+        lostThenIntact(
+            "MalformedParquetException: parquet page in column chunk [n] claims 50000000 bytes"
+                + " compressed and 12 uncompressed, more than the file or the limit allows",
+            4),
+        decode(PARQUET, hostileThenIntact(column(3, claimsTooMuch), group -> group)));
+    PageHeader header =
+        new PageHeader(PageType.DATA_PAGE, 12, 12)
+            .setData_page_header(new DataPageHeader(3, Encoding.PLAIN, Encoding.RLE, Encoding.RLE));
+    byte[] valid = ParquetTestFiles.thrift(header);
+    byte[] withHugeUnknownField =
+        concatAll(
+            Arrays.copyOf(valid, valid.length - 1),
+            new byte[] {(byte) 0xA8, (byte) 0x80, (byte) 0xE1, (byte) 0xEB, 0x17, 0});
+    assertEquals(
+        lostThenIntact(
+            "MalformedParquetException: parquet PageHeader does not parse: Socket is closed by peer.",
+            4),
+        decode(
+            PARQUET,
+            hostileThenIntact(
+                column(3, new RawPage(header, ints(1, 2, 3), withHugeUnknownField)),
+                group -> group)));
   }
 }

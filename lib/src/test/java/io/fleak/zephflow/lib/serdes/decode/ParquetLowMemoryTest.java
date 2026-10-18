@@ -28,6 +28,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -148,7 +149,10 @@ class ParquetLowMemoryTest {
   void hugeRowGroupIsSkippedUnreadAndTheNextOneDecodes() throws IOException {
     byte[] small =
         ParquetTestFiles.assemble(
-            FieldRepetitionType.REQUIRED, 3, List.of(List.of(ParquetHostileTest.VALID)), f -> f);
+            FieldRepetitionType.REQUIRED,
+            3,
+            List.of(List.of(ParquetDamagedFileTest.VALID)),
+            f -> f);
     FileMetaData footer = ParquetDecodeTest.footer(small);
     int footerLength =
         ByteBuffer.wrap(small, small.length - 8, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
@@ -244,25 +248,42 @@ class ParquetLowMemoryTest {
 
   @Test
   void aPageClaimingMoreThanTheLimitIsNotDecompressed() {
+    byte[] gzipped = DecodeTestSupport.gzipOne(ParquetDamagedFileTest.ints(1, 2, 3));
     byte[] file =
-        ParquetHostileTest.hostileThenIntact(
+        ParquetDamagedFileTest.hostileThenIntact(
             new ParquetTestFiles.RawChunk(
                 "n",
                 Type.INT32,
                 CompressionCodec.GZIP,
                 3,
-                List.of(
-                    ParquetHostileTest.page(
-                        3,
-                        Encoding.PLAIN,
-                        DecodeTestSupport.gzipOne(ParquetHostileTest.ints(1, 2, 3)),
-                        60 * 1024 * 1024))),
+                List.of(ParquetDamagedFileTest.page(3, Encoding.PLAIN, gzipped, 60 * 1024 * 1024))),
             group -> group);
     assertEquals(
-        ParquetHostileTest.lostThenIntact(
-            "MalformedParquetException: parquet page claims 62914560 bytes decompressed, more than"
-                + " 4194304",
+        ParquetDamagedFileTest.lostThenIntact(
+            "MalformedParquetException: parquet page in column chunk [n] claims "
+                + gzipped.length
+                + " bytes compressed and 62914560 uncompressed, more than the file or the limit"
+                + " allows",
             4),
         DecodeTestSupport.decode(decoder(PARQUET), ByteInput.ofBytes(file), LIMITS));
+  }
+
+  @Test
+  void aFooterOfManyRowGroupsIsOversizedRatherThanParsedByParquet() throws IOException {
+    Path file = dir.resolve("many-row-groups.parquet");
+    Files.write(
+        file,
+        ParquetTestFiles.assemble(
+            FieldRepetitionType.REQUIRED,
+            3,
+            List.of(List.of(ParquetDamagedFileTest.VALID)),
+            footer ->
+                footer
+                    .setRow_groups(Collections.nCopies(40_000, footer.getRow_groups().get(0)))
+                    .setNum_rows(120_000)));
+    for (DecodeLimits limits : List.of(LIMITS, DecodeLimits.UNLIMITED)) {
+      Map<String, Long> counts = count(ranges(file), limits);
+      assertEquals(Map.of("Oversized", 1L), counts, limits.toString());
+    }
   }
 }

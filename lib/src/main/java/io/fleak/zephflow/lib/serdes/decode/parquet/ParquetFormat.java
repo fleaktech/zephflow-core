@@ -24,6 +24,8 @@ import io.fleak.zephflow.lib.serdes.decode.RandomAccessInput;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.column.page.PageReadStore;
@@ -40,12 +42,13 @@ import org.apache.parquet.schema.MessageType;
  * it parses the footer, the footer is checked ({@link ParquetFooter}); before it reads a row group,
  * the row group's column chunks must lie between the leading magic and the footer, and its stored
  * and its declared uncompressed size must each fit {@code maxDocumentBytes} (without it, half the
- * heap, shared with the footer). Pages are decompressed by {@link PageCodecs}, into exactly their
- * claimed size; their contents are not checked, since inputs are trusted not to be crafted. A
- * footer that does not parse or does not fit is terminal. A row group that does not fit is skipped
- * unread as {@code Oversized}; one that is damaged loses its remaining rows as one {@code Failed};
- * decoding then goes on with the next row group. A row over {@code maxRecordBytes}, or one whose
- * value does not convert, loses only itself. Records have no raw bytes and no span.
+ * heap, shared with the footer); its chunks are then read once, their page headers checked ({@link
+ * PageHeaderScan}) and the bytes lent to parquet. Pages are decompressed by {@link PageCodecs},
+ * into exactly their claimed size; their contents are not checked, since inputs are trusted not to
+ * be crafted. A footer that does not parse or does not fit is terminal. A row group that does not
+ * fit is skipped unread as {@code Oversized}; one that is damaged loses its remaining rows as one
+ * {@code Failed}; decoding then goes on with the next row group. A row over {@code maxRecordBytes},
+ * or one whose value does not convert, loses only itself. Records have no raw bytes and no span.
  */
 public final class ParquetFormat implements FormatCursor {
 
@@ -66,6 +69,7 @@ public final class ParquetFormat implements FormatCursor {
   private final long budget;
   private long rowGroupBudget;
   private long metadataStart;
+  private RangeInputFile file;
   private ParquetFileReader reader;
   private List<BlockMetaData> groups;
   private MessageColumnIO columns;
@@ -95,19 +99,6 @@ public final class ParquetFormat implements FormatCursor {
         return new Oversized(nextIndex, null, e.size, EMPTY, true);
       }
       metadataStart = footer.metadataStart();
-      ParquetReadOptions options =
-          ParquetReadOptions.builder()
-              .useStatsFilter(false)
-              .useDictionaryFilter(false)
-              .useRecordFilter(false)
-              .useColumnIndexFilter(false)
-              .useBloomFilter(false)
-              .withCodecFactory(new PageCodecs(budget))
-              .build();
-      reader = new ParquetFileReader(new RangeInputFile(in), options);
-      groups = reader.getRowGroups();
-      MessageType schema = reader.getFooter().getFileMetaData().getSchema();
-      columns = new ColumnIOFactory().getColumnIO(schema);
       long rowLimit = limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : budget / ROW_SHARE;
       rowGroupBudget =
           limits.maxDocumentBytes() > 0
@@ -117,6 +108,20 @@ public final class ParquetFormat implements FormatCursor {
                   budget
                       - footer.heap()
                       - (limits.maxRecordBytes() > 0 ? 0 : ROW_MULTIPLE * rowLimit));
+      ParquetReadOptions options =
+          ParquetReadOptions.builder()
+              .useStatsFilter(false)
+              .useDictionaryFilter(false)
+              .useRecordFilter(false)
+              .useColumnIndexFilter(false)
+              .useBloomFilter(false)
+              .withCodecFactory(new PageCodecs(rowGroupBudget))
+              .build();
+      file = new RangeInputFile(in);
+      reader = new ParquetFileReader(file, options);
+      groups = reader.getRowGroups();
+      MessageType schema = reader.getFooter().getFileMetaData().getSchema();
+      columns = new ColumnIOFactory().getColumnIO(schema);
       records = new ParquetRecords(schema, rowLimit);
     }
     while (true) {
@@ -152,16 +157,52 @@ public final class ParquetFormat implements FormatCursor {
       }
       PageReadStore pages;
       try {
+        lendCheckedChunks(group);
         pages = reader.readNextRowGroup();
       } catch (IOException | RuntimeException e) {
         reader.skipNextRowGroup();
         return skipGroup(groupFailure(e));
+      } finally {
+        file.reclaim();
       }
       try {
         rows = columns.getRecordReader(pages, records);
       } catch (RuntimeException e) {
         return skipGroup(groupFailure(e));
       }
+    }
+  }
+
+  /**
+   * Reads the row group's chunks, in runs of consecutive chunks as parquet does, checks their page
+   * headers, and lends the bytes to parquet's reader so that it reads them from memory.
+   */
+  private void lendCheckedChunks(BlockMetaData group) throws IOException {
+    List<ColumnChunkMetaData> chunks = new ArrayList<>(group.getColumns());
+    chunks.sort(Comparator.comparingLong(ColumnChunkMetaData::getStartingPos));
+    int first = 0;
+    while (first < chunks.size()) {
+      long start = chunks.get(first).getStartingPos();
+      long end = start + chunks.get(first).getTotalSize();
+      int last = first + 1;
+      while (last < chunks.size() && chunks.get(last).getStartingPos() == end) {
+        end += chunks.get(last).getTotalSize();
+        last++;
+      }
+      byte[] bytes = ParquetFooter.bytes(in, start, (int) (end - start));
+      for (ColumnChunkMetaData chunk : chunks.subList(first, last)) {
+        PageHeaderScan.check(
+            bytes,
+            (int) (chunk.getStartingPos() - start),
+            (int) chunk.getTotalSize(),
+            chunk.getStartingPos(),
+            metadataStart,
+            chunk.getValueCount(),
+            rowGroupBudget,
+            chunk.getPath().toString());
+      }
+      file.lend(start, bytes);
+      first = last;
     }
   }
 

@@ -18,22 +18,40 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.SeekableInputStream;
 
 /**
  * parquet's view of a {@link RandomAccessInput}. Each read asks for one range; reads under {@value
  * #BUFFER} bytes are served from a range of that size, since parquet reads lengths and magic bytes
- * a few at a time.
+ * a few at a time. Ranges already read for a row group can be lent to it, so that parquet reads
+ * them from memory instead of asking again.
  */
 final class RangeInputFile implements InputFile {
 
   private static final int BUFFER = 8192;
 
   private final RandomAccessInput in;
+  private final List<Range> lent = new ArrayList<>();
+
+  private record Range(long start, byte[] bytes) {
+    boolean holds(long offset, int length) {
+      return offset >= start && offset + length <= start + bytes.length;
+    }
+  }
 
   RangeInputFile(RandomAccessInput in) {
     this.in = in;
+  }
+
+  void lend(long start, byte[] bytes) {
+    lent.add(new Range(start, bytes));
+  }
+
+  void reclaim() {
+    lent.clear();
   }
 
   @Override
@@ -85,7 +103,7 @@ final class RangeInputFile implements InputFile {
         return -1;
       }
       int n = (int) Math.min(len, length - pos);
-      if (n >= BUFFER) {
+      if (n >= BUFFER || isLent(pos, n)) {
         fetch(pos, b, off, n);
       } else {
         if (pos < bufferStart || pos + n > bufferStart + buffer.length) {
@@ -142,7 +160,17 @@ final class RangeInputFile implements InputFile {
       }
     }
 
+    private boolean isLent(long offset, int len) {
+      return lent.stream().anyMatch(range -> range.holds(offset, len));
+    }
+
     private void fetch(long offset, byte[] b, int off, int len) throws IOException {
+      for (Range range : lent) {
+        if (range.holds(offset, len)) {
+          System.arraycopy(range.bytes(), (int) (offset - range.start()), b, off, len);
+          return;
+        }
+      }
       try (InputStream range = in.read(offset, len)) {
         range.readNBytes(b, off, len);
       }
