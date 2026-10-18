@@ -145,7 +145,7 @@ class ParquetLowMemoryTest {
                 .withCompressionCodec(CompressionCodecName.UNCOMPRESSED)
                 .withDictionaryEncoding(false)
                 .withPageSize(256 * 1024)
-                .withRowGroupSize(1536 * 1024));
+                .withRowGroupSize(2 * 1024 * 1024));
     assertTrue(file.toFile().length() > TARGET_BYTES);
     assertEquals(Map.of("Decoded", rows), count(ranges(file), LIMITS));
   }

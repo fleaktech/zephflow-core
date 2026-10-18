@@ -41,7 +41,7 @@ final class BoundedThrift {
   private static final long STRUCT_BYTES = 128;
   private static final long CONTAINER_BYTES = 40;
   private static final long ELEMENT_BYTES = 16;
-  private static final long STRING_BYTES = 48;
+  private static final long STRING_BYTES = 64;
 
   private BoundedThrift() {}
 

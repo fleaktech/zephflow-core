@@ -153,7 +153,7 @@ class ParquetHostileTest {
         decode(PARQUET, footerTooLong));
   }
 
-  private static final long PINNED_FOOTER = 4012;
+  private static final long PINNED_FOOTER = 4076;
 
   private static final List<Object> SIX_ROWS =
       List.of(
@@ -910,10 +910,10 @@ class ParquetHostileTest {
             List.of(List.of(column(2000, page(2000, Encoding.PLAIN, ints(values))))),
             footer -> footer);
     assertEquals(
-        List.of(3354L, 8020L, 16344L),
+        List.of(3402L, 8020L, 16344L),
         List.of(
             ParquetDecodeTest.footerEstimate(wide),
-            ((Big) decodeWithin(wide, 3354).get(0)).sizeSoFar(),
+            ((Big) decodeWithin(wide, 3402).get(0)).sizeSoFar(),
             ((Big) decodeWithin(wide, 8020).get(0)).sizeSoFar()));
     List<Object> rows = new ArrayList<>();
     for (int i = 0; i < 2000; i++) {
@@ -1017,7 +1017,7 @@ class ParquetHostileTest {
   }
 
   @Test
-  void schemaCellsAtTheCapPass() {
+  void schemaCellsAtAndOverTheCap() {
     for (int leaves : List.of(413, 414)) {
       List<SchemaElement> nested = new ArrayList<>();
       nested.add(new SchemaElement("schema").setNum_children(1));

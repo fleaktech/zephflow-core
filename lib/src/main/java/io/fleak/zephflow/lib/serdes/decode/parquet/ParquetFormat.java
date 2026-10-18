@@ -32,11 +32,11 @@ import org.apache.parquet.io.RecordReader;
 /**
  * A parquet file, one row group at a time, without parquet's file reader, which allocates whatever
  * the footer and page headers claim. The footer and each row group may take {@code
- * maxDocumentBytes} in memory; without it, they share half the heap that is free when decoding
- * starts. A footer that does not parse or does not fit is terminal. A row group that does not fit
- * is skipped undecoded as {@code Oversized}; a damaged one loses its remaining rows as one {@code
- * Failed}; decoding then goes on with the next row group. A row over {@code maxRecordBytes}, or one
- * whose value does not convert, loses only itself. Records have no raw bytes and no span.
+ * maxDocumentBytes} in memory; without it, they share half the heap. A footer that does not parse
+ * or does not fit is terminal. A row group that does not fit is skipped undecoded as {@code
+ * Oversized}; a damaged one loses its remaining rows as one {@code Failed}; decoding then goes on
+ * with the next row group. A row over {@code maxRecordBytes}, or one whose value does not convert,
+ * loses only itself. Records have no raw bytes and no span.
  */
 public final class ParquetFormat implements FormatCursor {
 
@@ -64,12 +64,10 @@ public final class ParquetFormat implements FormatCursor {
     this.in = in;
     this.limits = limits;
     this.flags = flags;
-    this.budget = limits.maxDocumentBytes() > 0 ? limits.maxDocumentBytes() : freeHeap() / 2;
-  }
-
-  private static long freeHeap() {
-    Runtime runtime = Runtime.getRuntime();
-    return runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
+    this.budget =
+        limits.maxDocumentBytes() > 0
+            ? limits.maxDocumentBytes()
+            : Runtime.getRuntime().maxMemory() / 2;
   }
 
   @Override

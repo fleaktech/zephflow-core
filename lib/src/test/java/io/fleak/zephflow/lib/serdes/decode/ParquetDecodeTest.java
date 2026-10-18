@@ -320,7 +320,8 @@ class ParquetDecodeTest {
     assertTrue(groups.size() >= 3, "row groups: " + groups.size());
     long largest = estimates.values().stream().mapToLong(Long::longValue).max().orElseThrow();
     long stored = groups.get(0).getColumns().get(0).getMeta_data().getTotal_compressed_size();
-    assertTrue(estimates.get(1L) > stored * 3 / 2, "pages count decompressed as well as stored");
+    assertTrue(
+        estimates.get(1L) > stored, "a decompressed page counts as well as the stored chunk");
     assertEquals(numbersDecoded(0, 5000), decodeWithin(file, largest));
     List<Object> expected = new ArrayList<>();
     long index = 1;
