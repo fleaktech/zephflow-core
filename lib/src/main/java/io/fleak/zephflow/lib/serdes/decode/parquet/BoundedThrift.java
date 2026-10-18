@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.serdes.decode.parquet;
 import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
 import org.apache.parquet.format.FileMetaData;
-import org.apache.parquet.format.PageHeader;
 import shaded.parquet.org.apache.thrift.TBase;
 import shaded.parquet.org.apache.thrift.TException;
 import shaded.parquet.org.apache.thrift.protocol.TCompactProtocol;
@@ -50,16 +49,6 @@ final class BoundedThrift {
   static Parsed<FileMetaData> fileMetaData(byte[] bytes, long budget)
       throws MalformedParquetException, TooLargeException {
     return read(new FileMetaData(), bytes, 0, bytes.length, budget);
-  }
-
-  /** The page header at {@code offset}, how many bytes it took, and what it holds in memory. */
-  static Parsed<PageHeader> pageHeader(byte[] bytes, int offset, int end)
-      throws MalformedParquetException {
-    try {
-      return read(new PageHeader(), bytes, offset, end - offset, Long.MAX_VALUE);
-    } catch (TooLargeException e) {
-      throw new AssertionError("an unlimited budget was exceeded", e);
-    }
   }
 
   private static <T extends TBase<?, ?>> Parsed<T> read(
