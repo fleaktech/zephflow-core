@@ -317,4 +317,24 @@ class ParquetLowMemoryTest {
           limits.toString());
     }
   }
+
+  @Test
+  void withoutLimitsAFooterThatLeavesTooLittleForRowGroupsIsOversized() {
+    byte[] file =
+        ParquetTestFiles.assemble(
+            FieldRepetitionType.REQUIRED,
+            3,
+            List.of(List.of(ParquetDamagedFileTest.VALID)),
+            footer ->
+                footer
+                    .setRow_groups(Collections.nCopies(22_000, footer.getRow_groups().get(0)))
+                    .setNum_rows(66_000));
+    long estimate = ParquetDecodeTest.footerEstimate(file);
+    long budget = Runtime.getRuntime().maxMemory() / 2;
+    assertTrue(estimate > budget / 2 && estimate < budget, "estimate " + estimate);
+    assertEquals(
+        List.of(new DecodeTestSupport.Big(1, null, estimate, "", true)),
+        DecodeTestSupport.decode(
+            decoder(PARQUET), ByteInput.ofBytes(file), DecodeLimits.UNLIMITED));
+  }
 }

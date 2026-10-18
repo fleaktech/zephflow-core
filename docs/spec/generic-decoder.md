@@ -134,9 +134,9 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   0 for a zstd window. A codec over its memory limit gives a terminal `Oversized` with no span or
   preview; `sizeSoFar` is the memory xz needs, or 0 for zstd, which does not say. Parquet's
   `Oversized` has no span or preview either: for the footer (terminal), `sizeSoFar` is its length or
-  the estimate reached when it went over the limit (a lower bound, since parsing stops there); for a
-  row group, the larger of twice its declared stored size and its uncompressed size; for a row, its
-  estimate.
+  the estimate reached when it went over the limit (a lower bound, since parsing stops there), or
+  its whole estimate when it leaves too little for a row group; for a row group, the larger of twice
+  its declared stored size and its uncompressed size; for a row, its estimate.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -363,7 +363,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 6 | `avro` | Done (#344) |
 | 7 | `protobuf` | Done (#345) |
 | 8 | `parquet`, random-access input | Done (#346) |
-| 9 | `parquet` on parquet-mr's own reader | In review |
+| 9 | `parquet` on parquet-mr's own reader | Done (#347) |
 
 ## 6. Testing
 
