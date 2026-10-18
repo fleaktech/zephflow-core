@@ -358,7 +358,7 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 | 5 | Remaining codecs | Done (#343) |
 | 6 | `avro` | Done (#344) |
 | 7 | `protobuf` | Done (#345) |
-| 8 | `parquet`, random-access input | In review |
+| 8 | `parquet`, random-access input | Done (#346) |
 
 ## 6. Testing
 
