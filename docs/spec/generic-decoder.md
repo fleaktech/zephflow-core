@@ -81,7 +81,7 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   of one bounded range) for formats that start from a footer (parquet). It must not read itself.
   Opening a parquet decoder on an input without it throws `IllegalStateException` from `open`,
   because that is the caller's mistake, not bad data. `ByteInput.ofBytes`, and so `decodeAll`,
-  offer it.
+  and `ByteInput.ofFile` (a local file) offer it.
 - `DecodeLimits(maxRecordBytes, maxDocumentBytes)` is chosen by the caller; 0 means unlimited
   (parquet still bounds itself by the heap, see 3.4).
 - `DecodeOutcome` is one of:
