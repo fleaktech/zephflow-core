@@ -360,7 +360,8 @@ follow-up, dynamicapi's sampler both use it:
   encoder and commit-strategy types), of `lib.serdes.des` (the legacy deserializers the other
   sources keep using), `S3EventNotificationParser`, `S3ObjectRef`, `S3RegionalClientProvider` and
   `DecodeLimits`'s two-argument constructor keep their signatures; dynamicapi and zephflow-plus
-  import them. No code outside core uses `S3RealtimeSourceDto`, `S3RealtimeRawDataConverter` or
+  import them. `DecodeOutcome.Failed` and `Oversized` gain components (PR 3b); no code outside core
+  uses the decoder yet. No code outside core uses `S3RealtimeSourceDto`, `S3RealtimeRawDataConverter` or
   `S3RealtimeSourceCommand`.
 - DLQ values were never guaranteed to decode: message sources dead-letter a message they cannot
   deserialize with its raw bytes (`BytesRawDataConverter`, `SimpleSourceCommand`), and FsSource
@@ -392,6 +393,7 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
 | 1 | This spec; `ByteInput.ofFile` in the decoder, with the decoder spec's `ByteInput` paragraph; the download to the spool directory, with its tests |
 | 2 | `SimpleSourceCommand`'s path for converters that emit their own batches, with tests |
 | 3 | `DecodeLimits.maxCodecMemoryBytes` in the decoder, with its tests and the decoder spec's xz row |
+| 3b | The decoder's `Oversized` names the limit it hit and its value, and `Failed` and `Oversized` carry how many records they stand for, so the DLQ can say what to change and count a lost avro block or parquet row group whole; with tests and the decoder spec's 3.2 and 3.4 |
 | 4a | `S3Decoding`, the legacy mapping, the limits, `S3ObjectDecoder`, with their tests and the differential test |
 | 4b | The converter on `S3ObjectDecoder`, the `decoding` field and validator, the source tests and the low-memory test; the decoder spec's "not used by any source yet" is updated |
 
