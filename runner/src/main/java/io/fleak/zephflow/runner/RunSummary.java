@@ -20,7 +20,29 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public record RunSummary(Map<String, Long> counters) {
+/**
+ * End-of-run totals. {@code sinks} breaks delivery down per sink node so a caller can tell a run
+ * whose sinks wrote everything from one whose sinks rejected every record — both exit 0.
+ */
+public record RunSummary(Map<String, Long> counters, List<SinkSummary> sinks) {
+
+  public RunSummary(Map<String, Long> counters) {
+    this(counters, List.of());
+  }
+
+  /**
+   * Delivery totals of one sink node.
+   *
+   * @param firstError an example error message of a lost record; null when nothing was lost or the
+   *     sink didn't report a message
+   */
+  public record SinkSummary(
+      String nodeId,
+      String commandName,
+      long inputCount,
+      long outputCount,
+      long errorCount,
+      String firstError) {}
 
   public long counterTotal(String counterName) {
     Long total = counters.get(counterName);

@@ -565,7 +565,10 @@ public class DeltaLakeWriter extends AbstractBufferedFlusher<Map<String, Object>
           config.getTablePath());
       SimpleSinkCommand.FlushResult result = executeFlushOutOfBand(snapshot, Map.of());
       if (!result.errorOutputList().isEmpty()) {
-        reportErrorMetrics(result.errorOutputList().size(), Map.of());
+        reportErrorMetrics(
+            result.errorOutputList().size(),
+            result.errorOutputList().getFirst().errorMessage(),
+            Map.of());
         if (dlqWriter == null) {
           throw new IOException(
               String.format(

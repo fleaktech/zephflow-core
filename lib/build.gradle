@@ -9,6 +9,12 @@ dependencies {
   implementation libs.commons.io
   implementation libs.commons.cli
   implementation libs.commons.csv
+  implementation libs.commons.compress
+  implementation libs.zstd.jni
+  implementation libs.xz
+  implementation libs.parquet.hadoop
+  implementation libs.snappy.java
+  implementation libs.lz4
   implementation libs.aws.s3
   implementation libs.aws.kinesis
   implementation libs.aws.s3.transfer.manager
@@ -120,7 +126,7 @@ tasks.named('spotlessJava') {
 
 tasks.named('test') {
   // Ordinary unit tests exclude golden; golden runs as its own task (see goldenTest below).
-  useJUnitPlatform { excludeTags 'golden' }
+  useJUnitPlatform { excludeTags 'golden', 'lowMemory' }
   testLogging.showStandardStreams = true
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
@@ -155,4 +161,15 @@ tasks.register('goldenTest', Test) {
   testLogging { exceptionFormat 'full'; events 'failed' }
 }
 
-tasks.named('check') { dependsOn 'goldenTest' }
+// Decoder memory-bound tests: inputs far larger than this heap must still decode.
+tasks.register('lowMemoryTest', Test) {
+  description = 'Decoder tests under a 64 MiB heap'
+  group = 'verification'
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform { includeTags 'lowMemory' }
+  maxHeapSize = '64m'
+  testLogging { exceptionFormat 'full'; events 'failed' }
+}
+
+tasks.named('check') { dependsOn 'goldenTest', 'lowMemoryTest' }

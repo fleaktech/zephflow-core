@@ -91,7 +91,6 @@ public interface MiscUtils {
   String COMMAND_NAME_FILE_SOURCE = "filesource";
   String COMMAND_NAME_FS_SOURCE = "fssource";
   String COMMAND_NAME_S3_FILE_READER = "s3filereader";
-  String COMMAND_NAME_READER_SOURCE = "reader";
   String COMMAND_NAME_SPLUNK_SOURCE = "splunksource";
 
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";

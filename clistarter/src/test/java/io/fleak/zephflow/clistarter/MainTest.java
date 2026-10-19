@@ -53,6 +53,27 @@ class MainTest {
     String summary = (String) payload.get("summary");
     assertTrue(summary.contains("input events: 10"), summary);
     assertTrue(summary.contains("output events: 20"), summary);
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> sinks = (List<Map<String, Object>>) payload.get("sinks");
+    assertFalse(sinks.isEmpty(), "sinks should be listed");
+    long sinkOutput =
+        sinks.stream().mapToLong(sink -> ((Number) sink.get("outputCount")).longValue()).sum();
+    assertEquals(20, sinkOutput);
+    assertTrue(sinks.stream().allMatch(sink -> sink.get("nodeId") != null), sinks.toString());
+  }
+
+  @Test
+  public void testMainWritesRunSummaryWhenPipelineFails(@TempDir Path tempDir) throws Exception {
+    Path summaryFile = tempDir.resolve("run-summary.json");
+
+    System.setProperty(Main.RUN_SUMMARY_FILE_SYS_PROP, summaryFile.toString());
+    try {
+      assertThrows(Exception.class, () -> runMainWithDag("/test_dag_unknown_command.yml", "[]"));
+    } finally {
+      System.clearProperty(Main.RUN_SUMMARY_FILE_SYS_PROP);
+    }
+
+    assertTrue(Files.exists(summaryFile), "run summary file should be written on failure too");
   }
 
   @Test
