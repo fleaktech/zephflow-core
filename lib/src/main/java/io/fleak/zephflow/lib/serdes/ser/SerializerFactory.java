@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.serdes.ser;
 
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerFactory;
+import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import io.fleak.zephflow.lib.serdes.ser.jsonarr.JsonArraySerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.jsonobj.JsonObjectSerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.jsonobjline.JsonObjectLineSerializerFactory;
@@ -42,8 +43,13 @@ public interface SerializerFactory<T> {
   }
 
   static SerializerFactory<?> createSerializerFactory(EncodingType encodingType) {
+    return createSerializerFactory(encodingType, CsvSerializerOptions.DEFAULT);
+  }
+
+  static SerializerFactory<?> createSerializerFactory(
+      EncodingType encodingType, CsvSerializerOptions csvOptions) {
     return switch (encodingType) {
-      case CSV -> new CsvSerializerFactory();
+      case CSV -> new CsvSerializerFactory(csvOptions);
       case JSON_OBJECT -> new JsonObjectSerializerFactory();
       case JSON_ARRAY -> new JsonArraySerializerFactory();
       case JSON_OBJECT_LINE -> new JsonObjectLineSerializerFactory();

@@ -19,11 +19,17 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 public class SplunkHecSinkConfigValidator implements ConfigValidator {
+
+  static final List<EncodingType> SUPPORTED_ENCODING_TYPES =
+      List.of(EncodingType.JSON_OBJECT, EncodingType.CSV);
 
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
@@ -49,6 +55,17 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
     if (config.getBatchSize() != null) {
       Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
     }
+
+    if (StringUtils.isNotBlank(config.getEncodingType())) {
+      EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+      Preconditions.checkArgument(
+          SUPPORTED_ENCODING_TYPES.contains(encodingType),
+          "encodingType must be one of " + SUPPORTED_ENCODING_TYPES);
+      Preconditions.checkArgument(
+          encodingType != EncodingType.CSV || CollectionUtils.isNotEmpty(config.getCsvColumns()),
+          "csvColumns is required when encodingType is CSV");
+    }
+    SplunkHecSinkMessageProcessor.csvOptions(config);
 
     if (enforceCredentials(jobContext)) {
       lookupApiKeyCredential(jobContext, config.getCredentialId());

@@ -22,10 +22,16 @@ import java.util.Map;
 
 /** Created by bolei on 9/16/24 */
 public class CsvSerializerFactory implements SerializerFactory<Map<String, Object>> {
+  private final CsvSerializerOptions options;
+
+  public CsvSerializerFactory(CsvSerializerOptions options) {
+    this.options = options;
+  }
+
   @Override
   public FleakSerializer<Map<String, Object>> createSerializer() {
     var typedEventConverter = new ObjectMapTypedEventConverter();
-    var csvTypedSerializer = new CsvTypedSerializer();
+    var csvTypedSerializer = new CsvTypedSerializer(options);
     return new MultipleEventsSerializer<>(
         EncodingType.CSV, typedEventConverter, csvTypedSerializer);
   }

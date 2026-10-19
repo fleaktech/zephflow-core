@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.List;
 import lombok.*;
 
 public interface SplunkHecSinkDto {
@@ -38,5 +39,9 @@ public interface SplunkHecSinkDto {
     @Builder.Default private Boolean verifySsl = true;
 
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;
+
+    private String encodingType;
+
+    private List<String> csvColumns;
   }
 }
