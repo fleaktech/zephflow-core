@@ -187,7 +187,12 @@ class S3RealtimeLowMemoryTest {
             new SourceExecutionContext<>(
                 fetcher, converter, new S3RealtimeRawDataEncoder(), noOp(), noOp(), noOp(), dlq));
     source.initialize(mock(MetricClientProvider.class));
-    source.execute("user", acceptor);
+    try {
+      source.execute("user", acceptor);
+    } finally {
+      // Closes the DLQ writer, whose flusher thread would otherwise keep this test's memory.
+      source.terminate();
+    }
     assertEquals(List.of("r"), List.copyOf(confirmed));
   }
 
