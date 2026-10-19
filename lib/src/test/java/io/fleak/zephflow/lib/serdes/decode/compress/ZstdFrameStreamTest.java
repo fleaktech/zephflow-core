@@ -20,7 +20,6 @@ import com.github.luben.zstd.ZstdException;
 import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import java.io.InputStream;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ZstdFrameStreamTest {
@@ -33,13 +32,9 @@ class ZstdFrameStreamTest {
       stream.classify(new ZstdException(Zstd.errMemoryAllocation(), "Allocation error"));
     }
     DecodeFlags.BudgetExceeded exceeded = flags.getBudgetExceeded();
+    assertEquals(0, exceeded.preview().length);
     assertEquals(
-        List.of(-1L, LimitKind.NATIVE_MEMORY, 0L, 0L, 0),
-        List.of(
-            exceeded.recordStart(),
-            exceeded.limit(),
-            exceeded.limitValue(),
-            exceeded.sizeSoFar(),
-            exceeded.preview().length));
+        new DecodeFlags.BudgetExceeded(-1, LimitKind.NATIVE_MEMORY, 0, 0, exceeded.preview()),
+        exceeded);
   }
 }

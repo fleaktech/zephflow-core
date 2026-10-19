@@ -114,17 +114,19 @@ public final class ParquetFormat implements FormatCursor {
       }
       metadataStart = footer.metadataStart();
       rowLimit = limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : budget / ROW_SHARE;
+      long rowReserve = limits.maxRecordBytes() > 0 ? 0 : ROW_MULTIPLE * rowLimit;
       rowGroupBudget =
-          limits.maxDocumentBytes() > 0
-              ? budget
-              : Math.max(
-                  0,
-                  budget
-                      - footer.heap()
-                      - (limits.maxRecordBytes() > 0 ? 0 : ROW_MULTIPLE * rowLimit));
+          limits.maxDocumentBytes() > 0 ? budget : Math.max(0, budget - footer.heap() - rowReserve);
       if (limits.maxDocumentBytes() == 0 && rowGroupBudget < budget / 4) {
         return new Oversized(
-            nextIndex, 1, null, LimitKind.HEAP_SHARE, budget, footer.heap(), EMPTY, true);
+            nextIndex,
+            1,
+            null,
+            LimitKind.HEAP_SHARE,
+            budget - budget / 4 - rowReserve,
+            footer.heap(),
+            EMPTY,
+            true);
       }
       ParquetReadOptions options =
           ParquetReadOptions.builder()

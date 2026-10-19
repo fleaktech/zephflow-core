@@ -28,8 +28,9 @@ public sealed interface DecodeOutcome {
 
   /**
    * The outcome stands for the records from {@code recordIndex} to {@code recordIndex + recordCount
-   * - 1}. It is more than 1 only for an avro block or a parquet row group lost as a whole, and 0
-   * for a lost avro block that holds no records; a terminal outcome counts only its own record.
+   * - 1}. It is more than 1 only for the records an avro block or a parquet row group loses, and 0
+   * when no record is lost (an avro block with no records, or bytes left after a block's records);
+   * a terminal outcome counts only its own record.
    */
   default long recordCount() {
     return 1;

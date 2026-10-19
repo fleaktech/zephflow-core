@@ -108,7 +108,7 @@ final class LibraryCodecStream extends InputStream {
     if (needed >= 0) {
       flags.markBudget(
           new DecodeFlags.BudgetExceeded(
-              -1, LimitKind.CODEC_MEMORY, memoryLimit, needed, new byte[0]));
+              -1, LimitKind.MAX_CODEC_MEMORY_BYTES, memoryLimit, needed, new byte[0]));
       return new IOException(name + " needs " + needed + " bytes of memory to decompress", e);
     }
     String detail =

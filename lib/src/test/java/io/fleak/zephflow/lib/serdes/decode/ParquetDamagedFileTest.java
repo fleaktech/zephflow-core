@@ -871,14 +871,52 @@ class ParquetDamagedFileTest {
 
   @Test
   void footerLongerThanAnArrayIsOversizedAtTheFormatMaximum() {
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                null,
+                LimitKind.FORMAT_MAXIMUM,
+                Integer.MAX_VALUE - 8L,
+                Integer.MAX_VALUE,
+                "",
+                true)),
+        decode(decoder(PARQUET), footerOfLength(Integer.MAX_VALUE), new DecodeLimits(0, 1L << 40)));
+  }
+
+  @Test
+  void withoutLimitsAFooterOverHalfTheHeapIsOversized() {
+    long budget = Runtime.getRuntime().maxMemory() / 2;
+    assertTrue(budget < Integer.MAX_VALUE - 8, "budget " + budget);
+    assertEquals(
+        List.of(new Big(1, 1, null, LimitKind.HEAP_SHARE, budget, budget + 1, "", true)),
+        decode(decoder(PARQUET), footerOfLength((int) budget + 1), DecodeLimits.UNLIMITED));
+  }
+
+  @Test
+  void withoutLimitsARowGroupOverWhatIsLeftOfHalfTheHeapIsSkipped() {
+    long declared = 1L << 40;
+    byte[] file = hostileThenIntact(VALID, group -> group.setTotal_byte_size(declared));
+    long budget = Runtime.getRuntime().maxMemory() / 2;
+    long left = budget - ParquetDecodeTest.footerEstimate(file) - 16 * (budget / 64);
+    List<Object> expected = new ArrayList<>();
+    expected.add(new Big(1, 3, null, LimitKind.HEAP_SHARE, left, declared, "", false));
+    expected.addAll(SIX_ROWS.subList(3, 6));
+    assertEquals(
+        expected, decode(decoder(PARQUET), ByteInput.ofBytes(file), DecodeLimits.UNLIMITED));
+  }
+
+  /** A 4 GiB file that only has its magic and a footer length; nothing else may be read. */
+  private static ByteInput footerOfLength(int metadataLength) {
     long length = 4L << 30;
     byte[] tail =
         ByteBuffer.allocate(8)
             .order(ByteOrder.LITTLE_ENDIAN)
-            .putInt(Integer.MAX_VALUE)
+            .putInt(metadataLength)
             .put(utf8("PAR1"))
             .array();
-    RandomAccessInput huge =
+    RandomAccessInput file =
         new RandomAccessInput() {
           @Override
           public long length() {
@@ -896,30 +934,16 @@ class ParquetDamagedFileTest {
             throw new AssertionError("read " + count + " bytes at " + offset);
           }
         };
-    assertEquals(
-        List.of(
-            new Big(
-                1,
-                1,
-                null,
-                LimitKind.FORMAT_MAXIMUM,
-                Integer.MAX_VALUE - 8L,
-                Integer.MAX_VALUE,
-                "",
-                true)),
-        decode(
-            decoder(PARQUET),
-            new ByteInput() {
-              @Override
-              public InputStream openStream() {
-                throw new UnsupportedOperationException();
-              }
+    return new ByteInput() {
+      @Override
+      public InputStream openStream() {
+        throw new UnsupportedOperationException();
+      }
 
-              @Override
-              public Optional<RandomAccessInput> randomAccess() {
-                return Optional.of(huge);
-              }
-            },
-            new DecodeLimits(0, 1L << 40)));
+      @Override
+      public Optional<RandomAccessInput> randomAccess() {
+        return Optional.of(file);
+      }
+    };
   }
 }

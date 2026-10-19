@@ -90,6 +90,7 @@ public final class AvroOcfFormat implements FormatCursor {
             ErrorKind.MALFORMED,
             EMPTY,
             blockFirstIndex,
+            0,
             null,
             new MalformedAvroException(
                 "avro block " + blocks + " has " + left + " bytes left after its records"),

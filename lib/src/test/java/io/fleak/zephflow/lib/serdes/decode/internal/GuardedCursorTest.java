@@ -112,12 +112,13 @@ class GuardedCursorTest {
         cursor(
             flags -> {
               flags.markBudget(
-                  new DecodeFlags.BudgetExceeded(5, LimitKind.CODEC_MEMORY, 64, 99, preview));
+                  new DecodeFlags.BudgetExceeded(
+                      5, LimitKind.MAX_CODEC_MEMORY_BYTES, 64, 99, preview));
               throw new IOException("over budget");
             });
     assertEquals(
         new DecodeOutcome.Oversized(
-            7, 1, RawSpan.toEnd(5), LimitKind.CODEC_MEMORY, 64, 99, preview, true),
+            7, 1, RawSpan.toEnd(5), LimitKind.MAX_CODEC_MEMORY_BYTES, 64, 99, preview, true),
         cursor.next());
     assertNull(cursor.next());
   }

@@ -635,7 +635,14 @@ class AvroDecodeTest {
     assertEquals(
         List.of(
             smallRecord("a", 1),
-            malformed(1, "avro block 1 has 1 bytes left after its records", false),
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                1,
+                0,
+                null,
+                "MalformedAvroException: avro block 1 has 1 bytes left after its records",
+                false),
             smallRecord("b", 2)),
         decode(
             OCF,
@@ -987,7 +994,7 @@ class AvroDecodeTest {
     ByteBuffer.wrap(block, 20, 4).order(ByteOrder.LITTLE_ENDIAN).putInt((int) crc.getValue());
     long limit =
         Math.ceilDiv(
-                Math.min(Decompressors.ZSTD_WINDOW_LIMIT, Runtime.getRuntime().maxMemory() / 2),
+                Math.min(Decompressors.XZ_DEFAULT_MEMORY, Runtime.getRuntime().maxMemory() / 2),
                 1024)
             * 1024;
     assertEquals(
@@ -996,7 +1003,7 @@ class AvroDecodeTest {
                 1,
                 1,
                 null,
-                LimitKind.CODEC_MEMORY,
+                LimitKind.AVRO_XZ_MEMORY,
                 limit,
                 LZMA2InputStream.getMemoryUsage(768 << 20) * 1024L,
                 "",

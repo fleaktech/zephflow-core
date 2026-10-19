@@ -335,7 +335,14 @@ class ParquetLowMemoryTest {
     assertEquals(
         List.of(
             new DecodeTestSupport.Big(
-                1, 1, null, LimitKind.HEAP_SHARE, budget, estimate, "", true)),
+                1,
+                1,
+                null,
+                LimitKind.HEAP_SHARE,
+                budget - budget / 4 - 16 * (budget / 64),
+                estimate,
+                "",
+                true)),
         DecodeTestSupport.decode(
             decoder(PARQUET), ByteInput.ofBytes(file), DecodeLimits.UNLIMITED));
   }

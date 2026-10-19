@@ -29,6 +29,9 @@ public final class Decompressors {
   /** zstd-jni's default window limit, which its decompression context does not let us raise. */
   public static final long ZSTD_WINDOW_LIMIT = 1L << 27;
 
+  /** xz's memory cap without a caller's limit, when half the heap is more. */
+  public static final long XZ_DEFAULT_MEMORY = 128L * 1024 * 1024;
+
   private Decompressors() {}
 
   /** Applies the codecs in order: the first entry undoes the outermost compression. */
@@ -69,7 +72,7 @@ public final class Decompressors {
             ? limits.maxCodecMemoryBytes()
             : limits.maxDocumentBytes() > 0
                 ? limits.maxDocumentBytes()
-                : Math.min(ZSTD_WINDOW_LIMIT, Runtime.getRuntime().maxMemory() / 2);
+                : Math.min(XZ_DEFAULT_MEMORY, Runtime.getRuntime().maxMemory() / 2);
     int limitKiB = (int) Math.min(Integer.MAX_VALUE, Math.ceilDiv(limit, 1024));
     return new LibraryCodecStream(
         "xz",

@@ -93,8 +93,9 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   - `Oversized(recordIndex, recordCount, span, limit, limitValue, sizeSoFar, preview, terminal)`,
     where `limit` names the limit it went over and `limitValue` is the value that applied (3.4)
 - `recordCount` is how many records an outcome stands for, from `recordIndex` on. It is more than 1
-  only for an avro block or a parquet row group lost as a whole, and 0 for a lost avro block that
-  holds no records; a terminal outcome counts only its own record.
+  only for the records an avro block or a parquet row group loses, and 0 when no record is lost (an
+  avro block with no records, or bytes left after a block's records); a terminal outcome counts
+  only its own record.
 - A failure to read the input itself (network, disk) throws `SourceReadException`. It is never
   reported as bad data.
 
@@ -148,12 +149,19 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   - `MAX_RECORD_BYTES` and `MAX_DOCUMENT_BYTES`: the caller's limits. A unit held whole (an avro
     block, the parquet footer and row groups) is under the document limit. A parquet row without
     `maxRecordBytes` is under 1/64 of the parquet budget, named by that budget's kind.
-  - `CODEC_MEMORY`: what xz may use, with the cap that applied (outer codec: the codec table's rule;
-    inside an avro block: 128 MiB or half the heap, whichever is smaller).
-  - `HEAP_SHARE`: parquet's half of the heap when `maxDocumentBytes` is 0.
+  - `MAX_CODEC_MEMORY_BYTES`: what an outer xz codec may use, by the codec table's rule; setting
+    `maxCodecMemoryBytes` always raises it. The value is the cap that applied, in whole KiB.
+  - `AVRO_XZ_MEMORY`: what xz may use inside an avro block, 128 MiB or half the heap, whichever is
+    smaller; no limit raises it, only a larger heap up to 128 MiB.
+  - `HEAP_SHARE`: parquet's share of half the heap when `maxDocumentBytes` is 0. The value is half
+    the heap for the footer's own size; for a footer that leaves too little, the largest footer
+    estimate that would leave a row group a quarter (half the heap, less a quarter of it and the row
+    reserve); for a row group, what the footer and the row reserve leave; for a row, 1/64 of half
+    the heap.
   - `MAX_LINES`: a multiline rule's `maxLines`, in lines.
   - `ZSTD_WINDOW`: zstd's fixed 128 MiB window limit.
-  - `NATIVE_MEMORY`: zstd could not allocate its native memory; the value is 0.
+  - `NATIVE_MEMORY`: zstd (an outer codec or an avro block's) could not allocate its native memory;
+    the value is 0.
   - `FORMAT_MAXIMUM`: about 2 GiB, the most an avro block, a protobuf message or a parquet footer
     can be, since each is held in one array.
 

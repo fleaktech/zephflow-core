@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.serdes.decode.avro;
 import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdIOException;
 import com.github.luben.zstd.ZstdInputStreamNoFinalizer;
+import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.compress.Decompressors;
 import io.fleak.zephflow.lib.serdes.decode.internal.ByteBuilder;
@@ -66,7 +67,7 @@ final class AvroBlocks {
   static byte[] decompress(String codec, byte[] block, long limit)
       throws TooLarge, CorruptBlockException {
     Cap cap =
-        limit > 0
+        limit > 0 && limit <= MAX_BLOCK
             ? new Cap(LimitKind.MAX_DOCUMENT_BYTES, limit)
             : new Cap(LimitKind.FORMAT_MAXIMUM, MAX_BLOCK);
     int xzMemoryKiB = xzMemoryKiB();
@@ -83,10 +84,12 @@ final class AvroBlocks {
             throw new IllegalStateException("codec checked when the header was read: " + codec);
       };
     } catch (MemoryLimitException e) {
-      throw new TooLarge(LimitKind.CODEC_MEMORY, xzMemoryKiB * 1024L, e.getMemoryNeeded() * 1024L);
+      throw new TooLarge(
+          LimitKind.AVRO_XZ_MEMORY, xzMemoryKiB * 1024L, e.getMemoryNeeded() * 1024L);
     } catch (ZstdIOException e) {
-      if (e.getErrorCode() == Zstd.errFrameParameterWindowTooLarge()) {
-        throw new TooLarge(LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0);
+      TooLarge tooLarge = zstdTooLarge(e.getErrorCode());
+      if (tooLarge != null) {
+        throw tooLarge;
       }
       throw new CorruptBlockException("avro zstandard block is corrupt: " + e.getMessage(), e);
     } catch (CorruptBlockException e) {
@@ -98,8 +101,20 @@ final class AvroBlocks {
 
   private record Cap(LimitKind kind, long bytes) {}
 
+  /** zstd errors that mean a limit rather than damaged data, or null. */
+  @VisibleForTesting
+  static TooLarge zstdTooLarge(long errorCode) {
+    if (errorCode == Zstd.errFrameParameterWindowTooLarge()) {
+      return new TooLarge(LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0);
+    }
+    if (errorCode == Zstd.errMemoryAllocation()) {
+      return new TooLarge(LimitKind.NATIVE_MEMORY, 0, 0);
+    }
+    return null;
+  }
+
   private static int xzMemoryKiB() {
-    long bytes = Math.min(Decompressors.ZSTD_WINDOW_LIMIT, Runtime.getRuntime().maxMemory() / 2);
+    long bytes = Math.min(Decompressors.XZ_DEFAULT_MEMORY, Runtime.getRuntime().maxMemory() / 2);
     return (int) ((bytes + 1023) / 1024);
   }
 

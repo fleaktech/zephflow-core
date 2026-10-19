@@ -333,7 +333,8 @@ class CodecDecodeTest {
         List.of(line(0), line(1)),
         decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed)));
     assertEquals(
-        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, needed - 1024, needed, "", true)),
+        List.of(
+            new Big(1, 1, null, LimitKind.MAX_CODEC_MEMORY_BYTES, needed - 1024, needed, "", true)),
         decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024)));
   }
 
@@ -348,7 +349,8 @@ class CodecDecodeTest {
             ByteInput.ofBytes(input),
             new DecodeLimits(0, needed / 4, needed)));
     assertEquals(
-        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, needed - 1024, needed, "", true)),
+        List.of(
+            new Big(1, 1, null, LimitKind.MAX_CODEC_MEMORY_BYTES, needed - 1024, needed, "", true)),
         decode(
             decoder(XZ.config()),
             ByteInput.ofBytes(input),
@@ -360,7 +362,8 @@ class CodecDecodeTest {
     long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
     byte[] input = XZ.compress(FIRST);
     assertEquals(
-        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, needed - 1024, needed, "", true)),
+        List.of(
+            new Big(1, 1, null, LimitKind.MAX_CODEC_MEMORY_BYTES, needed - 1024, needed, "", true)),
         decode(
             decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024, 0)));
   }
@@ -395,7 +398,7 @@ class CodecDecodeTest {
   void anOuterCodecsLimitStaysOversizedThroughInnerCodecs() throws Exception {
     long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
     assertEquals(
-        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, 1 << 20, needed, "", true)),
+        List.of(new Big(1, 1, null, LimitKind.MAX_CODEC_MEMORY_BYTES, 1 << 20, needed, "", true)),
         decode(
             decoder(
                 "{\"compression\":[\"xz\",\"bzip2\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
