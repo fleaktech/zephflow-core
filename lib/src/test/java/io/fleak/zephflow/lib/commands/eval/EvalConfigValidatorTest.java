@@ -16,13 +16,17 @@ package io.fleak.zephflow.lib.commands.eval;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** Config-time validation of eval/filter/assertion expressions (FLE-2884). */
@@ -52,6 +56,38 @@ class EvalConfigValidatorTest {
       python
           .when(() -> PythonExecutor.createPythonExecutor(any(), anyBoolean()))
           .thenReturn(executor);
+      assertDoesNotThrow(() -> validator.validateConfig(config("python('x', $)"), "n1", null));
+    }
+    verify(executor).close();
+  }
+
+  @Test
+  void rejectsSyntaxErrorWithTheParameterLabel() {
+    // parse fails before an executor is created: the error is still labeled and nothing leaks
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config("this is not valid"), "n1", null));
+    assertTrue(e.getMessage().startsWith("expression: "), e.getMessage());
+  }
+
+  @Test
+  void validatesUnderBoundedJobContext() {
+    JobContext bounded =
+        JobContext.builder().otherProperties(Map.of(JobContext.FLAG_BOUNDED_MODE, true)).build();
+    assertDoesNotThrow(
+        () -> validator.validateConfig(config("arr_foreach($.items, x, x + 1)"), "n1", bounded));
+  }
+
+  @Test
+  void aFailureToCloseTheExecutorIsSwallowed() throws Exception {
+    PythonExecutor executor = mock(PythonExecutor.class);
+    doThrow(new RuntimeException("close failed")).when(executor).close();
+    try (var python = mockStatic(PythonExecutor.class)) {
+      python
+          .when(() -> PythonExecutor.createPythonExecutor(any(), anyBoolean()))
+          .thenReturn(executor);
+      // a close() failure must not mask a successful validation
       assertDoesNotThrow(() -> validator.validateConfig(config("python('x', $)"), "n1", null));
     }
     verify(executor).close();
