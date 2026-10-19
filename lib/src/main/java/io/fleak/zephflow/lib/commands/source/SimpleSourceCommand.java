@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.source;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -35,6 +36,8 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   private static final int SLEEP_MAX = 2000;
 
   private final AtomicBoolean finished = new AtomicBoolean();
+  // Set only by terminate(); finished is also set when the fetcher is exhausted.
+  private final AtomicBoolean stopping = new AtomicBoolean();
 
   protected SimpleSourceCommand(
       String nodeId,
@@ -81,6 +84,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
         rawDataSampler.maybeSample(fetchedData);
 
+        if (converter instanceof BatchEmittingConverter<T> batching) {
+          emitEach(fetchedData, batching, sourceInitializedConfig, sourceEventAcceptor);
+          continue;
+        }
+
         // 2. Convert raw input into internal data structure
         List<ConvertedResult<T>> convertedResults =
             fetchedData.stream().map(fd -> converter.convert(fd, sourceInitializedConfig)).toList();
@@ -119,6 +127,68 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       return fetchedData;
     }
     return List.of();
+  }
+
+  /**
+   * Hands each fetched record to a {@link BatchEmittingConverter}, one at a time, and commits after
+   * each record's last batch. After a stop, the current record is not committed and the rest are
+   * left for redelivery.
+   */
+  private void emitEach(
+      List<T> fetchedData,
+      BatchEmittingConverter<T> converter,
+      SourceExecutionContext<T> context,
+      SourceEventAcceptor sourceEventAcceptor) {
+    Fetcher.Committer committer = context.fetcher().committer();
+    BatchEmittingConverter.Emitter emitter =
+        new BatchEmittingConverter.Emitter() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            sourceEventAcceptor.accept(batch);
+          }
+
+          @Override
+          public boolean stopped() {
+            return stopping.get();
+          }
+        };
+    for (T sourceRecord : fetchedData) {
+      if (stopping.get()) {
+        return;
+      }
+      try {
+        converter.emit(sourceRecord, context, emitter);
+      } catch (Exception e) {
+        if (stopping.get()) {
+          log.debug("conversion failed after the source was stopped", e);
+          return;
+        }
+        log.error("failed to convert a fetched record", e);
+        DlqWriter dlqWriter = context.dlqWriter();
+        if (dlqWriter != null) {
+          String failingNodeId = e instanceof NodeExecutionException nee ? nee.getNodeId() : nodeId;
+          try {
+            dlqWriter.writeToDlq(
+                System.currentTimeMillis(),
+                context.encoder().serialize(sourceRecord),
+                ExceptionUtils.getStackTrace(e),
+                failingNodeId);
+          } catch (Exception dlqFailure) {
+            log.error("failed to write the failed record to the DLQ", dlqFailure);
+          }
+        }
+      }
+      if (stopping.get()) {
+        return;
+      }
+      if (committer != null) {
+        try {
+          committer.commit();
+        } catch (Exception e) {
+          log.error("failed to commit", e);
+        }
+      }
+    }
   }
 
   private void processFetchedData(
@@ -188,11 +258,12 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
   @Override
   public void terminate() throws IOException {
+    stopping.set(true);
     finished.set(true);
     super.terminate();
   }
 
-  private RawDataSampler<T> createRawDataSampler(RawDataEncoder<T> encoder) {
+  RawDataSampler<T> createRawDataSampler(RawDataEncoder<T> encoder) {
     JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
     if (dlqConfig == null) {
       return RawDataSampler.noOp();
