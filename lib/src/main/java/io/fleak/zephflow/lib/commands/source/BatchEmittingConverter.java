@@ -24,8 +24,9 @@ import java.util.List;
  *
  * <p>The converter owns failure handling for what it emits: an exception from {@link
  * Emitter#accept} is the downstream's and is the converter's to dead-letter. An exception escaping
- * {@link #emit} is dead-lettered with the fetched record, as a failed {@code accept} is for other
- * converters.
+ * {@link #emit} is dead-lettered with the fetched record under the failing node's id (the source's
+ * unless it is a {@code NodeExecutionException}) and the record is committed; if that DLQ write
+ * fails, the record is left uncommitted.
  */
 public interface BatchEmittingConverter<T> extends RawDataConverter<T> {
 

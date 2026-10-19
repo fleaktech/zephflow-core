@@ -131,8 +131,8 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
   /**
    * Hands each fetched record to a {@link BatchEmittingConverter}, one at a time, and commits after
-   * each record's last batch. After a stop, the current record is not committed and the rest are
-   * left for redelivery.
+   * each record's last batch. After a stop, or when a failed record cannot be dead-lettered, the
+   * current record is not committed and the rest are left for redelivery.
    */
   private void emitEach(
       List<T> fetchedData,
@@ -164,18 +164,9 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
           return;
         }
         log.error("failed to convert a fetched record", e);
-        DlqWriter dlqWriter = context.dlqWriter();
-        if (dlqWriter != null) {
-          String failingNodeId = e instanceof NodeExecutionException nee ? nee.getNodeId() : nodeId;
-          try {
-            dlqWriter.writeToDlq(
-                System.currentTimeMillis(),
-                context.encoder().serialize(sourceRecord),
-                ExceptionUtils.getStackTrace(e),
-                failingNodeId);
-          } catch (Exception dlqFailure) {
-            log.error("failed to write the failed record to the DLQ", dlqFailure);
-          }
+        if (!deadLetter(sourceRecord, context, e)) {
+          // Not committed, so the record and the ones after it are delivered again.
+          return;
         }
       }
       if (stopping.get()) {
@@ -188,6 +179,26 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
           log.error("failed to commit", e);
         }
       }
+    }
+  }
+
+  /** Writes a record whose conversion failed to the DLQ; false when that write itself failed. */
+  private boolean deadLetter(T sourceRecord, SourceExecutionContext<T> context, Exception e) {
+    DlqWriter dlqWriter = context.dlqWriter();
+    if (dlqWriter == null) {
+      return true;
+    }
+    String failingNodeId = e instanceof NodeExecutionException nee ? nee.getNodeId() : nodeId;
+    try {
+      dlqWriter.writeToDlq(
+          System.currentTimeMillis(),
+          context.encoder().serialize(sourceRecord),
+          ExceptionUtils.getStackTrace(e),
+          failingNodeId);
+      return true;
+    } catch (Exception dlqFailure) {
+      log.error("failed to write the failed record to the DLQ; leaving it uncommitted", dlqFailure);
+      return false;
     }
   }
 

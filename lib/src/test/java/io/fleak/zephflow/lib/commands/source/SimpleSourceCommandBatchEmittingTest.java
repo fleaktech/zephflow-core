@@ -34,7 +34,11 @@ class SimpleSourceCommandBatchEmittingTest {
 
   private static final String NODE_ID = "source";
 
+  /** A DLQ entry as a comparable value; the error text is cut to its first line. */
+  record DlqEntry(String key, String value, String errorFirstLine, String nodeId) {}
+
   private final List<String> events = new ArrayList<>();
+  private final List<DlqEntry> dlq = new ArrayList<>();
   private Fetcher<String> fetcher;
   private DlqWriter dlqWriter;
   private RawDataSampler<String> sampler;
@@ -59,6 +63,20 @@ class SimpleSourceCommandBatchEmittingTest {
     fetcher = mock();
     when(fetcher.committer()).thenReturn(() -> events.add("commit"));
     dlqWriter = mock(DlqWriter.class);
+    doAnswer(
+            invocation -> {
+              SerializedEvent raw = invocation.getArgument(1);
+              String error = invocation.getArgument(2);
+              dlq.add(
+                  new DlqEntry(
+                      raw.key() == null ? null : new String(raw.key()),
+                      new String(raw.value()),
+                      error.lines().findFirst().orElse(""),
+                      invocation.getArgument(3)));
+              return null;
+            })
+        .when(dlqWriter)
+        .writeToDlq(anyLong(), any(), anyString(), anyString());
     //noinspection unchecked
     sampler = mock(RawDataSampler.class);
     acceptor = mock(SourceEventAcceptor.class);
@@ -73,7 +91,7 @@ class SimpleSourceCommandBatchEmittingTest {
   }
 
   @Test
-  void eachRecordIsCommittedAfterItsLastBatchAndNotBefore() {
+  void eachRecordIsCommittedAfterItsLastBatchEvenWhenTheFetcherIsExhausted() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
 
@@ -83,65 +101,54 @@ class SimpleSourceCommandBatchEmittingTest {
         List.of("accept a-1", "accept a-2", "commit", "accept b-1", "accept b-2", "commit"),
         events);
     verify(sampler).maybeSample(List.of("a", "b"));
-    verify(dlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
+    assertEquals(List.of(), dlq);
   }
 
   @Test
-  void aFetcherThatReportsExhaustionStillGetsItsLastRecordsHandledAndCommitted() {
-    when(fetcher.fetch()).thenReturn(List.of(), List.of("a"));
-    when(fetcher.isExhausted()).thenReturn(false, true);
-
-    run(new TwoBatches());
-
-    assertEquals(List.of("accept a-1", "accept a-2", "commit"), events);
-  }
-
-  @Test
-  void aStopBetweenBatchesLeavesTheRecordUncommittedAndAFailureAfterItIsNotDeadLettered() {
+  void aStopBetweenBatchesLeavesTheRecordUncommittedAndTheRestUnhandled() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
-    doAnswer(
-            invocation -> {
-              events.add(
-                  "accept "
-                      + ((List<RecordFleakData>) invocation.getArgument(0))
-                          .getFirst()
-                          .unwrap()
-                          .get("id"));
-              source.terminate();
-              return null;
-            })
-        .when(acceptor)
-        .accept(anyList());
+    stopAfterFirstBatch();
+
+    run(
+        (sourceRecord, context, emitter) -> {
+          for (int batch = 1; batch <= 2 && !emitter.stopped(); batch++) {
+            emitter.accept(List.of(record(sourceRecord + "-" + batch)));
+          }
+        });
+
+    assertEquals(List.of("accept a-1"), events);
+    assertEquals(List.of(), dlq);
+  }
+
+  @Test
+  void aFailureAfterTheStopIsNotDeadLettered() {
+    when(fetcher.fetch()).thenReturn(List.of("a", "b"));
+    when(fetcher.isExhausted()).thenReturn(true);
+    stopAfterFirstBatch();
 
     run(new TwoBatches());
 
     assertEquals(List.of("accept a-1"), events);
-    verify(dlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
+    assertEquals(List.of(), dlq);
   }
 
   @Test
   void anExceptionEscapingEmitIsDeadLetteredWithTheRecordAndTheRecordIsCommitted() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
-    IllegalStateException bug = new IllegalStateException("bug");
 
     run(
         (sourceRecord, context, emitter) -> {
           if (sourceRecord.equals("a")) {
-            throw bug;
+            throw new IllegalStateException("bug");
           }
           emitter.accept(List.of(record(sourceRecord)));
         });
 
     assertEquals(List.of("commit", "accept b", "commit"), events);
-    verify(dlqWriter)
-        .writeToDlq(
-            anyLong(),
-            argThat(value -> new String(value.value()).equals("a")),
-            startsWith("java.lang.IllegalStateException: bug"),
-            eq(NODE_ID));
-    verify(dlqWriter, times(1)).writeToDlq(anyLong(), any(), any(), any());
+    assertEquals(
+        List.of(new DlqEntry(null, "a", "java.lang.IllegalStateException: bug", NODE_ID)), dlq);
   }
 
   @Test
@@ -154,22 +161,41 @@ class SimpleSourceCommandBatchEmittingTest {
           throw new NodeExecutionException("eval_1", "eval", "missing field", null);
         });
 
-    verify(dlqWriter)
-        .writeToDlq(
-            anyLong(),
-            argThat(value -> new String(value.value()).equals("a")),
-            anyString(),
-            eq("eval_1"));
     assertEquals(List.of("commit"), events);
+    assertEquals(
+        List.of(
+            new DlqEntry(
+                null,
+                "a",
+                "io.fleak.zephflow.lib.commands.NodeExecutionException: missing field",
+                "eval_1")),
+        dlq);
   }
 
   @Test
-  void aFailedDlqWriteDoesNotStopTheSource() {
+  void aRecordThatCannotBeDeadLetteredIsLeftUncommittedWithTheRest() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
-    doThrow(new IllegalStateException("dlq down"))
+    doThrow(new IllegalStateException("dlq closed"))
         .when(dlqWriter)
         .writeToDlq(anyLong(), any(), anyString(), anyString());
+
+    run(
+        (sourceRecord, context, emitter) -> {
+          if (sourceRecord.equals("a")) {
+            throw new IllegalStateException("bug");
+          }
+          emitter.accept(List.of(record(sourceRecord)));
+        });
+
+    assertEquals(List.of(), events);
+  }
+
+  @Test
+  void withoutADlqAFailedRecordIsDroppedAndCommitted() {
+    when(fetcher.fetch()).thenReturn(List.of("a", "b"));
+    when(fetcher.isExhausted()).thenReturn(true);
+    dlqWriter = null;
 
     run(
         (sourceRecord, context, emitter) -> {
@@ -183,9 +209,21 @@ class SimpleSourceCommandBatchEmittingTest {
   }
 
   @Test
-  void convertIsNotCalledForABatchEmittingConverter() {
+  void theDefaultConvertRefusesToRun() {
     TwoBatches converter = new TwoBatches();
     assertThrows(UnsupportedOperationException.class, () -> converter.convert("a", null));
+  }
+
+  private void stopAfterFirstBatch() {
+    doAnswer(
+            invocation -> {
+              List<RecordFleakData> batch = invocation.getArgument(0);
+              events.add("accept " + batch.getFirst().unwrap().get("id"));
+              source.terminate();
+              return null;
+            })
+        .when(acceptor)
+        .accept(anyList());
   }
 
   private void run(BatchEmittingConverter<String> converter) {
