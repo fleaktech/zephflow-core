@@ -88,6 +88,40 @@ class TextMultilineDecodeTest {
   }
 
   @Test
+  void anEventOverBothLimitsNamesTheFirstItReaches() {
+    RecordDecoder twoLines = decoder(multiline("\"continuePattern\":\"^\\\\s\",\"maxLines\":2"));
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 11),
+                LimitKind.MAX_RECORD_BYTES,
+                4,
+                11,
+                "abcde\n x\n y",
+                false),
+            new Ok(raw("z"), 4, new RawSpan(12, 1))),
+        decode(twoLines, ByteInput.ofBytes(utf8("abcde\n x\n y\nz")), new DecodeLimits(4, 0)));
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 19),
+                LimitKind.MAX_LINES,
+                2,
+                19,
+                "a\n b\n c\n dddddddddd",
+                false),
+            new Ok(raw("z"), 5, new RawSpan(20, 1))),
+        decode(
+            twoLines,
+            ByteInput.ofBytes(utf8("a\n b\n c\n dddddddddd\nz")),
+            new DecodeLimits(10, 0)));
+  }
+
+  @Test
   void oversizedLineMakesItsEventOversized() {
     assertEquals(
         List.of(
