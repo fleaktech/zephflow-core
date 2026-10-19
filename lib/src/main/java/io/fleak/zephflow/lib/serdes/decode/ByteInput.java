@@ -88,6 +88,7 @@ public interface ByteInput {
 
           @Override
           public InputStream read(long offset, long length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, Files.size(file));
             if (length == 0) {
               return InputStream.nullInputStream();
             }

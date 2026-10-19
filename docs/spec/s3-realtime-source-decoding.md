@@ -85,14 +85,15 @@ record, and the downstream can take as long as it needs without holding a connec
 
 - It is opened with one plain `GetObject`, as today, so errors surface as today (`NoSuchKey`,
   `NoSuchBucket`, access denied). A stored length over `maxObjectSizeBytes` aborts the response
-  (`ResponseInputStream.abort()`), so the object is not downloaded.
+  (`ResponseInputStream.abort()`), so the object is not downloaded; a response without a length
+  is a read failure, as it is today.
 - The body is copied to a new file in the source's spool directory, and the copy must reach the
   stored length; a premature end is a failure.
 - A failure while reading the body (the connection closed, a premature end) deletes the partial
   file and starts the download again from the beginning, up to 3 attempts in all. `NoSuchKey` on a
   later attempt is a `missing` skip. A failure to write the local file (a full disk) is not retried.
-  A download that does not succeed is a read failure: an object summary with the notification as
-  its value (3.3), as today's download failures are.
+  An interrupt is not retried either. A download that does not succeed is a read failure: an
+  object summary with the notification as its value (3.3), as today's download failures are.
 - The decoder reads the file through a new `ByteInput.ofFile(Path)` in the decoder, which streams the
   file and offers random access to it, so parquet reads its footer and row groups from disk.
 - `maxObjectSizeBytes` is also the disk cap: the source handles one object at a time, so it needs
@@ -377,7 +378,7 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
 
 | PR | Content |
 |---|---|
-| 1 | This spec; `ByteInput.ofFile` in the decoder; the download to the spool directory, with its tests |
+| 1 | This spec; `ByteInput.ofFile` in the decoder, with the decoder spec's `ByteInput` paragraph; the download to the spool directory, with its tests |
 | 2 | `SimpleSourceCommand`'s path for converters that emit their own batches, with tests |
 | 3 | `DecodeLimits.maxCodecMemoryBytes` in the decoder, with its tests and the decoder spec's xz row |
 | 4a | `S3Decoding`, the legacy mapping, the limits, `S3ObjectDecoder`, with their tests and the differential test |
@@ -385,11 +386,12 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
 
 ## 8. Testing
 
-- The download against a mocked `S3Client`: a body that breaks at any offset is downloaded again
-  and decoded once, with the partial file deleted before the next attempt; 3 failed attempts are a
+- The download against a mocked `S3Client`: a body that breaks at any offset, or with any of the
+  errors a body read throws, is downloaded again, with the partial file deleted before the next
+  attempt; 3 failed attempts are a
   read failure; `NoSuchKey` on a later attempt is `missing`; a premature end; a failed write is not
-  retried; an oversized object is aborted, not downloaded; a zero-length object; the local file is
-  deleted on every outcome, including a stop. The spool directory is created under the working
+  retried; an interrupt is not retried; a response without a length; an oversized object is
+  aborted, not downloaded; a zero-length object; the local file is deleted on every outcome. The spool directory is created under the working
   directory, falls back to `java.io.tmpdir`, and is deleted on close. `ByteInput.ofFile`: streaming,
   ranges, and a zero-length range.
 - The existing LocalStack integration test issues only the plain `GetObject` the download uses. Its
@@ -411,7 +413,8 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
   `inputEventSizeCount` for a gzip object (the end of its last span), records before a failure
   still emitted, a downstream failure followed by the next batch, a million bytes-less failures
   giving one summary.
-- `S3ObjectDecoder`: the visitor stopping early (the local file is deleted), each returned status,
+- `S3ObjectDecoder`: a body that breaks once is decoded once (no record twice); the visitor
+  stopping early, and a stop, delete the local file; each returned status,
   the length, ETag and version id returned, `addS3Metadata`, and the limits for a given heap size.
 - A differential test feeds the same bytes to the legacy deserializers and to `S3ObjectDecoder`
   with the 4.1 mapping, with at least one case per bullet of 4.2 that concerns decoding, and asserts

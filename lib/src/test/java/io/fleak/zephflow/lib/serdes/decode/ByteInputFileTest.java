@@ -64,11 +64,13 @@ class ByteInputFileTest {
   }
 
   @Test
-  void rangePastTheEndEndsEarly() throws IOException {
+  void aRangePastTheEndIsRejectedLikeOfBytes() throws IOException {
     Path file = write("0123456789");
-    try (InputStream in = ByteInput.ofFile(file).randomAccess().orElseThrow().read(8, 5)) {
-      assertEquals("89", new String(in.readAllBytes(), StandardCharsets.UTF_8));
-    }
+    RandomAccessInput ranges = ByteInput.ofFile(file).randomAccess().orElseThrow();
+    assertThrows(IndexOutOfBoundsException.class, () -> ranges.read(8, 5));
+    assertThrows(
+        IndexOutOfBoundsException.class,
+        () -> ByteInput.ofBytes(Files.readAllBytes(file)).randomAccess().orElseThrow().read(8, 5));
   }
 
   @Test

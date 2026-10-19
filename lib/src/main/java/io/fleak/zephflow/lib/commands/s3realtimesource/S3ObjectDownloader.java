@@ -14,11 +14,16 @@
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkClientException;
@@ -30,18 +35,26 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 /**
  * Downloads one S3 object whole into a file of a spool directory, so that nothing is decoded while
  * the network is involved. A body that breaks mid-download is downloaded again from the beginning;
- * opening errors and local write failures are not retried.
+ * opening errors, local write failures and interrupts are not retried.
  */
 @Slf4j
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class S3ObjectDownloader {
 
   static final int MAX_ATTEMPTS = 3;
   private static final int BUFFER_SIZE = 64 * 1024;
 
   private final Path spoolDir;
+  private final OutputOpener outputOpener;
 
   S3ObjectDownloader(Path spoolDir) {
-    this.spoolDir = spoolDir;
+    this(spoolDir, Files::newOutputStream);
+  }
+
+  /** Opens the local copy for writing; replaceable so tests can fail the writes. */
+  @FunctionalInterface
+  interface OutputOpener {
+    OutputStream open(Path file) throws IOException;
   }
 
   sealed interface Download permits Missing, TooLarge, Downloaded {}
@@ -65,7 +78,7 @@ final class S3ObjectDownloader {
       throws SourceReadException {
     GetObjectRequest request =
         GetObjectRequest.builder().bucket(ref.bucket()).key(ref.key()).build();
-    BodyFailure lastFailure = null;
+    List<Exception> failures = new ArrayList<>();
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       ResponseInputStream<GetObjectResponse> body;
       try {
@@ -76,28 +89,40 @@ final class S3ObjectDownloader {
         throw new SourceReadException(describe(ref, "opening") + " failed", e);
       }
       GetObjectResponse response = body.response();
-      long storedLength = response.contentLength() == null ? -1 : response.contentLength();
-      if (storedLength > maxObjectSizeBytes) {
-        body.abort();
+      Long storedLength = response.contentLength();
+      if (storedLength == null || storedLength > maxObjectSizeBytes) {
+        abortQuietly(body);
         closeQuietly(body);
+        if (storedLength == null) {
+          throw new SourceReadException(describe(ref, "opening") + " gave no content length", null);
+        }
         return new TooLarge(storedLength);
       }
       try {
         Path file = copy(body, ref, storedLength);
         return new Downloaded(file, storedLength, response.eTag(), response.versionId());
       } catch (BodyFailure e) {
-        lastFailure = e;
+        failures.add(e.getCause());
+        if (Thread.currentThread().isInterrupted()) {
+          throw failure(describe(ref, "downloading") + " was interrupted", failures);
+        }
         log.warn(
             "{} broke on attempt {} of {}: {}",
             describe(ref, "downloading"),
             attempt,
             MAX_ATTEMPTS,
-            e.getCause() == null ? e.getMessage() : e.getCause().toString());
+            e.getCause().toString());
       }
     }
-    throw new SourceReadException(
-        describe(ref, "downloading") + " failed after " + MAX_ATTEMPTS + " attempts",
-        lastFailure.getCause() == null ? lastFailure : lastFailure.getCause());
+    throw failure(
+        describe(ref, "downloading") + " failed after " + MAX_ATTEMPTS + " attempts", failures);
+  }
+
+  /** The last attempt's error is the cause; the earlier attempts' errors are suppressed. */
+  private static SourceReadException failure(String message, List<Exception> failures) {
+    SourceReadException e = new SourceReadException(message, failures.getLast());
+    failures.subList(0, failures.size() - 1).forEach(e::addSuppressed);
+    return e;
   }
 
   /**
@@ -116,13 +141,13 @@ final class S3ObjectDownloader {
       }
       long copied = 0;
       byte[] buffer = new byte[BUFFER_SIZE];
-      try (OutputStream out = Files.newOutputStream(file)) {
+      try (OutputStream out = outputOpener.open(file)) {
         while (true) {
           int n;
           try {
             n = body.read(buffer);
           } catch (IOException | SdkClientException | UncheckedIOException e) {
-            throw new BodyFailure("reading the body failed", e);
+            throw new BodyFailure(e);
           }
           if (n < 0) {
             break;
@@ -140,18 +165,19 @@ final class S3ObjectDownloader {
       } catch (IOException e) {
         throw new SourceReadException(describe(ref, "writing the local copy of") + " failed", e);
       }
-      if (storedLength >= 0 && copied != storedLength) {
+      if (copied != storedLength) {
         throw new BodyFailure(
-            "the body ended after %d of %d bytes".formatted(copied, storedLength), null);
+            new EOFException(
+                "the body ended after %d of %d bytes".formatted(copied, storedLength)));
       }
       done = true;
       return file;
     } finally {
       if (!done) {
-        body.abort();
         if (file != null) {
           deleteQuietly(file);
         }
+        abortQuietly(body);
       }
       closeQuietly(body);
     }
@@ -159,6 +185,14 @@ final class S3ObjectDownloader {
 
   private static String describe(S3ObjectRef ref, String action) {
     return "%s s3://%s/%s".formatted(action, ref.bucket(), ref.key());
+  }
+
+  private static void abortQuietly(ResponseInputStream<GetObjectResponse> body) {
+    try {
+      body.abort();
+    } catch (RuntimeException e) {
+      log.debug("aborting the S3 response failed", e);
+    }
   }
 
   private static void closeQuietly(ResponseInputStream<GetObjectResponse> body) {
@@ -177,9 +211,15 @@ final class S3ObjectDownloader {
     }
   }
 
+  /** A read of the body failed; the cause is the error to report. */
   private static final class BodyFailure extends Exception {
-    BodyFailure(String message, Throwable cause) {
-      super(message, cause);
+    BodyFailure(Exception cause) {
+      super(cause);
+    }
+
+    @Override
+    public synchronized Exception getCause() {
+      return (Exception) super.getCause();
     }
   }
 }

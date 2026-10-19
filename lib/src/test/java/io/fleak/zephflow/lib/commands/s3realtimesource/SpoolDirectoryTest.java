@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,21 @@ class SpoolDirectoryTest {
       assertEquals(tmpDir, spool.getPath().getParent());
       assertTrue(Files.isDirectory(spool.getPath()));
     }
+  }
+
+  @Test
+  void defaultsToTheJvmWorkingDirectory() {
+    try (SpoolDirectory spool = SpoolDirectory.create()) {
+      assertEquals(Path.of(System.getProperty("user.dir")), spool.getPath().getParent());
+    }
+  }
+
+  @Test
+  void failsWhenNeitherDirectoryIsUsable() throws IOException {
+    Path notADirectory = Files.writeString(workingDir.resolve("file"), "x");
+
+    assertThrows(
+        UncheckedIOException.class, () -> SpoolDirectory.create(notADirectory, notADirectory));
   }
 
   @Test
