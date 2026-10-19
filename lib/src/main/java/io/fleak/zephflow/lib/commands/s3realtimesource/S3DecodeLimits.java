@@ -57,18 +57,11 @@ final class S3DecodeLimits {
   }
 
   /**
-   * max({@code TASK_MAX_MEMORY}, 1024) MiB, which is the {@code -Xmx} grid starts a pipeline with;
-   * else the last {@code -Xmx} argument; else {@code maxMemory}.
+   * The last {@code -Xmx} argument, which is the heap the JVM was started with; else max({@code
+   * TASK_MAX_MEMORY}, 1024) MiB, which is the {@code -Xmx} grid starts a pipeline with, parsed as
+   * grid parses it; else {@code maxMemory}.
    */
   static long nominalHeapBytes(Map<String, String> env, List<String> jvmArgs, long maxMemory) {
-    String task = env.get(TASK_MAX_MEMORY);
-    if (task != null) {
-      try {
-        return Math.max(Long.parseLong(task.trim()), GRID_MIN_HEAP_MIB) * MIB;
-      } catch (NumberFormatException e) {
-        // grid falls back to its default heap, which is the -Xmx argument below
-      }
-    }
     Long xmx = null;
     for (String arg : jvmArgs) {
       if (arg.startsWith("-Xmx")) {
@@ -78,7 +71,18 @@ final class S3DecodeLimits {
         }
       }
     }
-    return xmx != null ? xmx : maxMemory;
+    if (xmx != null) {
+      return xmx;
+    }
+    String task = env.get(TASK_MAX_MEMORY);
+    if (task != null) {
+      try {
+        return Math.max(Integer.parseInt(task), GRID_MIN_HEAP_MIB) * MIB;
+      } catch (NumberFormatException e) {
+        return GRID_MIN_HEAP_MIB * MIB;
+      }
+    }
+    return maxMemory;
   }
 
   private static Long parseSize(String value) {

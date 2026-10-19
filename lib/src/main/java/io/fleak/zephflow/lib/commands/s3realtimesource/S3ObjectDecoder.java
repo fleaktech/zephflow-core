@@ -33,7 +33,6 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.Getter;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /**
@@ -58,11 +57,9 @@ public final class S3ObjectDecoder {
 
   /**
    * The outcome of {@link #decode}. {@code storedLength}, {@code eTag} and {@code versionId} come
-   * from the GetObject response (-1 and null when missing); {@code bytesDownloaded} is what was
-   * written to local disk.
+   * from the GetObject response, also for a too large object; -1 and null when it is missing.
    */
-  public record Result(
-      Status status, long storedLength, String eTag, String versionId, long bytesDownloaded) {}
+  public record Result(Status status, long storedLength, String eTag, String versionId) {}
 
   /** Receives each outcome; returns false to stop. */
   @FunctionalInterface
@@ -70,19 +67,42 @@ public final class S3ObjectDecoder {
     boolean visit(DecodeOutcome outcome);
   }
 
-  @Getter private final RecordDecoder recordDecoder;
-  @Getter private final DecodeLimits limits;
+  private static final long MIN_HEAP_BYTES = 1024L * 1024;
+
+  private final RecordDecoder recordDecoder;
+  private final DecodeLimits limits;
   private final boolean addS3Metadata;
 
   /**
+   * @param heapBytes the heap the limits are proportions of, at least 1 MiB
    * @throws IllegalArgumentException for a configuration that {@link S3Decoding#decodingConfig} or
-   *     the decoder rejects
+   *     the decoder rejects, or a heap under 1 MiB
    */
   public S3ObjectDecoder(S3Decoding decoding, long heapBytes) {
+    if (heapBytes < MIN_HEAP_BYTES) {
+      throw new IllegalArgumentException(
+          "heapBytes must be at least " + MIN_HEAP_BYTES + " but was " + heapBytes);
+    }
     DecodingConfig config = decoding.decodingConfig();
     this.recordDecoder = DecodingConfigCompiler.compile(config);
     this.limits = S3DecodeLimits.forFormat(config.format(), heapBytes);
     this.addS3Metadata = decoding.addS3Metadata();
+  }
+
+  S3ObjectDecoder(RecordDecoder recordDecoder, DecodeLimits limits, boolean addS3Metadata) {
+    this.recordDecoder = recordDecoder;
+    this.limits = limits;
+    this.addS3Metadata = addS3Metadata;
+  }
+
+  /** The compiled decoder, for a caller that holds an object's bytes itself. */
+  public RecordDecoder recordDecoder() {
+    return recordDecoder;
+  }
+
+  /** The limits the decoder is opened with. */
+  public DecodeLimits limits() {
+    return limits;
   }
 
   /**
@@ -96,8 +116,8 @@ public final class S3ObjectDecoder {
       throws SourceReadException {
     Download download = new S3ObjectDownloader(spoolDir).download(s3, ref, maxObjectSizeBytes);
     return switch (download) {
-      case Missing m -> new Result(Status.MISSING, -1, null, null, 0);
-      case TooLarge t -> new Result(Status.TOO_LARGE, t.storedLength(), null, null, 0);
+      case Missing m -> new Result(Status.MISSING, -1, null, null);
+      case TooLarge t -> new Result(Status.TOO_LARGE, t.storedLength(), t.eTag(), t.versionId());
       case Downloaded d -> decode(d, ref, visitor);
     };
   }
@@ -115,12 +135,7 @@ public final class S3ObjectDecoder {
         }
       }
     }
-    return new Result(
-        status,
-        downloaded.storedLength(),
-        downloaded.eTag(),
-        downloaded.versionId(),
-        downloaded.storedLength());
+    return new Result(status, downloaded.storedLength(), downloaded.eTag(), downloaded.versionId());
   }
 
   private DecodeOutcome enrich(DecodeOutcome outcome, S3ObjectRef ref) {

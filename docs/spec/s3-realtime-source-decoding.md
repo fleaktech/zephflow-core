@@ -182,14 +182,15 @@ Without a configured DLQ, failures are logged and dropped, as today.
 ### 3.4 Limits and memory
 
 - The limits are fixed proportions of a heap size, the first of:
-  - the size a caller of 5 passes;
-  - max(`TASK_MAX_MEMORY`, 1024 MiB), which is the `-Xmx` grid gives the pipeline from the
-    environment variable it sets;
-  - the JVM's `-Xmx` input argument as given (no floor);
+  - the size a caller of 5 passes (at least 1 MiB);
+  - the JVM's last `-Xmx` input argument, as given;
+  - max(`TASK_MAX_MEMORY`, 1024 MiB), parsed as grid parses it, which is the `-Xmx` grid gives a
+    pipeline from the environment variable it sets;
   - `Runtime.maxMemory()`.
 
   The nominal `-Xmx` is preferred to `Runtime.maxMemory()` because some collectors report less
-  than `-Xmx`.
+  than `-Xmx`, and to `TASK_MAX_MEMORY` because grid also starts other JVMs with that variable
+  and a smaller `-Xmx`.
 
   | Format | `maxRecordBytes` | `maxDocumentBytes` | At 2 GiB |
   |---|---|---|---|
@@ -270,6 +271,7 @@ no limits hit, the records of valid input are the same, except:
 - **Bad data loses only itself.** Legacy dead-letters the whole object on the first bad line,
   element or row and emits nothing from it. Now the good records are emitted and each bad one is
   dead-lettered (3.3). A pretty-printed file read as JSON_OBJECT_LINE gives one DLQ entry per line.
+  In JSON_ARRAY a malformed element ends the object, after the elements before it.
 - **JSON_OBJECT_LINE: a line holding an array is a failed record**, where legacy emitted one record
   per element (decided by the user).
 - **CSV: a row with more columns than the header is a failed record**, where legacy silently
@@ -280,7 +282,8 @@ no limits hit, the records of valid input are the same, except:
 - **A UTF-8 byte order mark is removed** in STRING_LINE, TEXT and CSV (legacy kept it in the first
   line, text or header name) and in JSON_OBJECT_LINE (legacy failed the first line).
 - **An empty object gives no records and no DLQ entry.** Legacy dead-lettered it for JSON_OBJECT,
-  JSON_ARRAY, XML and a forced GZIP, and emitted `{"__raw__": ""}` for TEXT.
+  JSON_ARRAY, XML and a forced GZIP, and emitted `{"__raw__": ""}` for TEXT, also when the object
+  is a gzip of nothing.
 - **gzip: bytes after the last member are `CORRUPT_COMPRESSION`**, after the records before them;
   legacy ignored them. A truncated gzip object emits the records decoded before the cut.
 - **XML: any `DOCTYPE`, and an element or text after the root, fail the object**; legacy accepted a
@@ -340,8 +343,8 @@ follow-up, dynamicapi's sampler both use it:
   3.2 and hands each `DecodeOutcome` to the visitor until the visitor asks to stop or the object
   ends, then deletes the local file, whatever the outcome. The caller owns `spoolDir`: the source
   passes its spool directory, and a sampler passes a directory it creates and removes itself. It
-  returns whether the object was missing, too large, finished or stopped; the stored length, ETag
-  and version id from the response; and the bytes downloaded. A failed download throws
+  returns whether the object was missing, too large, finished or stopped, and the stored length,
+  ETag and version id from the response (also for a too large object). A failed download throws
   `SourceReadException`.
 - `recordDecoder()` and `limits()` expose the compiled decoder and limits, for a caller that holds
   an object's bytes itself (the sampler's dataset mode, which shows each record's raw bytes). Spans

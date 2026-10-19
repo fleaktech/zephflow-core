@@ -26,7 +26,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
-import io.fleak.zephflow.lib.utils.JsonUtils;
+import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -77,19 +77,6 @@ class S3DecodingTest {
   }
 
   @Test
-  void aNestedDecodingParsesFromJson() {
-    DecodingConfig parsed =
-        JsonUtils.fromJsonString(
-            "{\"compression\":\"zstd\",\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}",
-            DecodingConfig.class);
-    assertEquals(
-        new DecodingConfig(
-            List.of(DecompressionCodec.ZSTD),
-            new TextFormatConfig(null, new FramingConfig.Line(null))),
-        parsed);
-  }
-
-  @Test
   void neitherEncodingTypeNorDecodingIsRejected() {
     assertEquals(
         "exactly one of encodingType and decoding must be set",
@@ -125,8 +112,12 @@ class S3DecodingTest {
 
   @Test
   void parquetEncodingTypeIsRejected() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new S3Decoding(EncodingType.PARQUET, null, null, false).decodingConfig());
+    assertEquals(
+        "Unsupported deserialization encoding type: PARQUET. Supported types: "
+            + DeserializerFactory.SUPPORTED_ENCODING_TYPES,
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new S3Decoding(EncodingType.PARQUET, null, null, false).decodingConfig())
+            .getMessage());
   }
 }

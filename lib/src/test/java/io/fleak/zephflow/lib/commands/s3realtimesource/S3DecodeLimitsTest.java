@@ -17,12 +17,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -48,6 +51,16 @@ class S3DecodeLimitsTest {
         Arguments.of(avro, 2 * GIB, new DecodeLimits(16 * MIB, 4 * MIB, 128 * MIB)),
         Arguments.of(protobuf, 2 * GIB, new DecodeLimits(2 * MIB, 2 * MIB, 128 * MIB)),
         Arguments.of(parquet, 2 * GIB, DecodeLimits.UNLIMITED),
+        Arguments.of(
+            new CsvFormatConfig(null, null, null, null, null, null, null, true, null),
+            2 * GIB,
+            new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB)),
+        Arguments.of(
+            new XmlFormatConfig(XmlFormatConfig.Mode.DOCUMENT, null),
+            2 * GIB,
+            new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB)),
+        Arguments.of(
+            new YamlFormatConfig(null), 2 * GIB, new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB)),
         Arguments.of(json, GIB, new DecodeLimits(8 * MIB, 16 * MIB, 128 * MIB)),
         Arguments.of(protobuf, GIB, new DecodeLimits(MIB, MIB, 128 * MIB)),
         Arguments.of(json, 64 * MIB, new DecodeLimits(512 * 1024, MIB, 32 * MIB)));
@@ -72,34 +85,31 @@ class S3DecodeLimitsTest {
   }
 
   @Test
-  void taskMaxMemoryWinsWithGridsFloor() {
+  void theLastXmxWinsAsGiven() {
     assertEquals(
-        List.of(2048 * MIB, 1024 * MIB),
+        List.of(256 * MIB, 2 * GIB, 512 * 1024L, 1_000_000L),
         List.of(
             S3DecodeLimits.nominalHeapBytes(
-                Map.of("TASK_MAX_MEMORY", "2048"), List.of("-Xmx1g"), GIB - 1),
-            S3DecodeLimits.nominalHeapBytes(
-                Map.of("TASK_MAX_MEMORY", "768"), List.of("-Xmx1024m"), GIB - 1)));
-  }
-
-  @Test
-  void withoutTaskMaxMemoryTheLastXmxIsUsedAsGiven() {
-    assertEquals(
-        List.of(64 * MIB, 2 * GIB, 512 * 1024L, 1_000_000L),
-        List.of(
-            S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xms8m", "-Xmx64m"), 60 * MIB),
+                Map.of("TASK_MAX_MEMORY", "2048"), List.of("-Xms8m", "-Xmx256m"), GIB),
             S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmx1g", "-Xmx2G"), GIB),
             S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmx512k"), 1),
             S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmx1000000"), 1)));
   }
 
   @Test
-  void anUnreadableTaskMaxMemoryOrXmxFallsBack() {
+  void withoutXmxTaskMaxMemoryIsUsedWithGridsFloorAndParse() {
     assertEquals(
-        List.of(GIB, 123L),
+        List.of(2048 * MIB, 1024 * MIB, 1024 * MIB, 1024 * MIB),
         List.of(
-            S3DecodeLimits.nominalHeapBytes(
-                Map.of("TASK_MAX_MEMORY", "lots"), List.of("-Xmx1g"), 123),
-            S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmxbig", "-Xss1m"), 123)));
+            S3DecodeLimits.nominalHeapBytes(Map.of("TASK_MAX_MEMORY", "2048"), List.of(), 1),
+            S3DecodeLimits.nominalHeapBytes(Map.of("TASK_MAX_MEMORY", "768"), List.of(), 1),
+            S3DecodeLimits.nominalHeapBytes(Map.of("TASK_MAX_MEMORY", " 4096"), List.of(), 1),
+            S3DecodeLimits.nominalHeapBytes(Map.of("TASK_MAX_MEMORY", "lots"), List.of(), 1)));
+  }
+
+  @Test
+  void withNeitherTheJvmsMaxMemoryIsUsed() {
+    assertEquals(
+        123L, S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmxbig", "-Xss1m"), 123));
   }
 }

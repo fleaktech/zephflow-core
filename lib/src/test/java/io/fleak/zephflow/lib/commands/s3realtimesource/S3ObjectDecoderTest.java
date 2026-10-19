@@ -24,6 +24,8 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
+import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
+import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
@@ -71,7 +73,7 @@ class S3ObjectDecoderTest {
 
     Result result = jsonLines(false).decode(s3, REF, 1024, spoolDir, collect());
 
-    assertEquals(new Result(Status.FINISHED, LINES.length, "\"e\"", "v1", LINES.length), result);
+    assertEquals(new Result(Status.FINISHED, LINES.length, "\"e\"", "v1"), result);
     assertEquals(
         List.of(
             new DecodeOutcome.Decoded(json("{\"a\":1}"), 1, new RawSpan(0, 7)),
@@ -112,7 +114,7 @@ class S3ObjectDecoderTest {
                   return false;
                 });
 
-    assertEquals(new Result(Status.STOPPED, LINES.length, "\"e\"", "v1", LINES.length), result);
+    assertEquals(new Result(Status.STOPPED, LINES.length, "\"e\"", "v1"), result);
     assertEquals(List.of(new DecodeOutcome.Decoded(json("{\"a\":1}"), 1, new RawSpan(0, 7))), seen);
     assertEquals(List.of(), spoolFiles());
   }
@@ -144,7 +146,7 @@ class S3ObjectDecoderTest {
 
     Result result = jsonLines(false).decode(s3, REF, 1024, spoolDir, collect());
 
-    assertEquals(Status.FINISHED, result.status());
+    assertEquals(new Result(Status.FINISHED, LINES.length, "\"e\"", "v1"), result);
     assertEquals(
         List.of(json("{\"a\":1}"), json("{\"a\":2}"), json("{\"a\":3}")),
         seen.stream().map(o -> ((DecodeOutcome.Decoded) o).record()).toList());
@@ -156,7 +158,7 @@ class S3ObjectDecoderTest {
         .thenThrow(NoSuchKeyException.builder().message("gone").build());
 
     assertEquals(
-        new Result(Status.MISSING, -1, null, null, 0),
+        new Result(Status.MISSING, -1, null, null),
         jsonLines(false).decode(s3, REF, 1024, spoolDir, collect()));
     assertEquals(List.of(), seen);
   }
@@ -166,7 +168,7 @@ class S3ObjectDecoderTest {
     when(s3.getObject(any(GetObjectRequest.class))).thenReturn(body(LINES));
 
     assertEquals(
-        new Result(Status.TOO_LARGE, LINES.length, null, null, 0),
+        new Result(Status.TOO_LARGE, LINES.length, "\"e\"", "v1"),
         jsonLines(false).decode(s3, REF, LINES.length - 1, spoolDir, collect()));
     assertEquals(List.of(), seen);
   }
@@ -185,7 +187,7 @@ class S3ObjectDecoderTest {
     assertEquals(
         new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB),
         new S3ObjectDecoder(new S3Decoding(EncodingType.CSV, null, null, false), 2048 * MIB)
-            .getLimits());
+            .limits());
   }
 
   @Test
@@ -203,6 +205,57 @@ class S3ObjectDecoderTest {
         IllegalArgumentException.class,
         () ->
             new S3ObjectDecoder(new S3Decoding(null, null, compressedParquet, false), 2048 * MIB));
+  }
+
+  @Test
+  void aHeapUnderOneMibIsRejected() {
+    assertEquals(
+        "heapBytes must be at least 1048576 but was 2048",
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    new S3ObjectDecoder(new S3Decoding(EncodingType.CSV, null, null, false), 2048))
+            .getMessage());
+  }
+
+  @Test
+  void theCursorIsClosedOnEveryOutcome() {
+    List<Boolean> closed = new ArrayList<>();
+    RecordDecoder real = jsonLines(false).recordDecoder();
+    RecordDecoder tracking =
+        (input, limits) -> {
+          RecordCursor cursor = real.open(input, limits);
+          return new RecordCursor() {
+            @Override
+            public DecodeOutcome next() throws SourceReadException {
+              return cursor.next();
+            }
+
+            @Override
+            public void close() {
+              closed.add(true);
+              cursor.close();
+            }
+          };
+        };
+    S3ObjectDecoder decoder = new S3ObjectDecoder(tracking, DecodeLimits.UNLIMITED, false);
+    when(s3.getObject(any(GetObjectRequest.class))).thenAnswer(invocation -> body(LINES));
+
+    assertDoesNotThrow(() -> decoder.decode(s3, REF, 1024, spoolDir, collect()));
+    assertDoesNotThrow(() -> decoder.decode(s3, REF, 1024, spoolDir, outcome -> false));
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            decoder.decode(
+                s3,
+                REF,
+                1024,
+                spoolDir,
+                outcome -> {
+                  throw new IllegalStateException("stopped");
+                }));
+
+    assertEquals(List.of(true, true, true), closed);
   }
 
   private S3ObjectDecoder jsonLines(boolean addS3Metadata) {
