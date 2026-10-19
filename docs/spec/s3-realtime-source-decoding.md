@@ -264,8 +264,8 @@ blank lines, and legacy CSV trims spaces around names and values.
 
 ### 4.2 Behavior changes for legacy configurations
 
-Compared with feeding the same bytes to both paths (about 90 cases; committed as a test, 8). With no
-limits hit, the records of valid input are the same, except:
+Compared with feeding the same bytes to both paths (committed as `LegacyDifferentialTest`, 8). With
+no limits hit, the records of valid input are the same, except:
 
 - **Bad data loses only itself.** Legacy dead-letters the whole object on the first bad line,
   element or row and emits nothing from it. Now the good records are emitted and each bad one is
@@ -273,7 +273,8 @@ limits hit, the records of valid input are the same, except:
 - **JSON_OBJECT_LINE: a line holding an array is a failed record**, where legacy emitted one record
   per element (decided by the user).
 - **CSV: a row with more columns than the header is a failed record**, where legacy silently
-  truncated it. A row with fewer columns, or a bad quote, now fails alone instead of the object.
+  truncated it. A row with fewer columns, or a bad quote, now fails alone instead of the object; a
+  quote that is never closed takes the rest of the object with it and ends it.
   Duplicate header names end the object with no records (legacy kept the last column), and an empty
   header name becomes `_c<i>` (legacy failed the object).
 - **A UTF-8 byte order mark is removed** in STRING_LINE, TEXT and CSV (legacy kept it in the first
