@@ -31,6 +31,8 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
+import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
@@ -51,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.Group;
@@ -65,6 +68,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
@@ -84,10 +89,41 @@ class S3RealtimeRawDataConverterTest {
   private static final String NOTIFICATION = "{\"Records\":[]}";
 
   /**
-   * A DLQ entry as a comparable value: the value as text, the first line and the last line of the
-   * error text (the stack trace between them varies), and the node id.
+   * A DLQ entry as a comparable value: the value as text, the first line, the action line (null
+   * when the second line is not one), the last line of the error text (the stack trace between them
+   * varies), and the node id.
    */
-  record Entry(String value, String firstLine, String lastLine, String nodeId) {}
+  record Entry(String value, String firstLine, String action, String lastLine, String nodeId) {}
+
+  private static final String RETRY = "then re-upload the object or send this notification again";
+  private static final String RECORD_ACTION =
+      "Action: fix this record where it is written, or the source's encodingType or decoding if"
+          + " every record fails like this; the value is the record's bytes";
+  private static final String READ_ACTION =
+      "Action: check the cause below, such as the source's S3 permissions (s3:GetObject), the"
+          + " network, or free disk where the task runs; "
+          + RETRY;
+  private static final String CORRUPT_ACTION =
+      "Action: check the source's compression setting against the object, and that the object was"
+          + " complete when it was announced; "
+          + RETRY;
+  private static final String TOO_LARGE_ACTION =
+      "Action: raise maxObjectSizeBytes above the object's size, with that much free disk for the"
+          + " task and a visibilityTimeoutSeconds long enough to download it (lower"
+          + " maxNumberOfMessages if several arrive together); "
+          + RETRY;
+  private static final String RECORD_LIMIT_ACTION =
+      "Action: this source sets maxRecordBytes from the task's heap, so give the task more memory,"
+          + " or write smaller records; "
+          + RETRY;
+
+  private static String malformedAction(String format) {
+    return "Action: check that the object is "
+        + format
+        + " as the source's encodingType or decoding says, or fix the listed records where the"
+        + " object is written; "
+        + RETRY;
+  }
 
   @TempDir Path spoolDir;
   private S3Client s3Client;
@@ -155,6 +191,7 @@ class S3RealtimeRawDataConverterTest {
                   new Entry(
                       new String(value.value(), StandardCharsets.UTF_8),
                       lines.getFirst(),
+                      lines.size() > 1 && lines.get(1).startsWith("Action: ") ? lines.get(1) : null,
                       lines.getLast(),
                       invocation.getArgument(3)));
               return null;
@@ -381,6 +418,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 "not json",
                 "MALFORMED json record: JsonParseException",
+                RECORD_ACTION,
                 "object s3://b/bad.jsonl, recordIndex 2, bytes 8-16",
                 "node")),
         dlq);
@@ -412,6 +450,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "MALFORMED json object: JsonParseException",
+                malformedAction("json"),
                 "object s3://b/bad.jsonl version v1; 1 outcome; recordIndex 2 (bytes 8-"
                     + (8 + big.length())
                     + ")",
@@ -434,14 +473,16 @@ class S3RealtimeRawDataConverterTest {
         List.of(
             new Entry(
                 NOTIFICATION,
-                "OVERSIZED text object",
+                "OVERSIZED text object: maxRecordBytes",
+                RECORD_LIMIT_ACTION,
                 "object s3://b/big.txt version v1; 3 outcomes; recordIndex 1 (bytes 0-9000), 3-4 (bytes 9004-27005)",
                 "node")),
         dlq);
     assertEquals(
         List.of(
-            "OVERSIZED text object",
-            "over the limit (maxRecordBytes 8192, maxDocumentBytes 16384, maxCodecMemoryBytes 524288), reached 9000 bytes",
+            "OVERSIZED text object: maxRecordBytes",
+            RECORD_LIMIT_ACTION,
+            "a record reached 9000 bytes, over maxRecordBytes 8192",
             "object s3://b/big.txt version v1; 3 outcomes; recordIndex 1 (bytes 0-9000), 3-4 (bytes 9004-27005)"),
         texts.getFirst());
     verify(deserializeFailureCounter, times(3)).increase(Map.of());
@@ -461,16 +502,22 @@ class S3RealtimeRawDataConverterTest {
         converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), MIB, 4 * MIB),
         message("big.txt"));
 
-    assertEquals(1, dlq.size());
-    Entry entry = dlq.getFirst();
-    assertEquals("OVERSIZED text object", entry.firstLine());
-    assertTrue(
-        entry
-            .lastLine()
-            .startsWith(
-                "object s3://b/big.txt version v1; 300 outcomes; recordIndex 1 (bytes 0-9000), 3 (bytes 9004-18004)"),
-        entry.lastLine());
-    assertTrue(entry.lastLine().endsWith(", and 200 more ranges"), entry.lastLine());
+    StringBuilder ranges = new StringBuilder("recordIndex ");
+    for (int i = 0; i < 100; i++) {
+      ranges.append(i == 0 ? "" : ", ").append(2 * i + 1);
+      ranges.append(" (bytes ").append(9004L * i).append('-').append(9004L * i + 9000).append(')');
+    }
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "OVERSIZED text object: maxRecordBytes",
+                RECORD_LIMIT_ACTION,
+                "object s3://b/big.txt version v1; 300 outcomes; "
+                    + ranges
+                    + ", and 200 more ranges",
+                "node")),
+        dlq);
   }
 
   @Test
@@ -485,6 +532,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "MALFORMED csv object: MalformedCsvException",
+                malformedAction("csv"),
                 "object s3://b/x.csv version v1; 1 outcome; recordIndex 2; the object ended at recordIndex 2",
                 "node")),
         dlq);
@@ -509,6 +557,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "OBJECT_TOO_LARGE s3 object",
+                TOO_LARGE_ACTION,
                 "object s3://b/big.json version v2 size "
                     + (MAX_OBJECT_SIZE + 1)
                     + " exceeds maxObjectSizeBytes "
@@ -542,6 +591,7 @@ class S3RealtimeRawDataConverterTest {
         new Entry(
             NOTIFICATION,
             "READ_FAILURE s3 object: IllegalStateException",
+            READ_ACTION,
             "object s3://b/k.json; 1 outcome; the object ended",
             "node"),
         dlq.getFirst());
@@ -593,6 +643,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "io.fleak.zephflow.lib.commands.NodeExecutionException: missing field",
+                null,
                 "object s3://b/many.jsonl version v1; 1 batch failed; recordIndex 1001-2000",
                 "eval_1")),
         dlq);
@@ -710,6 +761,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "MALFORMED json object: JsonParseException",
+                malformedAction("json"),
                 "object s3://b/bad.json version v1; 1 outcome; the document (bytes 0-4); the object ended",
                 "node")),
         dlq);
@@ -761,9 +813,14 @@ class S3RealtimeRawDataConverterTest {
     assertEquals(List.of(json("{\"a\":1}")), emitter.records());
     assertEquals(
         List.of(
-            "CORRUPT_COMPRESSION json object: CorruptCompressionException",
-            "object s3://b/x.jsonl.gz version v1; 1 outcome; recordIndex 2; the object ended at recordIndex 2"),
-        List.of(dlq.getFirst().firstLine(), dlq.getFirst().lastLine()));
+            new Entry(
+                NOTIFICATION,
+                "CORRUPT_COMPRESSION json object: CorruptCompressionException",
+                CORRUPT_ACTION,
+                "object s3://b/x.jsonl.gz version v1; 1 outcome; recordIndex 2; the object ended at"
+                    + " recordIndex 2",
+                "node")),
+        dlq);
   }
 
   @Test
@@ -782,6 +839,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "READ_FAILURE s3 object: S3Exception AccessDenied",
+                READ_ACTION,
                 "object s3://b/k.json; 1 outcome; the object ended",
                 "node")),
         dlq);
@@ -801,13 +859,12 @@ class S3RealtimeRawDataConverterTest {
         .emit(message("many.jsonl"), context, emitter);
 
     assertEquals(250, emitter.batches.size());
-    assertEquals(1, dlq.size());
-    String last = dlq.getFirst().lastLine();
-    assertTrue(
-        last.startsWith(
-            "object s3://b/many.jsonl version v1; 125 batches failed; recordIndex 2, 4, 6,"),
-        last);
-    assertTrue(last.endsWith(", 200, and 25 more ranges"), last);
+    assertEquals(
+        List.of(
+            "object s3://b/many.jsonl version v1; 125 batches failed; recordIndex "
+                + indexes(2, 200, 2)
+                + ", and 25 more ranges"),
+        dlq.stream().map(Entry::lastLine).toList());
   }
 
   @Test
@@ -824,12 +881,12 @@ class S3RealtimeRawDataConverterTest {
         .emit(message("x.yaml"), context, emitter);
 
     assertEquals(500_000, emitter.records().size());
-    assertEquals(1, dlq.size());
-    String last = dlq.getFirst().lastLine();
-    assertTrue(
-        last.startsWith("object s3://b/x.yaml version v1; 500000 outcomes; recordIndex 1, 3, 5,"),
-        last);
-    assertTrue(last.endsWith(", 199, and 499900 more ranges"), last);
+    assertEquals(
+        List.of(
+            "object s3://b/x.yaml version v1; 500000 outcomes; recordIndex "
+                + indexes(1, 199, 2)
+                + ", and 499900 more ranges"),
+        dlq.stream().map(Entry::lastLine).toList());
   }
 
   @Test
@@ -973,6 +1030,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 bad,
                 "MALFORMED json record: JsonParseException",
+                RECORD_ACTION,
                 "object s3://b/bad.jsonl, recordIndex 1, bytes 0-" + bad.length(),
                 "node")),
         dlq);
@@ -985,7 +1043,8 @@ class S3RealtimeRawDataConverterTest {
     doThrow(new IllegalStateException("dlq down"))
         .doAnswer(
             invocation -> {
-              dlq.add(new Entry("", invocation.getArgument(2), "", invocation.getArgument(3)));
+              dlq.add(
+                  new Entry("", invocation.getArgument(2), null, "", invocation.getArgument(3)));
               return null;
             })
         .when(dlqWriter)
@@ -1016,9 +1075,13 @@ class S3RealtimeRawDataConverterTest {
 
     assertEquals(
         List.of(
-            "READ_FAILURE s3 object: SourceReadException",
-            "object s3://b/k.jsonl; 1 outcome; the object ended after recordIndex 1"),
-        List.of(dlq.getFirst().firstLine(), dlq.getFirst().lastLine()));
+            new Entry(
+                NOTIFICATION,
+                "READ_FAILURE s3 object: SourceReadException",
+                READ_ACTION,
+                "object s3://b/k.jsonl; 1 outcome; the object ended after recordIndex 1",
+                "node")),
+        dlq);
   }
 
   @Test
@@ -1027,9 +1090,15 @@ class S3RealtimeRawDataConverterTest {
 
     emit(converter(EncodingType.CSV), message("x.csv"));
 
-    assertTrue(
-        dlq.getFirst().lastLine().endsWith("; 1 outcome; the header; the object ended"),
-        dlq.getFirst().lastLine());
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "MALFORMED csv object: MalformedCsvException",
+                malformedAction("csv"),
+                "object s3://b/x.csv version v1; 1 outcome; the header; the object ended",
+                "node")),
+        dlq);
   }
 
   @Test
@@ -1042,9 +1111,217 @@ class S3RealtimeRawDataConverterTest {
     ranges.add(202, null);
     ranges.add(203, null);
     ranges.add(205, null);
-    String described = ranges.describe();
-    assertTrue(described.startsWith("recordIndex 1, 3, 5,"), described);
-    assertTrue(described.endsWith(", 197, 199-200, and 2 more ranges"), described);
+    assertEquals(
+        "recordIndex " + indexes(1, 197, 2) + ", 199-200, and 2 more ranges", ranges.describe());
+  }
+
+  /** "first, first + step, ..., last". */
+  private static String indexes(long first, long last, long step) {
+    StringBuilder out = new StringBuilder();
+    for (long i = first; i <= last; i += step) {
+      out.append(i == first ? "" : ", ").append(i);
+    }
+    return out.toString();
+  }
+
+  /** A converter whose decoder gives these outcomes, then ends or fails to read the local copy. */
+  private S3RealtimeRawDataConverter stubbed(
+      String format, boolean thenReadFailure, DecodeOutcome... outcomes) {
+    RecordDecoder stub =
+        (input, limits) ->
+            new RecordCursor() {
+              private int next;
+
+              @Override
+              public DecodeOutcome next() throws SourceReadException {
+                if (next < outcomes.length) {
+                  return outcomes[next++];
+                }
+                if (thenReadFailure) {
+                  throw new SourceReadException("disk read failed", null);
+                }
+                return null;
+              }
+
+              @Override
+              public void close() {}
+            };
+    return new S3RealtimeRawDataConverter(
+        new S3RegionalClientProvider(region -> s3Client),
+        new S3ObjectDecoder(stub, DecodeLimits.UNLIMITED, false),
+        format,
+        MAX_OBJECT_SIZE,
+        spoolDir,
+        4 * MIB,
+        confirmed,
+        dlqWriter,
+        new S3RealtimeRawDataEncoder(),
+        "node",
+        skippedObjectCounter);
+  }
+
+  private static DecodeOutcome.Oversized over(LimitKind limit, long value, long size) {
+    return new DecodeOutcome.Oversized(1, 1, null, limit, value, size, new byte[0], false);
+  }
+
+  static Stream<Arguments> everyLimit() {
+    String memory = "give the task more memory (xz may use half the heap, up to 128 MiB), or ";
+    String xz =
+        "recompress the object with a smaller xz dictionary (the presets -0 to -9 need at most 65"
+            + " MiB); ";
+    return Stream.of(
+        Arguments.of(
+            "text",
+            over(LimitKind.MAX_RECORD_BYTES, 8192, 9000),
+            "OVERSIZED text object: maxRecordBytes",
+            RECORD_LIMIT_ACTION,
+            "a record reached 9000 bytes, over maxRecordBytes 8192"),
+        Arguments.of(
+            "avro",
+            over(LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000),
+            "OVERSIZED avro object: maxDocumentBytes",
+            "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
+                + " memory, or write smaller documents (avro: smaller blocks); "
+                + RETRY,
+            "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
+        Arguments.of(
+            "json",
+            over(LimitKind.MAX_CODEC_MEMORY_BYTES, 64 * MIB, 200 * MIB),
+            "OVERSIZED json object: xz memory",
+            "Action: " + memory + xz + RETRY,
+            "xz needs " + 200 * MIB + " bytes of memory, over its limit of " + 64 * MIB),
+        Arguments.of(
+            "avro",
+            over(LimitKind.AVRO_XZ_MEMORY, 128 * MIB, 200 * MIB),
+            "OVERSIZED avro object: xz memory",
+            "Action: " + xz + RETRY,
+            "xz needs " + 200 * MIB + " bytes of memory, over its limit of " + 128 * MIB),
+        Arguments.of(
+            "parquet",
+            over(LimitKind.HEAP_SHARE, 1000, 2000),
+            "OVERSIZED parquet object: parquet heap share",
+            "Action: give the task more memory, or write the file with smaller row groups (fewer"
+                + " row groups or columns if the footer is too large); "
+                + RETRY,
+            "parquet needs 2000 bytes, over its share of the heap, 1000"),
+        Arguments.of(
+            "text",
+            over(LimitKind.MAX_LINES, 500, 9000),
+            "OVERSIZED text object: maxLines",
+            "Action: raise maxLines in the source's decoding, or fix its multiline pattern if"
+                + " events run together; "
+                + RETRY,
+            "a multiline event has more than 500 lines (9000 bytes)"),
+        Arguments.of(
+            "json",
+            over(LimitKind.ZSTD_WINDOW, 128 * MIB, 0),
+            "OVERSIZED json object: zstd window",
+            "Action: recompress the object without --long, or with --long=27 or less; no setting"
+                + " raises this limit; "
+                + RETRY,
+            "a zstd frame needs a window over " + 128 * MIB + " bytes"),
+        Arguments.of(
+            "json",
+            over(LimitKind.NATIVE_MEMORY, 0, 0),
+            "OVERSIZED json object: zstd native memory",
+            "Action: give the task more memory outside the Java heap (the task's memory above"
+                + " -Xmx); "
+                + RETRY,
+            "zstd could not allocate native memory"),
+        Arguments.of(
+            "protobuf",
+            over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483647),
+            "OVERSIZED protobuf object: format maximum",
+            "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
+                + " messages; parquet: a smaller footer); no setting raises this limit; "
+                + RETRY,
+            "a protobuf message reached 2147483647 bytes, over the 2147483639 bytes the decoder"
+                + " can hold in one piece"),
+        Arguments.of(
+            "avro",
+            over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483640),
+            "OVERSIZED avro object: format maximum",
+            "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
+                + " messages; parquet: a smaller footer); no setting raises this limit; "
+                + RETRY,
+            "an avro block reached 2147483640 bytes, over the 2147483639 bytes the decoder can"
+                + " hold in one piece"),
+        Arguments.of(
+            "parquet",
+            over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483647),
+            "OVERSIZED parquet object: format maximum",
+            "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
+                + " messages; parquet: a smaller footer); no setting raises this limit; "
+                + RETRY,
+            "the parquet footer reached 2147483647 bytes, over the 2147483639 bytes the decoder"
+                + " can hold in one piece"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("everyLimit")
+  void everyLimitSaysWhichItIsAndWhatToDo(
+      String format,
+      DecodeOutcome.Oversized oversized,
+      String firstLine,
+      String action,
+      String detail) {
+    stub("k", utf8("x"));
+
+    emit(stubbed(format, false, oversized), message("k"));
+
+    assertEquals(
+        List.of(
+            List.of(
+                firstLine, action, detail, "object s3://b/k version v1; 1 outcome; recordIndex 1")),
+        texts);
+  }
+
+  @Test
+  void eachLimitHasItsOwnSummary() {
+    stub("k", utf8("x"));
+
+    emit(
+        stubbed(
+            "avro",
+            false,
+            over(LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000),
+            new DecodeOutcome.Oversized(
+                2, 1, null, LimitKind.AVRO_XZ_MEMORY, 128 * MIB, 200 * MIB, new byte[0], false),
+            new DecodeOutcome.Oversized(
+                3, 1, null, LimitKind.MAX_DOCUMENT_BYTES, 4096, 6000, new byte[0], false)),
+        message("k"));
+
+    assertEquals(
+        List.of("OVERSIZED avro object: maxDocumentBytes", "OVERSIZED avro object: xz memory"),
+        dlq.stream().map(Entry::firstLine).toList());
+    assertEquals(
+        List.of(
+            "object s3://b/k version v1; 2 outcomes; recordIndex 1, 3",
+            "object s3://b/k version v1; 1 outcome; recordIndex 2"),
+        dlq.stream().map(Entry::lastLine).toList());
+  }
+
+  @Test
+  void anOutcomeCoversTheRecordsItCountsAndTheEndIsAfterTheLast() {
+    stub("k", utf8("x"));
+    IllegalStateException leftOver = new IllegalStateException("bytes left after its records");
+
+    emit(
+        stubbed(
+            "avro",
+            true,
+            new DecodeOutcome.Oversized(
+                2, 1000, null, LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000, new byte[0], false),
+            new DecodeOutcome.Failed(
+                ErrorKind.MALFORMED, new byte[0], 1002, 0, null, leftOver, false)),
+        message("k"));
+
+    assertEquals(
+        List.of(
+            "object s3://b/k; 1 outcome; recordIndex 2-1001",
+            "object s3://b/k; 1 outcome",
+            "object s3://b/k; 1 outcome; the object ended after recordIndex 1001"),
+        dlq.stream().map(Entry::lastLine).toList());
   }
 
   private static DecodingConfig decodingConfig(String json) {

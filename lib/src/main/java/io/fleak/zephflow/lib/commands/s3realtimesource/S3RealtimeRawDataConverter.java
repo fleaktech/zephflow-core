@@ -29,8 +29,10 @@ import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
+import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
+import io.fleak.zephflow.lib.serdes.decode.compress.Decompressors;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -59,6 +61,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
   static final int MAX_LISTED_RANGES = 100;
   private static final long VALUE_BYTES = 8;
   private static final String UNKNOWN_NODE = "unknown";
+  private static final String RETRY = "then re-upload the object or send this notification again";
 
   private final S3RegionalClientProvider s3Clients;
   private final S3ObjectDecoder decoder;
@@ -151,6 +154,109 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     return name;
   }
 
+  /** The words after "OVERSIZED <format> object: ", the detail line, and what to do. */
+  record OversizedText(String label, String detail, String action) {}
+
+  /**
+   * What an oversized outcome went over and what the operator can do. This source sets the record,
+   * document and codec limits from the task's heap ({@link S3DecodeLimits}), so more memory raises
+   * them; zstd's window and the format maximum cannot be raised.
+   */
+  static OversizedText oversizedText(String format, DecodeOutcome.Oversized oversized) {
+    long value = oversized.limitValue();
+    long size = oversized.sizeSoFar();
+    return switch (oversized.limit()) {
+      case MAX_RECORD_BYTES ->
+          new OversizedText(
+              "maxRecordBytes",
+              "a record reached " + size + " bytes, over maxRecordBytes " + value,
+              "this source sets maxRecordBytes from the task's heap, so give the task more memory,"
+                  + " or write smaller records; "
+                  + RETRY);
+      case MAX_DOCUMENT_BYTES ->
+          new OversizedText(
+              "maxDocumentBytes",
+              "a document or block reached " + size + " bytes, over maxDocumentBytes " + value,
+              "this source sets maxDocumentBytes from the task's heap, so give the task more memory,"
+                  + " or write smaller documents (avro: smaller blocks); "
+                  + RETRY);
+      case MAX_CODEC_MEMORY_BYTES, AVRO_XZ_MEMORY ->
+          new OversizedText(
+              "xz memory",
+              "xz needs " + size + " bytes of memory, over its limit of " + value,
+              (value < Decompressors.XZ_DEFAULT_MEMORY
+                      ? "give the task more memory (xz may use half the heap, up to 128 MiB), or "
+                      : "")
+                  + "recompress the object with a smaller xz dictionary (the presets -0 to -9"
+                  + " need at most 65 MiB); "
+                  + RETRY);
+      case HEAP_SHARE ->
+          new OversizedText(
+              "parquet heap share",
+              "parquet needs " + size + " bytes, over its share of the heap, " + value,
+              "give the task more memory, or write the file with smaller row groups (fewer row"
+                  + " groups or columns if the footer is too large); "
+                  + RETRY);
+      case MAX_LINES ->
+          new OversizedText(
+              "maxLines",
+              "a multiline event has more than " + value + " lines (" + size + " bytes)",
+              "raise maxLines in the source's decoding, or fix its multiline pattern if events"
+                  + " run together; "
+                  + RETRY);
+      case ZSTD_WINDOW ->
+          new OversizedText(
+              "zstd window",
+              "a zstd frame needs a window over " + value + " bytes",
+              "recompress the object without --long, or with --long=27 or less; no setting"
+                  + " raises this limit; "
+                  + RETRY);
+      case NATIVE_MEMORY ->
+          new OversizedText(
+              "zstd native memory",
+              "zstd could not allocate native memory",
+              "give the task more memory outside the Java heap (the task's memory above -Xmx); "
+                  + RETRY);
+      case FORMAT_MAXIMUM ->
+          new OversizedText(
+              "format maximum",
+              unit(format)
+                  + " reached "
+                  + size
+                  + " bytes, over the "
+                  + value
+                  + " bytes the decoder can hold in one piece",
+              "write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
+                  + " messages; parquet: a smaller footer); no setting raises this limit; "
+                  + RETRY);
+    };
+  }
+
+  private static String unit(String format) {
+    return switch (format) {
+      case "avro" -> "an avro block";
+      case "protobuf" -> "a protobuf message";
+      case "parquet" -> "the parquet footer";
+      default -> "a unit";
+    };
+  }
+
+  /** What to do about a failure that is not over a limit. */
+  static String failureAction(String format, ErrorKind kind) {
+    return switch (kind) {
+      case MALFORMED ->
+          "check that the object is "
+              + format
+              + " as the source's encodingType or decoding says, or fix the listed records where"
+              + " the object is written; "
+              + RETRY;
+      case CORRUPT_COMPRESSION ->
+          "check the source's compression setting against the object, and that the object was"
+              + " complete when it was announced; "
+              + RETRY;
+    };
+  }
+
   /**
    * Record index ranges, adjacent ones merged, with the bytes they span when known. Only the first
    * {@link #MAX_LISTED_RANGES} are kept; the rest are counted. Record index 0 (a csv header) is
@@ -223,6 +329,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
   /** The failures of one kind in one object, summarized into one DLQ entry. */
   private static final class Summary {
     final String firstLine;
+    final String action;
     final String firstDetail;
     final IndexRanges ranges = new IndexRanges();
     long count;
@@ -230,8 +337,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     long endedAt;
     long endedAfter;
 
-    Summary(String firstLine, String firstDetail) {
+    Summary(String firstLine, String action, String firstDetail) {
       this.firstLine = firstLine;
+      this.action = action;
       this.firstDetail = firstDetail;
     }
   }
@@ -293,7 +401,13 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         }
         context.deserializeFailureCounter().increase(Map.of());
         Summary summary =
-            summary("READ_FAILURE s3 object: " + causeName(e), ExceptionUtils.getStackTrace(e));
+            summary(
+                "READ_FAILURE",
+                "READ_FAILURE s3 object: " + causeName(e),
+                "check the cause below, such as the source's S3 permissions (s3:GetObject), the"
+                    + " network, or free disk where the task runs; "
+                    + RETRY,
+                ExceptionUtils.getStackTrace(e));
         summary.count++;
         summary.ended = true;
         summary.endedAfter = lastRecordIndex;
@@ -312,7 +426,12 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         case TOO_LARGE -> {
           skippedObjectCounter.increase(Map.of("reason", "oversized"));
           writeNotification(
-              "OBJECT_TOO_LARGE s3 object\n"
+              "OBJECT_TOO_LARGE s3 object\nAction: raise maxObjectSizeBytes above the object's"
+                  + " size, with that much free disk for the task and a visibilityTimeoutSeconds"
+                  + " long enough to download it (lower maxNumberOfMessages if several arrive"
+                  + " together); "
+                  + RETRY
+                  + "\n"
                   + objectName()
                   + " size "
                   + result.storedLength()
@@ -337,7 +456,10 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       if (emitter.stopped()) {
         return false;
       }
-      lastRecordIndex = Math.max(lastRecordIndex, outcome.recordIndex());
+      if (outcome.recordCount() > 0) {
+        lastRecordIndex =
+            Math.max(lastRecordIndex, outcome.recordIndex() + outcome.recordCount() - 1);
+      }
       switch (outcome) {
         case DecodeOutcome.Decoded decoded -> {
           track(decoded.span());
@@ -363,41 +485,26 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
               && failed.raw().length <= MAX_RECORD_ENTRY_BYTES) {
             writeRecordEntry(failed);
           } else {
-            Summary summary =
+            add(
                 summary(
+                    failed.kind().name(),
                     failed.kind() + " " + format + " object: " + causeName(failed.error()),
-                    ExceptionUtils.getStackTrace(failed.error()));
-            summary.count++;
-            summary.ranges.add(failed.recordIndex(), failed.span());
-            if (failed.terminal()) {
-              summary.ended = true;
-              summary.endedAt = failed.recordIndex();
-            }
+                    failureAction(format, failed.kind()),
+                    ExceptionUtils.getStackTrace(failed.error())),
+                failed);
           }
         }
         case DecodeOutcome.Oversized oversized -> {
           track(oversized.span());
           context.deserializeFailureCounter().increase(Map.of());
-          String limit =
-              format.equals("parquet")
-                  ? "over the parquet decoder's heap budget"
-                  : "over the limit (maxRecordBytes "
-                      + decoder.limits().maxRecordBytes()
-                      + ", maxDocumentBytes "
-                      + decoder.limits().maxDocumentBytes()
-                      + ", maxCodecMemoryBytes "
-                      + decoder.limits().maxCodecMemoryBytes()
-                      + ")";
-          Summary summary =
+          OversizedText text = oversizedText(format, oversized);
+          add(
               summary(
-                  "OVERSIZED " + format + " object",
-                  limit + ", reached " + oversized.sizeSoFar() + " bytes");
-          summary.count++;
-          summary.ranges.add(oversized.recordIndex(), oversized.span());
-          if (oversized.terminal()) {
-            summary.ended = true;
-            summary.endedAt = oversized.recordIndex();
-          }
+                  "OVERSIZED " + oversized.limit(),
+                  "OVERSIZED " + format + " object: " + text.label(),
+                  text.action(),
+                  text.detail()),
+              oversized);
         }
       }
       return !emitter.stopped();
@@ -435,9 +542,23 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       }
     }
 
-    private Summary summary(String firstLine, String detail) {
-      return summaries.computeIfAbsent(
-          firstLine.substring(0, firstLine.indexOf(' ')), k -> new Summary(firstLine, detail));
+    private Summary summary(String key, String firstLine, String action, String detail) {
+      return summaries.computeIfAbsent(key, k -> new Summary(firstLine, action, detail));
+    }
+
+    /** Counts the outcome in the summary, with the records it stands for. */
+    private void add(Summary summary, DecodeOutcome outcome) {
+      summary.count++;
+      if (outcome.recordCount() > 0) {
+        summary.ranges.add(
+            outcome.recordIndex(),
+            outcome.recordIndex() + outcome.recordCount() - 1,
+            outcome.span());
+      }
+      if (outcome.terminal()) {
+        summary.ended = true;
+        summary.endedAt = outcome.recordIndex();
+      }
     }
 
     private void finish(long storedLength) {
@@ -448,6 +569,8 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       for (Summary summary : summaries.values()) {
         StringBuilder text =
             new StringBuilder(summary.firstLine)
+                .append("\nAction: ")
+                .append(summary.action)
                 .append('\n')
                 .append(summary.firstDetail)
                 .append('\n')
@@ -501,7 +624,8 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
               + format
               + " record: "
               + causeName(failed.error())
-              + "\n"
+              + "\nAction: fix this record where it is written, or the source's encodingType or"
+              + " decoding if every record fails like this; the value is the record's bytes\n"
               + ExceptionUtils.getStackTrace(failed.error())
               + "\n"
               + identity;
