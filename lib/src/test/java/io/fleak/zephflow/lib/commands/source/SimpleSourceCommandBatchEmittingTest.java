@@ -284,6 +284,50 @@ class SimpleSourceCommandBatchEmittingTest {
     assertThrows(UnsupportedOperationException.class, () -> converter.convert("a", null));
   }
 
+  @Test
+  void aFailedCommitIsLoggedAndTheNextRecordIsHandled() {
+    when(fetcher.fetch()).thenReturn(List.of("a", "b"));
+    when(fetcher.isExhausted()).thenReturn(true);
+    when(fetcher.committer())
+        .thenReturn(
+            () -> {
+              events.add("commit");
+              throw new IllegalStateException("commit failed");
+            });
+
+    run(new TwoBatches());
+
+    assertEquals(
+        List.of(
+            "accept a-1",
+            "accept a-2",
+            "ack a",
+            "commit",
+            "accept b-1",
+            "accept b-2",
+            "ack b",
+            "commit"),
+        events);
+    assertEquals(List.of(), dlq);
+  }
+
+  @Test
+  void aConverterWithoutAcknowledgeIsStillCommitted() {
+    when(fetcher.fetch()).thenReturn(List.of("a"));
+    when(fetcher.isExhausted()).thenReturn(true);
+
+    run(
+        new BatchEmittingConverter<>() {
+          @Override
+          public void emit(
+              String sourceRecord, SourceExecutionContext<?> context, Emitter emitter) {
+            emitter.accept(List.of(record(sourceRecord)));
+          }
+        });
+
+    assertEquals(List.of("accept a", "commit"), events);
+  }
+
   private void stopAfterFirstBatch() {
     doAnswer(
             invocation -> {

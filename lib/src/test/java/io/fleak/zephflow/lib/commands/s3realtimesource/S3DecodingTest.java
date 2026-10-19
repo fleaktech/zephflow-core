@@ -27,6 +27,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -119,5 +120,24 @@ class S3DecodingTest {
                 IllegalArgumentException.class,
                 () -> new S3Decoding(EncodingType.PARQUET, null, null, false).decodingConfig())
             .getMessage());
+  }
+
+  @Test
+  void theFormatNameIsTheDecodingsFormatType() {
+    List<String> types =
+        List.of("avro", "csv", "json", "parquet", "protobuf", "text", "xml", "yaml");
+    assertEquals(
+        types,
+        types.stream()
+            .map(
+                type ->
+                    new S3Decoding(
+                            null,
+                            null,
+                            JsonUtils.fromJsonString(
+                                "{\"format\":{\"type\":\"" + type + "\"}}", DecodingConfig.class),
+                            false)
+                        .formatName())
+            .toList());
   }
 }
