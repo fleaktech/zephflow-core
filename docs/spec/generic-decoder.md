@@ -83,7 +83,9 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   because that is the caller's mistake, not bad data. `ByteInput.ofBytes`, and so `decodeAll`,
   and `ByteInput.ofFile` (a local file) offer it.
 - `DecodeLimits(maxRecordBytes, maxDocumentBytes)` is chosen by the caller; 0 means unlimited
-  (parquet still bounds itself by the heap, see 3.4).
+  (parquet still bounds itself by the heap, see 3.4). An optional third limit,
+  `maxCodecMemoryBytes`, caps the outer codec's memory (xz) separately; 0 keeps the rule of the
+  codec table.
 - `DecodeOutcome` is one of:
   - `Decoded(record, recordIndex, span)`
   - `Failed(kind, raw, recordIndex, span, error, terminal)`, where `kind` is `MALFORMED` or
@@ -176,7 +178,7 @@ classification is never repeated in a format.
 | `deflate` | The zlib format (RFC 1950); concatenated streams are all read; a stream that needs a preset dictionary is `CORRUPT_COMPRESSION` |
 | `zstd` | Concatenated and skippable frames; input that ends inside a frame is `CORRUPT_COMPRESSION`. A frame whose window needs more than zstd's default 128 MiB is `Oversized` |
 | `bzip2` | Concatenated streams |
-| `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxDocumentBytes` (in whole KiB) is `Oversized`; without that limit, the cap is 128 MiB or half the heap, whichever is smaller |
+| `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxCodecMemoryBytes`, or `maxDocumentBytes` when that is 0 (in whole KiB), is `Oversized`; without either limit, the cap is 128 MiB or half the heap, whichever is smaller |
 | `lz4` | The LZ4 frame format only, with skippable frames; not the raw block format, and not frames that need a dictionary. A block without a checksum is handed on as it decodes; a block with one is held until it matches, so up to one block (at most 4 MiB) can be lost when it does not match or is cut short |
 | `snappy` | The Snappy framing format only, with skippable chunks; not raw or Hadoop snappy. The format has no end mark, so input cut exactly between chunks ends cleanly; only the `ByteInput` contract (3.2) catches that |
 

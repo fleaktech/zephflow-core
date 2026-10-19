@@ -19,14 +19,20 @@ package io.fleak.zephflow.lib.serdes.decode;
  * @param maxRecordBytes the largest single record: a line, a multiline event, a JSON array element
  * @param maxDocumentBytes the largest unit that has to be held whole, such as a JSON object
  *     document
+ * @param maxCodecMemoryBytes the memory the outer compression codec may use (xz's dictionary); 0
+ *     keeps the default, which is {@code maxDocumentBytes} when that is set
  */
-public record DecodeLimits(long maxRecordBytes, long maxDocumentBytes) {
+public record DecodeLimits(long maxRecordBytes, long maxDocumentBytes, long maxCodecMemoryBytes) {
 
   public static final DecodeLimits UNLIMITED = new DecodeLimits(0, 0);
 
   public DecodeLimits {
-    if (maxRecordBytes < 0 || maxDocumentBytes < 0) {
+    if (maxRecordBytes < 0 || maxDocumentBytes < 0 || maxCodecMemoryBytes < 0) {
       throw new IllegalArgumentException("limits must be >= 0 (0 means unlimited)");
     }
+  }
+
+  public DecodeLimits(long maxRecordBytes, long maxDocumentBytes) {
+    this(maxRecordBytes, maxDocumentBytes, 0);
   }
 }
