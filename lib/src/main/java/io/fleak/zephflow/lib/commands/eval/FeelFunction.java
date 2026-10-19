@@ -70,6 +70,7 @@ public interface FeelFunction {
             .put("array", new ArrayFunction())
             .put("str_split", new StrSplitFunction())
             .put("str_replace", new StrReplaceFunction())
+            .put("regex_replace", new RegexReplaceFunction())
             .put("substr", new SubstrFunction())
             .put("duration_str_to_mills", new DurationStrToMillsFunction())
             .put("arr_flatten", new ArrFlattenFunction())
