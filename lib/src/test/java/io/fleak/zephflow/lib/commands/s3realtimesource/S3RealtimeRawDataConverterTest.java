@@ -14,30 +14,48 @@
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.github.luben.zstd.Zstd;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.source.ConvertedResult;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
+import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.zip.GZIPOutputStream;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.example.data.simple.SimpleGroupFactory;
+import org.apache.parquet.hadoop.ParquetWriter;
+import org.apache.parquet.hadoop.example.ExampleParquetWriter;
+import org.apache.parquet.io.OutputFile;
+import org.apache.parquet.io.PositionOutputStream;
+import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.MessageTypeParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -46,48 +64,97 @@ import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 
 class S3RealtimeRawDataConverterTest {
 
-  private static final long MAX_OBJECT_SIZE = 1024 * 1024;
+  private static final long MIB = 1024L * 1024;
+  private static final long HEAP = 2048 * MIB;
+  private static final long MAX_OBJECT_SIZE = 64 * MIB;
+  private static final String NOTIFICATION = "{\"Records\":[]}";
 
+  /**
+   * A DLQ entry as a comparable value: the value as text, the first line and the last line of the
+   * error text (the stack trace between them varies), and the node id.
+   */
+  record Entry(String value, String firstLine, String lastLine, String nodeId) {}
+
+  @TempDir Path spoolDir;
   private S3Client s3Client;
   private Queue<String> confirmed;
   private DlqWriter dlqWriter;
+  private final List<Entry> dlq = new ArrayList<>();
   private FleakCounter skippedObjectCounter;
-  private SourceExecutionContext<S3EventMessage> ctx;
+  private FleakCounter dataSizeCounter;
+  private FleakCounter inputEventCounter;
+  private FleakCounter deserializeFailureCounter;
+  private SourceExecutionContext<S3EventMessage> context;
+
+  /** Records the batches; can make one batch fail downstream or stop the source after one. */
+  private static final class TestEmitter implements BatchEmittingConverter.Emitter {
+    final List<List<RecordFleakData>> batches = new ArrayList<>();
+    int failBatch = -1;
+    int stopAfterBatch = -1;
+    boolean stopped;
+
+    @Override
+    public void accept(List<RecordFleakData> batch) {
+      batches.add(List.copyOf(batch));
+      if (batches.size() - 1 == stopAfterBatch) {
+        stopped = true;
+      }
+      if (batches.size() - 1 == failBatch) {
+        throw new NodeExecutionException("eval_1", "eval", "missing field", null);
+      }
+    }
+
+    @Override
+    public boolean stopped() {
+      return stopped;
+    }
+
+    List<RecordFleakData> records() {
+      return batches.stream().flatMap(List::stream).toList();
+    }
+  }
 
   @BeforeEach
   void setUp() {
     s3Client = mock(S3Client.class);
     confirmed = new ConcurrentLinkedQueue<>();
     dlqWriter = mock(DlqWriter.class);
+    doAnswer(
+            invocation -> {
+              SerializedEvent value = invocation.getArgument(1);
+              String text = invocation.getArgument(2);
+              List<String> lines = text.lines().toList();
+              dlq.add(
+                  new Entry(
+                      new String(value.value(), StandardCharsets.UTF_8),
+                      lines.getFirst(),
+                      lines.getLast(),
+                      invocation.getArgument(3)));
+              return null;
+            })
+        .when(dlqWriter)
+        .writeToDlq(anyLong(), any(), anyString(), anyString());
     skippedObjectCounter = mock(FleakCounter.class);
-    ctx =
+    dataSizeCounter = mock(FleakCounter.class);
+    inputEventCounter = mock(FleakCounter.class);
+    deserializeFailureCounter = mock(FleakCounter.class);
+    context =
         new SourceExecutionContext<>(
-            null,
-            null,
-            null,
-            mock(FleakCounter.class),
-            mock(FleakCounter.class),
-            mock(FleakCounter.class),
-            null);
+            null, null, null, dataSizeCounter, inputEventCounter, deserializeFailureCounter, null);
   }
 
-  private S3RealtimeRawDataConverter converter(EncodingType encodingType, boolean addS3Metadata) {
-    return converter(encodingType, addS3Metadata, null);
-  }
-
-  private S3RealtimeRawDataConverter converter(
-      EncodingType encodingType, boolean addS3Metadata, CompressionType compressionType) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
+  private S3RealtimeRawDataConverter converter(S3Decoding decoding, long heap, long batchBytes) {
     return new S3RealtimeRawDataConverter(
         new S3RegionalClientProvider(region -> s3Client),
-        deserializer,
-        compressionType,
+        new S3ObjectDecoder(decoding, heap),
+        decoding.formatName(),
         MAX_OBJECT_SIZE,
-        addS3Metadata,
+        spoolDir,
+        batchBytes,
         confirmed,
         dlqWriter,
         new S3RealtimeRawDataEncoder(),
@@ -95,241 +162,532 @@ class S3RealtimeRawDataConverterTest {
         skippedObjectCounter);
   }
 
-  private void stubGetObject(String bucket, String key, byte[] data) {
-    ResponseInputStream<GetObjectResponse> stream =
-        new ResponseInputStream<>(
-            GetObjectResponse.builder().contentLength((long) data.length).build(),
-            AbortableInputStream.create(new ByteArrayInputStream(data)));
-    when(s3Client.getObject(argThatMatches(bucket, key))).thenReturn(stream);
+  private S3RealtimeRawDataConverter converter(EncodingType encodingType) {
+    return converter(new S3Decoding(encodingType, null, null, false), HEAP, 4 * MIB);
   }
 
-  private static GetObjectRequest argThatMatches(String bucket, String key) {
-    return org.mockito.ArgumentMatchers.argThat(
-        (GetObjectRequest r) -> r != null && bucket.equals(r.bucket()) && key.equals(r.key()));
+  private static S3EventMessage message(String... keys) {
+    return new S3EventMessage(
+        "m1",
+        "r1",
+        NOTIFICATION,
+        java.util.Arrays.stream(keys).map(k -> new S3ObjectRef("b", k, "us-east-1")).toList());
   }
 
-  @Test
-  void convert_jsonObjectLineSuccess() {
-    byte[] body = "{\"msg\":\"a\"}\n{\"msg\":\"b\"}".getBytes(StandardCharsets.UTF_8);
-    stubGetObject("b", "k.jsonl", body);
-    S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "k.jsonl", "us-east-1")));
-
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
-
-    List<RecordFleakData> expected =
-        List.of(record(Map.of("msg", "a")), record(Map.of("msg", "b")));
-    assertEquals(expected, result.transformedData());
-    assertNull(result.error());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
+  private void stub(String key, byte[] data) {
+    when(s3Client.getObject(argThat((GetObjectRequest r) -> r != null && key.equals(r.key()))))
+        .thenAnswer(
+            invocation ->
+                new ResponseInputStream<>(
+                    GetObjectResponse.builder()
+                        .contentLength((long) data.length)
+                        .versionId("v1")
+                        .build(),
+                    AbortableInputStream.create(new ByteArrayInputStream(data))));
   }
 
-  @Test
-  void convert_addsS3Metadata() {
-    byte[] body = "{\"msg\":\"a\"}".getBytes(StandardCharsets.UTF_8);
-    stubGetObject("my-bucket", "dir/k.json", body);
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1", "r1", null, List.of(new S3ObjectRef("my-bucket", "dir/k.json", "us-east-1")));
-
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, true).convert(msg, ctx);
-
-    Map<String, Object> expectedPayload = new LinkedHashMap<>();
-    expectedPayload.put("msg", "a");
-    expectedPayload.put("__s3_bucket", "my-bucket");
-    expectedPayload.put("__s3_key", "dir/k.json");
-    assertEquals(List.of(record(expectedPayload)), result.transformedData());
+  private TestEmitter emit(S3RealtimeRawDataConverter converter, S3EventMessage message) {
+    TestEmitter emitter = new TestEmitter();
+    converter.emit(message, context, emitter);
+    return emitter;
   }
 
   @Test
-  void convert_multipleRefsDownloadedOneAtATime() {
-    stubGetObject("b", "k1.jsonl", "{\"msg\":\"a\"}".getBytes(StandardCharsets.UTF_8));
-    stubGetObject("b", "k2.jsonl", "{\"msg\":\"b\"}".getBytes(StandardCharsets.UTF_8));
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1",
-            "r1",
-            null,
-            List.of(
-                new S3ObjectRef("b", "k1.jsonl", "us-east-1"),
-                new S3ObjectRef("b", "k2.jsonl", "us-east-1")));
+  void jsonLinesAreEmittedAndTheHandleIsQueuedOnlyOnAcknowledge() {
+    stub("k.jsonl", utf8("{\"msg\":\"a\"}\n{\"msg\":\"b\"}"));
+    S3RealtimeRawDataConverter converter = converter(EncodingType.JSON_OBJECT_LINE);
+    S3EventMessage message = message("k.jsonl");
 
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
+    TestEmitter emitter = emit(converter, message);
 
     assertEquals(
-        List.of(record(Map.of("msg", "a")), record(Map.of("msg", "b"))), result.transformedData());
+        List.of(List.of(json("{\"msg\":\"a\"}"), json("{\"msg\":\"b\"}"))), emitter.batches);
+    assertEquals(List.of(), List.copyOf(confirmed));
+    converter.acknowledge(message);
+    assertEquals(List.of("r1"), List.copyOf(confirmed));
+    assertEquals(List.of(), dlq);
+    verify(inputEventCounter).increase(eq(2L), anyMap());
+    verify(dataSizeCounter).increase(eq(23L), anyMap());
+  }
+
+  @Test
+  void addS3MetadataEnrichesRecords() {
+    stub("dir/k.json", utf8("{\"msg\":\"a\"}"));
+    S3RealtimeRawDataConverter converter =
+        converter(new S3Decoding(EncodingType.JSON_OBJECT_LINE, null, null, true), HEAP, 4 * MIB);
+
+    TestEmitter emitter = emit(converter, message("dir/k.json"));
+
+    Map<String, Object> expected = new LinkedHashMap<>();
+    expected.put("msg", "a");
+    expected.put("__s3_bucket", "b");
+    expected.put("__s3_key", "dir/k.json");
+    assertEquals(List.of(record(expected)), emitter.records());
+  }
+
+  @Test
+  void objectsAreDecodedOneAtATimeInOrder() {
+    stub("k1.jsonl", utf8("{\"msg\":\"a\"}"));
+    stub("k2.jsonl", utf8("{\"msg\":\"b\"}"));
+
+    TestEmitter emitter =
+        emit(converter(EncodingType.JSON_OBJECT_LINE), message("k1.jsonl", "k2.jsonl"));
+
+    assertEquals(
+        List.of(List.of(json("{\"msg\":\"a\"}")), List.of(json("{\"msg\":\"b\"}"))),
+        emitter.batches);
     verify(s3Client, times(2)).getObject(any(GetObjectRequest.class));
   }
 
   @Test
-  void convert_oversizedObjectDlqdAndAcknowledged() {
-    ResponseInputStream<GetObjectResponse> stream =
-        new ResponseInputStream<>(
-            GetObjectResponse.builder().contentLength(MAX_OBJECT_SIZE + 1).build(),
-            AbortableInputStream.create(new ByteArrayInputStream(new byte[0])));
-    when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(stream);
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "big.json", "us-east-1")));
+  void gzipIsDetectedAndForced() {
+    stub("data.jsonl.gz", gzip(utf8("{\"msg\":\"a\"}\n{\"msg\":\"b\"}")));
+    List<RecordFleakData> expected = List.of(json("{\"msg\":\"a\"}"), json("{\"msg\":\"b\"}"));
 
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
+    assertEquals(
+        expected,
+        emit(converter(EncodingType.JSON_OBJECT_LINE), message("data.jsonl.gz")).records());
+    assertEquals(
+        expected,
+        emit(
+                converter(
+                    new S3Decoding(
+                        EncodingType.JSON_OBJECT_LINE, CompressionType.GZIP, null, false),
+                    HEAP,
+                    4 * MIB),
+                message("data.jsonl.gz"))
+            .records());
+  }
 
-    // Oversized is a real drop (the object exists): dead-lettered with the reason + acknowledged,
-    // not silently skipped.
-    assertNull(result.error());
-    assertEquals(List.of(), result.transformedData());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
-    verify(dlqWriter)
-        .writeToDlq(anyLong(), any(), contains("exceeds maxObjectSizeBytes"), eq("node"));
+  @Test
+  void theInputSizeIsTheDecompressedEndOfTheLastSpan() {
+    stub("data.jsonl.gz", gzip(utf8("{\"msg\":\"a\"}\n{\"msg\":\"b\"}\n")));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("data.jsonl.gz"));
+
+    verify(dataSizeCounter).increase(eq(23L), anyMap());
+  }
+
+  @Test
+  void csvParquetMultilineAndZstdDecode() throws IOException {
+    stub("x.csv", utf8("a,b\n1,2\n"));
+    assertEquals(
+        List.of(json("{\"a\":\"1\",\"b\":\"2\"}")),
+        emit(converter(EncodingType.CSV), message("x.csv")).records());
+
+    MessageType schema = MessageTypeParser.parseMessageType("message m { required int64 n; }");
+    ByteArrayOutputStream parquet = new ByteArrayOutputStream();
+    SimpleGroupFactory rows = new SimpleGroupFactory(schema);
+    try (ParquetWriter<Group> writer =
+        ExampleParquetWriter.builder(new MemoryOutputFile(parquet))
+            .withType(schema)
+            .withConf(new Configuration(false))
+            .build()) {
+      writer.write(rows.newGroup().append("n", 1L));
+      writer.write(rows.newGroup().append("n", 2L));
+    }
+    stub("x.parquet", parquet.toByteArray());
+    assertEquals(
+        List.of(json("{\"n\":1}"), json("{\"n\":2}")),
+        emit(
+                converter(decoding("{\"format\":{\"type\":\"parquet\"}}"), HEAP, 4 * MIB),
+                message("x.parquet"))
+            .records());
+
+    stub("x.log", utf8("start 1\n  at a\nstart 2\n"));
+    assertEquals(
+        List.of(json("{\"__raw__\":\"start 1\\n  at a\"}"), json("{\"__raw__\":\"start 2\"}")),
+        emit(
+                converter(
+                    decoding(
+                        "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"^start\"}}}"),
+                    HEAP,
+                    4 * MIB),
+                message("x.log"))
+            .records());
+
+    stub("x.zst", Zstd.compress(utf8("{\"a\":1}\n")));
+    assertEquals(
+        List.of(json("{\"a\":1}")),
+        emit(
+                converter(
+                    decoding(
+                        "{\"compression\":\"zstd\",\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"),
+                    HEAP,
+                    4 * MIB),
+                message("x.zst"))
+            .records());
+  }
+
+  @Test
+  void batchesCloseAtAThousandRecordsOrTheSizeCap() {
+    StringBuilder lines = new StringBuilder();
+    for (int i = 0; i < 2500; i++) {
+      lines.append("{\"i\":").append(i).append("}\n");
+    }
+    stub("many.jsonl", utf8(lines.toString()));
+    assertEquals(
+        List.of(1000, 1000, 500),
+        emit(converter(EncodingType.JSON_OBJECT_LINE), message("many.jsonl")).batches.stream()
+            .map(List::size)
+            .toList());
+
+    stub("big.txt", utf8("x".repeat(100) + "\n" + "y".repeat(100) + "\n" + "z".repeat(100) + "\n"));
+    // each record is estimated at 8 + 8 + 7 + 8 + 100 = 131 bytes; a 200-byte cap closes every
+    // second record
+    assertEquals(
+        List.of(2, 1),
+        emit(
+                converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), HEAP, 200),
+                message("big.txt"))
+            .batches
+            .stream()
+            .map(List::size)
+            .toList());
+  }
+
+  @Test
+  void aBadRecordIsDeadLetteredWithItsBytesAndTheRestIsEmitted() {
+    stub("bad.jsonl", utf8("{\"a\":1}\nnot json\n{\"a\":3}\n"));
+
+    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    assertEquals(List.of(json("{\"a\":1}"), json("{\"a\":3}")), emitter.records());
+    assertEquals(
+        List.of(
+            new Entry(
+                "not json",
+                "MALFORMED json record: JsonParseException",
+                "object s3://b/bad.jsonl, recordIndex 2, bytes 8-16",
+                "node")),
+        dlq);
+    verify(deserializeFailureCounter).increase(Map.of());
+  }
+
+  @Test
+  void twoDifferentSyntaxErrorsShareTheFirstLine() {
+    stub("bad.jsonl", utf8("{\"a\" 1}\n{\"a\":}\n"));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    assertEquals(
+        List.of(
+            "MALFORMED json record: JsonParseException",
+            "MALFORMED json record: JsonParseException"),
+        dlq.stream().map(Entry::firstLine).toList());
+  }
+
+  @Test
+  void aBadRecordOver128KibIsSummarized() {
+    String big = "x".repeat(S3RealtimeRawDataConverter.MAX_RECORD_ENTRY_BYTES + 1);
+    stub("bad.jsonl", utf8("{\"a\":1}\n" + big + "\n"));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "MALFORMED json object: JsonParseException",
+                "object s3://b/bad.jsonl version v1; 1 outcome; recordIndex 2 (bytes 8-"
+                    + (8 + big.length())
+                    + ")",
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void oversizedRecordsAreSummarizedWithTheirRanges() {
+    String big = "x".repeat(9000);
+    stub("big.txt", utf8(big + "\nok\n" + big + "\n" + big + "\n"));
+
+    TestEmitter emitter =
+        emit(
+            converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), MIB, 4 * MIB),
+            message("big.txt"));
+
+    assertEquals(List.of(json("{\"__raw__\":\"ok\"}")), emitter.records());
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "OVERSIZED text object",
+                "object s3://b/big.txt version v1; 3 outcomes; recordIndex 1 (bytes 0-9000), 3-4 (bytes 9004-27005)",
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void manyBytesLessFailuresGiveOneSummaryListingAtMost100Ranges() {
+    StringBuilder text = new StringBuilder();
+    String big = "x".repeat(9000);
+    for (int i = 0; i < 300; i++) {
+      text.append(big).append("\nok\n");
+    }
+    stub("big.txt", utf8(text.toString()));
+
+    emit(
+        converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), MIB, 4 * MIB),
+        message("big.txt"));
+
+    assertEquals(1, dlq.size());
+    Entry entry = dlq.getFirst();
+    assertEquals("OVERSIZED text object", entry.firstLine());
+    assertTrue(
+        entry
+            .lastLine()
+            .startsWith(
+                "object s3://b/big.txt version v1; 300 outcomes; recordIndex 1 (bytes 0-9000), 3 (bytes 9004-18004)"),
+        entry.lastLine());
+    assertTrue(entry.lastLine().endsWith(", and 200 more ranges"), entry.lastLine());
+  }
+
+  @Test
+  void aTerminalFailureEndsTheObjectAfterTheRecordsBeforeIt() {
+    stub("x.csv", utf8("a,b\n1,2\n\"3,4\n"));
+
+    TestEmitter emitter = emit(converter(EncodingType.CSV), message("x.csv"));
+
+    assertEquals(List.of(json("{\"a\":\"1\",\"b\":\"2\"}")), emitter.records());
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "MALFORMED csv object: MalformedCsvException",
+                "object s3://b/x.csv version v1; 1 outcome; recordIndex 2; the object ended at recordIndex 2",
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void anObjectOverMaxObjectSizeIsDeadLetteredAndSkipped() {
+    when(s3Client.getObject(any(GetObjectRequest.class)))
+        .thenReturn(
+            new ResponseInputStream<>(
+                GetObjectResponse.builder()
+                    .contentLength(MAX_OBJECT_SIZE + 1)
+                    .versionId("v2")
+                    .build(),
+                AbortableInputStream.create(new ByteArrayInputStream(new byte[0]))));
+
+    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("big.json"));
+
+    assertEquals(List.of(), emitter.batches);
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "OBJECT_TOO_LARGE s3 object",
+                "object s3://b/big.json version v2 size "
+                    + (MAX_OBJECT_SIZE + 1)
+                    + " exceeds maxObjectSizeBytes "
+                    + MAX_OBJECT_SIZE,
+                "node")),
+        dlq);
     verify(skippedObjectCounter).increase(Map.of("reason", "oversized"));
   }
 
   @Test
-  void convert_missingObjectSkippedAndAcknowledged() {
+  void aMissingObjectIsSkippedWithoutADlqEntry() {
     when(s3Client.getObject(any(GetObjectRequest.class)))
-        .thenThrow(
-            software.amazon.awssdk.services.s3.model.NoSuchKeyException.builder()
-                .message("The specified key does not exist.")
-                .build());
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1", "r1", null, List.of(new S3ObjectRef("b", "gone.jsonl", "us-east-1")));
+        .thenThrow(NoSuchKeyException.builder().message("gone").build());
 
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
+    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("gone.jsonl"));
 
-    // A deleted object is a benign skip: acknowledged (no records), no DLQ, but counted.
-    assertNull(result.error());
-    assertEquals(List.of(), result.transformedData());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
-    verifyNoInteractions(dlqWriter);
+    assertEquals(List.of(), emitter.batches);
+    assertEquals(List.of(), dlq);
     verify(skippedObjectCounter).increase(Map.of("reason", "missing"));
   }
 
   @Test
-  void convert_deserializeFailureDlqdAndAcknowledged() {
-    stubGetObject("b", "bad.jsonl", "not valid json".getBytes(StandardCharsets.UTF_8));
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "bad.jsonl", "us-east-1")));
-
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
-
-    // Terminal: dead-lettered with the real error + acknowledged, not a retryable failure.
-    assertNull(result.error());
-    assertEquals(List.of(), result.transformedData());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
-    verify(dlqWriter)
-        .writeToDlq(anyLong(), any(), contains("failed to process s3://b/bad.jsonl"), eq("node"));
-  }
-
-  @Test
-  void convert_downloadFailureDlqdAndAcknowledged() {
+  void aFailedDownloadIsAReadFailureSummary() {
     when(s3Client.getObject(any(GetObjectRequest.class)))
-        .thenThrow(new RuntimeException("s3 unavailable"));
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1", "r1", "raw-body", List.of(new S3ObjectRef("b", "k.json", "us-east-1")));
+        .thenThrow(new IllegalStateException("s3 unavailable"));
 
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("k.json"));
 
-    assertNull(result.error());
-    assertEquals(List.of(), result.transformedData());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
-    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("s3 unavailable"), eq("node"));
-  }
-
-  @Test
-  void convert_multiObjectPartialFailureEmitsGoodAndDlqsBad() {
-    stubGetObject("b", "good.jsonl", "{\"msg\":\"a\"}".getBytes(StandardCharsets.UTF_8));
-    stubGetObject("b", "bad.jsonl", "not valid json".getBytes(StandardCharsets.UTF_8));
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1",
-            "r1",
-            "raw-body",
-            List.of(
-                new S3ObjectRef("b", "good.jsonl", "us-east-1"),
-                new S3ObjectRef("b", "bad.jsonl", "us-east-1")));
-
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(msg, ctx);
-
-    // Good object emitted, bad object dead-lettered, message acknowledged.
-    assertEquals(List.of(record(Map.of("msg", "a"))), result.transformedData());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
-    verify(dlqWriter)
-        .writeToDlq(anyLong(), any(), contains("failed to process s3://b/bad.jsonl"), eq("node"));
-  }
-
-  @Test
-  void convert_autoDetectsGzip() {
-    stubGetObject("b", "data.jsonl.gz", gzip("{\"msg\":\"a\"}\n{\"msg\":\"b\"}"));
-    S3EventMessage msg =
-        new S3EventMessage(
-            "m1", "r1", null, List.of(new S3ObjectRef("b", "data.jsonl.gz", "us-east-1")));
-
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false, null).convert(msg, ctx);
-
+    assertEquals(1, dlq.size());
     assertEquals(
-        List.of(record(Map.of("msg", "a")), record(Map.of("msg", "b"))), result.transformedData());
-    assertNull(result.error());
-  }
-
-  @Test
-  void convert_explicitGzip() {
-    stubGetObject("b", "data", gzip("{\"msg\":\"a\"}"));
-    S3EventMessage msg =
-        new S3EventMessage("m1", "r1", null, List.of(new S3ObjectRef("b", "data", "us-east-1")));
-
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false, CompressionType.GZIP).convert(msg, ctx);
-
-    assertEquals(List.of(record(Map.of("msg", "a"))), result.transformedData());
+        new Entry(
+            NOTIFICATION,
+            "READ_FAILURE s3 object: IllegalStateException",
+            "object s3://b/k.json; 1 outcome",
+            "node"),
+        dlq.getFirst());
+    verify(deserializeFailureCounter).increase(Map.of());
   }
 
   @ParameterizedTest
   @NullAndEmptySource
   @ValueSource(strings = {" ", "invalid-region"})
-  void invalidRegionIsDeadLetteredWithoutDiscardingValidSibling(String region) {
-    stubGetObject("b", "good.jsonl", "{\"msg\":\"good\"}".getBytes(StandardCharsets.UTF_8));
+  void anInvalidRegionIsDeadLetteredWithoutDiscardingTheValidSibling(String region) {
+    stub("good.jsonl", utf8("{\"msg\":\"good\"}"));
     S3EventMessage message =
         new S3EventMessage(
             "m1",
             "r1",
-            "raw-body",
+            NOTIFICATION,
             List.of(
                 new S3ObjectRef("b", "invalid.jsonl", region),
                 new S3ObjectRef("b", "good.jsonl", "us-east-1")));
-    ConvertedResult<S3EventMessage> result =
-        converter(EncodingType.JSON_OBJECT_LINE, false).convert(message, ctx);
-    assertEquals(List.of(record(Map.of("msg", "good"))), result.transformedData());
-    assertEquals(List.of("r1"), List.copyOf(confirmed));
-    assertNull(result.error());
-    verify(s3Client).getObject(argThatMatches("b", "good.jsonl"));
-    verify(s3Client, never()).getObject(argThatMatches("b", "invalid.jsonl"));
-    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("failed to find region"), eq("node"));
-    verify(ctx.deserializeFailureCounter()).increase(Map.of());
+
+    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message);
+
+    assertEquals(List.of(json("{\"msg\":\"good\"}")), emitter.records());
+    assertEquals(1, dlq.size());
+    assertEquals("object s3://b/invalid.jsonl; 1 outcome", dlq.getFirst().lastLine());
+    assertTrue(
+        dlq.getFirst().firstLine().startsWith("READ_FAILURE s3 object: "),
+        dlq.getFirst().firstLine());
+    verify(s3Client, never())
+        .getObject(argThat((GetObjectRequest r) -> "invalid.jsonl".equals(r.key())));
+  }
+
+  @Test
+  void aDownstreamFailureIsSummarizedPerNodeAndTheNextBatchGoesOn() {
+    StringBuilder lines = new StringBuilder();
+    for (int i = 1; i <= 2500; i++) {
+      lines.append("{\"i\":").append(i).append("}\n");
+    }
+    stub("many.jsonl", utf8(lines.toString()));
+    TestEmitter emitter = new TestEmitter();
+    emitter.failBatch = 1;
+
+    converter(EncodingType.JSON_OBJECT_LINE).emit(message("many.jsonl"), context, emitter);
+
+    assertEquals(List.of(1000, 1000, 500), emitter.batches.stream().map(List::size).toList());
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "io.fleak.zephflow.lib.commands.NodeExecutionException: missing field",
+                "object s3://b/many.jsonl version v1; 1 batch failed; recordIndex 1001-2000",
+                "eval_1")),
+        dlq);
+  }
+
+  @Test
+  void aStopEndsTheObjectWithNoSummaries() {
+    StringBuilder lines = new StringBuilder();
+    for (int i = 1; i <= 2500; i++) {
+      lines.append(i == 2200 ? "not json" : "{\"i\":" + i + "}").append('\n');
+    }
+    stub("many.jsonl", utf8(lines.toString()));
+    stub("next.jsonl", utf8("{\"a\":1}"));
+    TestEmitter emitter = new TestEmitter();
+    emitter.stopAfterBatch = 0;
+
+    converter(EncodingType.JSON_OBJECT_LINE)
+        .emit(message("many.jsonl", "next.jsonl"), context, emitter);
+
+    assertEquals(List.of(1000), emitter.batches.stream().map(List::size).toList());
+    assertEquals(List.of(), dlq);
+    verify(s3Client, never())
+        .getObject(argThat((GetObjectRequest r) -> "next.jsonl".equals(r.key())));
+  }
+
+  @Test
+  void aFailedDlqWriteEscapesTheConverter() {
+    stub("bad.jsonl", utf8("not json\n"));
+    doThrow(new IllegalStateException("dlq closed"))
+        .when(dlqWriter)
+        .writeToDlq(anyLong(), any(), anyString(), anyString());
+
+    assertThrows(
+        S3RealtimeRawDataConverter.DlqWriteFailure.class,
+        () -> emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl")));
+  }
+
+  @Test
+  void theCauseNameIsTheInnermostNonSourceReadExceptionWithItsAwsCode() {
+    assertEquals(
+        List.of("IllegalStateException", "S3Exception AccessDenied", "SourceReadException"),
+        List.of(
+            S3RealtimeRawDataConverter.causeName(
+                new io.fleak.zephflow.lib.serdes.decode.SourceReadException(
+                    "x", new IllegalStateException("y"))),
+            S3RealtimeRawDataConverter.causeName(
+                new io.fleak.zephflow.lib.serdes.decode.SourceReadException(
+                    "x",
+                    software.amazon.awssdk.services.s3.model.S3Exception.builder()
+                        .awsErrorDetails(
+                            software.amazon.awssdk.awscore.exception.AwsErrorDetails.builder()
+                                .errorCode("AccessDenied")
+                                .build())
+                        .build())),
+            S3RealtimeRawDataConverter.causeName(
+                new io.fleak.zephflow.lib.serdes.decode.SourceReadException("x", null))));
+  }
+
+  /** Collects a parquet file in memory. */
+  private record MemoryOutputFile(OutputStream out) implements OutputFile {
+    @Override
+    public PositionOutputStream create(long blockSizeHint) {
+      return new PositionOutputStream() {
+        private long pos;
+
+        @Override
+        public long getPos() {
+          return pos;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+          out.write(b);
+          pos++;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+          out.write(b, off, len);
+          pos += len;
+        }
+      };
+    }
+
+    @Override
+    public PositionOutputStream createOrOverwrite(long blockSizeHint) {
+      return create(blockSizeHint);
+    }
+
+    @Override
+    public boolean supportsBlockSize() {
+      return false;
+    }
+
+    @Override
+    public long defaultBlockSize() {
+      return 0;
+    }
+  }
+
+  private static DecodingConfig decodingConfig(String json) {
+    return JsonUtils.fromJsonString(json, DecodingConfig.class);
+  }
+
+  private static S3Decoding decoding(String json) {
+    return new S3Decoding(null, null, decodingConfig(json), false);
+  }
+
+  private static RecordFleakData json(String json) {
+    return (RecordFleakData) JsonUtils.loadFleakDataFromJsonString(json);
   }
 
   private static RecordFleakData record(Map<String, Object> payload) {
     return (RecordFleakData) FleakData.wrap(payload);
   }
 
-  private static byte[] gzip(String content) {
-    ByteArrayOutputStream bos = new ByteArrayOutputStream();
-    try (GZIPOutputStream gos = new GZIPOutputStream(bos)) {
-      gos.write(content.getBytes(StandardCharsets.UTF_8));
-    } catch (Exception e) {
-      throw new RuntimeException(e);
+  private static byte[] utf8(String s) {
+    return s.getBytes(StandardCharsets.UTF_8);
+  }
+
+  private static byte[] gzip(byte[] bytes) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    try (GZIPOutputStream gzip = new GZIPOutputStream(out)) {
+      gzip.write(bytes);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
-    return bos.toByteArray();
+    return out.toByteArray();
   }
 }

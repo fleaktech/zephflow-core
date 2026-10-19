@@ -15,14 +15,18 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.List;
 
@@ -36,6 +40,28 @@ public record S3Decoding(
     CompressionType compressionType,
     DecodingConfig decoding,
     boolean addS3Metadata) {
+
+  public static S3Decoding of(S3RealtimeSourceDto.Config config) {
+    return new S3Decoding(
+        config.getEncodingType(),
+        config.getCompressionType(),
+        config.getDecoding(),
+        config.isAddS3Metadata());
+  }
+
+  /** The format's type name, as {@code decoding} spells it ({@code json}, {@code csv}, ...). */
+  public String formatName() {
+    return switch (decodingConfig().format()) {
+      case AvroFormatConfig f -> "avro";
+      case CsvFormatConfig f -> "csv";
+      case JsonFormatConfig f -> "json";
+      case ParquetFormatConfig f -> "parquet";
+      case ProtobufFormatConfig f -> "protobuf";
+      case TextFormatConfig f -> "text";
+      case XmlFormatConfig f -> "xml";
+      case YamlFormatConfig f -> "yaml";
+    };
+  }
 
   /**
    * The decoding configuration: {@code decoding} as given, or the legacy settings translated.

@@ -20,7 +20,6 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import org.apache.commons.lang3.StringUtils;
 
 public class S3RealtimeSourceConfigValidator implements ConfigValidator {
@@ -31,8 +30,8 @@ public class S3RealtimeSourceConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getQueueUrl()), "no queue URL is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getRegionStr()), "no region is provided");
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    // Compiles the decoding, so a bad one fails validation rather than the first object.
+    new S3ObjectDecoder(S3Decoding.of(config), S3DecodeLimits.nominalHeapBytes());
 
     if (config.getMaxNumberOfMessages() != null) {
       Preconditions.checkArgument(

@@ -23,8 +23,7 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
@@ -35,6 +34,7 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage> {
 
   private final AwsClientFactory awsClientFactory;
+  private SpoolDirectory spoolDirectory;
 
   public S3RealtimeSourceCommand(
       String nodeId,
@@ -92,24 +92,24 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
 
     Queue<String> confirmedReceiptHandles = new ConcurrentLinkedQueue<>();
 
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
+    S3Decoding decoding = S3Decoding.of(config);
+    long heapBytes = S3DecodeLimits.nominalHeapBytes();
+    spoolDirectory = SpoolDirectory.create();
     RawDataEncoder<S3EventMessage> encoder = new S3RealtimeRawDataEncoder();
     RawDataConverter<S3EventMessage> converter =
         new S3RealtimeRawDataConverter(
             s3Clients,
-            deserializer,
-            config.getCompressionType(),
+            new S3ObjectDecoder(decoding, heapBytes),
+            decoding.formatName(),
             orDefault(
                 config.getMaxObjectSizeBytes(), S3RealtimeSourceDto.DEFAULT_MAX_OBJECT_SIZE_BYTES),
-            config.isAddS3Metadata(),
+            spoolDirectory.getPath(),
+            S3DecodeLimits.batchBytes(heapBytes),
             confirmedReceiptHandles,
             dlqWriter,
             encoder,
             nodeId,
             skippedObjectCounter);
-
     Fetcher<S3EventMessage> fetcher =
         new S3RealtimeSourceFetcher(
             sqsClient,
@@ -127,9 +127,8 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
             nodeId,
             confirmedReceiptHandles);
 
-    // Restore the framework DLQ so downstream accept() failures are captured (the converter itself
-    // dead-letters convert failures terminally, so there is no per-attempt duplicate). The context
-    // owns closing the writer.
+    // The converter dead-letters its own failures, downstream ones included; the framework writes
+    // only what escapes it. The context owns closing the writer.
     return new SourceExecutionContext<>(
         fetcher,
         converter,
@@ -153,6 +152,18 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
 
   private static long orDefault(Long value, long defaultValue) {
     return value != null ? value : defaultValue;
+  }
+
+  @Override
+  public void terminate() throws IOException {
+    try {
+      super.terminate();
+    } finally {
+      if (spoolDirectory != null) {
+        spoolDirectory.close();
+        spoolDirectory = null;
+      }
+    }
   }
 
   @Override

@@ -22,9 +22,12 @@ import io.fleak.zephflow.api.SourceCommand.SourceType;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
 import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
@@ -47,6 +50,7 @@ import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -135,8 +139,8 @@ class S3RealtimeSourceCommandTest {
                 new S3ObjectRef("b", "two", "us-west-2")));
     S3EventMessage second =
         message("second", List.of(new S3ObjectRef("b", "three", "eu-central-1")));
-    assertEquals(2, context.converter().convert(first, context).transformedData().size());
-    assertEquals(1, context.converter().convert(second, context).transformedData().size());
+    assertEquals(2, emitted(context, first).size());
+    assertEquals(1, emitted(context, second).size());
     verify(factory).createS3Client("eu-central-1", objectCredential, "http://localhost:4566");
     verify(factory).createS3Client("us-west-2", objectCredential, "http://localhost:4566");
     verifyNoMoreInteractions(factory);
@@ -248,7 +252,12 @@ class S3RealtimeSourceCommandTest {
     try {
       SourceEventAcceptor acceptor = mock(SourceEventAcceptor.class);
       command.execute("test", acceptor);
-      verify(acceptor).accept(argThat(records -> records.size() == 2));
+      ArgumentCaptor<List<RecordFleakData>> batches = ArgumentCaptor.captor();
+      verify(acceptor, times(2)).accept(batches.capture());
+      assertEquals(
+          List.of(
+              List.of(FleakData.wrap(Map.of("ok", 1))), List.of(FleakData.wrap(Map.of("ok", 2)))),
+          batches.getAllValues());
       List<LogEvent> cleanupLogs =
           logs.stream()
               .filter(
@@ -344,7 +353,7 @@ class S3RealtimeSourceCommandTest {
             List.of(
                 new S3ObjectRef("b", "one", "eu-central-1"),
                 new S3ObjectRef("b", "two", "us-west-2")));
-    assertEquals(1, context.converter().convert(message, context).transformedData().size());
+    assertEquals(1, emitted(context, message).size());
     command.terminate();
     verify(sqs).close();
     verify(europe).close();
@@ -385,6 +394,33 @@ class S3RealtimeSourceCommandTest {
   @SuppressWarnings("unchecked")
   private static SourceExecutionContext<S3EventMessage> context(S3RealtimeSourceCommand command) {
     return (SourceExecutionContext<S3EventMessage>) command.getExecutionContext();
+  }
+
+  /**
+   * The records the converter emits for one message, which is then acknowledged as
+   * SimpleSourceCommand does once a message is done.
+   */
+  private static List<RecordFleakData> emitted(
+      SourceExecutionContext<S3EventMessage> context, S3EventMessage message) {
+    List<RecordFleakData> records = new ArrayList<>();
+    BatchEmittingConverter<S3EventMessage> converter =
+        (BatchEmittingConverter<S3EventMessage>) context.converter();
+    converter.emit(
+        message,
+        context,
+        new BatchEmittingConverter.Emitter() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            records.addAll(batch);
+          }
+
+          @Override
+          public boolean stopped() {
+            return false;
+          }
+        });
+    converter.acknowledge(message);
+    return records;
   }
 
   private static S3EventMessage message(String receipt, List<S3ObjectRef> refs) {

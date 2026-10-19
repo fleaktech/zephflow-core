@@ -16,76 +16,79 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.source.ConvertedResult;
-import io.fleak.zephflow.lib.commands.source.RawDataConverter;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import io.fleak.zephflow.lib.commands.NodeExecutionException;
+import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDecoder.Result;
+import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
 import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
-import io.fleak.zephflow.lib.utils.CompressionUtils;
-import java.io.IOException;
+import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
+import io.fleak.zephflow.lib.serdes.decode.RawSpan;
+import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.services.s3.S3Client;
 
 /**
- * Downloads the S3 object(s) referenced by an {@link S3EventMessage} — one at a time, so at most a
- * single object is held in memory — and deserializes each into {@link RecordFleakData}.
- *
- * <p>Each object is handled independently and a failure is <b>terminal</b>: an object that can't be
- * downloaded or parsed is written (with its real error) to the DLQ and skipped, never retried. So
- * {@code convert()} always succeeds and the message is always acknowledged; a multi-object message
- * emits its good objects and DLQs the bad ones (including oversized objects, which exist but exceed
- * the size limit). A deleted object ({@code NoSuchKey}) is the one benign skip with no DLQ, since
- * there is nothing to recover. Downstream {@code accept()} failures are handled by the framework's
- * DLQ path.
+ * Decodes the S3 objects an {@link S3EventMessage} names, one at a time, and emits each object's
+ * records in bounded batches while it is decoded. A bad record that carries at most 128 KiB is
+ * dead-lettered with its own bytes; every other failure is summarized once per object and kind, and
+ * downstream failures once per object and failing node, with the notification as the value. The
+ * message's receipt handle is queued for deletion only when it is acknowledged.
  */
 @Slf4j
-public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessage> {
+public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3EventMessage> {
 
   static final String S3_METADATA_BUCKET = "__s3_bucket";
   static final String S3_METADATA_KEY = "__s3_key";
+  static final int MAX_RECORD_ENTRY_BYTES = 128 * 1024;
+  static final int MAX_BATCH_RECORDS = 1000;
+  static final int MAX_LISTED_RANGES = 100;
+  private static final long VALUE_BYTES = 8;
+  private static final String UNKNOWN_NODE = "unknown";
 
   private final S3RegionalClientProvider s3Clients;
-  private final FleakDeserializer<?> fleakDeserializer;
-  // When null, gzip is auto-detected via magic bytes; when GZIP, decompression is forced.
-  private final CompressionType compressionType;
+  private final S3ObjectDecoder decoder;
+  private final String format;
   private final long maxObjectSizeBytes;
-  private final boolean addS3Metadata;
+  private final Path spoolDir;
+  private final long batchBytes;
   private final Queue<String> confirmedReceiptHandles;
   private final DlqWriter dlqWriter;
   private final RawDataEncoder<S3EventMessage> encoder;
   private final String nodeId;
-  // Counts objects deliberately not processed, tagged by reason (missing, oversized).
   private final FleakCounter skippedObjectCounter;
 
   public S3RealtimeRawDataConverter(
       S3RegionalClientProvider s3Clients,
-      FleakDeserializer<?> fleakDeserializer,
-      CompressionType compressionType,
+      S3ObjectDecoder decoder,
+      String format,
       long maxObjectSizeBytes,
-      boolean addS3Metadata,
+      Path spoolDir,
+      long batchBytes,
       Queue<String> confirmedReceiptHandles,
       DlqWriter dlqWriter,
       RawDataEncoder<S3EventMessage> encoder,
       String nodeId,
       FleakCounter skippedObjectCounter) {
     this.s3Clients = s3Clients;
-    this.fleakDeserializer = fleakDeserializer;
-    this.compressionType = compressionType;
+    this.decoder = decoder;
+    this.format = format;
     this.maxObjectSizeBytes = maxObjectSizeBytes;
-    this.addS3Metadata = addS3Metadata;
+    this.spoolDir = spoolDir;
+    this.batchBytes = batchBytes;
     this.confirmedReceiptHandles = confirmedReceiptHandles;
     this.dlqWriter = dlqWriter;
     this.encoder = encoder;
@@ -94,120 +97,409 @@ public class S3RealtimeRawDataConverter implements RawDataConverter<S3EventMessa
   }
 
   @Override
-  public ConvertedResult<S3EventMessage> convert(
-      S3EventMessage sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
-    List<RecordFleakData> events = new ArrayList<>();
-    long totalBytes = 0;
-    for (S3ObjectRef ref : sourceRecord.objectRefs()) {
-      byte[] body;
-      try {
-        body = maybeDecompress(downloadObject(ref));
-      } catch (NoSuchKeyException e) {
-        // The object was deleted (e.g. by an S3 lifecycle policy) between the notification being
-        // emitted and us reading it. It will never appear, so acknowledge and skip (no DLQ).
-        // Common with backlogged queues on log buckets that expire objects.
-        skippedObjectCounter.increase(Map.of("reason", "missing"));
-        log.warn(
-            "S3 object s3://{}/{} no longer exists; skipping the notification",
-            ref.bucket(),
-            ref.key());
-        continue;
-      } catch (ObjectTooLargeException e) {
-        // The object exists but exceeds the size limit -- a real drop, not a benign skip (unlike a
-        // deleted object). Dead-letter the notification (with the reason) + ack so the skip is
-        // auditable/recoverable rather than silently lost.
-        skippedObjectCounter.increase(Map.of("reason", "oversized"));
-        deadLetter(sourceRecord, ref, e);
-        continue;
-      } catch (Exception e) {
-        // Any other download problem is treated as terminal: dead-letter (with the real error) and
-        // skip, rather than failing the whole message and retrying.
-        sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
-        deadLetter(sourceRecord, ref, e);
-        continue;
+  public void emit(S3EventMessage message, SourceExecutionContext<?> context, Emitter emitter) {
+    for (S3ObjectRef ref : message.objectRefs()) {
+      if (emitter.stopped()) {
+        return;
       }
+      new ObjectRun(message, ref, context, emitter).run();
+    }
+  }
 
-      try {
-        List<RecordFleakData> objectEvents =
-            fleakDeserializer.deserialize(new SerializedEvent(null, body, null));
-        if (addS3Metadata) {
-          objectEvents.forEach(e -> enrich(e, ref));
+  @Override
+  public void acknowledge(S3EventMessage message) {
+    confirmedReceiptHandles.add(message.receiptHandle());
+  }
+
+  /** The record-size estimate batches are capped by: 8 bytes per value and field, plus text. */
+  static long estimate(FleakData data) {
+    if (data instanceof RecordFleakData record) {
+      long size = VALUE_BYTES;
+      for (Map.Entry<String, FleakData> field : record.getPayload().entrySet()) {
+        size += VALUE_BYTES + field.getKey().length() + estimate(field.getValue());
+      }
+      return size;
+    }
+    if (data instanceof ArrayFleakData array) {
+      long size = VALUE_BYTES;
+      for (FleakData item : array.getArrayPayload()) {
+        size += estimate(item);
+      }
+      return size;
+    }
+    if (data instanceof StringPrimitiveFleakData string) {
+      return VALUE_BYTES + string.getStringValue().length();
+    }
+    return VALUE_BYTES;
+  }
+
+  /** The simple name of the innermost cause that is not a SourceReadException, with an AWS code. */
+  static String causeName(Throwable error) {
+    Throwable chosen = error;
+    for (Throwable t = error; t != null; t = t.getCause()) {
+      if (!(t instanceof SourceReadException)) {
+        chosen = t;
+      }
+      if (t.getCause() == t) {
+        break;
+      }
+    }
+    String name = chosen.getClass().getSimpleName();
+    if (chosen instanceof AwsServiceException aws
+        && aws.awsErrorDetails() != null
+        && aws.awsErrorDetails().errorCode() != null) {
+      name += " " + aws.awsErrorDetails().errorCode();
+    }
+    return name;
+  }
+
+  /** Record index ranges, adjacent ones merged, with the bytes they span when known. */
+  static final class IndexRanges {
+    private final List<long[]> ranges = new ArrayList<>(); // first, last, spanStart, spanEnd
+
+    void add(long recordIndex, RawSpan span) {
+      long start = span != null && span.length() >= 0 ? span.offset() : -1;
+      long end = start >= 0 ? span.offset() + span.length() : -1;
+      long[] last = ranges.isEmpty() ? null : ranges.getLast();
+      if (last != null && recordIndex >= 1 && last[1] + 1 == recordIndex) {
+        last[1] = recordIndex;
+        if (start >= 0) {
+          last[2] = last[2] < 0 ? start : Math.min(last[2], start);
+          last[3] = Math.max(last[3], end);
         }
-        events.addAll(objectEvents);
-        totalBytes += body.length;
+        return;
+      }
+      ranges.add(new long[] {recordIndex, recordIndex, start, end});
+    }
+
+    boolean isEmpty() {
+      return ranges.isEmpty();
+    }
+
+    String describe() {
+      StringBuilder out = new StringBuilder();
+      int listed = Math.min(ranges.size(), MAX_LISTED_RANGES);
+      for (int i = 0; i < listed; i++) {
+        long[] r = ranges.get(i);
+        if (i > 0) {
+          out.append(", ");
+        }
+        out.append(r[0] == r[1] ? Long.toString(r[0]) : r[0] + "-" + r[1]);
+        if (r[2] >= 0) {
+          out.append(" (bytes ").append(r[2]).append('-').append(r[3]).append(')');
+        }
+      }
+      if (ranges.size() > listed) {
+        out.append(", and ").append(ranges.size() - listed).append(" more ranges");
+      }
+      return out.toString();
+    }
+  }
+
+  /** A DLQ write failed; it ends the source rather than being taken for a read failure. */
+  static final class DlqWriteFailure extends RuntimeException {
+    DlqWriteFailure(RuntimeException cause) {
+      super("failed to write to the DLQ", cause);
+    }
+  }
+
+  /** The failures of one kind in one object, summarized into one DLQ entry. */
+  private static final class Summary {
+    final String firstLine;
+    final String firstDetail;
+    final IndexRanges ranges = new IndexRanges();
+    long count;
+    long endedAt = -1;
+
+    Summary(String firstLine, String firstDetail) {
+      this.firstLine = firstLine;
+      this.firstDetail = firstDetail;
+    }
+  }
+
+  /** The downstream failures at one node for one object. */
+  private static final class Downstream {
+    final String stackTrace;
+    final IndexRanges ranges = new IndexRanges();
+    long batches;
+
+    Downstream(String stackTrace) {
+      this.stackTrace = stackTrace;
+    }
+  }
+
+  /** Decoding one object: its batch, its summaries, its counters. */
+  private final class ObjectRun {
+    private final S3EventMessage message;
+    private final S3ObjectRef ref;
+    private final SourceExecutionContext<?> context;
+    private final Emitter emitter;
+    private final Map<String, Summary> summaries = new LinkedHashMap<>();
+    private final Map<String, Downstream> downstream = new LinkedHashMap<>();
+    private List<RecordFleakData> batch = new ArrayList<>();
+    private long batchSize;
+    private long batchFirstIndex = -1;
+    private long batchLastIndex = -1;
+    private long lastSpanEnd = -1;
+    private long decodedCount;
+    private RecordFleakData firstRecord;
+    private String versionId;
+
+    ObjectRun(
+        S3EventMessage message,
+        S3ObjectRef ref,
+        SourceExecutionContext<?> context,
+        Emitter emitter) {
+      this.message = message;
+      this.ref = ref;
+      this.context = context;
+      this.emitter = emitter;
+    }
+
+    void run() {
+      Result result;
+      try {
+        S3Client client = s3Clients.clientFor(ref.region());
+        result = decoder.decode(client, ref, maxObjectSizeBytes, spoolDir, this::visit);
+      } catch (DlqWriteFailure e) {
+        throw e;
       } catch (Exception e) {
-        // The object's content can't be parsed; retrying won't help -> dead-letter + skip.
-        sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
-        deadLetter(sourceRecord, ref, e);
+        if (emitter.stopped()) {
+          return;
+        }
+        flush();
+        if (emitter.stopped()) {
+          return;
+        }
+        context.deserializeFailureCounter().increase(Map.of());
+        summary("READ_FAILURE s3 object: " + causeName(e), ExceptionUtils.getStackTrace(e)).count++;
+        finish(-1);
+        return;
+      }
+      versionId = result.versionId();
+      switch (result.status()) {
+        case MISSING -> {
+          skippedObjectCounter.increase(Map.of("reason", "missing"));
+          log.warn(
+              "S3 object s3://{}/{} no longer exists; skipping the notification",
+              ref.bucket(),
+              ref.key());
+        }
+        case TOO_LARGE -> {
+          skippedObjectCounter.increase(Map.of("reason", "oversized"));
+          writeNotification(
+              "OBJECT_TOO_LARGE s3 object\n"
+                  + objectName()
+                  + " size "
+                  + result.storedLength()
+                  + " exceeds maxObjectSizeBytes "
+                  + maxObjectSizeBytes,
+              nodeId);
+        }
+        case STOPPED -> {}
+        case FINISHED -> {
+          flush();
+          if (!emitter.stopped()) {
+            finish(result.storedLength());
+          }
+        }
       }
     }
 
-    Map<String, String> eventTags =
-        getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
-    sourceInitializedConfig.dataSizeCounter().increase(totalBytes, eventTags);
-    sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
-
-    confirmedReceiptHandles.add(sourceRecord.receiptHandle());
-    return ConvertedResult.success(events, sourceRecord);
-  }
-
-  private void deadLetter(S3EventMessage message, S3ObjectRef ref, Exception e) {
-    log.error(
-        "failed to process s3://{}/{} from message {}",
-        ref.bucket(),
-        ref.key(),
-        message.messageId(),
-        e);
-    if (dlqWriter == null) {
-      log.warn("dropping failed object s3://{}/{} (no DLQ configured)", ref.bucket(), ref.key());
-      return;
-    }
-    String errorMsg =
-        "failed to process s3://%s/%s: %s"
-            .formatted(ref.bucket(), ref.key(), ExceptionUtils.getStackTrace(e));
-    try {
-      dlqWriter.writeToDlq(
-          System.currentTimeMillis(), encoder.serialize(message), errorMsg, nodeId);
-    } catch (Exception ex) {
-      log.error("failed to write failed object s3://{}/{} to DLQ", ref.bucket(), ref.key(), ex);
-    }
-  }
-
-  private byte[] downloadObject(S3ObjectRef ref) throws IOException {
-    try (ResponseInputStream<GetObjectResponse> in =
-        s3Clients
-            .clientFor(ref.region())
-            .getObject(GetObjectRequest.builder().bucket(ref.bucket()).key(ref.key()).build())) {
-      long contentLength = in.response().contentLength();
-      if (contentLength > maxObjectSizeBytes) {
-        // Read the size from the response headers and abort before transferring the body.
-        throw new ObjectTooLargeException(
-            "S3 object s3://%s/%s size %d exceeds maxObjectSizeBytes %d"
-                .formatted(ref.bucket(), ref.key(), contentLength, maxObjectSizeBytes));
+    private boolean visit(DecodeOutcome outcome) {
+      if (emitter.stopped()) {
+        return false;
       }
-      return in.readAllBytes();
+      switch (outcome) {
+        case DecodeOutcome.Decoded decoded -> {
+          track(decoded.span());
+          if (batch.isEmpty()) {
+            batchFirstIndex = decoded.recordIndex();
+          }
+          batchLastIndex = decoded.recordIndex();
+          batch.add(decoded.record());
+          batchSize += estimate(decoded.record());
+          if (firstRecord == null) {
+            firstRecord = decoded.record();
+          }
+          decodedCount++;
+          if (batch.size() >= MAX_BATCH_RECORDS || batchSize >= batchBytes) {
+            flush();
+          }
+        }
+        case DecodeOutcome.Failed failed -> {
+          track(failed.span());
+          context.deserializeFailureCounter().increase(Map.of());
+          if (!failed.terminal()
+              && failed.raw().length > 0
+              && failed.raw().length <= MAX_RECORD_ENTRY_BYTES) {
+            writeRecordEntry(failed);
+          } else {
+            Summary summary =
+                summary(
+                    failed.kind() + " " + format + " object: " + causeName(failed.error()),
+                    ExceptionUtils.getStackTrace(failed.error()));
+            summary.count++;
+            summary.ranges.add(failed.recordIndex(), failed.span());
+            if (failed.terminal()) {
+              summary.endedAt = failed.recordIndex();
+            }
+          }
+        }
+        case DecodeOutcome.Oversized oversized -> {
+          context.deserializeFailureCounter().increase(Map.of());
+          String limit =
+              oversized.recordIndex() >= 1
+                  ? "record exceeds maxRecordBytes " + decoder.limits().maxRecordBytes()
+                  : "document exceeds maxDocumentBytes " + decoder.limits().maxDocumentBytes();
+          Summary summary =
+              summary(
+                  "OVERSIZED " + format + " object",
+                  limit + ", reached " + oversized.sizeSoFar() + " bytes");
+          summary.count++;
+          summary.ranges.add(oversized.recordIndex(), oversized.span());
+          if (oversized.terminal()) {
+            summary.endedAt = oversized.recordIndex();
+          }
+        }
+      }
+      return !emitter.stopped();
     }
-  }
 
-  private static final class ObjectTooLargeException extends RuntimeException {
-    ObjectTooLargeException(String message) {
-      super(message);
+    private void track(RawSpan span) {
+      if (span != null && span.length() >= 0) {
+        lastSpanEnd = Math.max(lastSpanEnd, span.offset() + span.length());
+      }
     }
-  }
 
-  private byte[] maybeDecompress(byte[] body) {
-    if (compressionType == CompressionType.GZIP || (compressionType == null && isGzip(body))) {
-      return CompressionUtils.gunzip(body);
+    private void flush() {
+      if (batch.isEmpty()) {
+        return;
+      }
+      List<RecordFleakData> emitting = batch;
+      long first = batchFirstIndex;
+      long last = batchLastIndex;
+      batch = new ArrayList<>();
+      batchSize = 0;
+      context
+          .inputEventCounter()
+          .increase(emitting.size(), getCallingUserTagAndEventTags(null, emitting.getFirst()));
+      try {
+        emitter.accept(emitting);
+      } catch (Exception e) {
+        if (emitter.stopped()) {
+          return;
+        }
+        String failingNode =
+            e instanceof NodeExecutionException nee ? nee.getNodeId() : UNKNOWN_NODE;
+        Downstream failure =
+            downstream.computeIfAbsent(
+                failingNode, n -> new Downstream(ExceptionUtils.getStackTrace(e)));
+        failure.batches++;
+        for (long i = first; i >= 1 && i <= last; i++) {
+          failure.ranges.add(i, null);
+        }
+      }
     }
-    return body;
-  }
 
-  private static boolean isGzip(byte[] body) {
-    return body.length >= 2 && (body[0] & 0xFF) == 0x1F && (body[1] & 0xFF) == 0x8B;
-  }
+    private Summary summary(String firstLine, String detail) {
+      return summaries.computeIfAbsent(
+          firstLine.substring(0, firstLine.indexOf(' ')), k -> new Summary(firstLine, detail));
+    }
 
-  private static void enrich(RecordFleakData event, S3ObjectRef ref) {
-    event.getPayload().put(S3_METADATA_BUCKET, FleakData.wrap(ref.bucket()));
-    event.getPayload().put(S3_METADATA_KEY, FleakData.wrap(ref.key()));
+    private void finish(long storedLength) {
+      long size = lastSpanEnd >= 0 ? lastSpanEnd : decodedCount > 0 ? storedLength : 0;
+      if (size > 0) {
+        context.dataSizeCounter().increase(size, getCallingUserTagAndEventTags(null, firstRecord));
+      }
+      for (Summary summary : summaries.values()) {
+        StringBuilder text =
+            new StringBuilder(summary.firstLine)
+                .append('\n')
+                .append(summary.firstDetail)
+                .append('\n')
+                .append(objectName())
+                .append("; ")
+                .append(summary.count)
+                .append(summary.count == 1 ? " outcome" : " outcomes");
+        if (!summary.ranges.isEmpty()) {
+          text.append("; recordIndex ").append(summary.ranges.describe());
+        }
+        if (summary.endedAt != -1) {
+          text.append("; the object ended at recordIndex ").append(summary.endedAt);
+        }
+        writeNotification(text.toString(), nodeId);
+      }
+      for (Map.Entry<String, Downstream> entry : downstream.entrySet()) {
+        Downstream failure = entry.getValue();
+        String text =
+            failure.stackTrace
+                + "\n"
+                + objectName()
+                + "; "
+                + failure.batches
+                + (failure.batches == 1 ? " batch" : " batches")
+                + " failed; recordIndex "
+                + failure.ranges.describe();
+        writeNotification(text, entry.getKey());
+      }
+    }
+
+    private void writeRecordEntry(DecodeOutcome.Failed failed) {
+      StringBuilder identity = new StringBuilder(objectName());
+      if (failed.recordIndex() >= 1) {
+        identity.append(", recordIndex ").append(failed.recordIndex());
+      }
+      if (failed.span() != null && failed.span().length() >= 0) {
+        identity
+            .append(", bytes ")
+            .append(failed.span().offset())
+            .append('-')
+            .append(failed.span().offset() + failed.span().length());
+      }
+      String text =
+          failed.kind()
+              + " "
+              + format
+              + " record: "
+              + causeName(failed.error())
+              + "\n"
+              + ExceptionUtils.getStackTrace(failed.error())
+              + "\n"
+              + identity;
+      SerializedEvent notification = encoder.serialize(message);
+      write(new SerializedEvent(notification.key(), failed.raw(), null), text, nodeId);
+    }
+
+    private void writeNotification(String text, String entryNodeId) {
+      write(encoder.serialize(message), text, entryNodeId);
+    }
+
+    private void write(SerializedEvent value, String text, String entryNodeId) {
+      if (dlqWriter == null) {
+        log.warn(
+            "dropping a failure of s3://{}/{} (no DLQ configured): {}",
+            ref.bucket(),
+            ref.key(),
+            text.lines().findFirst().orElse(""));
+        return;
+      }
+      try {
+        dlqWriter.writeToDlq(System.currentTimeMillis(), value, text, entryNodeId);
+      } catch (RuntimeException e) {
+        if (emitter.stopped()) {
+          return;
+        }
+        throw new DlqWriteFailure(e);
+      }
+    }
+
+    private String objectName() {
+      return "object s3://"
+          + ref.bucket()
+          + "/"
+          + ref.key()
+          + (versionId == null ? "" : " version " + versionId);
+    }
   }
 }
