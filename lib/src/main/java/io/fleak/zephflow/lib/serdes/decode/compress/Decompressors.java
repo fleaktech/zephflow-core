@@ -44,7 +44,7 @@ public final class Decompressors {
             case LZ4 -> new Lz4FrameStream(current, flags);
             case SNAPPY ->
                 library("snappy", current, FramedSnappyCompressorInputStream::new, flags);
-            case XZ -> xz(current, flags, limits.maxDocumentBytes());
+            case XZ -> xz(current, flags, limits);
           };
     }
     return current;
@@ -56,16 +56,18 @@ public final class Decompressors {
   }
 
   /**
-   * The memory xz may use is {@code maxDocumentBytes}, rounded up to whole KiB. Without that limit
-   * it is zstd's default window limit or half the heap, whichever is smaller, so a tiny file
-   * declaring a huge dictionary cannot exhaust the heap.
+   * The memory xz may use is {@code maxCodecMemoryBytes}, else {@code maxDocumentBytes}, rounded up
+   * to whole KiB. Without either it is zstd's default window limit or half the heap, whichever is
+   * smaller, so a tiny file declaring a huge dictionary cannot exhaust the heap.
    */
-  private static InputStream xz(InputStream in, DecodeFlags flags, long maxDocumentBytes) {
+  private static InputStream xz(InputStream in, DecodeFlags flags, DecodeLimits limits) {
     long limit =
-        maxDocumentBytes > 0
-            ? maxDocumentBytes
-            : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
-    int limitKiB = (int) Math.min(Integer.MAX_VALUE, (limit + 1023) / 1024);
+        limits.maxCodecMemoryBytes() > 0
+            ? limits.maxCodecMemoryBytes()
+            : limits.maxDocumentBytes() > 0
+                ? limits.maxDocumentBytes()
+                : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
+    int limitKiB = (int) Math.min(Integer.MAX_VALUE, Math.ceilDiv(limit, 1024));
     return new LibraryCodecStream(
         "xz",
         in,

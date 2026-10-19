@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.serdes.decode;
 
 import static io.fleak.zephflow.lib.serdes.decode.DecodeTestSupport.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.Zstd;
@@ -333,6 +334,50 @@ class CodecDecodeTest {
     assertEquals(
         List.of(new Big(1, null, needed, "", true)),
         decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024)));
+  }
+
+  @Test
+  void xzMemoryLimitIsMaxCodecMemoryBytesWhenSetWhateverMaxDocumentBytes() throws Exception {
+    long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
+    byte[] input = XZ.compress(FIRST);
+    assertEquals(
+        List.of(line(0), line(1)),
+        decode(
+            decoder(XZ.config()),
+            ByteInput.ofBytes(input),
+            new DecodeLimits(0, needed / 4, needed)));
+    assertEquals(
+        List.of(new Big(1, null, needed, "", true)),
+        decode(
+            decoder(XZ.config()),
+            ByteInput.ofBytes(input),
+            new DecodeLimits(0, needed * 4, needed - 1024)));
+  }
+
+  @Test
+  void zeroMaxCodecMemoryBytesKeepsTheMaxDocumentBytesRule() throws Exception {
+    long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
+    byte[] input = XZ.compress(FIRST);
+    assertEquals(
+        List.of(new Big(1, null, needed, "", true)),
+        decode(
+            decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024, 0)));
+  }
+
+  @Test
+  void aHugeMaxCodecMemoryBytesDoesNotOverflowIntoATinyLimit() {
+    assertEquals(
+        List.of(line(0), line(1)),
+        decode(
+            decoder(XZ.config()),
+            ByteInput.ofBytes(XZ.compress(FIRST)),
+            new DecodeLimits(0, 0, Long.MAX_VALUE)));
+  }
+
+  @Test
+  void decodeLimitsTwoArgumentConstructorLeavesTheCodecLimitUnset() {
+    assertEquals(new DecodeLimits(1, 2, 0), new DecodeLimits(1, 2));
+    assertThrows(IllegalArgumentException.class, () -> new DecodeLimits(0, 0, -1));
   }
 
   @Test
