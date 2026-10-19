@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.sun.net.httpserver.HttpServer;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -91,5 +92,73 @@ class SplunkHecSinkCommandTest {
     assertTrue(sizes.stream().allMatch(n -> n <= 500), "request over batchSize: " + sizes);
     long timerTicks = 1 + elapsedMs / SplunkHecSinkCommand.FLUSH_INTERVAL_MS;
     assertTrue(sizes.size() <= 3 + timerTicks, "too many requests: " + sizes);
+  }
+
+  @Test
+  void csvEncoding_sendsOrderedCsvLinesFromNodeConfig() throws Exception {
+    List<String> bodies = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/services/collector/event",
+        exchange -> {
+          bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+          byte[] out = "{\"text\":\"Success\",\"code\":0}".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, out.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(out);
+          }
+        });
+    server.start();
+
+    JobContext jobContext =
+        JobContext.builder()
+            .metricTags(TestUtils.JOB_CONTEXT.getMetricTags())
+            .otherProperties(
+                new HashMap<>(Map.of("hec_token", new HashMap<>(Map.of("key", "abcd-1234")))))
+            .build();
+    Map<String, Object> nodeConfig = new HashMap<>();
+    nodeConfig.put(
+        "hecUrl",
+        "http://127.0.0.1:" + server.getAddress().getPort() + "/services/collector/event");
+    nodeConfig.put("credentialId", "hec_token");
+    nodeConfig.put("sourcetype", "fleak:csv");
+    nodeConfig.put("encodingType", "CSV");
+    nodeConfig.put("csvColumns", List.of("time", "src_ip", "action"));
+
+    SplunkHecSinkCommand command =
+        (SplunkHecSinkCommand)
+            new SplunkHecSinkCommandFactory().createCommand("splunkNode", jobContext);
+    command.parseAndValidateArg(nodeConfig);
+
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      command.writeToSink(
+          List.of(
+              new RecordFleakData(
+                  Map.of(
+                      "action", new StringPrimitiveFleakData("allow"),
+                      "time", new StringPrimitiveFleakData("2026-10-19"),
+                      "src_ip", new StringPrimitiveFleakData("1.2.3.4"))),
+              new RecordFleakData(
+                  Map.of(
+                      "time", new StringPrimitiveFleakData("2026-10-20"),
+                      "user", new StringPrimitiveFleakData("dropped")))),
+          "test_user",
+          command.getExecutionContext());
+    } finally {
+      command.terminate();
+      server.stop(0);
+    }
+
+    List<JsonNode> envelopes = new ArrayList<>();
+    for (String body : List.copyOf(bodies)) {
+      for (String line : body.lines().filter(l -> !l.isEmpty()).toList()) {
+        envelopes.add(OBJECT_MAPPER.readTree(line));
+      }
+    }
+    assertEquals(2, envelopes.size());
+    assertEquals("2026-10-19,1.2.3.4,allow", envelopes.get(0).get("event").asText());
+    assertEquals("2026-10-20,,", envelopes.get(1).get("event").asText());
+    assertEquals("fleak:csv", envelopes.get(0).get("sourcetype").asText());
   }
 }
