@@ -692,6 +692,41 @@ class S3RealtimeRawDataConverterTest {
             S3RealtimeRawDataConverter.causeName(new SourceReadException("x", null))));
   }
 
+  @Test
+  void theCauseNameLeavesOutAMissingAwsErrorCode() {
+    assertEquals(
+        List.of("S3Exception", "S3Exception"),
+        List.of(
+            S3RealtimeRawDataConverter.causeName(S3Exception.builder().build()),
+            S3RealtimeRawDataConverter.causeName(
+                S3Exception.builder().awsErrorDetails(AwsErrorDetails.builder().build()).build())));
+  }
+
+  @Test
+  void theBatchEstimateCountsArrayItems() {
+    // 8 for the record, 8 + 1 for field "a", 8 for the array, 8 + 2 for "xy", 8 for the number
+    assertEquals(43L, S3RealtimeRawDataConverter.estimate(json("{\"a\":[\"xy\",1]}")));
+  }
+
+  @Test
+  void aStopSeenBeforeAnOutcomeEndsTheObjectWithNothingEmitted() {
+    stub("k", utf8("x"));
+    TestEmitter emitter = new TestEmitter();
+    // calls: emit's loop, visit 1 on entry, visit 1 on return, visit 2 on entry
+    emitter.stopAtCall = 4;
+
+    stubbed(
+            "json",
+            false,
+            new DecodeOutcome.Decoded(json("{\"a\":1}"), 1, new RawSpan(0, 7)),
+            new DecodeOutcome.Decoded(json("{\"a\":2}"), 2, new RawSpan(8, 7)))
+        .emit(message("k"), context, emitter);
+
+    assertEquals(List.of(), emitter.batches);
+    assertEquals(List.of(), dlq);
+    assertEquals(List.of(), List.copyOf(confirmed));
+  }
+
   /** Collects a parquet file in memory. */
   private record MemoryOutputFile(OutputStream out) implements OutputFile {
     @Override
@@ -1438,7 +1473,14 @@ class S3RealtimeRawDataConverterTest {
             "OVERSIZED parquet object: format maximum",
             pieces,
             "the parquet footer reached 2147483647 bytes, over the 2147483639 bytes the decoder"
-                + " can hold in one piece"));
+                + " can hold in one piece"),
+        Arguments.of(
+            "json",
+            over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483647),
+            "OVERSIZED json object: format maximum",
+            pieces,
+            "a unit reached 2147483647 bytes, over the 2147483639 bytes the decoder can hold in"
+                + " one piece"));
   }
 
   @ParameterizedTest

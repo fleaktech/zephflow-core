@@ -123,4 +123,13 @@ class S3DecodeLimitsTest {
     assertEquals(
         123L, S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmxbig", "-Xss1m"), 123));
   }
+
+  @Test
+  void anEmptyXmxIsIgnoredAndTerabytesAreRead() {
+    assertEquals(
+        List.of(123L, 1024L * 1024 * 1024 * 1024),
+        List.of(
+            S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmx"), 123),
+            S3DecodeLimits.nominalHeapBytes(Map.of(), List.of("-Xmx1t"), 123)));
+  }
 }

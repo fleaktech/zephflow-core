@@ -26,11 +26,13 @@ import java.io.EOFException;
 import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
@@ -280,6 +282,36 @@ class S3ObjectDownloaderTest {
     verify(abortable).abort();
     verify(s3, times(1)).getObject(any(GetObjectRequest.class));
     assertEquals(List.of(), spoolFiles());
+  }
+
+  @Test
+  void aLocalCopyThatCannotBeDeletedDoesNotHideTheReadFailure() throws IOException {
+    when(s3.getObject(any(GetObjectRequest.class))).thenReturn(body(DATA.length, DATA));
+    IOException diskFull = new IOException("No space left on device");
+    List<Path> copies = new ArrayList<>();
+    S3ObjectDownloader undeletable =
+        new S3ObjectDownloader(
+            spoolDir,
+            file -> {
+              // A non-empty directory where the file goes: writing fails, and so does deleting it.
+              copies.add(file);
+              Files.delete(file);
+              Files.createDirectories(file.resolve("child"));
+              return new OutputStream() {
+                @Override
+                public void write(int b) throws IOException {
+                  throw diskFull;
+                }
+              };
+            });
+
+    SourceReadException e =
+        assertThrows(SourceReadException.class, () -> undeletable.download(s3, REF, 1024));
+
+    assertEquals(
+        new Thrown("writing the local copy of s3://b/k failed", diskFull.toString(), List.of()),
+        Thrown.of(e));
+    assertTrue(Files.isDirectory(copies.getFirst()));
   }
 
   @Test
