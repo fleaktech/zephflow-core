@@ -77,12 +77,12 @@ class SpoolDirectoryTest {
 
   @Test
   void aDirectoryThatCannotBeDeletedIsLeftAndCloseDoesNotThrow() throws IOException {
-    assumeFalse("root".equals(System.getProperty("user.name")), "root ignores permissions");
     SpoolDirectory spool = SpoolDirectory.create(workingDir, tmpDir);
     Path file = Files.writeString(spool.getPath().resolve("object-1.part"), "data");
     Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(spool.getPath());
     Files.setPosixFilePermissions(spool.getPath(), PosixFilePermissions.fromString("r-x------"));
     try {
+      assumeFalse(Files.isWritable(spool.getPath()), "this user ignores permissions");
       spool.close();
 
       assertTrue(Files.exists(file));

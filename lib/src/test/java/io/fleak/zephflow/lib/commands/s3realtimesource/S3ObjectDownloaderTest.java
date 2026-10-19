@@ -285,7 +285,7 @@ class S3ObjectDownloaderTest {
   }
 
   @Test
-  void aLocalCopyThatCannotBeDeletedDoesNotHideTheReadFailure() throws IOException {
+  void aLocalCopyThatCannotBeDeletedDoesNotHideTheWriteFailure() throws IOException {
     when(s3.getObject(any(GetObjectRequest.class))).thenReturn(body(DATA.length, DATA));
     IOException diskFull = new IOException("No space left on device");
     List<Path> copies = new ArrayList<>();
@@ -293,7 +293,6 @@ class S3ObjectDownloaderTest {
         new S3ObjectDownloader(
             spoolDir,
             file -> {
-              // A non-empty directory where the file goes: writing fails, and so does deleting it.
               copies.add(file);
               Files.delete(file);
               Files.createDirectories(file.resolve("child"));

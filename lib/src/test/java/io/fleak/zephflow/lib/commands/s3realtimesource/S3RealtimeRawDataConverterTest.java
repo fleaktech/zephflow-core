@@ -704,7 +704,6 @@ class S3RealtimeRawDataConverterTest {
 
   @Test
   void theBatchEstimateCountsArrayItems() {
-    // 8 for the record, 8 + 1 for field "a", 8 for the array, 8 + 2 for "xy", 8 for the number
     assertEquals(43L, S3RealtimeRawDataConverter.estimate(json("{\"a\":[\"xy\",1]}")));
   }
 
@@ -712,19 +711,20 @@ class S3RealtimeRawDataConverterTest {
   void aStopSeenBeforeAnOutcomeEndsTheObjectWithNothingEmitted() {
     stub("k", utf8("x"));
     TestEmitter emitter = new TestEmitter();
-    // calls: emit's loop, visit 1 on entry, visit 1 on return, visit 2 on entry
+    // the stop is seen on entry to the second outcome, so that outcome is not counted
     emitter.stopAtCall = 4;
 
     stubbed(
             "json",
             false,
             new DecodeOutcome.Decoded(json("{\"a\":1}"), 1, new RawSpan(0, 7)),
-            new DecodeOutcome.Decoded(json("{\"a\":2}"), 2, new RawSpan(8, 7)))
+            over(LimitKind.MAX_RECORD_BYTES, 1, 2))
         .emit(message("k"), context, emitter);
 
     assertEquals(List.of(), emitter.batches);
     assertEquals(List.of(), dlq);
     assertEquals(List.of(), List.copyOf(confirmed));
+    verify(deserializeFailureCounter, never()).increase(anyMap());
   }
 
   /** Collects a parquet file in memory. */
