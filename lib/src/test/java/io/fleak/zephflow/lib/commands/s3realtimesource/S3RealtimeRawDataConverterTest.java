@@ -104,7 +104,8 @@ class S3RealtimeRawDataConverterTest {
           + RETRY;
   private static final String CORRUPT_ACTION =
       "Action: check the source's compression setting against the object, and that the object was"
-          + " complete when it was announced; "
+          + " complete when it was announced; otherwise its compressed data (for avro, possibly a"
+          + " block's own codec data) is damaged or has bytes after its end, so rewrite the object; "
           + RETRY;
   private static final String TOO_LARGE_ACTION =
       "Action: raise maxObjectSizeBytes above the object's size, with that much free disk for the"
@@ -1131,10 +1132,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "CORRUPT_COMPRESSION avro object: CorruptCompressionException",
-                "Action: check the source's compression setting against the object, and that the"
-                    + " object was complete when it was announced; for avro, a block's own codec"
-                    + " data may be damaged instead, so rewrite the file if it is; "
-                    + RETRY,
+                CORRUPT_ACTION,
                 "object s3://b/k.avro version v1; 1 outcome; recordIndex 1; the object ended at"
                     + " recordIndex 1",
                 "node")),
@@ -1164,10 +1162,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "CORRUPT_COMPRESSION avro object: IllegalStateException",
-                "Action: check the source's compression setting against the object, and that the"
-                    + " object was complete when it was announced; for avro, a block's own codec"
-                    + " data may be damaged instead, so rewrite the file if it is; "
-                    + RETRY,
+                CORRUPT_ACTION,
                 "object s3://b/k version v1; 1 outcome; recordIndex 1-2",
                 "node")),
         dlq);
@@ -1301,9 +1296,9 @@ class S3RealtimeRawDataConverterTest {
             "OVERSIZED json object: maxDocumentBytes",
             "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
                 + " memory, or write smaller documents or avro blocks; if one document holds many"
-                + " records, decode it in a mode that reads them one at a time (json lines or"
-                + " array, xml elements, yaml multi_document, protobuf varint_delimited, avro"
-                + " ocf); "
+                + " records, decode it in a mode that reads them one at a time (text line, json"
+                + " lines or array, xml elements, yaml multi_document, protobuf varint_delimited,"
+                + " avro ocf; as encodingType: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY); "
                 + RETRY,
             "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
@@ -1312,9 +1307,9 @@ class S3RealtimeRawDataConverterTest {
             "OVERSIZED avro object: maxDocumentBytes",
             "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
                 + " memory, or write smaller documents or avro blocks; if one document holds many"
-                + " records, decode it in a mode that reads them one at a time (json lines or"
-                + " array, xml elements, yaml multi_document, protobuf varint_delimited, avro"
-                + " ocf); "
+                + " records, decode it in a mode that reads them one at a time (text line, json"
+                + " lines or array, xml elements, yaml multi_document, protobuf varint_delimited,"
+                + " avro ocf; as encodingType: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY); "
                 + RETRY,
             "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
@@ -1332,7 +1327,7 @@ class S3RealtimeRawDataConverterTest {
             over(LimitKind.MAX_CODEC_MEMORY_BYTES, 128 * MIB, 200 * MIB),
             "OVERSIZED json object: xz memory",
             "Action: recompress the object with a smaller xz dictionary (the presets -0 to -9 need"
-                + " at most 65 MiB); "
+                + " at most 65 MiB); no setting raises this limit; "
                 + RETRY,
             "xz needs " + 200 * MIB + " bytes of memory, over its limit of " + 128 * MIB),
         Arguments.of(
@@ -1340,7 +1335,7 @@ class S3RealtimeRawDataConverterTest {
             over(LimitKind.AVRO_XZ_MEMORY, 128 * MIB, 200 * MIB),
             "OVERSIZED avro object: avro xz memory",
             "Action: rewrite the avro file with a lower xz level for its blocks (levels 0 to 9"
-                + " need at most 65 MiB); "
+                + " need at most 65 MiB); no setting raises this limit; "
                 + RETRY,
             "an avro block's xz data needs "
                 + 200 * MIB

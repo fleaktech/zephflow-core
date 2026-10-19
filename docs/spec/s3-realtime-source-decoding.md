@@ -128,7 +128,9 @@ others are listed in their object's summary by index and position, and recovered
 record (6).
 
 A failed write of one of the converter's own entries is logged and the object goes on, and the
-message is acknowledged as usual, as legacy did (D12); that entry is lost.
+message is acknowledged as usual (D12); that entry is lost. Legacy did this for its decode and read
+entries; downstream entries went through the framework, where a failed write ended the source, so
+for a downstream summary this is a change (4.2).
 
 An exception that escapes the converter is a bug, outside these rows: `SimpleSourceCommand`
 dead-letters the notification with the stack trace and the failing node's id, in the framework's
@@ -171,12 +173,12 @@ two entries carry an action too.
 |---|---|
 | Record entry | Fix the record where it is written, or `encodingType`/`decoding` if every record fails like this; the value is the record's bytes |
 | `MALFORMED` | Check that the object is `<format>` as `encodingType` or `decoding` says, or fix the listed records |
-| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced; for avro, a block's own codec data may be damaged instead, so rewrite the file if it is |
+| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced; otherwise the compressed data (for avro, possibly a block's own codec data) is damaged or has bytes after its end, so rewrite the object |
 | `READ_FAILURE` | Check the cause: S3 permissions (`s3:GetObject`), the network, or free disk where the task runs |
 | `OBJECT_TOO_LARGE` | Raise `maxObjectSizeBytes` above the object's size, with that much free disk and a long enough `visibilityTimeoutSeconds` (lower `maxNumberOfMessages` if several arrive together) |
 | `maxRecordBytes` | Give the task more memory (the limit's share of the heap), or write smaller records; if records should be much smaller, check that the format matches the object (a wrong format or framing, or an unclosed csv quote, joins records). For multiline text, check the start or continue pattern first |
-| `maxDocumentBytes` | Give the task more memory (the limit's share of the heap), or write smaller documents or avro blocks; if one document holds many records, decode it in a mode that reads them one at a time (json lines or array, xml elements, yaml multi_document, protobuf varint_delimited, avro ocf) |
-| `xz memory`, `avro xz memory` | Give the task more memory while the limit is under 128 MiB; recompress with a smaller xz dictionary (presets -0 to -9 need at most 65 MiB), or for avro rewrite the file with a lower xz level |
+| `maxDocumentBytes` | Give the task more memory (the limit's share of the heap), or write smaller documents or avro blocks; if one document holds many records, decode it in a mode that reads them one at a time (text line, json lines or array, xml elements, yaml multi_document, protobuf varint_delimited, avro ocf; as `encodingType`: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY) |
+| `xz memory`, `avro xz memory` | Give the task more memory while the limit is under 128 MiB (at 128 MiB no setting raises it); recompress with a smaller xz dictionary (presets -0 to -9 need at most 65 MiB), or for avro rewrite the file with a lower xz level |
 | `parquet heap share` | Give the task more memory, or write smaller row groups or rows (fewer row groups or columns if the footer is too large) |
 | `maxLines` | Raise `maxLines` in `decoding`, or fix the multiline pattern |
 | `zstd window` | Compress the zstd data (the object, or an avro file's zstandard blocks) without long mode, or with a window of at most 128 MiB (`--long=27`); no setting raises it |
@@ -352,6 +354,10 @@ no limits hit, the records of valid input are the same, except:
   line. The fetcher's two entries, which legacy wrote as `failed to parse S3 event notification:
   <message>` and `exceeded maxRetries=<n>`, now start with `MALFORMED s3 notification` and
   `RETRIES_EXCEEDED s3 notification`, with that text after the action.
+- **A failed DLQ write of a downstream summary is logged and the message acknowledged** (D12), as
+  for the converter's other entries. Legacy wrote downstream entries through the framework, where a
+  write that throws ended the source and SQS delivered the message again. `S3DlqWriter` logs failed
+  uploads rather than throwing, so this takes a writer that throws on `writeToDlq` itself.
 - **Metrics.** `deserializeFailureCount` counts failed records and failed objects, where it counted
   only failed objects. `inputEventSizeCount` still approximates the decompressed bytes: it is the
   end of the object's last span of known length, so line terminators and bytes after the last

@@ -191,11 +191,11 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
           new OversizedText(
               "maxDocumentBytes",
               "a document or block reached " + size + " bytes, over maxDocumentBytes " + value,
-              moreMemory("maxDocumentBytes", value, heapBytes, "document")
+              moreMemory("maxDocumentBytes", value, heapBytes, "document or block")
                   + ", or write smaller documents or avro blocks; if one document holds many"
-                  + " records, decode it in a mode that reads them one at a time (json lines or"
-                  + " array, xml elements, yaml multi_document, protobuf varint_delimited, avro"
-                  + " ocf); "
+                  + " records, decode it in a mode that reads them one at a time (text line, json"
+                  + " lines or array, xml elements, yaml multi_document, protobuf varint_delimited,"
+                  + " avro ocf; as encodingType: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY); "
                   + RETRY);
       case MAX_CODEC_MEMORY_BYTES ->
           new OversizedText(
@@ -203,7 +203,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
               "xz needs " + size + " bytes of memory, over its limit of " + value,
               xzMemory(value)
                   + "recompress the object with a smaller xz dictionary (the presets -0 to -9"
-                  + " need at most 65 MiB); "
+                  + " need at most 65 MiB)"
+                  + xzFixed(value)
+                  + "; "
                   + RETRY);
       case AVRO_XZ_MEMORY ->
           new OversizedText(
@@ -214,7 +216,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
                   + value,
               xzMemory(value)
                   + "rewrite the avro file with a lower xz level for its blocks (levels 0 to 9"
-                  + " need at most 65 MiB); "
+                  + " need at most 65 MiB)"
+                  + xzFixed(value)
+                  + "; "
                   + RETRY);
       case HEAP_SHARE ->
           new OversizedText(
@@ -276,6 +280,10 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         : "this source sets " + setting + " from the task's heap, so give the task more memory";
   }
 
+  private static String xzFixed(long value) {
+    return value < Decompressors.XZ_DEFAULT_MEMORY ? "" : "; no setting raises this limit";
+  }
+
   private static String xzMemory(long value) {
     return value < Decompressors.XZ_DEFAULT_MEMORY
         ? "give the task more memory (xz may use half the heap, up to 128 MiB), or "
@@ -302,12 +310,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
               + RETRY;
       case CORRUPT_COMPRESSION ->
           "check the source's compression setting against the object, and that the object was"
-              + " complete when it was announced"
-              + (format.equals("avro")
-                  ? "; for avro, a block's own codec data may be damaged instead, so rewrite the"
-                      + " file if it is"
-                  : "")
-              + "; "
+              + " complete when it was announced; otherwise its compressed data (for avro, possibly"
+              + " a block's own codec data) is damaged or has bytes after its end, so rewrite the"
+              + " object; "
               + RETRY;
     };
   }
