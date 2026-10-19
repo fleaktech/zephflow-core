@@ -63,7 +63,7 @@ public final class Decompressors {
 
   /**
    * The memory xz may use is {@code maxCodecMemoryBytes}, else {@code maxDocumentBytes}, rounded up
-   * to whole KiB. Without either it is zstd's default window limit or half the heap, whichever is
+   * to whole KiB. Without either it is {@link #XZ_DEFAULT_MEMORY} or half the heap, whichever is
    * smaller, so a tiny file declaring a huge dictionary cannot exhaust the heap.
    */
   private static InputStream xz(InputStream in, DecodeFlags flags, DecodeLimits limits) {

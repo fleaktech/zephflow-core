@@ -189,7 +189,16 @@ public final class AvroOcfFormat implements FormatCursor {
       data = AvroBlocks.decompress(codec, compressed, maxDocumentBytes);
     } catch (AvroBlocks.TooLarge e) {
       index += count;
-      return new Oversized(firstIndex, count, null, e.limit, e.limitValue, e.size, EMPTY, false);
+      AvroBlocks.Exceeded exceeded = e.exceeded;
+      return new Oversized(
+          firstIndex,
+          count,
+          null,
+          exceeded.limit(),
+          exceeded.limitValue(),
+          exceeded.size(),
+          EMPTY,
+          false);
     } catch (AvroBlocks.CorruptBlockException e) {
       index += count;
       return new Failed(ErrorKind.CORRUPT_COMPRESSION, EMPTY, firstIndex, count, null, e, false);

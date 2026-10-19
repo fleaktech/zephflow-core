@@ -34,17 +34,16 @@ import org.tukaani.xz.XZInputStream;
 /** Decompresses one avro block, stopping once the output would exceed the limit. */
 final class AvroBlocks {
 
+  /** The limit a block went over, its value, and the size reached or needed. */
+  record Exceeded(LimitKind limit, long limitValue, long size) {}
+
   /** The block decompresses to more than the limit, or its codec needs more than it may use. */
   static final class TooLarge extends Exception {
-    final LimitKind limit;
-    final long limitValue;
-    final long size;
+    final Exceeded exceeded;
 
     TooLarge(LimitKind limit, long limitValue, long size) {
       super(null, null, false, false);
-      this.limit = limit;
-      this.limitValue = limitValue;
-      this.size = size;
+      this.exceeded = new Exceeded(limit, limitValue, size);
     }
   }
 

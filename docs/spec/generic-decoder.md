@@ -304,9 +304,10 @@ the block, array and map items) may total its byte length plus 100,000, since on
 records and empty fixeds encode in no bytes; and the objects built (a record and its fields, array
 items, map keys and values) may total 16 per byte plus 1,000,000. A block over either budget loses
 its records; a block with more than 100,000 records that encode in no bytes is one of them. The file
-header may be up to `maxDocumentBytes` or 16 MiB, whichever is larger. In `datum` mode, bytes left
-after the record are `MALFORMED`, and an empty input decodes if the schema fits in zero bytes.
-Codecs: null, deflate, snappy, zstandard, bzip2, xz.
+header may be up to `maxDocumentBytes` or 16 MiB, whichever is larger; a longer one is `MALFORMED`,
+not `Oversized`, since a header that long is far more likely damaged than real. In `datum` mode,
+bytes left after the record are `MALFORMED`, and an empty input decodes if the schema fits in zero
+bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
 
 **Protobuf.** Messages are parsed as `DynamicMessage` with protobuf's default nesting limit (100).
 Repeated and map fields always appear (empty when unset); other fields follow 4.3 (a field with
