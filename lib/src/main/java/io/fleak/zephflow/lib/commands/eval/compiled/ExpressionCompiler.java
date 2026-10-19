@@ -28,11 +28,15 @@ import io.fleak.zephflow.lib.commands.eval.EvaluatorFuncs;
 import io.fleak.zephflow.lib.commands.eval.FeelFunction;
 import io.fleak.zephflow.lib.commands.eval.compiled.nodes.*;
 import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -44,12 +48,41 @@ import org.antlr.v4.runtime.tree.TerminalNode;
  */
 public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode> {
 
+  /**
+   * Scope-binding spec for the array functions that introduce a loop variable. {@code arrayArg} is
+   * compiled in the current scope, {@code nameArg} supplies the binding name (via {@code
+   * getText()}, not a definedness-checked reference), and {@code bodyArgs} are compiled in a child
+   * scope that can see the binding. This table is the cross-repo contract mirrored by the webapp
+   * editor.
+   */
+  private record BinderSpec(int arity, int arrayArg, int nameArg, int[] bodyArgs) {}
+
+  private static final Map<String, BinderSpec> BINDERS =
+      Map.of(
+          "arr_foreach", new BinderSpec(3, 0, 1, new int[] {2}),
+          "arr_find", new BinderSpec(3, 0, 1, new int[] {2}),
+          "arr_filter", new BinderSpec(3, 0, 1, new int[] {2}),
+          "arr_to_dict", new BinderSpec(4, 0, 1, new int[] {2, 3}));
+
+  private static final String ROOT_VARIABLE = "$";
+
   private final Map<String, FeelFunction> functionsTable;
   private final boolean lenient;
+  private final Deque<Set<String>> scopes = new ArrayDeque<>();
 
   private ExpressionCompiler(PythonExecutor pythonExecutor, boolean lenient) {
     this.functionsTable = FeelFunction.createFunctionsTable(pythonExecutor);
     this.lenient = lenient;
+    scopes.push(new HashSet<>(Set.of(ROOT_VARIABLE)));
+  }
+
+  private boolean isDefined(String name) {
+    for (Set<String> scope : scopes) {
+      if (scope.contains(name)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public static CompiledExpression compile(
@@ -145,6 +178,9 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
       value = visit(ctx.getChild(1));
     } else if (ctx.IDENTIFIER() != null) {
       String varName = ctx.IDENTIFIER().getText();
+      if (!isDefined(varName)) {
+        throw new IllegalArgumentException("variable '" + varName + "' is not defined");
+      }
       value = new VariableNode(varName);
     } else if (ctx.pathSelectExpr() != null) {
       value = visit(ctx.pathSelectExpr());
@@ -218,15 +254,45 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
     List<EvalExpressionParser.ExpressionContext> argContexts =
         ctx.arguments() != null ? ctx.arguments().expression() : Collections.emptyList();
 
-    List<ExpressionNode> argNodes = new ArrayList<>();
     List<String> lazyArgTexts = new ArrayList<>();
-
     for (EvalExpressionParser.ExpressionContext argCtx : argContexts) {
-      argNodes.add(visit(argCtx));
       lazyArgTexts.add(argCtx.getText());
     }
 
+    List<ExpressionNode> argNodes = compileArguments(functionName, argContexts);
+
     return new FunctionCallNode(functionName, argNodes, function, ctx, lazyArgTexts);
+  }
+
+  private List<ExpressionNode> compileArguments(
+      String functionName, List<EvalExpressionParser.ExpressionContext> argContexts) {
+    BinderSpec spec = BINDERS.get(functionName);
+    if (spec == null || argContexts.size() != spec.arity()) {
+      // not a (well-formed) binder call: compile every argument in the current scope
+      List<ExpressionNode> argNodes = new ArrayList<>();
+      for (EvalExpressionParser.ExpressionContext argCtx : argContexts) {
+        argNodes.add(visit(argCtx));
+      }
+      return argNodes;
+    }
+
+    ExpressionNode[] nodes = new ExpressionNode[argContexts.size()];
+    // array arg: current scope (a nested binder's array can reference an outer binding)
+    nodes[spec.arrayArg()] = visit(argContexts.get(spec.arrayArg()));
+    // binding name: a declaration, not a reference; placeholder node keeps indices aligned with
+    // the runtime (args.get(nameArg) exists but is never evaluated)
+    String bindingName = argContexts.get(spec.nameArg()).getText();
+    nodes[spec.nameArg()] = new VariableNode(bindingName);
+    // body args: child scope that can see the binding
+    scopes.push(new HashSet<>(Set.of(bindingName)));
+    try {
+      for (int bodyArg : spec.bodyArgs()) {
+        nodes[bodyArg] = visit(argContexts.get(bodyArg));
+      }
+    } finally {
+      scopes.pop();
+    }
+    return List.of(nodes);
   }
 
   @Override
