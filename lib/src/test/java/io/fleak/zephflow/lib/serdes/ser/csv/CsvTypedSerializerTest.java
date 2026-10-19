@@ -164,6 +164,17 @@ class CsvTypedSerializerTest {
   }
 
   @Test
+  void testSerializeToMultipleTypedEvent_withOnlyEmptyEvents() throws Exception {
+    CsvTypedSerializer serializer = new CsvTypedSerializer();
+
+    assertEquals(
+        0,
+        serializer.serializeToMultipleTypedEvent(
+                List.of(new LinkedHashMap<>(), new LinkedHashMap<>()))
+            .length);
+  }
+
+  @Test
   void testPinnedColumns_withEmptyList() throws Exception {
     CsvTypedSerializer serializer =
         new CsvTypedSerializer(new CsvSerializerOptions(List.of("a", "b"), true));

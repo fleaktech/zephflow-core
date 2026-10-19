@@ -24,10 +24,6 @@ import java.util.Map;
 public class CsvSerializerFactory implements SerializerFactory<Map<String, Object>> {
   private final CsvSerializerOptions options;
 
-  public CsvSerializerFactory() {
-    this(CsvSerializerOptions.DEFAULT);
-  }
-
   public CsvSerializerFactory(CsvSerializerOptions options) {
     this.options = options;
   }
