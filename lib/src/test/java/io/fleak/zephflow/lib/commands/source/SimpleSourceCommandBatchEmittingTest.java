@@ -241,6 +241,8 @@ class SimpleSourceCommandBatchEmittingTest {
   @Test
   void aFailedDlqWriteEndsTheSourceWithNothingAcknowledged() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"), List.of("c"));
+    // Bounded, so a regression that keeps going fails the assertions instead of looping.
+    when(fetcher.isExhausted()).thenReturn(false, true);
     doThrow(new IllegalStateException("dlq closed"))
         .when(dlqWriter)
         .writeToDlq(anyLong(), any(), anyString(), anyString());

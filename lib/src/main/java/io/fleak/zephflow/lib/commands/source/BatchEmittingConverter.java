@@ -25,7 +25,7 @@ import java.util.List;
  * #emit} returns, or when it throws and the record is dead-lettered. It then calls {@link
  * #acknowledge} and the fetcher's committer, so a converter whose fetcher commits what was
  * acknowledged (an SQS fetcher deleting receipt handles) must mark records only in {@link
- * #acknowledge}. After a stop a record is never acknowledged.
+ * #acknowledge}. A record whose {@code emit} saw the stop is never acknowledged.
  *
  * <p>The converter owns failure handling for what it emits: an exception from {@link
  * Emitter#accept} is the downstream's and is the converter's to dead-letter. An exception escaping
@@ -38,7 +38,10 @@ public interface BatchEmittingConverter<T> extends RawDataConverter<T> {
   /** Converts {@code sourceRecord}, handing each batch of its events to {@code emitter}. */
   void emit(T sourceRecord, SourceExecutionContext<?> context, Emitter emitter);
 
-  /** Marks {@code sourceRecord} done, just before the fetcher's committer runs. */
+  /**
+   * Marks {@code sourceRecord} done, just before the fetcher's committer runs. An exception from it
+   * ends the source, and the record is delivered again.
+   */
   default void acknowledge(T sourceRecord) {}
 
   /** Not used: {@link SimpleSourceCommand} calls {@link #emit} for this kind of converter. */
