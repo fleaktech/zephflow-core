@@ -13,11 +13,18 @@
  */
 package io.fleak.zephflow.lib.serdes.decode;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import java.util.Optional;
+import org.apache.commons.io.input.BoundedInputStream;
 
 /**
  * The bytes to decode. Implemented by the caller; the decoder only calls it and does not own its
@@ -60,6 +67,47 @@ public interface ByteInput {
       @Override
       public InputStream openStream() {
         return new ByteArrayInputStream(bytes);
+      }
+
+      @Override
+      public Optional<RandomAccessInput> randomAccess() {
+        return Optional.of(ranges);
+      }
+    };
+  }
+
+  /** Streams a local file, and offers random access to it. The file must not change while read. */
+  static ByteInput ofFile(Path file) {
+    Objects.requireNonNull(file, "file");
+    RandomAccessInput ranges =
+        new RandomAccessInput() {
+          @Override
+          public long length() throws IOException {
+            return Files.size(file);
+          }
+
+          @Override
+          public InputStream read(long offset, long length) throws IOException {
+            if (length == 0) {
+              return InputStream.nullInputStream();
+            }
+            FileChannel channel = FileChannel.open(file, StandardOpenOption.READ);
+            try {
+              channel.position(offset);
+            } catch (IOException | RuntimeException e) {
+              channel.close();
+              throw e;
+            }
+            return BoundedInputStream.builder()
+                .setInputStream(Channels.newInputStream(channel))
+                .setMaxCount(length)
+                .get();
+          }
+        };
+    return new ByteInput() {
+      @Override
+      public InputStream openStream() throws IOException {
+        return new BufferedInputStream(Files.newInputStream(file));
       }
 
       @Override
