@@ -46,6 +46,23 @@ class ExpressionCompilerScopeTest {
     assertEquals("variable 'x' is not defined", compileError("arr_foreach(x, x, x)"));
   }
 
+  @Test
+  void undefinedVariableInsideBinderBody_isRejected() {
+    // body references y, not the bound loop var x
+    assertEquals("variable 'y' is not defined", compileError("arr_foreach($.items, x, y)"));
+  }
+
+  @Test
+  void undefinedVariableInArrayIndex_isRejected() {
+    // the index expression of a path step is a reference too
+    assertEquals("variable 'k' is not defined", compileError("$.a[k]"));
+  }
+
+  @Test
+  void undefinedVariableInCaseResult_isRejected() {
+    assertEquals("variable 'y' is not defined", compileError("case($.x == 1 => y, _ => 0)"));
+  }
+
   @ParameterizedTest
   @ValueSource(
       strings = {
@@ -56,10 +73,14 @@ class ExpressionCompilerScopeTest {
         "arr_to_dict($.items, idx, idx.k, idx.v)",
         // nested binder: inner body sees the outer binding
         "arr_foreach($.a, x, arr_foreach(x, y, x + y))",
+        // a bound loop var used as an array index is fine
+        "arr_filter($.items, i, $.data[i] > 0)",
         // field access into the event is never a variable reference
         "$",
         "$.a.b",
+        "$.items[0]",
         "dict(k=$.a, j=$.b)",
+        "case($.type == 'a' => 1, _ => 0)",
       })
   void boundAndFieldReferences_compile(String expression) {
     assertDoesNotThrow(() -> compile(expression));
