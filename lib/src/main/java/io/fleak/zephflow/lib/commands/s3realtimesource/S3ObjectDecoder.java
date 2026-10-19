@@ -31,6 +31,8 @@ import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -73,6 +75,8 @@ public final class S3ObjectDecoder {
   private final RecordDecoder recordDecoder;
   private final DecodeLimits limits;
   private final boolean addS3Metadata;
+  private final long heapBytes;
+  private final boolean multiline;
 
   /**
    * @param heapBytes the heap the limits are proportions of, at least 1 MiB
@@ -88,6 +92,10 @@ public final class S3ObjectDecoder {
     this.recordDecoder = DecodingConfigCompiler.compile(config);
     this.limits = S3DecodeLimits.forFormat(config.format(), heapBytes);
     this.addS3Metadata = decoding.addS3Metadata();
+    this.heapBytes = heapBytes;
+    this.multiline =
+        config.format() instanceof TextFormatConfig text
+            && text.framing() instanceof FramingConfig.Multiline;
   }
 
   /** Skips the validation and the fixed limits; for tests that wrap the decoder only. */
@@ -96,6 +104,8 @@ public final class S3ObjectDecoder {
     this.recordDecoder = recordDecoder;
     this.limits = limits;
     this.addS3Metadata = addS3Metadata;
+    this.heapBytes = 0;
+    this.multiline = false;
   }
 
   /** The compiled decoder, for a caller that holds an object's bytes itself. */
@@ -106,6 +116,16 @@ public final class S3ObjectDecoder {
   /** The limits the decoder is opened with. */
   public DecodeLimits limits() {
     return limits;
+  }
+
+  /** The heap the limits are proportions of; 0 when the limits were given directly. */
+  long heapBytes() {
+    return heapBytes;
+  }
+
+  /** Whether records are multiline text events. */
+  boolean multiline() {
+    return multiline;
   }
 
   /**

@@ -117,8 +117,8 @@ record or a notification, never a cut-off record.
 | `Decoded` | Batched and emitted (3.1); counted in `inputEventCount` |
 | `Failed`, not terminal, with bytes of at most 128 KiB | A record entry; decoding goes on |
 | `Failed`, not terminal, without bytes (avro `ocf`, parquet, xml `elements`, yaml `multi_document`) or with more than 128 KiB | Added to the object's summary for its kind; decoding goes on |
-| `Oversized`, not terminal | Added to the object's summary for its kind; decoding goes on |
-| `Failed` or `Oversized`, terminal | Added to the object's summary for its kind; the object ends |
+| `Oversized`, not terminal | Added to the object's summary for its limit; decoding goes on |
+| `Failed` or `Oversized`, terminal | Added to the object's summary for its kind (an `Oversized`'s: its limit); the object ends |
 | A failed download, `SourceReadException`, or any other exception while handling the object (including resolving its region's client) | Added to the object's summary; the object ends |
 | Exception from downstream (`accept`) | Added to the object's downstream summary for the failing node; decoding goes on with the next batch |
 
@@ -126,6 +126,11 @@ So I3 holds for the bad records whose bytes the decoder hands over and that fit 
 others are listed in their object's summary by index and position, and recovered from the object.
 `Oversized` never becomes a record entry, because its 4 KiB preview would replay as a complete
 record (6).
+
+A failed write of one of the converter's own entries is logged and the object goes on, and the
+message is acknowledged as usual (D12); that entry is lost. Legacy did this for its decode and read
+entries; downstream entries went through the framework, where a failed write ended the source, so
+for a downstream summary this is a change (4.2).
 
 An exception that escapes the converter is a bug, outside these rows: `SimpleSourceCommand`
 dead-letters the notification with the stack trace and the failing node's id, in the framework's
@@ -136,35 +141,68 @@ the runner already counts the failing node's records, as today.
 
 dynamicapi groups DLQ entries by the first line of their error text and the node id, and its repair
 agent sees only that line, so the first line of a source entry is a fixed template per kind that
-names the cause's exception class, and everything that varies (the decoder's message, the object,
-sizes, counts, indexes) comes after it:
+names the cause's exception class (for `OVERSIZED`, the limit), and everything that varies (the
+decoder's message, the object, sizes, counts, indexes) comes after it:
 
 | Entry | First line |
 |---|---|
 | Record entry | `MALFORMED <format> record: <exception class>` |
-| Object summary | `<MALFORMED or CORRUPT_COMPRESSION> <format> object: <exception class>`, `OVERSIZED <format> object`, or `READ_FAILURE s3 object: <exception class>` |
+| Object summary | `<MALFORMED or CORRUPT_COMPRESSION> <format> object: <exception class>`, `OVERSIZED <format> object: <limit>`, or `READ_FAILURE s3 object: <exception class>` |
 | Object over `maxObjectSizeBytes` | `OBJECT_TOO_LARGE s3 object` |
+| Notification that does not parse (the fetcher) | `MALFORMED s3 notification` |
+| Message received more than `maxRetries` times (the fetcher) | `RETRIES_EXCEEDED s3 notification` |
 | Downstream summary | Today's: the first line of the `NodeExecutionException`'s stack trace, which carries the failing node's error |
 
 `<format>` is the decoding format's type (`json`, `csv`, `text`, ...). The exception class is the
 simple name of the innermost cause that is not a `SourceReadException` (`SourceReadException` when
 the chain has no other), followed by the error code for an AWS service exception that has one
 (`S3Exception AccessDenied`), so an access-denied object, a missing bucket and a full disk fall into
-different groups.
+different groups. `<limit>` names the decoder's `LimitKind` (generic decoder 3.4): `maxRecordBytes`,
+`maxDocumentBytes`, `xz memory`, `avro xz memory`, `parquet heap share`, `maxLines`, `zstd window`,
+`zstd native memory` or `format maximum`, so an object over two limits gives two summaries.
+
+The second line of every source entry is `Action: ` and what the operator can do; a downstream
+summary keeps its node's error instead. This source sets the record, document and xz limits from the
+task's heap (3.4), so where more memory raises a limit the action says so, with the limit's share of
+the heap when it is known ("1/128 of the task's heap, so give the task a heap of at least 128 times
+the record's size"); where nothing raises it, the action says how to write the file. Every object
+summary's action ends "then re-upload the object or send this notification again". The fetcher's
+two entries carry an action too.
+
+| Entry | Action |
+|---|---|
+| Record entry | Fix the record where it is written, or `encodingType`/`decoding` if every record fails like this; the value is the record's bytes |
+| `MALFORMED` | Check that the object is `<format>` as `encodingType` or `decoding` says, or fix the listed records |
+| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced; otherwise the compressed data (for avro, possibly a block's own codec data) is damaged or has bytes after its end, so rewrite the object |
+| `READ_FAILURE` | Check the cause: S3 permissions (`s3:GetObject`), the network, or free disk where the task runs |
+| `OBJECT_TOO_LARGE` | Raise `maxObjectSizeBytes` above the object's size, with that much free disk and a long enough `visibilityTimeoutSeconds` (lower `maxNumberOfMessages` if several arrive together) |
+| `maxRecordBytes` | Give the task more memory (the limit's share of the heap), or write smaller records; if records should be much smaller, check that the format matches the object (a wrong format or framing, or an unclosed csv quote, joins records). For multiline text, check the start or continue pattern first |
+| `maxDocumentBytes` | Give the task more memory (the limit's share of the heap), or write smaller documents or avro blocks; if one document holds many records, decode it in a mode that reads them one at a time (text line, json lines or array, xml elements, yaml multi_document, protobuf varint_delimited, avro ocf; as `encodingType`: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY) |
+| `xz memory`, `avro xz memory` | Give the task more memory while the limit is under 128 MiB (at 128 MiB no setting raises it); recompress with a smaller xz dictionary (presets -0 to -9 need at most 65 MiB), or for avro rewrite the file with a lower xz level |
+| `parquet heap share` | Give the task more memory, or write smaller row groups or rows (fewer row groups or columns if the footer is too large) |
+| `maxLines` | Raise `maxLines` in `decoding`, or fix the multiline pattern |
+| `zstd window` | Compress the zstd data (the object, or an avro file's zstandard blocks) without long mode, or with a window of at most 128 MiB (`--long=27`); no setting raises it |
+| `zstd native memory` | The worker ran out of memory outside the Java heap: give the worker more memory or run fewer tasks on it, or retry if it was momentary |
+| `format maximum` | Write smaller pieces (avro blocks, protobuf messages, a smaller parquet footer); no setting raises it |
+| `MALFORMED s3 notification` | Check that only S3 event notifications in S3's JSON format are sent to the queue |
+| `RETRIES_EXCEEDED s3 notification` | Check the source's earlier DLQ entries and logs, raise `visibilityTimeoutSeconds` so a receive finishes in time (or lower `maxNumberOfMessages`), or raise `maxRetries`; then send the notification again |
 
 - A **record entry**'s value is the record's bytes, whole. Unlike FsSource's entries, it has no
   metadata, because dynamicapi's replay merges an entry's metadata into the replayed record's
-  fields. Its error text is the first line, the decoder error's stack trace, and a line naming the
-  object, the `recordIndex` when it is at least 1, and the span when there is one. Its node id is
-  the source's.
+  fields. Its error text is the first line, the action, the decoder error's stack trace, and a line
+  naming the object, the `recordIndex` when it is at least 1, and the span when there is one. Its
+  node id is the source's.
 - An **object summary** is one entry per object and outcome kind, written when the object ends. It
   keeps today's shape: the notification as the value, so the object can be replayed by sending the
-  notification again, and the source's node id. Its error text is the first line, the first error's
-  stack trace (or, for `Oversized`, `record exceeds maxRecordBytes <limit>` with the size reached),
-  the object with its version id, how many outcomes it covers, their `recordIndex` ranges with spans
-  (adjacent ranges merged, at most 100 listed), and, when the object ended on this kind, that it
-  ended and at which `recordIndex`. Indexes and spans refer to that version; a notification sent
-  again reads the key's current version.
+  notification again, and the source's node id. Its error text is the first line, the action, the
+  first error's stack trace (for `Oversized`, a line with the limit's value and the size reached or
+  needed, such as `a record reached 9000 bytes, over maxRecordBytes 8192`), the object with its
+  version id, how many outcomes it covers, the `recordIndex` ranges of the records they stand for
+  (an avro block or parquet row group counted whole, from the outcome's `recordCount`) with spans ("the document" for a whole-document format, "the header" for a
+  csv header; adjacent ranges merged, the first 100 kept and the rest counted), and, when the object
+  ended on this kind, that it ended (at which `recordIndex`, for a record; after which, for a read
+  failure). Indexes and spans refer to that version; a
+  notification sent again reads the key's current version.
 - A **downstream summary** is one entry per object and failing node, written when the object ends.
   It keeps today's shape: the notification as the value, the failing node's id from
   `NodeExecutionException`, and that exception's stack trace, followed by the object, how many
@@ -312,13 +350,21 @@ no limits hit, the records of valid input are the same, except:
   object and its repair agent saw the message. Now the first line is the template of 3.3: the
   entries of many objects that fail the same way form one group, and the agent sees the kind and
   the exception class (and the format for decode failures) but not the message, sizes or limits,
-  which follow on the next lines. Downstream entries keep today's first line.
+  which follow on the next lines, after an `Action:` line. Downstream entries keep today's first
+  line. The fetcher's two entries, which legacy wrote as `failed to parse S3 event notification:
+  <message>` and `exceeded maxRetries=<n>`, now start with `MALFORMED s3 notification` and
+  `RETRIES_EXCEEDED s3 notification`, with that text after the action.
+- **A failed DLQ write of a downstream summary is logged and the message acknowledged** (D12), as
+  for the converter's other entries. Legacy wrote downstream entries through the framework, where a
+  write that throws ended the source and SQS delivered the message again. `S3DlqWriter` logs failed
+  uploads rather than throwing, so this takes a writer that throws on `writeToDlq` itself.
 - **Metrics.** `deserializeFailureCount` counts failed records and failed objects, where it counted
   only failed objects. `inputEventSizeCount` still approximates the decompressed bytes: it is the
   end of the object's last span of known length, so line terminators and bytes after the last
   record (a closing `]`, a trailing newline) are not counted, and an object without records counts
   0. Every legacy mapping gives spans. For a `decoding` format without spans (avro `ocf`, parquet,
-  xml `elements`, yaml `multi_document`) it counts the stored bytes.
+  xml `elements`, yaml `multi_document`) it counts the stored bytes, except when the object ends on
+  a read failure, which counts none.
 - **DLQ values.** A bad record's entry holds its bytes, which do not decode; legacy's entries held
   the notification (6).
 
@@ -422,10 +468,11 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
   `addS3Metadata`, the DLQ entry of a failed object. New cases, for each legacy encoding and for
   parquet, multiline and zstd: whole expected record lists, batch boundaries, each entry shape of
   3.3 with its node id and error text, a bad record of just over 128 KiB summarized, an
-  `Oversized` record summarized, an object over `maxObjectSizeBytes`, counters,
+  `Oversized` record summarized, the first line, action and detail of every `LimitKind`, a summary
+  per limit, an outcome's `recordCount` in its ranges and in where the object ended, an object over `maxObjectSizeBytes`, counters,
   `inputEventSizeCount` for a gzip object (the end of its last span), records before a failure
-  still emitted, a downstream failure followed by the next batch, a million bytes-less failures
-  giving one summary.
+  still emitted, a downstream failure followed by the next batch, half a million bytes-less
+  failures, none adjacent, giving one summary that keeps at most 100 ranges.
 - `S3ObjectDecoder`: a body that breaks once is decoded once (no record twice); the visitor
   stopping early, and a stop, delete the local file; each returned status,
   the length, ETag and version id returned, `addS3Metadata`, and the limits for a given heap size.

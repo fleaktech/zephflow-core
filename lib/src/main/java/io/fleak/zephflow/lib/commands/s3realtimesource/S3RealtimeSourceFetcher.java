@@ -101,7 +101,12 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
         refs = S3EventNotificationParser.parse(message.body());
       } catch (Exception e) {
         // Malformed envelope can never succeed; dead-letter and remove it.
-        deadLetter(message, "failed to parse S3 event notification: " + e.getMessage());
+        deadLetter(
+            message,
+            "MALFORMED s3 notification\nAction: check that only S3 event notifications in S3's JSON format are sent to"
+                + " this queue, and fix what sends the others\nfailed to parse S3 event"
+                + " notification: "
+                + e.getMessage());
         deleteMessage(message.receiptHandle());
         continue;
       }
@@ -114,7 +119,16 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
       }
 
       if (receiveCount(message) > maxRetries) {
-        deadLetter(message, "exceeded maxRetries=" + maxRetries);
+        deadLetter(
+            message,
+            "RETRIES_EXCEEDED s3 notification\nAction: the message was received more than"
+                + " maxRetries times without finishing: check this source's earlier DLQ entries"
+                + " and logs for why, raise visibilityTimeoutSeconds so a whole receive finishes"
+                + " in time (or lower maxNumberOfMessages), or raise maxRetries; then send this"
+                + " notification again\nreceived "
+                + receiveCount(message)
+                + " times, over maxRetries="
+                + maxRetries);
         deleteMessage(message.receiptHandle());
         continue;
       }

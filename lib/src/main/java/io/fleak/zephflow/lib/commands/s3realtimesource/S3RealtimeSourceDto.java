@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.*;
 
 public interface S3RealtimeSourceDto {
@@ -42,13 +43,19 @@ public interface S3RealtimeSourceDto {
     /** Region of the SQS queue. */
     @NonNull private String regionStr;
 
-    /** Encoding of the referenced S3 objects' content. */
-    @NonNull private EncodingType encodingType;
+    /**
+     * Encoding of the referenced S3 objects' content, translated to a decoding configuration.
+     * Exactly one of this and {@code decoding} is set.
+     */
+    private EncodingType encodingType;
+
+    /** How the referenced S3 objects are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
 
     /**
-     * Compression of the referenced S3 objects. When null, gzip is auto-detected from the object's
-     * magic bytes (so plain and gzipped objects both work); set {@code GZIP} to force
-     * decompression.
+     * Compression of the referenced S3 objects, with {@code encodingType} only. When null, gzip is
+     * auto-detected from the object's magic bytes (so plain and gzipped objects both work); set
+     * {@code GZIP} to force decompression.
      */
     private CompressionType compressionType;
 

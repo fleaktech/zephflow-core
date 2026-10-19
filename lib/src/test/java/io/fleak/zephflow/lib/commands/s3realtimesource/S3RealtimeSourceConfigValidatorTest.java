@@ -17,8 +17,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -118,5 +122,90 @@ class S3RealtimeSourceConfigValidatorTest {
             .maxRetries(1)
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_decodingInsteadOfEncodingType() {
+    S3RealtimeSourceDto.Config config =
+        validConfig()
+            .encodingType(null)
+            .decoding(decoding("{\"format\":{\"type\":\"parquet\"}}"))
+            .build();
+    assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_rejectsNeitherAndBothEncodingTypeAndDecoding() {
+    String message = "exactly one of encodingType and decoding must be set";
+    S3RealtimeSourceDto.Config neither = validConfig().encodingType(null).build();
+    S3RealtimeSourceDto.Config both =
+        validConfig().decoding(decoding("{\"format\":{\"type\":\"parquet\"}}")).build();
+    assertEquals(
+        List.of(message, message),
+        List.of(
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> validator.validateConfig(neither, "nodeId", TEST_JOB_CONTEXT))
+                .getMessage(),
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> validator.validateConfig(both, "nodeId", TEST_JOB_CONTEXT))
+                .getMessage()));
+  }
+
+  @Test
+  void validateConfig_rejectsCompressionTypeWithDecoding() {
+    S3RealtimeSourceDto.Config config =
+        validConfig()
+            .encodingType(null)
+            .compressionType(CompressionType.GZIP)
+            .decoding(decoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+    assertEquals(
+        "compressionType is only allowed with encodingType; decoding carries its own compression",
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+            .getMessage());
+  }
+
+  @Test
+  void validateConfig_compilesTheDecoding() {
+    S3RealtimeSourceDto.Config badRegex =
+        validConfig()
+            .encodingType(null)
+            .decoding(
+                decoding(
+                    "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"(\"}}}"))
+            .build();
+    S3RealtimeSourceDto.Config compressedParquet =
+        validConfig()
+            .encodingType(null)
+            .decoding(decoding("{\"compression\":\"gzip\",\"format\":{\"type\":\"parquet\"}}"))
+            .build();
+    assertTrue(
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.validateConfig(badRegex, "nodeId", TEST_JOB_CONTEXT))
+            .getMessage()
+            .startsWith("invalid startPattern: "));
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.validateConfig(compressedParquet, "nodeId", TEST_JOB_CONTEXT))
+            .getMessage());
+  }
+
+  @Test
+  void validateConfig_rejectsParquetEncodingType() {
+    S3RealtimeSourceDto.Config config = validConfig().encodingType(EncodingType.PARQUET).build();
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  private static DecodingConfig decoding(String json) {
+    return JsonUtils.fromJsonString(json, DecodingConfig.class);
   }
 }

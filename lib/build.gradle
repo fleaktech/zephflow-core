@@ -169,6 +169,8 @@ tasks.register('lowMemoryTest', Test) {
   classpath = sourceSets.test.runtimeClasspath
   useJUnitPlatform { includeTags 'lowMemory' }
   maxHeapSize = '64m'
+  // Each class gets its own JVM, so what one class leaves on the small heap cannot fail another.
+  forkEvery = 1
   testLogging { exceptionFormat 'full'; events 'failed' }
 }
 

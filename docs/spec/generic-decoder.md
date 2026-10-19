@@ -410,7 +410,8 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 
 ## 7. Known limitations
 
-- The decoder is not used by any source yet.
+- Only the S3 realtime source uses the decoder so far (`docs/spec/s3-realtime-source-decoding.md`);
+  the other sources move over in their own changes.
 - Damaged compressed data can decode into wrong but well-formed bytes before the codec notices, for
   every codec. A stream's records are only confirmed once its checksum, if it has one, matches.
 - zstd, bzip2, xz, lz4 and snappy can lose up to 255 decoded bytes that came just before damaged
