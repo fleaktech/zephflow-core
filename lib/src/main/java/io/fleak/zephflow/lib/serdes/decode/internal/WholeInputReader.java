@@ -13,6 +13,9 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.internal;
 
+import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
+import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -23,7 +26,21 @@ public final class WholeInputReader {
 
   public record Whole(byte[] bytes) implements Result {}
 
-  public record TooLarge(long sizeSoFar, byte[] preview) implements Result {}
+  public record TooLarge(long maxDocumentBytes, long sizeSoFar, byte[] preview) implements Result {
+
+    /** The whole input, over the document limit; decoding cannot go on. */
+    public Oversized outcome() {
+      return new Oversized(
+          -1,
+          1,
+          RawSpan.toEnd(0),
+          LimitKind.MAX_DOCUMENT_BYTES,
+          maxDocumentBytes,
+          sizeSoFar,
+          preview,
+          true);
+    }
+  }
 
   private WholeInputReader() {}
 
@@ -38,7 +55,7 @@ public final class WholeInputReader {
         ByteBuilder preview = new ByteBuilder();
         preview.append(bytes.copy(0, keep), 0, keep);
         preview.append(buf, 0, Math.min(n, Previews.PREVIEW_BYTES - keep));
-        return new TooLarge(size, preview.toByteArray());
+        return new TooLarge(maxDocumentBytes, size, preview.toByteArray());
       }
       bytes.append(buf, 0, n);
     }

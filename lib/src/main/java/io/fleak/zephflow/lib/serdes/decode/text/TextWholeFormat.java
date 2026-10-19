@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.serdes.decode.text;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
-import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import io.fleak.zephflow.lib.serdes.decode.internal.Transcoding;
@@ -48,8 +47,7 @@ public final class TextWholeFormat implements FormatCursor {
     InputStream utf8 = Transcoding.toUtf8(in, charset);
     boolean skipBom = utf8 == in;
     return switch (WholeInputReader.read(utf8, maxDocumentBytes)) {
-      case WholeInputReader.TooLarge tooLarge ->
-          new Oversized(-1, RawSpan.toEnd(0), tooLarge.sizeSoFar(), tooLarge.preview(), true);
+      case WholeInputReader.TooLarge tooLarge -> tooLarge.outcome();
       case WholeInputReader.Whole whole -> decode(whole.bytes(), skipBom);
     };
   }

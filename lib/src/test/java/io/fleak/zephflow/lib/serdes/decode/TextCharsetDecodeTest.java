@@ -122,7 +122,7 @@ class TextCharsetDecodeTest {
   @Test
   void limitsCountTheUtf8Bytes() {
     assertEquals(
-        List.of(new Big(1, new RawSpan(0, 4), 4, "éé", false)),
+        List.of(new Big(1, 1, new RawSpan(0, 4), LimitKind.MAX_RECORD_BYTES, 3, 4, "éé", false)),
         decode(
             decoder(line("windows-1252")),
             ByteInput.ofBytes(new byte[] {(byte) 0xE9, (byte) 0xE9}),

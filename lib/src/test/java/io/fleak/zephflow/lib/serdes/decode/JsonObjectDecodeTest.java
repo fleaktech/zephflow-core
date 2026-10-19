@@ -124,7 +124,7 @@ class JsonObjectDecodeTest {
         List.of(new Ok(json(doc), 1, new RawSpan(0, 12))),
         decode(decoder(OBJECT), ByteInput.ofBytes(utf8(doc)), new DecodeLimits(0, 12)));
     assertEquals(
-        List.of(new Big(-1, RawSpan.toEnd(0), 12, doc, true)),
+        List.of(new Big(-1, 1, RawSpan.toEnd(0), LimitKind.MAX_DOCUMENT_BYTES, 11, 12, doc, true)),
         decode(decoder(OBJECT), ByteInput.ofBytes(utf8(doc)), new DecodeLimits(0, 11)));
   }
 }

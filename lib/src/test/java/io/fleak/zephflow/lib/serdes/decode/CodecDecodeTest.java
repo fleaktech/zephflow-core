@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
+import io.fleak.zephflow.lib.serdes.decode.compress.Decompressors;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
@@ -332,7 +333,7 @@ class CodecDecodeTest {
         List.of(line(0), line(1)),
         decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed)));
     assertEquals(
-        List.of(new Big(1, null, needed, "", true)),
+        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, needed - 1024, needed, "", true)),
         decode(decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024)));
   }
 
@@ -347,7 +348,7 @@ class CodecDecodeTest {
             ByteInput.ofBytes(input),
             new DecodeLimits(0, needed / 4, needed)));
     assertEquals(
-        List.of(new Big(1, null, needed, "", true)),
+        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, needed - 1024, needed, "", true)),
         decode(
             decoder(XZ.config()),
             ByteInput.ofBytes(input),
@@ -359,7 +360,7 @@ class CodecDecodeTest {
     long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
     byte[] input = XZ.compress(FIRST);
     assertEquals(
-        List.of(new Big(1, null, needed, "", true)),
+        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, needed - 1024, needed, "", true)),
         decode(
             decoder(XZ.config()), ByteInput.ofBytes(input), new DecodeLimits(0, needed - 1024, 0)));
   }
@@ -383,14 +384,18 @@ class CodecDecodeTest {
   @Test
   void zstdWindowOverItsLimitIsOversized() {
     byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
-    assertEquals(List.of(new Big(1, null, 0, "", true)), decode(ZSTD.config(), hugeWindow));
+    assertEquals(
+        List.of(
+            new Big(
+                1, 1, null, LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0, "", true)),
+        decode(ZSTD.config(), hugeWindow));
   }
 
   @Test
   void anOuterCodecsLimitStaysOversizedThroughInnerCodecs() throws Exception {
     long needed = new LZMA2Options(6).getDecoderMemoryUsage() * 1024L;
     assertEquals(
-        List.of(new Big(1, null, needed, "", true)),
+        List.of(new Big(1, 1, null, LimitKind.CODEC_MEMORY, 1 << 20, needed, "", true)),
         decode(
             decoder(
                 "{\"compression\":[\"xz\",\"bzip2\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}"),
@@ -398,7 +403,9 @@ class CodecDecodeTest {
             new DecodeLimits(0, 1 << 20)));
     byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
     assertEquals(
-        List.of(new Big(1, null, 0, "", true)),
+        List.of(
+            new Big(
+                1, 1, null, LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0, "", true)),
         decode(
             "{\"compression\":[\"zstd\",\"snappy\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}",
             hugeWindow));
@@ -620,7 +627,16 @@ class CodecDecodeTest {
       List<Object> actual =
           decode(chain, concat(Zstd.compress(Arrays.copyOf(lz4, cut)), hugeWindow));
       List<Object> expected = new ArrayList<>(actual.subList(0, actual.size() - 1));
-      expected.add(new Big(expected.size() + 1, null, 0, "", true));
+      expected.add(
+          new Big(
+              expected.size() + 1,
+              1,
+              null,
+              LimitKind.ZSTD_WINDOW,
+              Decompressors.ZSTD_WINDOW_LIMIT,
+              0,
+              "",
+              true));
       assertEquals(expected, actual, "cut " + cut);
       assertTrue(
           expected.stream().allMatch(o -> o instanceof Ok || o instanceof Big), "cut " + cut);

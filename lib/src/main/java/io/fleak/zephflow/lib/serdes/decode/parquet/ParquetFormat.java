@@ -20,6 +20,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Failed;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RandomAccessInput;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
@@ -68,7 +69,9 @@ public final class ParquetFormat implements FormatCursor {
   private final DecodeLimits limits;
   private final DecodeFlags flags;
   private final long budget;
+  private final LimitKind budgetKind;
   private long rowGroupBudget;
+  private long rowLimit;
   private long metadataStart;
   private RangeInputFile file;
   private ParquetFileReader reader;
@@ -88,6 +91,8 @@ public final class ParquetFormat implements FormatCursor {
         limits.maxDocumentBytes() > 0
             ? limits.maxDocumentBytes()
             : Runtime.getRuntime().maxMemory() / 2;
+    this.budgetKind =
+        limits.maxDocumentBytes() > 0 ? LimitKind.MAX_DOCUMENT_BYTES : LimitKind.HEAP_SHARE;
   }
 
   @Override
@@ -97,10 +102,18 @@ public final class ParquetFormat implements FormatCursor {
       try {
         footer = ParquetFooter.check(in, budget);
       } catch (TooLargeException e) {
-        return new Oversized(nextIndex, null, e.size, EMPTY, true);
+        return new Oversized(
+            nextIndex,
+            1,
+            null,
+            e.budget == budget ? budgetKind : LimitKind.FORMAT_MAXIMUM,
+            e.budget,
+            e.size,
+            EMPTY,
+            true);
       }
       metadataStart = footer.metadataStart();
-      long rowLimit = limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : budget / ROW_SHARE;
+      rowLimit = limits.maxRecordBytes() > 0 ? limits.maxRecordBytes() : budget / ROW_SHARE;
       rowGroupBudget =
           limits.maxDocumentBytes() > 0
               ? budget
@@ -110,7 +123,8 @@ public final class ParquetFormat implements FormatCursor {
                       - footer.heap()
                       - (limits.maxRecordBytes() > 0 ? 0 : ROW_MULTIPLE * rowLimit));
       if (limits.maxDocumentBytes() == 0 && rowGroupBudget < budget / 4) {
-        return new Oversized(nextIndex, null, footer.heap(), EMPTY, true);
+        return new Oversized(
+            nextIndex, 1, null, LimitKind.HEAP_SHARE, budget, footer.heap(), EMPTY, true);
       }
       ParquetReadOptions options =
           ParquetReadOptions.builder()
@@ -157,7 +171,9 @@ public final class ParquetFormat implements FormatCursor {
       long size = Math.max(2 * group.getCompressedSize(), group.getTotalByteSize());
       if (size > rowGroupBudget) {
         reader.skipNextRowGroup();
-        return skipGroup(new Oversized(nextIndex, null, size, EMPTY, false));
+        return skipGroup(
+            new Oversized(
+                nextIndex, rowCount, null, budgetKind, rowGroupBudget, size, EMPTY, false));
       }
       PageReadStore pages;
       try {
@@ -240,7 +256,15 @@ public final class ParquetFormat implements FormatCursor {
       return new Failed(ErrorKind.MALFORMED, EMPTY, index, null, records.failure(), false);
     }
     if (records.oversized()) {
-      return new Oversized(index, null, records.size(), EMPTY, false);
+      return new Oversized(
+          index,
+          1,
+          null,
+          limits.maxRecordBytes() > 0 ? LimitKind.MAX_RECORD_BYTES : budgetKind,
+          rowLimit,
+          records.size(),
+          EMPTY,
+          false);
     }
     return new Decoded(records.getCurrentRecord(), index, null);
   }
@@ -256,7 +280,8 @@ public final class ParquetFormat implements FormatCursor {
     if (flags.anySet()) {
       throw e instanceof IOException io ? io : new IOException(e);
     }
-    return new Failed(ErrorKind.MALFORMED, EMPTY, nextIndex, null, ownCause(e), false);
+    return new Failed(
+        ErrorKind.MALFORMED, EMPTY, nextIndex, groupEnd - nextIndex, null, ownCause(e), false);
   }
 
   /** Our own reason when parquet wrapped it, such as a page that does not decompress. */

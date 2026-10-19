@@ -190,7 +190,7 @@ class CsvDecodeTest {
     assertEquals(
         List.of(
             new Ok(json("{\"a\":\"123\"}"), 1, new RawSpan(2, 3)),
-            new Big(2, new RawSpan(6, 4), 4, "1234", false),
+            new Big(2, 1, new RawSpan(6, 4), LimitKind.MAX_RECORD_BYTES, 3, 4, "1234", false),
             new Ok(json("{\"a\":\"5\"}"), 3, new RawSpan(11, 1))),
         decode(decoder(CSV), ByteInput.ofBytes(utf8("a\n123\n1234\n5")), new DecodeLimits(3, 0)));
     String big = "\"xxxxxxxx\nyy\",3";
@@ -198,7 +198,8 @@ class CsvDecodeTest {
     assertEquals(
         List.of(
             new Ok(json("{\"a\":\"1\",\"b\":\"2\"}"), 1, new RawSpan(4, 3)),
-            new Big(2, span(input, big), big.length(), big, false),
+            new Big(
+                2, 1, span(input, big), LimitKind.MAX_RECORD_BYTES, 5, big.length(), big, false),
             new Ok(json("{\"a\":\"4\",\"b\":\"5\"}"), 3, new RawSpan(24, 3))),
         decode(decoder(CSV), ByteInput.ofBytes(utf8(input)), new DecodeLimits(5, 0)));
   }
@@ -206,7 +207,9 @@ class CsvDecodeTest {
   @Test
   void oversizedQuoteLeftOpenIsTerminal() {
     assertEquals(
-        List.of(new Big(1, RawSpan.toEnd(2), 11, "\"xxxxxxxxxx", true)),
+        List.of(
+            new Big(
+                1, 1, RawSpan.toEnd(2), LimitKind.MAX_RECORD_BYTES, 5, 11, "\"xxxxxxxxxx", true)),
         decode(decoder(CSV), ByteInput.ofBytes(utf8("a\n\"xxxxxxxxxx")), new DecodeLimits(5, 0)));
   }
 
@@ -223,7 +226,7 @@ class CsvDecodeTest {
                 true)),
         decode(CSV, utf8("a,a\n1,2")));
     assertEquals(
-        List.of(new Big(0, RawSpan.toEnd(0), 6, "abcdef", true)),
+        List.of(new Big(0, 1, RawSpan.toEnd(0), LimitKind.MAX_RECORD_BYTES, 5, 6, "abcdef", true)),
         decode(decoder(CSV), ByteInput.ofBytes(utf8("abcdef\n1")), new DecodeLimits(5, 0)));
     assertEquals(
         List.of(new Ok(json("{\"a\":\"1\",\"_c1\":\"2\"}"), 1, new RawSpan(3, 3))),
@@ -383,7 +386,9 @@ class CsvDecodeTest {
   @Test
   void headerLeftOpenIsTerminalEvenWhenColumnsReplaceIt() {
     assertEquals(
-        List.of(new Big(0, RawSpan.toEnd(0), 11, "\"abcdefgh\n1", true)),
+        List.of(
+            new Big(
+                0, 1, RawSpan.toEnd(0), LimitKind.MAX_RECORD_BYTES, 5, 11, "\"abcdefgh\n1", true)),
         decode(
             decoder(csv(",\"columns\":[\"p\"]")),
             ByteInput.ofBytes(utf8("\"abcdefgh\n1")),

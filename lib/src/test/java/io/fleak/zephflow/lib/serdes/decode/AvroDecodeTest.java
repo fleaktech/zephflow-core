@@ -18,11 +18,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.luben.zstd.Zstd;
+import io.fleak.zephflow.lib.serdes.decode.compress.Decompressors;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import java.util.zip.CRC32;
 import org.apache.avro.Conversions;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -43,6 +46,9 @@ import org.apache.avro.io.EncoderFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.tukaani.xz.LZMA2InputStream;
+import org.tukaani.xz.LZMA2Options;
+import org.tukaani.xz.XZOutputStream;
 
 class AvroDecodeTest {
 
@@ -204,7 +210,10 @@ class AvroDecodeTest {
             List.of(small("b")));
     long blockSize = datum(small("x".repeat(5_000))).length + datum(small("y")).length;
     assertEquals(
-        List.of(smallRecord("a", 1), new Big(2, null, blockSize, "", false), smallRecord("b", 4)),
+        List.of(
+            smallRecord("a", 1),
+            new Big(2, 2, null, LimitKind.MAX_DOCUMENT_BYTES, 1_000, blockSize, "", false),
+            smallRecord("b", 4)),
         decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 1_000)));
   }
 
@@ -218,7 +227,10 @@ class AvroDecodeTest {
             List.of(small("x".repeat(100_000))),
             List.of(small("b")));
     assertEquals(
-        List.of(smallRecord("a", 1), new Big(2, null, 8_192, "", false), smallRecord("b", 3)),
+        List.of(
+            smallRecord("a", 1),
+            new Big(2, 1, null, LimitKind.MAX_DOCUMENT_BYTES, 5_000, 8_192, "", false),
+            smallRecord("b", 3)),
         decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 5_000)));
   }
 
@@ -240,6 +252,7 @@ class AvroDecodeTest {
             new Bad(
                 ErrorKind.MALFORMED,
                 "",
+                2,
                 2,
                 null,
                 "MalformedAvroException: string of 63 bytes is longer than the 5 bytes left",
@@ -722,7 +735,12 @@ class AvroDecodeTest {
     List<Object> actual = decode(decoder(OCF), ByteInput.ofBytes(file), new DecodeLimits(0, 5_000));
     long size = ((Big) actual.get(0)).sizeSoFar();
     assertTrue(size > 5_000 && size <= 5_000 + 64 * 1024, codec + " size " + size);
-    assertEquals(List.of(new Big(1, null, size, "", false), smallRecord("b", 2)), actual, codec);
+    assertEquals(
+        List.of(
+            new Big(1, 1, null, LimitKind.MAX_DOCUMENT_BYTES, 5_000, size, "", false),
+            smallRecord("b", 2)),
+        actual,
+        codec);
   }
 
   @Test
@@ -732,7 +750,10 @@ class AvroDecodeTest {
         List.of(
             new Big(
                 -1,
+                1,
                 RawSpan.toEnd(0),
+                LimitKind.MAX_DOCUMENT_BYTES,
+                50,
                 input.length,
                 new String(input, StandardCharsets.UTF_8),
                 true)),
@@ -855,7 +876,10 @@ class AvroDecodeTest {
   void zstdBlockWithTooLargeAWindowIsOversized() {
     byte[] hugeWindow = {0x28, (byte) 0xB5, 0x2F, (byte) 0xFD, 0x00, (byte) 0xA0, 1, 0, 0};
     assertEquals(
-        List.of(new Big(1, null, 0, "", false), smallRecord("b", 2)),
+        List.of(
+            new Big(
+                1, 1, null, LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0, "", false),
+            smallRecord("b", 2)),
         decode(
             OCF,
             craftedOcf(
@@ -875,5 +899,122 @@ class AvroDecodeTest {
       return i;
     }
     return -1;
+  }
+
+  @Test
+  void damagedBlockCountsAllItsRecords() {
+    byte[] file =
+        ocf(
+            SMALL,
+            "deflate",
+            List.of(small("a")),
+            List.of(small("b"), small("c")),
+            List.of(small("d")));
+    byte[] second = ocf(SMALL, "deflate", List.of(small("a")));
+    byte[] damaged = file.clone();
+    damaged[second.length + 2] = (byte) 0xFF;
+    assertEquals(
+        List.of(
+            smallRecord("a", 1),
+            new Bad(
+                ErrorKind.CORRUPT_COMPRESSION,
+                "",
+                2,
+                2,
+                null,
+                "CorruptBlockException: avro deflate block is corrupt: invalid block type",
+                false),
+            smallRecord("d", 4)),
+        decode(OCF, damaged));
+  }
+
+  @Test
+  void emptyBlockOverTheLimitCountsNoRecords() {
+    assertEquals(
+        List.of(
+            new Big(1, 0, null, LimitKind.MAX_DOCUMENT_BYTES, 1_000, 2_000, "", false),
+            smallRecord("b", 1)),
+        decode(
+            decoder(OCF),
+            ByteInput.ofBytes(
+                craftedOcf(
+                    schemaMeta(SMALL),
+                    rawBlock(0, new byte[2_000]),
+                    rawBlock(1, datum(small("b"))))),
+            new DecodeLimits(0, 1_000)));
+  }
+
+  @Test
+  void blockOverWhatAnArrayHoldsIsOversizedWithoutADocumentLimit() throws IOException {
+    ByteArrayOutputStream head = new ByteArrayOutputStream();
+    head.write(craftedOcf(schemaMeta(SMALL)));
+    BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(head, null);
+    encoder.writeLong(1);
+    encoder.writeLong(Integer.MAX_VALUE - 7L);
+    encoder.flush();
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                null,
+                LimitKind.FORMAT_MAXIMUM,
+                Integer.MAX_VALUE - 8L,
+                Integer.MAX_VALUE - 7L,
+                "",
+                false),
+            smallRecord("b", 2)),
+        decode(
+            decoder(OCF),
+            streamed(
+                head.toByteArray(),
+                Integer.MAX_VALUE - 7L + SYNC.length,
+                rawBlock(1, datum(small("b")))),
+            DecodeLimits.UNLIMITED));
+  }
+
+  @Test
+  void xzBlockNeedingMoreMemoryThanXzMayUseIsOversized() throws IOException {
+    byte[] block = xz(datum(small("a")));
+    // The block header follows the 12-byte stream header: its size, its flags, the LZMA2 filter id
+    // and property size, the dictionary size, padding, and a CRC32 of the bytes before the CRC.
+    assertEquals(
+        List.of(2, 0, 0x21, 1),
+        List.of((int) block[12], (int) block[13], (int) block[14], (int) block[15]));
+    block[16] = 35;
+    CRC32 crc = new CRC32();
+    crc.update(block, 12, 8);
+    ByteBuffer.wrap(block, 20, 4).order(ByteOrder.LITTLE_ENDIAN).putInt((int) crc.getValue());
+    long limit =
+        Math.ceilDiv(
+                Math.min(Decompressors.ZSTD_WINDOW_LIMIT, Runtime.getRuntime().maxMemory() / 2),
+                1024)
+            * 1024;
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                null,
+                LimitKind.CODEC_MEMORY,
+                limit,
+                LZMA2InputStream.getMemoryUsage(768 << 20) * 1024L,
+                "",
+                false),
+            smallRecord("b", 2)),
+        decode(
+            OCF,
+            craftedOcf(
+                Map.of("avro.schema", SMALL.toString(), "avro.codec", "xz"),
+                rawBlock(1, block),
+                rawBlock(1, xz(datum(small("b")))))));
+  }
+
+  private static byte[] xz(byte[] data) throws IOException {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (XZOutputStream out = new XZOutputStream(bytes, new LZMA2Options(0))) {
+      out.write(data);
+    }
+    return bytes.toByteArray();
   }
 }

@@ -17,6 +17,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import io.fleak.zephflow.lib.serdes.decode.internal.LineFramer;
@@ -123,6 +124,8 @@ public final class TextMultilineFormat implements FormatCursor {
     private int lines;
     private long size;
     private boolean blank = true;
+    private LimitKind limit;
+    private long limitValue;
     private boolean oversized;
 
     Event(Frame first) {
@@ -161,7 +164,7 @@ public final class TextMultilineFormat implements FormatCursor {
         }
       }
       if (rule.maxLines() > 0 && lines > rule.maxLines()) {
-        becomeOversized();
+        becomeOversized(LimitKind.MAX_LINES, rule.maxLines());
       }
     }
 
@@ -169,7 +172,7 @@ public final class TextMultilineFormat implements FormatCursor {
     private void write(byte[] data, long length) {
       size += length;
       if (data.length < length || (maxRecordBytes > 0 && size > maxRecordBytes)) {
-        becomeOversized();
+        becomeOversized(LimitKind.MAX_RECORD_BYTES, maxRecordBytes);
       }
       if (oversized) {
         int room = Previews.PREVIEW_BYTES - preview.size();
@@ -179,11 +182,14 @@ public final class TextMultilineFormat implements FormatCursor {
       }
     }
 
-    private void becomeOversized() {
+    /** The first limit the event goes over is the one reported. */
+    private void becomeOversized(LimitKind kind, long value) {
       if (oversized) {
         return;
       }
       oversized = true;
+      limit = kind;
+      limitValue = value;
       byte[] kept = bytes.toByteArray();
       preview.write(kept, 0, Math.min(kept.length, Previews.PREVIEW_BYTES));
       bytes.reset();
@@ -192,7 +198,8 @@ public final class TextMultilineFormat implements FormatCursor {
     DecodeOutcome outcome() {
       RawSpan span = new RawSpan(firstOffset, end - firstOffset);
       if (oversized) {
-        return new Oversized(firstLine, span, size, preview.toByteArray(), false);
+        return new Oversized(
+            firstLine, 1, span, limit, limitValue, size, preview.toByteArray(), false);
       }
       if (blank) {
         return null;

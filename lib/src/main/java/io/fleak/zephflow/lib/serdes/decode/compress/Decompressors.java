@@ -26,6 +26,9 @@ import org.tukaani.xz.XZInputStream;
 
 public final class Decompressors {
 
+  /** zstd-jni's default window limit, which its decompression context does not let us raise. */
+  public static final long ZSTD_WINDOW_LIMIT = 1L << 27;
+
   private Decompressors() {}
 
   /** Applies the codecs in order: the first entry undoes the outermost compression. */
@@ -52,7 +55,7 @@ public final class Decompressors {
 
   private static InputStream library(
       String name, InputStream in, LibraryCodecStream.Opener opener, DecodeFlags flags) {
-    return new LibraryCodecStream(name, in, opener, e -> -1, flags);
+    return new LibraryCodecStream(name, in, opener, e -> -1, 0, flags);
   }
 
   /**
@@ -66,13 +69,14 @@ public final class Decompressors {
             ? limits.maxCodecMemoryBytes()
             : limits.maxDocumentBytes() > 0
                 ? limits.maxDocumentBytes()
-                : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
+                : Math.min(ZSTD_WINDOW_LIMIT, Runtime.getRuntime().maxMemory() / 2);
     int limitKiB = (int) Math.min(Integer.MAX_VALUE, Math.ceilDiv(limit, 1024));
     return new LibraryCodecStream(
         "xz",
         in,
         s -> new XZInputStream(s, limitKiB),
         e -> e instanceof MemoryLimitException m ? m.getMemoryNeeded() * 1024L : -1,
+        limitKiB * 1024L,
         flags);
   }
 

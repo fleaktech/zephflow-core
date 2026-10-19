@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import java.io.IOException;
@@ -89,7 +90,9 @@ class GuardedCursorTest {
     GuardedCursor cursor =
         cursor(
             flags -> {
-              flags.markBudget(new DecodeFlags.BudgetExceeded(0, 10, new byte[0]));
+              flags.markBudget(
+                  new DecodeFlags.BudgetExceeded(
+                      0, LimitKind.MAX_RECORD_BYTES, 8, 10, new byte[0]));
               flags.markDecompress(corrupt);
               throw new IllegalArgumentException("parse failed");
             });
@@ -108,11 +111,14 @@ class GuardedCursorTest {
     GuardedCursor cursor =
         cursor(
             flags -> {
-              flags.markBudget(new DecodeFlags.BudgetExceeded(5, 99, preview));
+              flags.markBudget(
+                  new DecodeFlags.BudgetExceeded(5, LimitKind.CODEC_MEMORY, 64, 99, preview));
               throw new IOException("over budget");
             });
     assertEquals(
-        new DecodeOutcome.Oversized(7, RawSpan.toEnd(5), 99, preview, true), cursor.next());
+        new DecodeOutcome.Oversized(
+            7, 1, RawSpan.toEnd(5), LimitKind.CODEC_MEMORY, 64, 99, preview, true),
+        cursor.next());
     assertNull(cursor.next());
   }
 

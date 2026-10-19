@@ -70,7 +70,8 @@ record ParquetFooter(long metadataStart, long heap) {
           "parquet footer of " + metadataLength + " bytes does not fit in a file of " + length);
     }
     if (metadataLength > budget || metadataLength > Integer.MAX_VALUE - 8) {
-      throw new TooLargeException("footer", metadataLength, budget);
+      throw new TooLargeException(
+          "footer", metadataLength, metadataLength > budget ? budget : Integer.MAX_VALUE - 8);
     }
     BoundedThrift.Parsed<FileMetaData> parsed =
         BoundedThrift.fileMetaData(bytes(in, metadataStart, (int) metadataLength), budget);

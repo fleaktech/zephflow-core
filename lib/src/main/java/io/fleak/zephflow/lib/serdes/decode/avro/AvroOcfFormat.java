@@ -19,6 +19,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Failed;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import java.io.BufferedInputStream;
@@ -116,10 +117,11 @@ public final class AvroOcfFormat implements FormatCursor {
     try {
       record = reader.read(block);
     } catch (IOException | RuntimeException | StackOverflowError e) {
+      long lost = recordsLeft + 1;
       index += recordsLeft;
       recordsLeft = 0;
       block = null;
-      return new Failed(ErrorKind.MALFORMED, EMPTY, recordIndex, null, failure(e), false);
+      return new Failed(ErrorKind.MALFORMED, EMPTY, recordIndex, lost, null, failure(e), false);
     }
     try {
       return new Decoded(AvroRecords.toRecord(record), recordIndex, null);
@@ -164,11 +166,20 @@ public final class AvroOcfFormat implements FormatCursor {
               "avro block " + blocks + " claims " + count + " records in " + size + " bytes"),
           false);
     }
-    if ((maxDocumentBytes > 0 && size > maxDocumentBytes) || size > AvroBlocks.MAX_BLOCK) {
+    boolean overDocumentLimit = maxDocumentBytes > 0 && size > maxDocumentBytes;
+    if (overDocumentLimit || size > AvroBlocks.MAX_BLOCK) {
       skip(size);
       checkSync();
       index += count;
-      return new Oversized(firstIndex, null, size, EMPTY, false);
+      return new Oversized(
+          firstIndex,
+          count,
+          null,
+          overDocumentLimit ? LimitKind.MAX_DOCUMENT_BYTES : LimitKind.FORMAT_MAXIMUM,
+          overDocumentLimit ? maxDocumentBytes : AvroBlocks.MAX_BLOCK,
+          size,
+          EMPTY,
+          false);
     }
     byte[] compressed = readFully((int) size);
     checkSync();
@@ -177,10 +188,10 @@ public final class AvroOcfFormat implements FormatCursor {
       data = AvroBlocks.decompress(codec, compressed, maxDocumentBytes);
     } catch (AvroBlocks.TooLarge e) {
       index += count;
-      return new Oversized(firstIndex, null, e.size, EMPTY, false);
+      return new Oversized(firstIndex, count, null, e.limit, e.limitValue, e.size, EMPTY, false);
     } catch (AvroBlocks.CorruptBlockException e) {
       index += count;
-      return new Failed(ErrorKind.CORRUPT_COMPRESSION, EMPTY, firstIndex, null, e, false);
+      return new Failed(ErrorKind.CORRUPT_COMPRESSION, EMPTY, firstIndex, count, null, e, false);
     }
     block = new BoundedDecoder(data, 0, data.length);
     try {

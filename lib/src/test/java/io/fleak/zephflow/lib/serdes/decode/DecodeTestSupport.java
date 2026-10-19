@@ -21,12 +21,16 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.DataFormatException;
@@ -41,9 +45,34 @@ final class DecodeTestSupport {
   record Ok(RecordFleakData record, long recordIndex, RawSpan span) {}
 
   record Bad(
-      ErrorKind kind, String raw, long recordIndex, RawSpan span, String error, boolean terminal) {}
+      ErrorKind kind,
+      String raw,
+      long recordIndex,
+      long recordCount,
+      RawSpan span,
+      String error,
+      boolean terminal) {
 
-  record Big(long recordIndex, RawSpan span, long sizeSoFar, String preview, boolean terminal) {}
+    Bad(
+        ErrorKind kind,
+        String raw,
+        long recordIndex,
+        RawSpan span,
+        String error,
+        boolean terminal) {
+      this(kind, raw, recordIndex, 1, span, error, terminal);
+    }
+  }
+
+  record Big(
+      long recordIndex,
+      long recordCount,
+      RawSpan span,
+      LimitKind limit,
+      long limitValue,
+      long sizeSoFar,
+      String preview,
+      boolean terminal) {}
 
   record Threw(String type) {}
 
@@ -85,13 +114,17 @@ final class DecodeTestSupport {
               f.kind(),
               new String(f.raw(), StandardCharsets.UTF_8),
               f.recordIndex(),
+              f.recordCount(),
               f.span(),
               error(f.error()),
               f.terminal());
       case DecodeOutcome.Oversized o ->
           new Big(
               o.recordIndex(),
+              o.recordCount(),
               o.span(),
+              o.limit(),
+              o.limitValue(),
               o.sizeSoFar(),
               new String(o.preview(), StandardCharsets.UTF_8),
               o.terminal());
@@ -219,5 +252,40 @@ final class DecodeTestSupport {
       inflater.end();
     }
     return out.toByteArray();
+  }
+
+  /**
+   * Streams {@code head}, then {@code zeros} zero bytes without holding them, then {@code tail}.
+   */
+  static ByteInput streamed(byte[] head, long zeros, byte[] tail) {
+    return () ->
+        new SequenceInputStream(
+            Collections.enumeration(
+                List.of(
+                    new ByteArrayInputStream(head),
+                    new InputStream() {
+                      private long left = zeros;
+
+                      @Override
+                      public int read() {
+                        if (left == 0) {
+                          return -1;
+                        }
+                        left--;
+                        return 0;
+                      }
+
+                      @Override
+                      public int read(byte[] b, int off, int len) {
+                        if (left == 0) {
+                          return -1;
+                        }
+                        int n = (int) Math.min(len, left);
+                        Arrays.fill(b, off, off + n, (byte) 0);
+                        left -= n;
+                        return n;
+                      }
+                    },
+                    new ByteArrayInputStream(tail))));
   }
 }

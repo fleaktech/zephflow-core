@@ -16,6 +16,8 @@ package io.fleak.zephflow.lib.serdes.decode.avro;
 import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdIOException;
 import com.github.luben.zstd.ZstdInputStreamNoFinalizer;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
+import io.fleak.zephflow.lib.serdes.decode.compress.Decompressors;
 import io.fleak.zephflow.lib.serdes.decode.internal.ByteBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -31,12 +33,16 @@ import org.tukaani.xz.XZInputStream;
 /** Decompresses one avro block, stopping once the output would exceed the limit. */
 final class AvroBlocks {
 
-  /** The block decompresses to more than the limit. */
+  /** The block decompresses to more than the limit, or its codec needs more than it may use. */
   static final class TooLarge extends Exception {
+    final LimitKind limit;
+    final long limitValue;
     final long size;
 
-    TooLarge(long size) {
+    TooLarge(LimitKind limit, long limitValue, long size) {
       super(null, null, false, false);
+      this.limit = limit;
+      this.limitValue = limitValue;
       this.size = size;
     }
   }
@@ -59,7 +65,11 @@ final class AvroBlocks {
    */
   static byte[] decompress(String codec, byte[] block, long limit)
       throws TooLarge, CorruptBlockException {
-    long cap = limit > 0 ? limit : MAX_BLOCK;
+    Cap cap =
+        limit > 0
+            ? new Cap(LimitKind.MAX_DOCUMENT_BYTES, limit)
+            : new Cap(LimitKind.FORMAT_MAXIMUM, MAX_BLOCK);
+    int xzMemoryKiB = xzMemoryKiB();
     try {
       return switch (codec) {
         case "null" -> block;
@@ -68,15 +78,15 @@ final class AvroBlocks {
         case "zstandard" ->
             drain(new ZstdInputStreamNoFinalizer(new ByteArrayInputStream(block)), cap);
         case "bzip2" -> drain(new BZip2CompressorInputStream(new ByteArrayInputStream(block)), cap);
-        case "xz" -> drain(new XZInputStream(new ByteArrayInputStream(block), xzMemoryKiB()), cap);
+        case "xz" -> drain(new XZInputStream(new ByteArrayInputStream(block), xzMemoryKiB), cap);
         default ->
             throw new IllegalStateException("codec checked when the header was read: " + codec);
       };
     } catch (MemoryLimitException e) {
-      throw new TooLarge(e.getMemoryNeeded() * 1024L);
+      throw new TooLarge(LimitKind.CODEC_MEMORY, xzMemoryKiB * 1024L, e.getMemoryNeeded() * 1024L);
     } catch (ZstdIOException e) {
       if (e.getErrorCode() == Zstd.errFrameParameterWindowTooLarge()) {
-        throw new TooLarge(0);
+        throw new TooLarge(LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0);
       }
       throw new CorruptBlockException("avro zstandard block is corrupt: " + e.getMessage(), e);
     } catch (CorruptBlockException e) {
@@ -86,13 +96,15 @@ final class AvroBlocks {
     }
   }
 
+  private record Cap(LimitKind kind, long bytes) {}
+
   private static int xzMemoryKiB() {
-    long bytes = Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
+    long bytes = Math.min(Decompressors.ZSTD_WINDOW_LIMIT, Runtime.getRuntime().maxMemory() / 2);
     return (int) ((bytes + 1023) / 1024);
   }
 
   /** Avro's deflate codec is raw deflate (RFC 1951), without a zlib header. */
-  private static byte[] inflate(byte[] block, long limit) throws TooLarge, CorruptBlockException {
+  private static byte[] inflate(byte[] block, Cap limit) throws TooLarge, CorruptBlockException {
     Inflater inflater = new Inflater(true);
     try {
       inflater.setInput(block);
@@ -123,7 +135,7 @@ final class AvroBlocks {
   /**
    * Avro's snappy codec is raw snappy followed by the big-endian CRC32 of the uncompressed data.
    */
-  private static byte[] snappy(byte[] block, long limit)
+  private static byte[] snappy(byte[] block, Cap limit)
       throws IOException, TooLarge, CorruptBlockException {
     if (block.length < 4) {
       throw new CorruptBlockException("avro snappy block is too short", null);
@@ -145,7 +157,7 @@ final class AvroBlocks {
     return data;
   }
 
-  private static byte[] drain(InputStream in, long limit) throws IOException, TooLarge {
+  private static byte[] drain(InputStream in, Cap limit) throws IOException, TooLarge {
     try (in) {
       ByteBuilder out = new ByteBuilder();
       byte[] buf = new byte[8 * 1024];
@@ -157,9 +169,9 @@ final class AvroBlocks {
     }
   }
 
-  private static void append(ByteBuilder out, byte[] buf, int n, long limit) throws TooLarge {
-    if (out.size() + (long) n > limit) {
-      throw new TooLarge(out.size() + (long) n);
+  private static void append(ByteBuilder out, byte[] buf, int n, Cap limit) throws TooLarge {
+    if (out.size() + (long) n > limit.bytes()) {
+      throw new TooLarge(limit.kind(), limit.bytes(), out.size() + (long) n);
     }
     out.append(buf, 0, n);
   }

@@ -17,7 +17,6 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Failed;
-import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
@@ -44,8 +43,7 @@ public final class JsonObjectFormat implements FormatCursor {
     }
     done = true;
     return switch (WholeInputReader.read(JsonEncoding.toUtf8(in), maxDocumentBytes)) {
-      case WholeInputReader.TooLarge tooLarge ->
-          new Oversized(-1, RawSpan.toEnd(0), tooLarge.sizeSoFar(), tooLarge.preview(), true);
+      case WholeInputReader.TooLarge tooLarge -> tooLarge.outcome();
       case WholeInputReader.Whole whole -> parse(whole.bytes());
     };
   }
