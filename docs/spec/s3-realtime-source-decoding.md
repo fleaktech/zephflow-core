@@ -165,10 +165,12 @@ different groups.
   keeps today's shape: the notification as the value, so the object can be replayed by sending the
   notification again, and the source's node id. Its error text is the first line, the first error's
   stack trace (or, for `Oversized`, `over the limit (maxRecordBytes <limit>, maxDocumentBytes
-  <limit>)` with the size reached), the object with its version id, how many outcomes it covers,
-  their `recordIndex` ranges with spans ("the document" for a whole-document format; adjacent ranges
-  merged, the first 100 kept and the rest counted), and, when the object ended on this kind, that it
-  ended (and at which `recordIndex`, for a record). Indexes and spans refer to that version; a
+  <limit>, maxCodecMemoryBytes <limit>)`, or for parquet `over the parquet decoder's heap budget`,
+  with the size reached), the object with its version id, how many outcomes it covers, their
+  `recordIndex` ranges with spans ("the document" for a whole-document format, "the header" for a
+  csv header; adjacent ranges merged, the first 100 kept and the rest counted), and, when the object
+  ended on this kind, that it ended (at which `recordIndex`, for a record; after which, for a read
+  failure). Indexes and spans refer to that version; a
   notification sent again reads the key's current version.
 - A **downstream summary** is one entry per object and failing node, written when the object ends.
   It keeps today's shape: the notification as the value, the failing node's id from
@@ -305,6 +307,9 @@ no limits hit, the records of valid input are the same, except:
 - **The object is downloaded to local disk**, which needs up to `maxObjectSizeBytes` of free space
   in the working directory (3.2). A body that breaks mid-download is downloaded again, up to 3
   attempts, where legacy dead-lettered the notification at once.
+- **A failed DLQ write ends the source.** Legacy logged a failed write of its own entry and
+  acknowledged the message; now the converter throws, the source ends, and SQS delivers the message
+  again (3.3).
 - **Messages are deleted one by one.** Legacy converted all messages of a receive first and deleted
   every one of them after the first message's records were accepted, so a crash could lose the rest.
   Now each message is deleted after its own records, which closes that loss but keeps the later
@@ -323,7 +328,8 @@ no limits hit, the records of valid input are the same, except:
   end of the object's last span of known length, so line terminators and bytes after the last
   record (a closing `]`, a trailing newline) are not counted, and an object without records counts
   0. Every legacy mapping gives spans. For a `decoding` format without spans (avro `ocf`, parquet,
-  xml `elements`, yaml `multi_document`) it counts the stored bytes.
+  xml `elements`, yaml `multi_document`) it counts the stored bytes, except when the object ends on
+  a read failure, which counts none.
 - **DLQ values.** A bad record's entry holds its bytes, which do not decode; legacy's entries held
   the notification (6).
 

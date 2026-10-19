@@ -441,10 +441,11 @@ class S3RealtimeRawDataConverterTest {
     assertEquals(
         List.of(
             "OVERSIZED text object",
-            "over the limit (maxRecordBytes 8192, maxDocumentBytes 16384), reached 9000 bytes",
+            "over the limit (maxRecordBytes 8192, maxDocumentBytes 16384, maxCodecMemoryBytes 524288), reached 9000 bytes",
             "object s3://b/big.txt version v1; 3 outcomes; recordIndex 1 (bytes 0-9000), 3-4 (bytes 9004-27005)"),
         texts.getFirst());
     verify(deserializeFailureCounter, times(3)).increase(Map.of());
+    verify(dataSizeCounter).increase(eq(27005L), anyMap());
   }
 
   @Test
@@ -541,7 +542,7 @@ class S3RealtimeRawDataConverterTest {
         new Entry(
             NOTIFICATION,
             "READ_FAILURE s3 object: IllegalStateException",
-            "object s3://b/k.json; 1 outcome",
+            "object s3://b/k.json; 1 outcome; the object ended",
             "node"),
         dlq.getFirst());
     verify(deserializeFailureCounter).increase(Map.of());
@@ -565,7 +566,8 @@ class S3RealtimeRawDataConverterTest {
 
     assertEquals(List.of(json("{\"msg\":\"good\"}")), emitter.records());
     assertEquals(1, dlq.size());
-    assertEquals("object s3://b/invalid.jsonl; 1 outcome", dlq.getFirst().lastLine());
+    assertEquals(
+        "object s3://b/invalid.jsonl; 1 outcome; the object ended", dlq.getFirst().lastLine());
     assertTrue(
         dlq.getFirst().firstLine().startsWith("READ_FAILURE s3 object: "),
         dlq.getFirst().firstLine());
@@ -780,7 +782,7 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "READ_FAILURE s3 object: S3Exception AccessDenied",
-                "object s3://b/k.json; 1 outcome",
+                "object s3://b/k.json; 1 outcome; the object ended",
                 "node")),
         dlq);
   }
@@ -977,9 +979,15 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void aFailedDlqWriteIsADeadLetterWriteException() {
+  void aFailedDlqWriteIsADeadLetterWriteExceptionAndNothingElseIsWritten() {
     stub("bad.jsonl", utf8("not json\n"));
+    // only the first write fails, so a later summary written by mistake would be recorded
     doThrow(new IllegalStateException("dlq down"))
+        .doAnswer(
+            invocation -> {
+              dlq.add(new Entry("", invocation.getArgument(2), "", invocation.getArgument(3)));
+              return null;
+            })
         .when(dlqWriter)
         .writeToDlq(anyLong(), any(), anyString(), anyString());
 
@@ -988,6 +996,55 @@ class S3RealtimeRawDataConverterTest {
             DeadLetterWriteException.class,
             () -> emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl")));
     assertEquals("failed to write a DLQ entry for s3://b/bad.jsonl", e.getMessage());
+    assertEquals(List.of(), dlq);
+  }
+
+  @Test
+  void aDeadLetteredLineLastSetsTheInputSize() {
+    stub("k.jsonl", utf8("{\"a\":1}\nnot json\n"));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("k.jsonl"));
+
+    verify(dataSizeCounter).increase(eq(16L), anyMap());
+  }
+
+  @Test
+  void aReadFailureMidObjectSaysAfterWhichRecordItEnded() {
+    stub("k.jsonl", utf8("{\"a\":1}\n"));
+
+    recordThenReadFailure(() -> {}).emit(message("k.jsonl"), context, new TestEmitter());
+
+    assertEquals(
+        List.of(
+            "READ_FAILURE s3 object: SourceReadException",
+            "object s3://b/k.jsonl; 1 outcome; the object ended after recordIndex 1"),
+        List.of(dlq.getFirst().firstLine(), dlq.getFirst().lastLine()));
+  }
+
+  @Test
+  void aCsvHeaderFailureIsShownAsTheHeader() {
+    stub("x.csv", utf8("a,a\n1,2\n"));
+
+    emit(converter(EncodingType.CSV), message("x.csv"));
+
+    assertTrue(
+        dlq.getFirst().lastLine().endsWith("; 1 outcome; the header; the object ended"),
+        dlq.getFirst().lastLine());
+  }
+
+  @Test
+  void rangesMergeWhileKeptAndAreOnlyCountedAfterTheCap() {
+    S3RealtimeRawDataConverter.IndexRanges ranges = new S3RealtimeRawDataConverter.IndexRanges();
+    for (long i = 1; i <= 199; i += 2) {
+      ranges.add(i, null);
+    }
+    ranges.add(200, null);
+    ranges.add(202, null);
+    ranges.add(203, null);
+    ranges.add(205, null);
+    String described = ranges.describe();
+    assertTrue(described.startsWith("recordIndex 1, 3, 5,"), described);
+    assertTrue(described.endsWith(", 197, 199-200, and 2 more ranges"), described);
   }
 
   private static DecodingConfig decodingConfig(String json) {

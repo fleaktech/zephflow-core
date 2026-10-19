@@ -153,8 +153,8 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
 
   /**
    * Record index ranges, adjacent ones merged, with the bytes they span when known. Only the first
-   * {@link #MAX_LISTED_RANGES} are kept; the rest are counted. A record index under 1 (a whole
-   * document) is shown as "the document".
+   * {@link #MAX_LISTED_RANGES} are kept; the rest are counted. Record index 0 (a csv header) is
+   * shown as "the header", and -1 (a whole document) as "the document".
    */
   static final class IndexRanges {
     private final List<long[]> ranges = new ArrayList<>(); // first, last, spanStart, spanEnd
@@ -201,7 +201,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
           out.append(", ");
         }
         if (r[0] < 1) {
-          out.append("the document");
+          out.append(r[0] == 0 ? "the header" : "the document");
         } else {
           if (!indexed) {
             out.append("recordIndex ");
@@ -228,6 +228,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     long count;
     boolean ended;
     long endedAt;
+    long endedAfter;
 
     Summary(String firstLine, String firstDetail) {
       this.firstLine = firstLine;
@@ -260,6 +261,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     private long batchLastIndex = -1;
     private long lastSpanEnd = -1;
     private long decodedCount;
+    private long lastRecordIndex;
     private RecordFleakData firstRecord;
     private String versionId;
 
@@ -290,7 +292,11 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
           return;
         }
         context.deserializeFailureCounter().increase(Map.of());
-        summary("READ_FAILURE s3 object: " + causeName(e), ExceptionUtils.getStackTrace(e)).count++;
+        Summary summary =
+            summary("READ_FAILURE s3 object: " + causeName(e), ExceptionUtils.getStackTrace(e));
+        summary.count++;
+        summary.ended = true;
+        summary.endedAfter = lastRecordIndex;
         finish(-1);
         return;
       }
@@ -331,6 +337,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       if (emitter.stopped()) {
         return false;
       }
+      lastRecordIndex = Math.max(lastRecordIndex, outcome.recordIndex());
       switch (outcome) {
         case DecodeOutcome.Decoded decoded -> {
           track(decoded.span());
@@ -372,11 +379,15 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
           track(oversized.span());
           context.deserializeFailureCounter().increase(Map.of());
           String limit =
-              "over the limit (maxRecordBytes "
-                  + decoder.limits().maxRecordBytes()
-                  + ", maxDocumentBytes "
-                  + decoder.limits().maxDocumentBytes()
-                  + ")";
+              format.equals("parquet")
+                  ? "over the parquet decoder's heap budget"
+                  : "over the limit (maxRecordBytes "
+                      + decoder.limits().maxRecordBytes()
+                      + ", maxDocumentBytes "
+                      + decoder.limits().maxDocumentBytes()
+                      + ", maxCodecMemoryBytes "
+                      + decoder.limits().maxCodecMemoryBytes()
+                      + ")";
           Summary summary =
               summary(
                   "OVERSIZED " + format + " object",
@@ -449,7 +460,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         }
         if (summary.ended) {
           text.append("; the object ended");
-          if (summary.endedAt >= 1) {
+          if (summary.endedAfter >= 1) {
+            text.append(" after recordIndex ").append(summary.endedAfter);
+          } else if (summary.endedAt >= 1) {
             text.append(" at recordIndex ").append(summary.endedAt);
           }
         }
