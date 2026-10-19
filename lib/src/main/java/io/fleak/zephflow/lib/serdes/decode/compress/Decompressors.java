@@ -67,7 +67,7 @@ public final class Decompressors {
             : limits.maxDocumentBytes() > 0
                 ? limits.maxDocumentBytes()
                 : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
-    int limitKiB = (int) Math.min(Integer.MAX_VALUE, (limit + 1023) / 1024);
+    int limitKiB = (int) Math.min(Integer.MAX_VALUE, Math.ceilDiv(limit, 1024));
     return new LibraryCodecStream(
         "xz",
         in,

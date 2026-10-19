@@ -365,6 +365,16 @@ class CodecDecodeTest {
   }
 
   @Test
+  void aHugeMaxCodecMemoryBytesDoesNotOverflowIntoATinyLimit() {
+    assertEquals(
+        List.of(line(0), line(1)),
+        decode(
+            decoder(XZ.config()),
+            ByteInput.ofBytes(XZ.compress(FIRST)),
+            new DecodeLimits(0, 0, Long.MAX_VALUE)));
+  }
+
+  @Test
   void decodeLimitsTwoArgumentConstructorLeavesTheCodecLimitUnset() {
     assertEquals(new DecodeLimits(1, 2, 0), new DecodeLimits(1, 2));
     assertThrows(IllegalArgumentException.class, () -> new DecodeLimits(0, 0, -1));
