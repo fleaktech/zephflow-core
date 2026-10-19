@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.compress;
 
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import io.fleak.zephflow.lib.serdes.decode.internal.PeekedStream;
 import java.io.EOFException;
@@ -45,17 +46,25 @@ final class LibraryCodecStream extends InputStream {
   private final InputStream in;
   private final Opener opener;
   private final MemoryNeeded memoryNeeded;
+  private final long memoryLimit;
   private final DecodeFlags flags;
   private InputStream library;
   private boolean empty;
   private IOException failure;
 
+  /** {@code memoryLimit} is the memory the library may use, reported when it needs more. */
   LibraryCodecStream(
-      String name, InputStream in, Opener opener, MemoryNeeded memoryNeeded, DecodeFlags flags) {
+      String name,
+      InputStream in,
+      Opener opener,
+      MemoryNeeded memoryNeeded,
+      long memoryLimit,
+      DecodeFlags flags) {
     this.name = name;
     this.in = in;
     this.opener = opener;
     this.memoryNeeded = memoryNeeded;
+    this.memoryLimit = memoryLimit;
     this.flags = flags;
   }
 
@@ -97,7 +106,9 @@ final class LibraryCodecStream extends InputStream {
     }
     long needed = memoryNeeded.bytes(e);
     if (needed >= 0) {
-      flags.markBudget(new DecodeFlags.BudgetExceeded(-1, needed, new byte[0]));
+      flags.markBudget(
+          new DecodeFlags.BudgetExceeded(
+              -1, LimitKind.MAX_CODEC_MEMORY_BYTES, memoryLimit, needed, new byte[0]));
       return new IOException(name + " needs " + needed + " bytes of memory to decompress", e);
     }
     String detail =

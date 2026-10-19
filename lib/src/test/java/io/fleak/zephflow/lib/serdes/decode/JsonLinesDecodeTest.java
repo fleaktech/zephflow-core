@@ -260,7 +260,15 @@ class JsonLinesDecodeTest {
     assertEquals(
         List.of(
             new Ok(json(atLimit), 1, new RawSpan(0, 18)),
-            new Big(2, new RawSpan(19, 19), 19, overLimit, false),
+            new Big(
+                2,
+                1,
+                new RawSpan(19, 19),
+                LimitKind.MAX_RECORD_BYTES,
+                atLimit.length(),
+                19,
+                overLimit,
+                false),
             new Ok(json("{\"b\":1}"), 3, new RawSpan(39, 7))),
         decode(decoder(LINES), ByteInput.ofBytes(utf8(input)), limits));
   }
@@ -271,7 +279,15 @@ class JsonLinesDecodeTest {
     DecodeLimits limits = new DecodeLimits(1000, 0);
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(0, 100_000), 100_000, huge.substring(0, 4096), false),
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 100_000),
+                LimitKind.MAX_RECORD_BYTES,
+                1000,
+                100_000,
+                huge.substring(0, 4096),
+                false),
             new Ok(json("{}"), 2, new RawSpan(100_001, 2))),
         decode(decoder(LINES), ByteInput.ofBytes(utf8(huge + "\n{}")), limits));
   }

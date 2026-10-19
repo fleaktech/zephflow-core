@@ -26,6 +26,12 @@ import org.tukaani.xz.XZInputStream;
 
 public final class Decompressors {
 
+  /** zstd-jni's default window limit, which its decompression context does not let us raise. */
+  public static final long ZSTD_WINDOW_LIMIT = 1L << 27;
+
+  /** xz's memory cap without a caller's limit, when half the heap is more. */
+  public static final long XZ_DEFAULT_MEMORY = 128L * 1024 * 1024;
+
   private Decompressors() {}
 
   /** Applies the codecs in order: the first entry undoes the outermost compression. */
@@ -52,12 +58,12 @@ public final class Decompressors {
 
   private static InputStream library(
       String name, InputStream in, LibraryCodecStream.Opener opener, DecodeFlags flags) {
-    return new LibraryCodecStream(name, in, opener, e -> -1, flags);
+    return new LibraryCodecStream(name, in, opener, e -> -1, 0, flags);
   }
 
   /**
    * The memory xz may use is {@code maxCodecMemoryBytes}, else {@code maxDocumentBytes}, rounded up
-   * to whole KiB. Without either it is zstd's default window limit or half the heap, whichever is
+   * to whole KiB. Without either it is {@link #XZ_DEFAULT_MEMORY} or half the heap, whichever is
    * smaller, so a tiny file declaring a huge dictionary cannot exhaust the heap.
    */
   private static InputStream xz(InputStream in, DecodeFlags flags, DecodeLimits limits) {
@@ -66,13 +72,14 @@ public final class Decompressors {
             ? limits.maxCodecMemoryBytes()
             : limits.maxDocumentBytes() > 0
                 ? limits.maxDocumentBytes()
-                : Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 2);
+                : Math.min(XZ_DEFAULT_MEMORY, Runtime.getRuntime().maxMemory() / 2);
     int limitKiB = (int) Math.min(Integer.MAX_VALUE, Math.ceilDiv(limit, 1024));
     return new LibraryCodecStream(
         "xz",
         in,
         s -> new XZInputStream(s, limitKiB),
         e -> e instanceof MemoryLimitException m ? m.getMemoryNeeded() * 1024L : -1,
+        limitKiB * 1024L,
         flags);
   }
 

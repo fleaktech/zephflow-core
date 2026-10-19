@@ -22,6 +22,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Failed;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.csv.CsvScanner.Frame;
 import io.fleak.zephflow.lib.serdes.decode.csv.CsvScanner.OversizedRow;
@@ -162,9 +163,17 @@ public final class CsvFormat implements FormatCursor {
         false);
   }
 
-  private static Oversized oversized(OversizedRow o, long recordIndex) {
+  private Oversized oversized(OversizedRow o, long recordIndex) {
     RawSpan span = o.terminal() ? RawSpan.toEnd(o.offset()) : new RawSpan(o.offset(), o.size());
-    return new Oversized(recordIndex, span, o.size(), o.preview(), o.terminal());
+    return new Oversized(
+        recordIndex,
+        1,
+        span,
+        LimitKind.MAX_RECORD_BYTES,
+        maxRecordBytes,
+        o.size(),
+        o.preview(),
+        o.terminal());
   }
 
   private static Failed unclosed(UnclosedQuote u, long recordIndex) {

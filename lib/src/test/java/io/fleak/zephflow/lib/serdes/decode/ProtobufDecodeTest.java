@@ -444,7 +444,15 @@ class ProtobufDecodeTest {
     byte[] input = concat(delimited(inner("x".repeat(100))), delimited(inner("ok")));
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(1, 102), 102, "\n" + (char) 100 + "x".repeat(100), false),
+            new Big(
+                1,
+                1,
+                new RawSpan(1, 102),
+                LimitKind.MAX_RECORD_BYTES,
+                50,
+                102,
+                "\n" + (char) 100 + "x".repeat(100),
+                false),
             new Ok(json("{\"x\":\"ok\"}"), 2, new RawSpan(104, 4))),
         decode(decoder(INNER), ByteInput.ofBytes(input), new DecodeLimits(50, 0)));
   }
@@ -492,7 +500,10 @@ class ProtobufDecodeTest {
         List.of(
             new Big(
                 -1,
+                1,
                 RawSpan.toEnd(0),
+                LimitKind.MAX_DOCUMENT_BYTES,
+                10,
                 input.length,
                 new String(input, StandardCharsets.UTF_8),
                 true)),
@@ -808,7 +819,10 @@ class ProtobufDecodeTest {
         List.of(
             new Big(
                 -1,
+                1,
                 RawSpan.toEnd(0),
+                LimitKind.MAX_DOCUMENT_BYTES,
+                message.length - 1,
                 message.length,
                 new String(message, StandardCharsets.UTF_8),
                 true)),
@@ -821,10 +835,37 @@ class ProtobufDecodeTest {
         List.of(
             new Big(
                 1,
+                1,
                 new RawSpan(1, message.length),
+                LimitKind.MAX_RECORD_BYTES,
+                message.length - 1,
                 message.length,
                 new String(message, StandardCharsets.UTF_8),
                 false)),
         decode(decoder(INNER), ByteInput.ofBytes(framed), new DecodeLimits(message.length - 1, 0)));
+  }
+
+  @Test
+  void messageOverWhatAnArrayHoldsIsOversizedWithoutARecordLimit() {
+    byte[] ok = inner("ok").toByteArray();
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                new RawSpan(5, Integer.MAX_VALUE),
+                LimitKind.FORMAT_MAXIMUM,
+                Integer.MAX_VALUE - 8L,
+                Integer.MAX_VALUE,
+                "\0".repeat(4096),
+                false),
+            new Ok(json("{\"x\":\"ok\"}"), 2, new RawSpan(6L + Integer.MAX_VALUE, ok.length))),
+        decode(
+            decoder(INNER),
+            streamed(
+                new byte[] {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x07},
+                Integer.MAX_VALUE,
+                delimited(inner("ok"))),
+            DecodeLimits.UNLIMITED));
   }
 }

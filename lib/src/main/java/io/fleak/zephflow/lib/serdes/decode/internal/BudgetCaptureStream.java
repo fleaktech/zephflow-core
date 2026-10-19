@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.internal;
 
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -96,7 +97,11 @@ public final class BudgetCaptureStream extends InputStream {
       int keep = locatable ? Math.min(retained.size(), Previews.PREVIEW_BYTES) : 0;
       flags.markBudget(
           new DecodeFlags.BudgetExceeded(
-              locatable ? retainedStart : -1, size, retained.copy(0, keep)));
+              locatable ? retainedStart : -1,
+              LimitKind.MAX_RECORD_BYTES,
+              maxRecordBytes,
+              size,
+              retained.copy(0, keep)));
       retained.clear();
       throw new IOException("record exceeds maxRecordBytes " + maxRecordBytes);
     }

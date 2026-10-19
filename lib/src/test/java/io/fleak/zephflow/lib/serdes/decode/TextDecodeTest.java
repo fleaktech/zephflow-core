@@ -67,7 +67,7 @@ class TextDecodeTest {
     assertEquals(
         List.of(
             new Ok(raw("abc"), 1, new RawSpan(0, 3)),
-            new Big(2, new RawSpan(4, 4), 4, "abcd", false),
+            new Big(2, 1, new RawSpan(4, 4), LimitKind.MAX_RECORD_BYTES, 3, 4, "abcd", false),
             new Ok(raw("e"), 3, new RawSpan(9, 1))),
         decode(decoder(LINE), ByteInput.ofBytes(utf8("abc\nabcd\ne")), limits));
   }
@@ -86,7 +86,8 @@ class TextDecodeTest {
         List.of(new Ok(raw("x\ny\n"), 1, new RawSpan(0, 4))),
         decode(decoder(WHOLE), ByteInput.ofBytes(input), new DecodeLimits(0, 4)));
     assertEquals(
-        List.of(new Big(-1, RawSpan.toEnd(0), 4, "x\ny\n", true)),
+        List.of(
+            new Big(-1, 1, RawSpan.toEnd(0), LimitKind.MAX_DOCUMENT_BYTES, 3, 4, "x\ny\n", true)),
         decode(decoder(WHOLE), ByteInput.ofBytes(input), new DecodeLimits(0, 3)));
   }
 }

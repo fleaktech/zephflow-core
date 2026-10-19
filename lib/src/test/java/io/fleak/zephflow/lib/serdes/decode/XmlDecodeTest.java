@@ -108,7 +108,9 @@ class XmlDecodeTest {
         List.of(new Ok(json("{\"\":\"12\"}"), 1, new RawSpan(0, 9))),
         decode(decoder(DOCUMENT), ByteInput.ofBytes(input), new DecodeLimits(0, 9)));
     assertEquals(
-        List.of(new Big(-1, RawSpan.toEnd(0), 9, "<r>12</r>", true)),
+        List.of(
+            new Big(
+                -1, 1, RawSpan.toEnd(0), LimitKind.MAX_DOCUMENT_BYTES, 8, 9, "<r>12</r>", true)),
         decode(decoder(DOCUMENT), ByteInput.ofBytes(input), new DecodeLimits(0, 8)));
   }
 
@@ -173,7 +175,10 @@ class XmlDecodeTest {
       long size = ((Big) actual.get(1)).sizeSoFar();
       assertTrue(size > 1000 + 65_536 && size <= 1000 + 65_536 + 16_384, "size " + size);
       assertEquals(
-          List.of(new Ok(json("{\"\":\"1\"}"), 1, null), new Big(2, null, size, "", true)), actual);
+          List.of(
+              new Ok(json("{\"\":\"1\"}"), 1, null),
+              new Big(2, 1, null, LimitKind.MAX_RECORD_BYTES, 1000, size, "", true)),
+          actual);
     }
   }
 

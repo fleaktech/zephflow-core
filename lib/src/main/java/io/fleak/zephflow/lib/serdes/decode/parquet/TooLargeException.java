@@ -19,9 +19,11 @@ import java.io.IOException;
 final class TooLargeException extends IOException {
 
   final long size;
+  final long budget;
 
   TooLargeException(String what, long size, long budget) {
     super("parquet " + what + " would take " + size + " bytes, more than " + budget);
     this.size = size;
+    this.budget = budget;
   }
 }

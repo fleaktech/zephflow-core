@@ -103,7 +103,7 @@ class ParquetDamagedFileTest {
 
   static List<Object> lostThenIntact(String error, long intactFrom) {
     List<Object> expected = new ArrayList<>();
-    expected.add(new Bad(ErrorKind.MALFORMED, "", 1, null, error, false));
+    expected.add(new Bad(ErrorKind.MALFORMED, "", 1, intactFrom - 1, null, error, false));
     for (int i = 1; i <= 3; i++) {
       expected.add(new Ok(json("{\"n\":" + i + "}"), intactFrom + i - 1, null));
     }
@@ -189,7 +189,7 @@ class ParquetDamagedFileTest {
           }
         };
     assertEquals(
-        List.of(new Big(1, null, length, "", true)),
+        List.of(new Big(1, 1, null, LimitKind.MAX_DOCUMENT_BYTES, length - 1, length, "", true)),
         decode(
             decoder(PARQUET),
             new ByteInput() {
@@ -207,7 +207,10 @@ class ParquetDamagedFileTest {
     assertEquals(
         List.of(List.of(0L, 4L), List.of(file.length - 8L, 8L)),
         requests.stream().map(r -> List.of(r[0], r[1])).toList());
-    assertEquals(List.of(new Big(1, null, estimate, "", true)), decodeWithin(file, estimate - 1));
+    assertEquals(
+        List.of(
+            new Big(1, 1, null, LimitKind.MAX_DOCUMENT_BYTES, estimate - 1, estimate, "", true)),
+        decodeWithin(file, estimate - 1));
     assertEquals(SIX_ROWS, decodeWithin(file, estimate));
   }
 
@@ -602,7 +605,8 @@ class ParquetDamagedFileTest {
         List.of(new Ok(json("{\"n\":\"0." + "0".repeat(999) + "5\"}"), 1, null)),
         decode(PARQUET, decimalFile(1000)));
     assertEquals(
-        List.of(new Big(1, null, 100_000_017, "", false)),
+        List.of(
+            new Big(1, 1, null, LimitKind.MAX_RECORD_BYTES, 1024 * 1024, 100_000_017, "", false)),
         decode(
             decoder(PARQUET),
             ByteInput.ofBytes(decimalFile(100_000_000)),
@@ -636,7 +640,9 @@ class ParquetDamagedFileTest {
       assertEquals(1, outcomes.size());
       Big big = (Big) outcomes.get(0);
       assertTrue(big.sizeSoFar() > 1024 * 1024);
-      assertEquals(new Big(1, null, big.sizeSoFar(), "", true), big);
+      assertEquals(
+          new Big(1, 1, null, LimitKind.MAX_DOCUMENT_BYTES, 1024 * 1024, big.sizeSoFar(), "", true),
+          big);
     }
   }
 
@@ -675,6 +681,7 @@ class ParquetDamagedFileTest {
                     ErrorKind.MALFORMED,
                     "",
                     4,
+                    2,
                     null,
                     "ParquetDecodingException: Can't read value in column [n] required int32 n at"
                         + " value 3 out of 3, 3 out of 3 in currentPage. repetition level: 0,"
@@ -860,5 +867,83 @@ class ParquetDamagedFileTest {
             hostileThenIntact(
                 column(3, new RawPage(header, ints(1, 2, 3), withHugeUnknownField)),
                 group -> group)));
+  }
+
+  @Test
+  void footerLongerThanAnArrayIsOversizedAtTheFormatMaximum() {
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                null,
+                LimitKind.FORMAT_MAXIMUM,
+                Integer.MAX_VALUE - 8L,
+                Integer.MAX_VALUE,
+                "",
+                true)),
+        decode(decoder(PARQUET), footerOfLength(Integer.MAX_VALUE), new DecodeLimits(0, 1L << 40)));
+  }
+
+  @Test
+  void withoutLimitsAFooterOverHalfTheHeapIsOversized() {
+    long budget = Runtime.getRuntime().maxMemory() / 2;
+    assertTrue(budget < Integer.MAX_VALUE - 8, "budget " + budget);
+    assertEquals(
+        List.of(new Big(1, 1, null, LimitKind.HEAP_SHARE, budget, budget + 1, "", true)),
+        decode(decoder(PARQUET), footerOfLength((int) budget + 1), DecodeLimits.UNLIMITED));
+  }
+
+  @Test
+  void withoutLimitsARowGroupOverWhatIsLeftOfHalfTheHeapIsSkipped() {
+    long declared = 1L << 40;
+    byte[] file = hostileThenIntact(VALID, group -> group.setTotal_byte_size(declared));
+    long budget = Runtime.getRuntime().maxMemory() / 2;
+    long left = budget - ParquetDecodeTest.footerEstimate(file) - 16 * (budget / 64);
+    List<Object> expected = new ArrayList<>();
+    expected.add(new Big(1, 3, null, LimitKind.HEAP_SHARE, left, declared, "", false));
+    expected.addAll(SIX_ROWS.subList(3, 6));
+    assertEquals(
+        expected, decode(decoder(PARQUET), ByteInput.ofBytes(file), DecodeLimits.UNLIMITED));
+  }
+
+  /** A 4 GiB file that only has its magic and a footer length; nothing else may be read. */
+  private static ByteInput footerOfLength(int metadataLength) {
+    long length = 4L << 30;
+    byte[] tail =
+        ByteBuffer.allocate(8)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(metadataLength)
+            .put(utf8("PAR1"))
+            .array();
+    RandomAccessInput file =
+        new RandomAccessInput() {
+          @Override
+          public long length() {
+            return length;
+          }
+
+          @Override
+          public InputStream read(long offset, long count) {
+            if (offset == 0 && count == 4) {
+              return new ByteArrayInputStream(utf8("PAR1"));
+            }
+            if (offset == length - 8 && count == 8) {
+              return new ByteArrayInputStream(tail);
+            }
+            throw new AssertionError("read " + count + " bytes at " + offset);
+          }
+        };
+    return new ByteInput() {
+      @Override
+      public InputStream openStream() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public Optional<RandomAccessInput> randomAccess() {
+        return Optional.of(file);
+      }
+    };
   }
 }

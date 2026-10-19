@@ -20,6 +20,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Failed;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
 import io.fleak.zephflow.lib.serdes.decode.internal.Previews;
@@ -64,7 +65,16 @@ public final class ProtobufDelimitedFormat implements FormatCursor {
     if ((maxRecordBytes > 0 && length > maxRecordBytes) || length > MAX_MESSAGE) {
       byte[] preview = skip(length, bodyStart);
       index = recordIndex;
-      return new Oversized(recordIndex, new RawSpan(bodyStart, length), length, preview, false);
+      boolean overRecordLimit = maxRecordBytes > 0 && length > maxRecordBytes;
+      return new Oversized(
+          recordIndex,
+          1,
+          new RawSpan(bodyStart, length),
+          overRecordLimit ? LimitKind.MAX_RECORD_BYTES : LimitKind.FORMAT_MAXIMUM,
+          overRecordLimit ? maxRecordBytes : MAX_MESSAGE,
+          length,
+          preview,
+          false);
     }
     byte[] bytes = readFully((int) length);
     index = recordIndex;
