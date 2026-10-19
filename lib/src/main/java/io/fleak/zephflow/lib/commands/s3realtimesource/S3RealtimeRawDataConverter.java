@@ -166,7 +166,6 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       String format, boolean multiline, long heapBytes, DecodeOutcome.Oversized oversized) {
     long value = oversized.limitValue();
     long size = oversized.sizeSoFar();
-    boolean avro = format.equals("avro");
     return switch (oversized.limit()) {
       case MAX_RECORD_BYTES ->
           new OversizedText(
@@ -177,35 +176,27 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
                   + " bytes, over maxRecordBytes "
                   + value,
               multiline
-                  ? "check the decoding's multiline startPattern or continuePattern (events that"
-                      + " run together grow until a limit) and set maxLines; if events really are"
+                  ? "check the decoding's multiline startPattern or continuePattern (a pattern"
+                      + " that does not match joins events until a limit); if events really are"
                       + " this large, "
                       + moreMemory("maxRecordBytes", value, heapBytes, "event")
                       + "; "
                       + RETRY
                   : moreMemory("maxRecordBytes", value, heapBytes, "record")
-                      + ", or write smaller records; if a whole file is read as one record, use"
-                      + " a line framing (encodingType STRING_LINE or JSON_OBJECT_LINE, or"
-                      + " decoding); "
+                      + ", or write smaller records; if records should be much smaller, check"
+                      + " that the source's format matches the object (a wrong format or framing,"
+                      + " or an unclosed csv quote, joins many records into one); "
                       + RETRY);
       case MAX_DOCUMENT_BYTES ->
           new OversizedText(
               "maxDocumentBytes",
-              (avro ? "an avro block" : "a document")
-                  + " reached "
-                  + size
-                  + " bytes, over maxDocumentBytes "
-                  + value,
-              avro
-                  ? moreMemory("maxDocumentBytes", value, heapBytes, "block")
-                      + ", or write the avro file with smaller blocks; "
-                      + RETRY
-                  : moreMemory("maxDocumentBytes", value, heapBytes, "document")
-                      + ", or write smaller documents; if the object holds many records, read it"
-                      + " with a line or element framing (encodingType JSON_OBJECT_LINE or"
-                      + " STRING_LINE, or decoding with json lines or array, xml elements or yaml"
-                      + " multi_document); "
-                      + RETRY);
+              "a document or block reached " + size + " bytes, over maxDocumentBytes " + value,
+              moreMemory("maxDocumentBytes", value, heapBytes, "document")
+                  + ", or write smaller documents or avro blocks; if one document holds many"
+                  + " records, decode it in a mode that reads them one at a time (json lines or"
+                  + " array, xml elements, yaml multi_document, protobuf varint_delimited, avro"
+                  + " ocf); "
+                  + RETRY);
       case MAX_CODEC_MEMORY_BYTES ->
           new OversizedText(
               "xz memory",
@@ -242,15 +233,10 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       case ZSTD_WINDOW ->
           new OversizedText(
               "zstd window",
-              (avro ? "an avro block's zstd data" : "a zstd frame")
-                  + " needs a window over "
-                  + value
-                  + " bytes",
-              (avro
-                      ? "rewrite the avro file with a zstandard level whose window is 128 MiB or"
-                          + " less (no long mode)"
-                      : "recompress the object without --long, or with --long=27 or less")
-                  + "; no setting raises this limit; "
+              "zstd data needs a window over " + value + " bytes",
+              "compress the zstd data (the object, or an avro file's zstandard blocks) without"
+                  + " long mode, or with a window of 128 MiB or less (--long=27); no setting"
+                  + " raises this limit; "
                   + RETRY);
       case NATIVE_MEMORY ->
           new OversizedText(
@@ -315,14 +301,14 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
               + " the object is written; "
               + RETRY;
       case CORRUPT_COMPRESSION ->
-          format.equals("avro")
-              ? "an avro block's own compressed data is damaged (the source's compression setting"
-                  + " does not apply to it): check that the object was complete when it was"
-                  + " announced, and rewrite the file if it is damaged; "
-                  + RETRY
-              : "check the source's compression setting against the object, and that the object"
-                  + " was complete when it was announced; "
-                  + RETRY;
+          "check the source's compression setting against the object, and that the object was"
+              + " complete when it was announced"
+              + (format.equals("avro")
+                  ? "; for avro, a block's own codec data may be damaged instead, so rewrite the"
+                      + " file if it is"
+                  : "")
+              + "; "
+              + RETRY;
     };
   }
 
@@ -717,11 +703,17 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       try {
         dlqWriter.writeToDlq(System.currentTimeMillis(), value, text, entryNodeId);
       } catch (RuntimeException e) {
+        if (emitter.stopped()) {
+          log.debug("failed to write a DLQ entry after the stop", e);
+          return;
+        }
+        List<String> lines = text.lines().toList();
         log.error(
-            "failed to write a DLQ entry for s3://{}/{}: {}",
+            "failed to write a DLQ entry for s3://{}/{}, lost: {} / {}",
             ref.bucket(),
             ref.key(),
-            text.lines().findFirst().orElse(""),
+            lines.getFirst(),
+            lines.getLast(),
             e);
       }
     }

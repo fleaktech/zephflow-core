@@ -112,8 +112,9 @@ class S3RealtimeRawDataConverterTest {
           + " maxNumberOfMessages if several arrive together); "
           + RETRY;
   private static final String LINE_FRAMING =
-      ", or write smaller records; if a whole file is read as one record, use a line framing"
-          + " (encodingType STRING_LINE or JSON_OBJECT_LINE, or decoding); ";
+      ", or write smaller records; if records should be much smaller, check that the source's"
+          + " format matches the object (a wrong format or framing, or an unclosed csv quote, joins"
+          + " many records into one); ";
   private static final String RECORD_LIMIT_ACTION =
       "Action: this source sets maxRecordBytes to 1/128 of the task's heap, so give the task a"
           + " heap of at least 128 times the record's size"
@@ -1096,21 +1097,52 @@ class S3RealtimeRawDataConverterTest {
             4 * MIB),
         message("app.log"));
 
-    List<String> lines = texts.getFirst();
+    long size = log.length() - 1;
     assertEquals(
         List.of(
-            "OVERSIZED text object: maxRecordBytes",
-            "Action: check the decoding's multiline startPattern or continuePattern (events that"
-                + " run together grow until a limit) and set maxLines; if events really are this"
-                + " large, this source sets maxRecordBytes to 1/128 of the task's heap, so give the"
-                + " task a heap of at least 128 times the event's size; "
-                + RETRY),
-        lines.subList(0, 2));
-    assertTrue(lines.get(2).startsWith("a multiline event reached "), lines.get(2));
+            List.of(
+                "OVERSIZED text object: maxRecordBytes",
+                "Action: check the decoding's multiline startPattern or continuePattern (a pattern"
+                    + " that does not match joins events until a limit); if events really are this"
+                    + " large, this source sets maxRecordBytes to 1/128 of the task's heap, so give"
+                    + " the task a heap of at least 128 times the event's size; "
+                    + RETRY,
+                "a multiline event reached " + size + " bytes, over maxRecordBytes 8192",
+                "object s3://b/app.log version v1; 1 outcome; recordIndex 1 (bytes 0-"
+                    + size
+                    + ")")),
+        texts);
   }
 
   @Test
-  void aDamagedAvroBlockPointsAtTheFileNotTheSourcesCompression() {
+  void anAvroObjectThatIsNotTheConfiguredCompressionPointsAtTheSetting() {
+    stub("k.avro", utf8("not gzip at all"));
+
+    emit(
+        converter(
+            decoding(
+                "{\"compression\":[\"gzip\"],\"format\":{\"type\":\"avro\",\"container\":\"ocf\"}}"),
+            HEAP,
+            4 * MIB),
+        message("k.avro"));
+
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "CORRUPT_COMPRESSION avro object: CorruptCompressionException",
+                "Action: check the source's compression setting against the object, and that the"
+                    + " object was complete when it was announced; for avro, a block's own codec"
+                    + " data may be damaged instead, so rewrite the file if it is; "
+                    + RETRY,
+                "object s3://b/k.avro version v1; 1 outcome; recordIndex 1; the object ended at"
+                    + " recordIndex 1",
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void aDamagedAvroObjectNamesBothCompressions() {
     stub("k", utf8("x"));
 
     emit(
@@ -1132,9 +1164,9 @@ class S3RealtimeRawDataConverterTest {
             new Entry(
                 NOTIFICATION,
                 "CORRUPT_COMPRESSION avro object: IllegalStateException",
-                "Action: an avro block's own compressed data is damaged (the source's compression"
-                    + " setting does not apply to it): check that the object was complete when it"
-                    + " was announced, and rewrite the file if it is damaged; "
+                "Action: check the source's compression setting against the object, and that the"
+                    + " object was complete when it was announced; for avro, a block's own codec"
+                    + " data may be damaged instead, so rewrite the file if it is; "
                     + RETRY,
                 "object s3://b/k version v1; 1 outcome; recordIndex 1-2",
                 "node")),
@@ -1268,19 +1300,23 @@ class S3RealtimeRawDataConverterTest {
             over(LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000),
             "OVERSIZED json object: maxDocumentBytes",
             "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
-                + " memory, or write smaller documents; if the object holds many records, read it"
-                + " with a line or element framing (encodingType JSON_OBJECT_LINE or STRING_LINE,"
-                + " or decoding with json lines or array, xml elements or yaml multi_document); "
+                + " memory, or write smaller documents or avro blocks; if one document holds many"
+                + " records, decode it in a mode that reads them one at a time (json lines or"
+                + " array, xml elements, yaml multi_document, protobuf varint_delimited, avro"
+                + " ocf); "
                 + RETRY,
-            "a document reached 5000 bytes, over maxDocumentBytes 4096"),
+            "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
             "avro",
             over(LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000),
             "OVERSIZED avro object: maxDocumentBytes",
             "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
-                + " memory, or write the avro file with smaller blocks; "
+                + " memory, or write smaller documents or avro blocks; if one document holds many"
+                + " records, decode it in a mode that reads them one at a time (json lines or"
+                + " array, xml elements, yaml multi_document, protobuf varint_delimited, avro"
+                + " ocf); "
                 + RETRY,
-            "an avro block reached 5000 bytes, over maxDocumentBytes 4096"),
+            "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
             "json",
             over(LimitKind.MAX_CODEC_MEMORY_BYTES, 64 * MIB, 200 * MIB),
@@ -1330,18 +1366,20 @@ class S3RealtimeRawDataConverterTest {
             "json",
             over(LimitKind.ZSTD_WINDOW, 128 * MIB, 0),
             "OVERSIZED json object: zstd window",
-            "Action: recompress the object without --long, or with --long=27 or less; no setting"
-                + " raises this limit; "
+            "Action: compress the zstd data (the object, or an avro file's zstandard blocks) without"
+                + " long mode, or with a window of 128 MiB or less (--long=27); no setting raises"
+                + " this limit; "
                 + RETRY,
-            "a zstd frame needs a window over " + 128 * MIB + " bytes"),
+            "zstd data needs a window over " + 128 * MIB + " bytes"),
         Arguments.of(
             "avro",
             over(LimitKind.ZSTD_WINDOW, 128 * MIB, 0),
             "OVERSIZED avro object: zstd window",
-            "Action: rewrite the avro file with a zstandard level whose window is 128 MiB or less"
-                + " (no long mode); no setting raises this limit; "
+            "Action: compress the zstd data (the object, or an avro file's zstandard blocks) without"
+                + " long mode, or with a window of 128 MiB or less (--long=27); no setting raises"
+                + " this limit; "
                 + RETRY,
-            "an avro block's zstd data needs a window over " + 128 * MIB + " bytes"),
+            "zstd data needs a window over " + 128 * MIB + " bytes"),
         Arguments.of(
             "json",
             over(LimitKind.NATIVE_MEMORY, 0, 0),

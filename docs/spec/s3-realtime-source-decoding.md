@@ -171,14 +171,15 @@ two entries carry an action too.
 |---|---|
 | Record entry | Fix the record where it is written, or `encodingType`/`decoding` if every record fails like this; the value is the record's bytes |
 | `MALFORMED` | Check that the object is `<format>` as `encodingType` or `decoding` says, or fix the listed records |
-| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced; for avro, the block's own codec data is damaged, so rewrite the file if it is |
+| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced; for avro, a block's own codec data may be damaged instead, so rewrite the file if it is |
 | `READ_FAILURE` | Check the cause: S3 permissions (`s3:GetObject`), the network, or free disk where the task runs |
 | `OBJECT_TOO_LARGE` | Raise `maxObjectSizeBytes` above the object's size, with that much free disk and a long enough `visibilityTimeoutSeconds` (lower `maxNumberOfMessages` if several arrive together) |
-| `maxRecordBytes`, `maxDocumentBytes` | Give the task more memory (the limit's share of the heap), or write smaller records or documents (avro: smaller blocks); if one record or document holds many, use a line or element framing. For multiline text, check the pattern and set `maxLines` first |
+| `maxRecordBytes` | Give the task more memory (the limit's share of the heap), or write smaller records; if records should be much smaller, check that the format matches the object (a wrong format or framing, or an unclosed csv quote, joins records). For multiline text, check the start or continue pattern first |
+| `maxDocumentBytes` | Give the task more memory (the limit's share of the heap), or write smaller documents or avro blocks; if one document holds many records, decode it in a mode that reads them one at a time (json lines or array, xml elements, yaml multi_document, protobuf varint_delimited, avro ocf) |
 | `xz memory`, `avro xz memory` | Give the task more memory while the limit is under 128 MiB; recompress with a smaller xz dictionary (presets -0 to -9 need at most 65 MiB), or for avro rewrite the file with a lower xz level |
 | `parquet heap share` | Give the task more memory, or write smaller row groups or rows (fewer row groups or columns if the footer is too large) |
 | `maxLines` | Raise `maxLines` in `decoding`, or fix the multiline pattern |
-| `zstd window` | Recompress without `--long`, or with `--long=27` or less (avro: rewrite with a zstandard level whose window is at most 128 MiB); no setting raises it |
+| `zstd window` | Compress the zstd data (the object, or an avro file's zstandard blocks) without long mode, or with a window of at most 128 MiB (`--long=27`); no setting raises it |
 | `zstd native memory` | The worker ran out of memory outside the Java heap: give the worker more memory or run fewer tasks on it, or retry if it was momentary |
 | `format maximum` | Write smaller pieces (avro blocks, protobuf messages, a smaller parquet footer); no setting raises it |
 | `MALFORMED s3 notification` | Check that only S3 event notifications in S3's JSON format are sent to the queue |

@@ -119,12 +119,12 @@ public final class S3ObjectDecoder {
   }
 
   /** The heap the limits are proportions of; 0 when the limits were given directly. */
-  public long heapBytes() {
+  long heapBytes() {
     return heapBytes;
   }
 
   /** Whether records are multiline text events. */
-  public boolean multiline() {
+  boolean multiline() {
     return multiline;
   }
 
