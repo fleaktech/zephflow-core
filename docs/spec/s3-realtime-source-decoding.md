@@ -127,6 +127,10 @@ others are listed in their object's summary by index and position, and recovered
 `Oversized` never becomes a record entry, because its 4 KiB preview would replay as a complete
 record (6).
 
+A failed write of one of the converter's own entries ends the source as well: the converter throws
+`DeadLetterWriteException`, and `SimpleSourceCommand` neither dead-letters nor acknowledges the
+message, so SQS delivers it again.
+
 An exception that escapes the converter is a bug, outside these rows: `SimpleSourceCommand`
 dead-letters the notification with the stack trace and the failing node's id, in the framework's
 shape of today, and a failed DLQ write ends the source, as it does on the other path.
@@ -160,11 +164,12 @@ different groups.
 - An **object summary** is one entry per object and outcome kind, written when the object ends. It
   keeps today's shape: the notification as the value, so the object can be replayed by sending the
   notification again, and the source's node id. Its error text is the first line, the first error's
-  stack trace (or, for `Oversized`, `record exceeds maxRecordBytes <limit>` with the size reached),
-  the object with its version id, how many outcomes it covers, their `recordIndex` ranges with spans
-  (adjacent ranges merged, at most 100 listed), and, when the object ended on this kind, that it
-  ended and at which `recordIndex`. Indexes and spans refer to that version; a notification sent
-  again reads the key's current version.
+  stack trace (or, for `Oversized`, `over the limit (maxRecordBytes <limit>, maxDocumentBytes
+  <limit>)` with the size reached), the object with its version id, how many outcomes it covers,
+  their `recordIndex` ranges with spans ("the document" for a whole-document format; adjacent ranges
+  merged, the first 100 kept and the rest counted), and, when the object ended on this kind, that it
+  ended (and at which `recordIndex`, for a record). Indexes and spans refer to that version; a
+  notification sent again reads the key's current version.
 - A **downstream summary** is one entry per object and failing node, written when the object ends.
   It keeps today's shape: the notification as the value, the failing node's id from
   `NodeExecutionException`, and that exception's stack trace, followed by the object, how many
@@ -424,8 +429,8 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
   3.3 with its node id and error text, a bad record of just over 128 KiB summarized, an
   `Oversized` record summarized, an object over `maxObjectSizeBytes`, counters,
   `inputEventSizeCount` for a gzip object (the end of its last span), records before a failure
-  still emitted, a downstream failure followed by the next batch, a million bytes-less failures
-  giving one summary.
+  still emitted, a downstream failure followed by the next batch, half a million bytes-less
+  failures, none adjacent, giving one summary that keeps at most 100 ranges.
 - `S3ObjectDecoder`: a body that breaks once is decoded once (no record twice); the visitor
   stopping early, and a stop, delete the local file; each returned status,
   the length, ETag and version id returned, `addS3Metadata`, and the limits for a given heap size.

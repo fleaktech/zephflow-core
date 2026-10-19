@@ -23,11 +23,18 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
+import io.fleak.zephflow.lib.commands.source.DeadLetterWriteException;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
+import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
+import io.fleak.zephflow.lib.serdes.decode.RawSpan;
+import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
+import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayInputStream;
@@ -38,6 +45,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,12 +67,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 class S3RealtimeRawDataConverterTest {
 
@@ -84,6 +94,7 @@ class S3RealtimeRawDataConverterTest {
   private Queue<String> confirmed;
   private DlqWriter dlqWriter;
   private final List<Entry> dlq = new ArrayList<>();
+  private final List<List<String>> texts = new ArrayList<>();
   private FleakCounter skippedObjectCounter;
   private FleakCounter dataSizeCounter;
   private FleakCounter inputEventCounter;
@@ -94,6 +105,7 @@ class S3RealtimeRawDataConverterTest {
   private static final class TestEmitter implements BatchEmittingConverter.Emitter {
     final List<List<RecordFleakData>> batches = new ArrayList<>();
     int failBatch = -1;
+    boolean failEvenBatches;
     int stopAfterBatch = -1;
     boolean stopped;
 
@@ -103,13 +115,23 @@ class S3RealtimeRawDataConverterTest {
       if (batches.size() - 1 == stopAfterBatch) {
         stopped = true;
       }
-      if (batches.size() - 1 == failBatch) {
+      if (batches.size() - 1 == failBatch || (failEvenBatches && batches.size() % 2 == 0)) {
+        if (stopWhenFailing) {
+          stopped = true;
+        }
         throw new NodeExecutionException("eval_1", "eval", "missing field", null);
       }
     }
 
+    int stopAtCall = -1;
+    boolean stopWhenFailing;
+    private int calls;
+
     @Override
     public boolean stopped() {
+      if (++calls == stopAtCall) {
+        stopped = true;
+      }
       return stopped;
     }
 
@@ -128,6 +150,7 @@ class S3RealtimeRawDataConverterTest {
               SerializedEvent value = invocation.getArgument(1);
               String text = invocation.getArgument(2);
               List<String> lines = text.lines().toList();
+              texts.add(lines);
               dlq.add(
                   new Entry(
                       new String(value.value(), StandardCharsets.UTF_8),
@@ -171,7 +194,7 @@ class S3RealtimeRawDataConverterTest {
         "m1",
         "r1",
         NOTIFICATION,
-        java.util.Arrays.stream(keys).map(k -> new S3ObjectRef("b", k, "us-east-1")).toList());
+        Arrays.stream(keys).map(k -> new S3ObjectRef("b", k, "us-east-1")).toList());
   }
 
   private void stub(String key, byte[] data) {
@@ -415,6 +438,13 @@ class S3RealtimeRawDataConverterTest {
                 "object s3://b/big.txt version v1; 3 outcomes; recordIndex 1 (bytes 0-9000), 3-4 (bytes 9004-27005)",
                 "node")),
         dlq);
+    assertEquals(
+        List.of(
+            "OVERSIZED text object",
+            "over the limit (maxRecordBytes 8192, maxDocumentBytes 16384), reached 9000 bytes",
+            "object s3://b/big.txt version v1; 3 outcomes; recordIndex 1 (bytes 0-9000), 3-4 (bytes 9004-27005)"),
+        texts.getFirst());
+    verify(deserializeFailureCounter, times(3)).increase(Map.of());
   }
 
   @Test
@@ -587,36 +617,20 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void aFailedDlqWriteEscapesTheConverter() {
-    stub("bad.jsonl", utf8("not json\n"));
-    doThrow(new IllegalStateException("dlq closed"))
-        .when(dlqWriter)
-        .writeToDlq(anyLong(), any(), anyString(), anyString());
-
-    assertThrows(
-        S3RealtimeRawDataConverter.DlqWriteFailure.class,
-        () -> emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl")));
-  }
-
-  @Test
   void theCauseNameIsTheInnermostNonSourceReadExceptionWithItsAwsCode() {
     assertEquals(
         List.of("IllegalStateException", "S3Exception AccessDenied", "SourceReadException"),
         List.of(
             S3RealtimeRawDataConverter.causeName(
-                new io.fleak.zephflow.lib.serdes.decode.SourceReadException(
-                    "x", new IllegalStateException("y"))),
+                new SourceReadException("x", new IllegalStateException("y"))),
             S3RealtimeRawDataConverter.causeName(
-                new io.fleak.zephflow.lib.serdes.decode.SourceReadException(
+                new SourceReadException(
                     "x",
-                    software.amazon.awssdk.services.s3.model.S3Exception.builder()
+                    S3Exception.builder()
                         .awsErrorDetails(
-                            software.amazon.awssdk.awscore.exception.AwsErrorDetails.builder()
-                                .errorCode("AccessDenied")
-                                .build())
+                            AwsErrorDetails.builder().errorCode("AccessDenied").build())
                         .build())),
-            S3RealtimeRawDataConverter.causeName(
-                new io.fleak.zephflow.lib.serdes.decode.SourceReadException("x", null))));
+            S3RealtimeRawDataConverter.causeName(new SourceReadException("x", null))));
   }
 
   /** Collects a parquet file in memory. */
@@ -661,6 +675,321 @@ class S3RealtimeRawDataConverterTest {
     }
   }
 
+  @Test
+  void theOtherLegacyEncodingsDecodeThroughTheConverter() {
+    stub("o.json", utf8("{\"a\":1}"));
+    stub("a.json", utf8("[{\"a\":1},{\"a\":2}]"));
+    stub("t.txt", utf8("hello\nworld"));
+    stub("x.xml", utf8("<r><a>1</a></r>"));
+    assertEquals(
+        List.of(
+            List.of(json("{\"a\":1}")),
+            List.of(json("{\"a\":1}"), json("{\"a\":2}")),
+            List.of(json("{\"__raw__\":\"hello\\nworld\"}")),
+            List.of(json("{\"a\":\"1\"}"))),
+        List.of(
+            emit(converter(EncodingType.JSON_OBJECT), message("o.json")).records(),
+            emit(converter(EncodingType.JSON_ARRAY), message("a.json")).records(),
+            emit(converter(EncodingType.TEXT), message("t.txt")).records(),
+            emit(converter(EncodingType.XML), message("x.xml")).records()));
+  }
+
+  @Test
+  void aMalformedDocumentEndsItsObjectAndTheGoodSiblingIsStillEmitted() {
+    stub("bad.json", utf8("{bad"));
+    stub("good.json", utf8("{\"a\":1}"));
+
+    TestEmitter emitter =
+        emit(converter(EncodingType.JSON_OBJECT), message("bad.json", "good.json"));
+
+    assertEquals(List.of(json("{\"a\":1}")), emitter.records());
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "MALFORMED json object: JsonParseException",
+                "object s3://b/bad.json version v1; 1 outcome; the document (bytes 0-4); the object ended",
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void anObjectWithoutRecordsCountsNoInputSize() {
+    stub("bad.jsonl", utf8("this is definitely not json\n"));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    verify(dataSizeCounter, never()).increase(anyLong(), anyMap());
+  }
+
+  @Test
+  void aSpanlessFormatCountsTheStoredBytes() throws IOException {
+    stub("x.yaml", utf8("--- {a: 1}\n--- {a: 2}\n"));
+
+    emit(
+        converter(
+            decoding("{\"format\":{\"type\":\"yaml\",\"mode\":\"multi_document\"}}"),
+            HEAP,
+            4 * MIB),
+        message("x.yaml"));
+
+    verify(dataSizeCounter).increase(eq(22L), anyMap());
+  }
+
+  @Test
+  void csvRowsWithDifferentColumnCountsShareTheFirstLine() {
+    stub("x.csv", utf8("a,b,c\n1\n1,2\n1,2,3,4\n"));
+
+    emit(converter(EncodingType.CSV), message("x.csv"));
+
+    assertEquals(
+        List.of(
+            "MALFORMED csv record: MalformedCsvException",
+            "MALFORMED csv record: MalformedCsvException",
+            "MALFORMED csv record: MalformedCsvException"),
+        dlq.stream().map(Entry::firstLine).toList());
+  }
+
+  @Test
+  void corruptCompressionIsSummarized() {
+    stub("x.jsonl.gz", concat(gzip(utf8("{\"a\":1}\n")), utf8("xx")));
+
+    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("x.jsonl.gz"));
+
+    assertEquals(List.of(json("{\"a\":1}")), emitter.records());
+    assertEquals(
+        List.of(
+            "CORRUPT_COMPRESSION json object: CorruptCompressionException",
+            "object s3://b/x.jsonl.gz version v1; 1 outcome; recordIndex 2; the object ended at recordIndex 2"),
+        List.of(dlq.getFirst().firstLine(), dlq.getFirst().lastLine()));
+  }
+
+  @Test
+  void anAccessDeniedDownloadNamesItsAwsCode() {
+    when(s3Client.getObject(any(GetObjectRequest.class)))
+        .thenThrow(
+            S3Exception.builder()
+                .statusCode(403)
+                .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").build())
+                .build());
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("k.json"));
+
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "READ_FAILURE s3 object: S3Exception AccessDenied",
+                "object s3://b/k.json; 1 outcome",
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void aDownstreamSummaryListsAtMost100Ranges() {
+    StringBuilder lines = new StringBuilder();
+    for (int i = 1; i <= 250; i++) {
+      lines.append("{\"i\":").append(i).append("}\n");
+    }
+    stub("many.jsonl", utf8(lines.toString()));
+    TestEmitter emitter = new TestEmitter();
+    emitter.failEvenBatches = true;
+
+    converter(new S3Decoding(EncodingType.JSON_OBJECT_LINE, null, null, false), HEAP, 1)
+        .emit(message("many.jsonl"), context, emitter);
+
+    assertEquals(250, emitter.batches.size());
+    assertEquals(1, dlq.size());
+    String last = dlq.getFirst().lastLine();
+    assertTrue(
+        last.startsWith(
+            "object s3://b/many.jsonl version v1; 125 batches failed; recordIndex 2, 4, 6,"),
+        last);
+    assertTrue(last.endsWith(", 200, and 25 more ranges"), last);
+  }
+
+  @Test
+  void halfAMillionNonAdjacentBytesLessFailuresGiveOneSummary() {
+    StringBuilder yaml = new StringBuilder();
+    for (int i = 0; i < 500_000; i++) {
+      yaml.append("--- 1\n--- {a: 1}\n");
+    }
+    stub("x.yaml", utf8(yaml.toString()));
+    TestEmitter emitter = new TestEmitter();
+
+    converter(
+            decoding("{\"format\":{\"type\":\"yaml\",\"mode\":\"multi_document\"}}"), HEAP, 4 * MIB)
+        .emit(message("x.yaml"), context, emitter);
+
+    assertEquals(500_000, emitter.records().size());
+    assertEquals(1, dlq.size());
+    String last = dlq.getFirst().lastLine();
+    assertTrue(
+        last.startsWith("object s3://b/x.yaml version v1; 500000 outcomes; recordIndex 1, 3, 5,"),
+        last);
+    assertTrue(last.endsWith(", 199, and 499900 more ranges"), last);
+  }
+
+  @Test
+  void aReadFailureAfterTheStopIsNotReported() {
+    TestEmitter emitter = new TestEmitter();
+    when(s3Client.getObject(any(GetObjectRequest.class)))
+        .thenAnswer(
+            invocation -> {
+              emitter.stopped = true;
+              throw new IllegalStateException("client closed");
+            });
+
+    converter(EncodingType.JSON_OBJECT_LINE).emit(message("k.json"), context, emitter);
+
+    assertEquals(List.of(), dlq);
+    verify(deserializeFailureCounter, never()).increase(anyMap());
+  }
+
+  /** A converter whose decoder gives one record and then fails to read the local copy. */
+  private S3RealtimeRawDataConverter recordThenReadFailure(Runnable beforeFailing) {
+    RecordDecoder failing =
+        (input, limits) ->
+            new RecordCursor() {
+              private boolean first = true;
+
+              @Override
+              public DecodeOutcome next() throws SourceReadException {
+                if (first) {
+                  first = false;
+                  return new DecodeOutcome.Decoded(json("{\"a\":1}"), 1, new RawSpan(0, 7));
+                }
+                beforeFailing.run();
+                throw new SourceReadException("disk read failed", null);
+              }
+
+              @Override
+              public void close() {}
+            };
+    return new S3RealtimeRawDataConverter(
+        new S3RegionalClientProvider(region -> s3Client),
+        new S3ObjectDecoder(failing, DecodeLimits.UNLIMITED, false),
+        "json",
+        MAX_OBJECT_SIZE,
+        spoolDir,
+        4 * MIB,
+        confirmed,
+        dlqWriter,
+        new S3RealtimeRawDataEncoder(),
+        "node",
+        skippedObjectCounter);
+  }
+
+  @Test
+  void aReadFailureMidObjectEmitsThePendingBatchAndIsSummarized() {
+    stub("k.jsonl", utf8("{\"a\":1}\n"));
+    TestEmitter emitter = new TestEmitter();
+
+    recordThenReadFailure(() -> {}).emit(message("k.jsonl"), context, emitter);
+
+    assertEquals(List.of(List.of(json("{\"a\":1}"))), emitter.batches);
+    assertEquals(
+        List.of("READ_FAILURE s3 object: SourceReadException"),
+        dlq.stream().map(Entry::firstLine).toList());
+  }
+
+  @Test
+  void aReadFailureAfterTheStopDoesNotEmitThePendingBatch() {
+    stub("k.jsonl", utf8("{\"a\":1}\n"));
+    TestEmitter emitter = new TestEmitter();
+
+    recordThenReadFailure(() -> emitter.stopped = true).emit(message("k.jsonl"), context, emitter);
+
+    assertEquals(List.of(), emitter.batches);
+    assertEquals(List.of(), dlq);
+  }
+
+  @Test
+  void aStopWhileThePendingBatchIsEmittedAfterAReadFailureWritesNoSummary() {
+    stub("k.jsonl", utf8("{\"a\":1}\n"));
+    TestEmitter emitter = new TestEmitter();
+    emitter.stopAfterBatch = 0;
+
+    recordThenReadFailure(() -> {}).emit(message("k.jsonl"), context, emitter);
+
+    assertEquals(List.of(List.of(json("{\"a\":1}"))), emitter.batches);
+    assertEquals(List.of(), dlq);
+  }
+
+  @Test
+  void aDlqWriteThatFailsBecauseOfTheStopIsNotAnError() {
+    stub("bad.jsonl", utf8("not json\n"));
+    TestEmitter emitter = new TestEmitter();
+    doAnswer(
+            invocation -> {
+              emitter.stopped = true;
+              throw new IllegalStateException("BufferedWriter is closed");
+            })
+        .when(dlqWriter)
+        .writeToDlq(anyLong(), any(), anyString(), anyString());
+
+    assertDoesNotThrow(
+        () ->
+            converter(EncodingType.JSON_OBJECT_LINE).emit(message("bad.jsonl"), context, emitter));
+  }
+
+  @Test
+  void aStopAfterTheLastRecordEmitsNothingMore() {
+    stub("k.jsonl", utf8("{\"a\":1}\n"));
+    TestEmitter emitter = new TestEmitter();
+    // calls: before the object, at the record, after the record, then when the object ends
+    emitter.stopAtCall = 4;
+
+    converter(EncodingType.JSON_OBJECT_LINE).emit(message("k.jsonl"), context, emitter);
+
+    assertEquals(List.of(), emitter.batches);
+    verify(inputEventCounter, never()).increase(anyLong(), anyMap());
+    verify(dataSizeCounter, never()).increase(anyLong(), anyMap());
+  }
+
+  @Test
+  void aDownstreamFailureCausedByTheStopIsNotSummarized() {
+    stub("k.jsonl", utf8("{\"a\":1}\n"));
+    TestEmitter emitter = new TestEmitter();
+    emitter.failBatch = 0;
+    emitter.stopWhenFailing = true;
+
+    converter(EncodingType.JSON_OBJECT_LINE).emit(message("k.jsonl"), context, emitter);
+
+    assertEquals(List.of(), dlq);
+  }
+
+  @Test
+  void aBadRecordOfExactly128KibIsDeadLetteredWhole() {
+    String bad = "x".repeat(S3RealtimeRawDataConverter.MAX_RECORD_ENTRY_BYTES);
+    stub("bad.jsonl", utf8(bad + "\n"));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    assertEquals(
+        List.of(
+            new Entry(
+                bad,
+                "MALFORMED json record: JsonParseException",
+                "object s3://b/bad.jsonl, recordIndex 1, bytes 0-" + bad.length(),
+                "node")),
+        dlq);
+  }
+
+  @Test
+  void aFailedDlqWriteIsADeadLetterWriteException() {
+    stub("bad.jsonl", utf8("not json\n"));
+    doThrow(new IllegalStateException("dlq down"))
+        .when(dlqWriter)
+        .writeToDlq(anyLong(), any(), anyString(), anyString());
+
+    DeadLetterWriteException e =
+        assertThrows(
+            DeadLetterWriteException.class,
+            () -> emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl")));
+    assertEquals("failed to write a DLQ entry for s3://b/bad.jsonl", e.getMessage());
+  }
+
   private static DecodingConfig decodingConfig(String json) {
     return JsonUtils.fromJsonString(json, DecodingConfig.class);
   }
@@ -679,6 +1008,14 @@ class S3RealtimeRawDataConverterTest {
 
   private static byte[] utf8(String s) {
     return s.getBytes(StandardCharsets.UTF_8);
+  }
+
+  private static byte[] concat(byte[]... parts) {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    for (byte[] part : parts) {
+      out.writeBytes(part);
+    }
+    return out.toByteArray();
   }
 
   private static byte[] gzip(byte[] bytes) {

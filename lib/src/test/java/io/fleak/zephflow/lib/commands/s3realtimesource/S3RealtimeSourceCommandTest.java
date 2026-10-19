@@ -35,11 +35,15 @@ import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -47,6 +51,7 @@ import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
 import org.apache.logging.log4j.core.layout.PatternLayout;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -77,6 +82,7 @@ class S3RealtimeSourceCommandTest {
             "encodingType", "JSON_OBJECT_LINE");
     command.parseAndValidateArg(config);
     command.initialize(mock(MetricClientProvider.class));
+    INITIALIZED.add(command);
 
     assertEquals(SourceType.STREAMING, command.sourceType());
     assertEquals("s3rtsource", command.commandName());
@@ -364,6 +370,29 @@ class S3RealtimeSourceCommandTest {
     }
   }
 
+  @Test
+  void theSpoolDirectoryIsCreatedOnInitializeAndDeletedOnTerminate() throws Exception {
+    AwsClientFactory factory = mock(AwsClientFactory.class);
+    when(factory.createSqsClient(any(), any())).thenReturn(mock(SqsClient.class));
+    List<Path> before = spoolDirectories();
+
+    S3RealtimeSourceCommand command =
+        initialize(TestUtils.buildJobContext(new HashMap<>()), config(), factory);
+    List<Path> created = new ArrayList<>(spoolDirectories());
+    created.removeAll(before);
+    assertEquals(1, created.size(), "one spool directory under the working directory");
+
+    command.terminate();
+    command.terminate();
+    assertFalse(Files.exists(created.getFirst()));
+  }
+
+  private static List<Path> spoolDirectories() throws IOException {
+    try (Stream<Path> entries = Files.list(Path.of(System.getProperty("user.dir")))) {
+      return entries.filter(p -> p.getFileName().toString().startsWith("s3rt-spool-")).toList();
+    }
+  }
+
   private static Map<String, Object> config() {
     return new HashMap<>(
         Map.of(
@@ -374,6 +403,21 @@ class S3RealtimeSourceCommandTest {
             "encodingType",
             "JSON_OBJECT_LINE"));
   }
+
+  /** Terminates what a test initialized, also when it fails, so no spool directory is left. */
+  @AfterEach
+  void terminateInitializedCommands() {
+    for (S3RealtimeSourceCommand command : INITIALIZED) {
+      try {
+        command.terminate();
+      } catch (Exception e) {
+        // the test already asserted what it needed about termination
+      }
+    }
+    INITIALIZED.clear();
+  }
+
+  private static final List<S3RealtimeSourceCommand> INITIALIZED = new ArrayList<>();
 
   private static S3RealtimeSourceCommand initialize(
       JobContext job, Map<String, Object> config, AwsClientFactory factory) throws Exception {
@@ -388,6 +432,7 @@ class S3RealtimeSourceCommandTest {
     MetricClientProvider metrics = mock(MetricClientProvider.class);
     when(metrics.counter(anyString(), anyMap())).thenReturn(mock(FleakCounter.class));
     command.initialize(metrics);
+    INITIALIZED.add(command);
     return command;
   }
 

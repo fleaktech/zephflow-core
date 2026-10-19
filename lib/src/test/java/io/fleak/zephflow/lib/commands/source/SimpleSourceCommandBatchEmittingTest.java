@@ -261,6 +261,23 @@ class SimpleSourceCommandBatchEmittingTest {
   }
 
   @Test
+  void aConvertersOwnDlqFailureEndsTheSourceWithoutADeadLetterOrAcknowledgement() {
+    when(fetcher.fetch()).thenReturn(List.of("a", "b"), List.of("c"));
+    when(fetcher.isExhausted()).thenReturn(false, true);
+
+    run(
+        converter(
+            (sourceRecord, emitter) -> {
+              emitter.accept(List.of(record(sourceRecord)));
+              throw new DeadLetterWriteException("dlq down", null);
+            }));
+
+    assertEquals(List.of("accept a"), events);
+    assertEquals(List.of(), dlq);
+    verify(fetcher, times(1)).fetch();
+  }
+
+  @Test
   void withoutADlqAFailedRecordIsDroppedAndAcknowledged() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);

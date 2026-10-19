@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDecoder.Result;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
+import io.fleak.zephflow.lib.commands.source.DeadLetterWriteException;
 import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -136,12 +137,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
   /** The simple name of the innermost cause that is not a SourceReadException, with an AWS code. */
   static String causeName(Throwable error) {
     Throwable chosen = error;
-    for (Throwable t = error; t != null; t = t.getCause()) {
+    for (Throwable t : ExceptionUtils.getThrowableList(error)) {
       if (!(t instanceof SourceReadException)) {
         chosen = t;
-      }
-      if (t.getCause() == t) {
-        break;
       }
     }
     String name = chosen.getClass().getSimpleName();
@@ -153,53 +151,72 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     return name;
   }
 
-  /** Record index ranges, adjacent ones merged, with the bytes they span when known. */
+  /**
+   * Record index ranges, adjacent ones merged, with the bytes they span when known. Only the first
+   * {@link #MAX_LISTED_RANGES} are kept; the rest are counted. A record index under 1 (a whole
+   * document) is shown as "the document".
+   */
   static final class IndexRanges {
     private final List<long[]> ranges = new ArrayList<>(); // first, last, spanStart, spanEnd
+    private long lastIndex = Long.MIN_VALUE;
+    private long dropped;
 
     void add(long recordIndex, RawSpan span) {
+      add(recordIndex, recordIndex, span);
+    }
+
+    /** Adds the records {@code first} to {@code last}; a record index under 1 is a document. */
+    void add(long first, long last, RawSpan span) {
       long start = span != null && span.length() >= 0 ? span.offset() : -1;
       long end = start >= 0 ? span.offset() + span.length() : -1;
-      long[] last = ranges.isEmpty() ? null : ranges.getLast();
-      if (last != null && recordIndex >= 1 && last[1] + 1 == recordIndex) {
-        last[1] = recordIndex;
+      boolean adjacent = first >= 1 && lastIndex + 1 == first;
+      lastIndex = last;
+      if (adjacent && dropped == 0) {
+        long[] previous = ranges.getLast();
+        previous[1] = last;
         if (start >= 0) {
-          last[2] = last[2] < 0 ? start : Math.min(last[2], start);
-          last[3] = Math.max(last[3], end);
+          previous[2] = previous[2] < 0 ? start : Math.min(previous[2], start);
+          previous[3] = Math.max(previous[3], end);
         }
+      } else if (adjacent) {
         return;
+      } else if (ranges.size() < MAX_LISTED_RANGES) {
+        ranges.add(new long[] {first, last, start, end});
+      } else {
+        dropped++;
       }
-      ranges.add(new long[] {recordIndex, recordIndex, start, end});
     }
 
     boolean isEmpty() {
       return ranges.isEmpty();
     }
 
+    /** "recordIndex 1-3 (bytes 0-99), 7 (bytes 200-250)", or "the document (bytes 0-12)". */
     String describe() {
       StringBuilder out = new StringBuilder();
-      int listed = Math.min(ranges.size(), MAX_LISTED_RANGES);
-      for (int i = 0; i < listed; i++) {
+      boolean indexed = false;
+      for (int i = 0; i < ranges.size(); i++) {
         long[] r = ranges.get(i);
         if (i > 0) {
           out.append(", ");
         }
-        out.append(r[0] == r[1] ? Long.toString(r[0]) : r[0] + "-" + r[1]);
+        if (r[0] < 1) {
+          out.append("the document");
+        } else {
+          if (!indexed) {
+            out.append("recordIndex ");
+            indexed = true;
+          }
+          out.append(r[0] == r[1] ? Long.toString(r[0]) : r[0] + "-" + r[1]);
+        }
         if (r[2] >= 0) {
           out.append(" (bytes ").append(r[2]).append('-').append(r[3]).append(')');
         }
       }
-      if (ranges.size() > listed) {
-        out.append(", and ").append(ranges.size() - listed).append(" more ranges");
+      if (dropped > 0) {
+        out.append(", and ").append(dropped).append(" more ranges");
       }
       return out.toString();
-    }
-  }
-
-  /** A DLQ write failed; it ends the source rather than being taken for a read failure. */
-  static final class DlqWriteFailure extends RuntimeException {
-    DlqWriteFailure(RuntimeException cause) {
-      super("failed to write to the DLQ", cause);
     }
   }
 
@@ -209,7 +226,8 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     final String firstDetail;
     final IndexRanges ranges = new IndexRanges();
     long count;
-    long endedAt = -1;
+    boolean ended;
+    long endedAt;
 
     Summary(String firstLine, String firstDetail) {
       this.firstLine = firstLine;
@@ -261,7 +279,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       try {
         S3Client client = s3Clients.clientFor(ref.region());
         result = decoder.decode(client, ref, maxObjectSizeBytes, spoolDir, this::visit);
-      } catch (DlqWriteFailure e) {
+      } catch (DeadLetterWriteException e) {
         throw e;
       } catch (Exception e) {
         if (emitter.stopped()) {
@@ -298,6 +316,9 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         }
         case STOPPED -> {}
         case FINISHED -> {
+          if (emitter.stopped()) {
+            return;
+          }
           flush();
           if (!emitter.stopped()) {
             finish(result.storedLength());
@@ -342,16 +363,20 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
             summary.count++;
             summary.ranges.add(failed.recordIndex(), failed.span());
             if (failed.terminal()) {
+              summary.ended = true;
               summary.endedAt = failed.recordIndex();
             }
           }
         }
         case DecodeOutcome.Oversized oversized -> {
+          track(oversized.span());
           context.deserializeFailureCounter().increase(Map.of());
           String limit =
-              oversized.recordIndex() >= 1
-                  ? "record exceeds maxRecordBytes " + decoder.limits().maxRecordBytes()
-                  : "document exceeds maxDocumentBytes " + decoder.limits().maxDocumentBytes();
+              "over the limit (maxRecordBytes "
+                  + decoder.limits().maxRecordBytes()
+                  + ", maxDocumentBytes "
+                  + decoder.limits().maxDocumentBytes()
+                  + ")";
           Summary summary =
               summary(
                   "OVERSIZED " + format + " object",
@@ -359,6 +384,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
           summary.count++;
           summary.ranges.add(oversized.recordIndex(), oversized.span());
           if (oversized.terminal()) {
+            summary.ended = true;
             summary.endedAt = oversized.recordIndex();
           }
         }
@@ -387,18 +413,14 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       try {
         emitter.accept(emitting);
       } catch (Exception e) {
-        if (emitter.stopped()) {
-          return;
-        }
+        // After a stop the summaries are never written, so this one is dropped with them.
         String failingNode =
             e instanceof NodeExecutionException nee ? nee.getNodeId() : UNKNOWN_NODE;
         Downstream failure =
             downstream.computeIfAbsent(
                 failingNode, n -> new Downstream(ExceptionUtils.getStackTrace(e)));
         failure.batches++;
-        for (long i = first; i >= 1 && i <= last; i++) {
-          failure.ranges.add(i, null);
-        }
+        failure.ranges.add(first, last, null);
       }
     }
 
@@ -408,7 +430,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
     }
 
     private void finish(long storedLength) {
-      long size = lastSpanEnd >= 0 ? lastSpanEnd : decodedCount > 0 ? storedLength : 0;
+      long size = decodedCount == 0 ? 0 : lastSpanEnd >= 0 ? lastSpanEnd : storedLength;
       if (size > 0) {
         context.dataSizeCounter().increase(size, getCallingUserTagAndEventTags(null, firstRecord));
       }
@@ -423,10 +445,13 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
                 .append(summary.count)
                 .append(summary.count == 1 ? " outcome" : " outcomes");
         if (!summary.ranges.isEmpty()) {
-          text.append("; recordIndex ").append(summary.ranges.describe());
+          text.append("; ").append(summary.ranges.describe());
         }
-        if (summary.endedAt != -1) {
-          text.append("; the object ended at recordIndex ").append(summary.endedAt);
+        if (summary.ended) {
+          text.append("; the object ended");
+          if (summary.endedAt >= 1) {
+            text.append(" at recordIndex ").append(summary.endedAt);
+          }
         }
         writeNotification(text.toString(), nodeId);
       }
@@ -439,7 +464,7 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
                 + "; "
                 + failure.batches
                 + (failure.batches == 1 ? " batch" : " batches")
-                + " failed; recordIndex "
+                + " failed; "
                 + failure.ranges.describe();
         writeNotification(text, entry.getKey());
       }
@@ -490,7 +515,8 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         if (emitter.stopped()) {
           return;
         }
-        throw new DlqWriteFailure(e);
+        throw new DeadLetterWriteException(
+            "failed to write a DLQ entry for s3://" + ref.bucket() + "/" + ref.key(), e);
       }
     }
 

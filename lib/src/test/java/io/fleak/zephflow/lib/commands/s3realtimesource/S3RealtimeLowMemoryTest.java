@@ -70,6 +70,7 @@ class S3RealtimeLowMemoryTest {
   @TempDir Path inputs;
 
   private final AtomicLong records = new AtomicLong();
+  private final AtomicLong batches = new AtomicLong();
   private final AtomicLong dlqEntries = new AtomicLong();
   private final AtomicLong dlqBytes = new AtomicLong();
 
@@ -104,6 +105,8 @@ class S3RealtimeLowMemoryTest {
         EncodingType.STRING_LINE,
         file(count, i -> "x".repeat((int) (32 * 1024 + (i * 7919) % (224 * 1024))) + "\n", false));
     assertEquals(List.of(count, 0L), List.of(records.get(), dlqEntries.get()));
+    // the 128 KiB batch cap, not the 1,000-record cap, closes these batches of at most 4 records
+    assertTrue(batches.get() >= count / 4, "batches: " + batches.get());
   }
 
   @Test
@@ -173,6 +176,7 @@ class S3RealtimeLowMemoryTest {
           @Override
           public void accept(List<RecordFleakData> batch) {
             records.addAndGet(batch.size());
+            batches.incrementAndGet();
           }
 
           @Override
