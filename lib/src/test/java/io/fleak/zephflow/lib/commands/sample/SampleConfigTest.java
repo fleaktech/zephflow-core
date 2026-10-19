@@ -67,6 +67,8 @@ class SampleConfigTest {
             "{\"rules\": [{\"condition\": \"nope(1)\", \"sampleRate\": 2}]}",
             "'rules[0].condition'"),
         Arguments.of(
+            "{\"rules\": [{\"condition\": \"dafew\", \"sampleRate\": 2}]}", "'rules[0].condition'"),
+        Arguments.of(
             "{\"rules\": [{\"condition\": \"  \", \"sampleRate\": 2}]}", "'rules[0].condition'"),
         Arguments.of(
             "{\"rules\": [{\"condition\": 1, \"sampleRate\": 2}]}", "'rules[0].condition'"),

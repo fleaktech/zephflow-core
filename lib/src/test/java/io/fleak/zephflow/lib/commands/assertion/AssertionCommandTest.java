@@ -162,29 +162,16 @@ class AssertionCommandTest {
 
   @Test
   public void testFilterWithUndefinedVariable() {
-    // a bare identifier compiles but fails at runtime; every record must surface as an error
+    // a bare identifier that no scope binds fails for every event: rejected at config validation
+    // (FLE-2884), not at runtime
     AssertionCommandFactory assertionCommandFactory = new AssertionCommandFactory(false);
     AssertionCommand assertionCommand =
         (AssertionCommand) assertionCommandFactory.createCommand("my_node", TestUtils.JOB_CONTEXT);
-    assertionCommand.parseAndValidateArg(Map.of("expression", "asdasdasdasdasd"));
-    RecordFleakData r0 = (RecordFleakData) FleakData.wrap(Map.of("foo", 0));
-    RecordFleakData r1 = (RecordFleakData) FleakData.wrap(Map.of("foo", 1));
-    assert r0 != null;
-    assert r1 != null;
-    assertionCommand.initialize(metricClientProvider);
-    var context = assertionCommand.getExecutionContext();
-    ScalarCommand.ProcessResult processResult =
-        assertionCommand.process(List.of(r0, r1), "test_user", context);
-
-    assertTrue(processResult.getOutput().isEmpty());
-    assertEquals(2, processResult.getFailureEvents().size());
-    assertTrue(
-        processResult.getFailureEvents().get(0).errorMessage().contains("asdasdasdasdasd"),
-        processResult.getFailureEvents().get(0).errorMessage());
-
-    verify(inputMessageCounter, times(2)).increase(any());
-    verify(outputMessageCounter, never()).increase(any());
-    verify(errorCounter, times(2)).increase(any());
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> assertionCommand.parseAndValidateArg(Map.of("expression", "asdasdasdasdasd")));
+    assertEquals("expression: variable 'asdasdasdasdasd' is not defined", e.getMessage());
   }
 
   @Test

@@ -17,15 +17,43 @@ import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
+import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
+import io.fleak.zephflow.lib.commands.eval.python.PythonExecutor;
 import io.fleak.zephflow.lib.utils.AntlrUtils;
+import lombok.extern.slf4j.Slf4j;
 
 /** Created by bolei on 10/20/24 */
+@Slf4j
 public class EvalConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     String evalExpression = ((EvalCommandDto.Config) commandConfig).expression();
-    EvalExpressionParser parser =
-        (EvalExpressionParser) AntlrUtils.parseInput(evalExpression, AntlrUtils.GrammarType.EVAL);
-    parser.language();
+    boolean bounded = jobContext != null && jobContext.isBoundedExecution();
+    PythonExecutor pythonExecutor = null;
+    try {
+      EvalExpressionParser.LanguageContext languageContext =
+          ((EvalExpressionParser)
+                  AntlrUtils.parseInput(evalExpression, AntlrUtils.GrammarType.EVAL))
+              .language();
+      // compile, not just parse, so unbound variable references are rejected up front; the compiled
+      // expression is discarded (this is validation only)
+      pythonExecutor = PythonExecutor.createPythonExecutor(languageContext, bounded);
+      ExpressionCompiler.compile(languageContext, pythonExecutor);
+    } catch (Exception e) {
+      throw new IllegalArgumentException("expression: " + e.getMessage(), e);
+    } finally {
+      closeExecutor(pythonExecutor);
+    }
+  }
+
+  private static void closeExecutor(PythonExecutor executor) {
+    if (executor == null) {
+      return;
+    }
+    try {
+      executor.close();
+    } catch (Exception cleanup) {
+      log.error("failed to close python executor during eval config validation", cleanup);
+    }
   }
 }

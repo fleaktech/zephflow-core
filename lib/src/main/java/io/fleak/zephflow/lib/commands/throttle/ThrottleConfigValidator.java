@@ -26,6 +26,8 @@ public class ThrottleConfigValidator implements ConfigValidator {
     ThrottleCommandDto.Config config = (ThrottleCommandDto.Config) commandConfig;
     try (var evaluator = GroupKeyEvaluator.compile(config.keyExpression(), jobContext)) {
       // Validation owns the compiled expression only for this call.
+    } catch (Exception e) {
+      throw new IllegalArgumentException("keyExpression: " + e.getMessage(), e);
     }
     Preconditions.checkArgument(
         config.numToAllow() != null && config.numToAllow() >= 1, "numToAllow must be >= 1");

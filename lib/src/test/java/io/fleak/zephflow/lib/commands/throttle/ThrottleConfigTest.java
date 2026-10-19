@@ -95,6 +95,14 @@ class ThrottleConfigTest {
     assertThrows(IllegalArgumentException.class, () -> parser.parseConfig(Map.of()));
   }
 
+  @Test
+  void validate_rejectsUnboundVariableInKeyExpression() {
+    Config config = new Config("dafew", 1, 30L, 50_000);
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> validate(config));
+    assertEquals("keyExpression: variable 'dafew' is not defined", e.getMessage());
+  }
+
   static Stream<Arguments> invalidNumericParams() {
     Stream<Arguments> notInteger =
         PARAMS.stream()

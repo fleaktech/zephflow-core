@@ -147,7 +147,8 @@ public class DagExecutorTest {
             "invalid_filter",
             "filter",
             "failed to compile DAG node: RawDagNode(commandName=filter, arg={expression=this is not"
-                + " a valid expression}), reason: {\"offendingSymbol\":\"[@1,5:6='is',<32>,1:5]\","
+                + " a valid expression}), reason: expression:"
+                + " {\"offendingSymbol\":\"[@1,5:6='is',<32>,1:5]\","
                 + "\"line\":1,\"charPositionInLine\":5,\"message\":\"mismatched input 'is'"
                 + " expecting {<EOF>, 'or', 'and', '==', '!=', '<', '>', '<=', '>=', '+', '-', '*',"
                 + " '/', '%', '.', '['}\"}"),
