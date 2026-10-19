@@ -127,9 +127,8 @@ others are listed in their object's summary by index and position, and recovered
 `Oversized` never becomes a record entry, because its 4 KiB preview would replay as a complete
 record (6).
 
-A failed write of one of the converter's own entries ends the source as well: the converter throws
-`DeadLetterWriteException`, and `SimpleSourceCommand` neither dead-letters nor acknowledges the
-message, so SQS delivers it again.
+A failed write of one of the converter's own entries is logged and the object goes on, and the
+message is acknowledged as usual, as legacy did (D12); that entry is lost.
 
 An exception that escapes the converter is a bug, outside these rows: `SimpleSourceCommand`
 dead-letters the notification with the stack trace and the failing node's id, in the framework's
@@ -148,6 +147,8 @@ decoder's message, the object, sizes, counts, indexes) comes after it:
 | Record entry | `MALFORMED <format> record: <exception class>` |
 | Object summary | `<MALFORMED or CORRUPT_COMPRESSION> <format> object: <exception class>`, `OVERSIZED <format> object: <limit>`, or `READ_FAILURE s3 object: <exception class>` |
 | Object over `maxObjectSizeBytes` | `OBJECT_TOO_LARGE s3 object` |
+| Notification that does not parse (the fetcher) | `MALFORMED s3 notification` |
+| Message received more than `maxRetries` times (the fetcher) | `RETRIES_EXCEEDED s3 notification` |
 | Downstream summary | Today's: the first line of the `NodeExecutionException`'s stack trace, which carries the failing node's error |
 
 `<format>` is the decoding format's type (`json`, `csv`, `text`, ...). The exception class is the
@@ -155,29 +156,33 @@ simple name of the innermost cause that is not a `SourceReadException` (`SourceR
 the chain has no other), followed by the error code for an AWS service exception that has one
 (`S3Exception AccessDenied`), so an access-denied object, a missing bucket and a full disk fall into
 different groups. `<limit>` names the decoder's `LimitKind` (generic decoder 3.4): `maxRecordBytes`,
-`maxDocumentBytes`, `xz memory` (both xz kinds), `parquet heap share`, `maxLines`, `zstd window`,
+`maxDocumentBytes`, `xz memory`, `avro xz memory`, `parquet heap share`, `maxLines`, `zstd window`,
 `zstd native memory` or `format maximum`, so an object over two limits gives two summaries.
 
 The second line of every source entry is `Action: ` and what the operator can do; a downstream
 summary keeps its node's error instead. This source sets the record, document and xz limits from the
-task's heap (3.4), so where more memory raises a limit the action says so; where nothing raises it,
-the action says how to write the file. Every object summary's action ends "then re-upload the object
-or send this notification again".
+task's heap (3.4), so where more memory raises a limit the action says so, with the limit's share of
+the heap when it is known ("1/128 of the task's heap, so give the task a heap of at least 128 times
+the record's size"); where nothing raises it, the action says how to write the file. Every object
+summary's action ends "then re-upload the object or send this notification again". The fetcher's
+two entries carry an action too.
 
 | Entry | Action |
 |---|---|
 | Record entry | Fix the record where it is written, or `encodingType`/`decoding` if every record fails like this; the value is the record's bytes |
 | `MALFORMED` | Check that the object is `<format>` as `encodingType` or `decoding` says, or fix the listed records |
-| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced |
+| `CORRUPT_COMPRESSION` | Check the compression setting, and that the object was complete when it was announced; for avro, the block's own codec data is damaged, so rewrite the file if it is |
 | `READ_FAILURE` | Check the cause: S3 permissions (`s3:GetObject`), the network, or free disk where the task runs |
 | `OBJECT_TOO_LARGE` | Raise `maxObjectSizeBytes` above the object's size, with that much free disk and a long enough `visibilityTimeoutSeconds` (lower `maxNumberOfMessages` if several arrive together) |
-| `maxRecordBytes`, `maxDocumentBytes` | Give the task more memory (the limit is set from the heap), or write smaller records or documents (avro: smaller blocks) |
-| `xz memory` | Give the task more memory while the limit is under 128 MiB; recompress with a smaller xz dictionary (presets -0 to -9 need at most 65 MiB) |
-| `parquet heap share` | Give the task more memory, or write smaller row groups (fewer row groups or columns if the footer is too large) |
+| `maxRecordBytes`, `maxDocumentBytes` | Give the task more memory (the limit's share of the heap), or write smaller records or documents (avro: smaller blocks); if one record or document holds many, use a line or element framing. For multiline text, check the pattern and set `maxLines` first |
+| `xz memory`, `avro xz memory` | Give the task more memory while the limit is under 128 MiB; recompress with a smaller xz dictionary (presets -0 to -9 need at most 65 MiB), or for avro rewrite the file with a lower xz level |
+| `parquet heap share` | Give the task more memory, or write smaller row groups or rows (fewer row groups or columns if the footer is too large) |
 | `maxLines` | Raise `maxLines` in `decoding`, or fix the multiline pattern |
-| `zstd window` | Recompress without `--long`, or with `--long=27` or less; no setting raises it |
-| `zstd native memory` | Give the task more memory outside the Java heap |
+| `zstd window` | Recompress without `--long`, or with `--long=27` or less (avro: rewrite with a zstandard level whose window is at most 128 MiB); no setting raises it |
+| `zstd native memory` | The worker ran out of memory outside the Java heap: give the worker more memory or run fewer tasks on it, or retry if it was momentary |
 | `format maximum` | Write smaller pieces (avro blocks, protobuf messages, a smaller parquet footer); no setting raises it |
+| `MALFORMED s3 notification` | Check that only S3 event notifications in S3's JSON format are sent to the queue |
+| `RETRIES_EXCEEDED s3 notification` | Check the source's earlier DLQ entries and logs, raise `visibilityTimeoutSeconds` so a receive finishes in time (or lower `maxNumberOfMessages`), or raise `maxRetries`; then send the notification again |
 
 - A **record entry**'s value is the record's bytes, whole. Unlike FsSource's entries, it has no
   metadata, because dynamicapi's replay merges an entry's metadata into the replayed record's
@@ -330,10 +335,6 @@ no limits hit, the records of valid input are the same, except:
 - **The object is downloaded to local disk**, which needs up to `maxObjectSizeBytes` of free space
   in the working directory (3.2). A body that breaks mid-download is downloaded again, up to 3
   attempts, where legacy dead-lettered the notification at once.
-- **A DLQ write that throws ends the source** (a closed writer, for example). Legacy logged a
-  failed write of its own entry and acknowledged the message; now the converter throws, the source
-  ends, and SQS delivers the message again (3.3). An upload that fails later, inside the DLQ writer,
-  is still only logged, as today.
 - **Messages are deleted one by one.** Legacy converted all messages of a receive first and deleted
   every one of them after the first message's records were accepted, so a crash could lose the rest.
   Now each message is deleted after its own records, which closes that loss but keeps the later
@@ -346,7 +347,10 @@ no limits hit, the records of valid input are the same, except:
   object and its repair agent saw the message. Now the first line is the template of 3.3: the
   entries of many objects that fail the same way form one group, and the agent sees the kind and
   the exception class (and the format for decode failures) but not the message, sizes or limits,
-  which follow on the next lines. Downstream entries keep today's first line.
+  which follow on the next lines, after an `Action:` line. Downstream entries keep today's first
+  line. The fetcher's two entries, which legacy wrote as `failed to parse S3 event notification:
+  <message>` and `exceeded maxRetries=<n>`, now start with `MALFORMED s3 notification` and
+  `RETRIES_EXCEEDED s3 notification`, with that text after the action.
 - **Metrics.** `deserializeFailureCount` counts failed records and failed objects, where it counted
   only failed objects. `inputEventSizeCount` still approximates the decompressed bytes: it is the
   end of the object's last span of known length, so line terminators and bytes after the last

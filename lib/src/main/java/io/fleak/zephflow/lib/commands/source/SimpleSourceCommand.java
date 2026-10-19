@@ -161,11 +161,6 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       }
       try {
         converter.emit(sourceRecord, context, emitter);
-      } catch (DeadLetterWriteException e) {
-        if (stopping.get()) {
-          return;
-        }
-        throw e;
       } catch (Exception e) {
         if (stopping.get()) {
           log.debug("conversion failed after the source was stopped", e);

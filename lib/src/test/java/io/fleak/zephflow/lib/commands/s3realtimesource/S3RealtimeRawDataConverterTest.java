@@ -23,7 +23,6 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
-import io.fleak.zephflow.lib.commands.source.DeadLetterWriteException;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.CompressionType;
@@ -112,9 +111,13 @@ class S3RealtimeRawDataConverterTest {
           + " task and a visibilityTimeoutSeconds long enough to download it (lower"
           + " maxNumberOfMessages if several arrive together); "
           + RETRY;
+  private static final String LINE_FRAMING =
+      ", or write smaller records; if a whole file is read as one record, use a line framing"
+          + " (encodingType STRING_LINE or JSON_OBJECT_LINE, or decoding); ";
   private static final String RECORD_LIMIT_ACTION =
-      "Action: this source sets maxRecordBytes from the task's heap, so give the task more memory,"
-          + " or write smaller records; "
+      "Action: this source sets maxRecordBytes to 1/128 of the task's heap, so give the task a"
+          + " heap of at least 128 times the record's size"
+          + LINE_FRAMING
           + RETRY;
 
   private static String malformedAction(String format) {
@@ -1037,9 +1040,8 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void aFailedDlqWriteIsADeadLetterWriteExceptionAndNothingElseIsWritten() {
-    stub("bad.jsonl", utf8("not json\n"));
-    // only the first write fails, so a later summary written by mistake would be recorded
+  void aFailedDlqWriteIsLoggedAndTheObjectGoesOn() {
+    stub("bad.jsonl", utf8("not json\n{\"a\":1}\nalso bad\n"));
     doThrow(new IllegalStateException("dlq down"))
         .doAnswer(
             invocation -> {
@@ -1050,12 +1052,93 @@ class S3RealtimeRawDataConverterTest {
         .when(dlqWriter)
         .writeToDlq(anyLong(), any(), anyString(), anyString());
 
-    DeadLetterWriteException e =
-        assertThrows(
-            DeadLetterWriteException.class,
-            () -> emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl")));
-    assertEquals("failed to write a DLQ entry for s3://b/bad.jsonl", e.getMessage());
-    assertEquals(List.of(), dlq);
+    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    assertEquals(List.of(json("{\"a\":1}")), emitter.records());
+    assertEquals(
+        List.of("MALFORMED json record: JsonParseException"),
+        dlq.stream().map(e -> e.firstLine().lines().findFirst().orElse("")).toList());
+  }
+
+  @Test
+  void entriesCarryTheErrorsStackTraceBetweenTheActionAndTheObject() {
+    stub("bad.jsonl", utf8("{\"a\":1}\nnot json\n"));
+
+    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+
+    List<String> lines = texts.getFirst();
+    assertEquals(
+        List.of(
+            "MALFORMED json record: JsonParseException",
+            RECORD_ACTION,
+            "object s3://b/bad.jsonl, recordIndex 2, bytes 8-16"),
+        List.of(lines.get(0), lines.get(1), lines.getLast()));
+    List<String> trace = lines.subList(2, lines.size() - 1);
+    assertTrue(
+        trace.getFirst().startsWith("com.fasterxml.jackson.core.JsonParseException: "),
+        trace.getFirst());
+    assertTrue(trace.stream().anyMatch(l -> l.startsWith("\tat ")), String.join("\n", trace));
+  }
+
+  @Test
+  void aMultilineEventPastTheRecordLimitPointsAtThePattern() {
+    StringBuilder log = new StringBuilder();
+    for (int i = 0; i < 2000; i++) {
+      log.append("2024-01-01 line ").append(i).append('\n');
+    }
+    stub("app.log", utf8(log.toString()));
+
+    emit(
+        converter(
+            decoding(
+                "{\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"^\\\\[\"}}}"),
+            MIB,
+            4 * MIB),
+        message("app.log"));
+
+    List<String> lines = texts.getFirst();
+    assertEquals(
+        List.of(
+            "OVERSIZED text object: maxRecordBytes",
+            "Action: check the decoding's multiline startPattern or continuePattern (events that"
+                + " run together grow until a limit) and set maxLines; if events really are this"
+                + " large, this source sets maxRecordBytes to 1/128 of the task's heap, so give the"
+                + " task a heap of at least 128 times the event's size; "
+                + RETRY),
+        lines.subList(0, 2));
+    assertTrue(lines.get(2).startsWith("a multiline event reached "), lines.get(2));
+  }
+
+  @Test
+  void aDamagedAvroBlockPointsAtTheFileNotTheSourcesCompression() {
+    stub("k", utf8("x"));
+
+    emit(
+        stubbed(
+            "avro",
+            false,
+            new DecodeOutcome.Failed(
+                ErrorKind.CORRUPT_COMPRESSION,
+                new byte[0],
+                1,
+                2,
+                null,
+                new IllegalStateException("avro deflate block is corrupt"),
+                false)),
+        message("k"));
+
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "CORRUPT_COMPRESSION avro object: IllegalStateException",
+                "Action: an avro block's own compressed data is damaged (the source's compression"
+                    + " setting does not apply to it): check that the object was complete when it"
+                    + " was announced, and rewrite the file if it is damaged; "
+                    + RETRY,
+                "object s3://b/k version v1; 1 outcome; recordIndex 1-2",
+                "node")),
+        dlq);
   }
 
   @Test
@@ -1166,42 +1249,73 @@ class S3RealtimeRawDataConverterTest {
 
   static Stream<Arguments> everyLimit() {
     String memory = "give the task more memory (xz may use half the heap, up to 128 MiB), or ";
-    String xz =
-        "recompress the object with a smaller xz dictionary (the presets -0 to -9 need at most 65"
-            + " MiB); ";
+    String pieces =
+        "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
+            + " messages; parquet: a smaller footer); no setting raises this limit; "
+            + RETRY;
     return Stream.of(
         Arguments.of(
             "text",
             over(LimitKind.MAX_RECORD_BYTES, 8192, 9000),
             "OVERSIZED text object: maxRecordBytes",
-            RECORD_LIMIT_ACTION,
+            "Action: this source sets maxRecordBytes from the task's heap, so give the task more"
+                + " memory"
+                + LINE_FRAMING
+                + RETRY,
             "a record reached 9000 bytes, over maxRecordBytes 8192"),
+        Arguments.of(
+            "json",
+            over(LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000),
+            "OVERSIZED json object: maxDocumentBytes",
+            "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
+                + " memory, or write smaller documents; if the object holds many records, read it"
+                + " with a line or element framing (encodingType JSON_OBJECT_LINE or STRING_LINE,"
+                + " or decoding with json lines or array, xml elements or yaml multi_document); "
+                + RETRY,
+            "a document reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
             "avro",
             over(LimitKind.MAX_DOCUMENT_BYTES, 4096, 5000),
             "OVERSIZED avro object: maxDocumentBytes",
             "Action: this source sets maxDocumentBytes from the task's heap, so give the task more"
-                + " memory, or write smaller documents (avro: smaller blocks); "
+                + " memory, or write the avro file with smaller blocks; "
                 + RETRY,
-            "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
+            "an avro block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
             "json",
             over(LimitKind.MAX_CODEC_MEMORY_BYTES, 64 * MIB, 200 * MIB),
             "OVERSIZED json object: xz memory",
-            "Action: " + memory + xz + RETRY,
+            "Action: "
+                + memory
+                + "recompress the object with a smaller xz dictionary (the presets -0 to -9 need"
+                + " at most 65 MiB); "
+                + RETRY,
             "xz needs " + 200 * MIB + " bytes of memory, over its limit of " + 64 * MIB),
+        Arguments.of(
+            "json",
+            over(LimitKind.MAX_CODEC_MEMORY_BYTES, 128 * MIB, 200 * MIB),
+            "OVERSIZED json object: xz memory",
+            "Action: recompress the object with a smaller xz dictionary (the presets -0 to -9 need"
+                + " at most 65 MiB); "
+                + RETRY,
+            "xz needs " + 200 * MIB + " bytes of memory, over its limit of " + 128 * MIB),
         Arguments.of(
             "avro",
             over(LimitKind.AVRO_XZ_MEMORY, 128 * MIB, 200 * MIB),
-            "OVERSIZED avro object: xz memory",
-            "Action: " + xz + RETRY,
-            "xz needs " + 200 * MIB + " bytes of memory, over its limit of " + 128 * MIB),
+            "OVERSIZED avro object: avro xz memory",
+            "Action: rewrite the avro file with a lower xz level for its blocks (levels 0 to 9"
+                + " need at most 65 MiB); "
+                + RETRY,
+            "an avro block's xz data needs "
+                + 200 * MIB
+                + " bytes of memory, over its limit of "
+                + 128 * MIB),
         Arguments.of(
             "parquet",
             over(LimitKind.HEAP_SHARE, 1000, 2000),
             "OVERSIZED parquet object: parquet heap share",
-            "Action: give the task more memory, or write the file with smaller row groups (fewer"
-                + " row groups or columns if the footer is too large); "
+            "Action: give the task more memory, or write the file with smaller row groups or rows"
+                + " (fewer row groups or columns if the footer is too large); "
                 + RETRY,
             "parquet needs 2000 bytes, over its share of the heap, 1000"),
         Arguments.of(
@@ -1221,38 +1335,40 @@ class S3RealtimeRawDataConverterTest {
                 + RETRY,
             "a zstd frame needs a window over " + 128 * MIB + " bytes"),
         Arguments.of(
+            "avro",
+            over(LimitKind.ZSTD_WINDOW, 128 * MIB, 0),
+            "OVERSIZED avro object: zstd window",
+            "Action: rewrite the avro file with a zstandard level whose window is 128 MiB or less"
+                + " (no long mode); no setting raises this limit; "
+                + RETRY,
+            "an avro block's zstd data needs a window over " + 128 * MIB + " bytes"),
+        Arguments.of(
             "json",
             over(LimitKind.NATIVE_MEMORY, 0, 0),
             "OVERSIZED json object: zstd native memory",
-            "Action: give the task more memory outside the Java heap (the task's memory above"
-                + " -Xmx); "
+            "Action: the worker ran out of memory outside the Java heap: give the worker more"
+                + " memory or run fewer tasks on it; if it was momentary, "
                 + RETRY,
             "zstd could not allocate native memory"),
         Arguments.of(
             "protobuf",
             over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483647),
             "OVERSIZED protobuf object: format maximum",
-            "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
-                + " messages; parquet: a smaller footer); no setting raises this limit; "
-                + RETRY,
+            pieces,
             "a protobuf message reached 2147483647 bytes, over the 2147483639 bytes the decoder"
                 + " can hold in one piece"),
         Arguments.of(
             "avro",
             over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483640),
             "OVERSIZED avro object: format maximum",
-            "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
-                + " messages; parquet: a smaller footer); no setting raises this limit; "
-                + RETRY,
+            pieces,
             "an avro block reached 2147483640 bytes, over the 2147483639 bytes the decoder can"
                 + " hold in one piece"),
         Arguments.of(
             "parquet",
             over(LimitKind.FORMAT_MAXIMUM, 2147483639, 2147483647),
             "OVERSIZED parquet object: format maximum",
-            "Action: write the file in smaller pieces (avro: smaller blocks; protobuf: smaller"
-                + " messages; parquet: a smaller footer); no setting raises this limit; "
-                + RETRY,
+            pieces,
             "the parquet footer reached 2147483647 bytes, over the 2147483639 bytes the decoder"
                 + " can hold in one piece"));
   }
@@ -1292,7 +1408,7 @@ class S3RealtimeRawDataConverterTest {
         message("k"));
 
     assertEquals(
-        List.of("OVERSIZED avro object: maxDocumentBytes", "OVERSIZED avro object: xz memory"),
+        List.of("OVERSIZED avro object: maxDocumentBytes", "OVERSIZED avro object: avro xz memory"),
         dlq.stream().map(Entry::firstLine).toList());
     assertEquals(
         List.of(

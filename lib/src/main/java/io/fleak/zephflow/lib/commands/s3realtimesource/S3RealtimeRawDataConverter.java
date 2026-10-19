@@ -23,7 +23,6 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDecoder.Result;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
-import io.fleak.zephflow.lib.commands.source.DeadLetterWriteException;
 import io.fleak.zephflow.lib.commands.source.RawDataEncoder;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -160,42 +159,78 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
   /**
    * What an oversized outcome went over and what the operator can do. This source sets the record,
    * document and codec limits from the task's heap ({@link S3DecodeLimits}), so more memory raises
-   * them; zstd's window and the format maximum cannot be raised.
+   * them; zstd's window and the format maximum cannot be raised. {@code heapBytes} is 0 when the
+   * limits are not shares of a known heap.
    */
-  static OversizedText oversizedText(String format, DecodeOutcome.Oversized oversized) {
+  static OversizedText oversizedText(
+      String format, boolean multiline, long heapBytes, DecodeOutcome.Oversized oversized) {
     long value = oversized.limitValue();
     long size = oversized.sizeSoFar();
+    boolean avro = format.equals("avro");
     return switch (oversized.limit()) {
       case MAX_RECORD_BYTES ->
           new OversizedText(
               "maxRecordBytes",
-              "a record reached " + size + " bytes, over maxRecordBytes " + value,
-              "this source sets maxRecordBytes from the task's heap, so give the task more memory,"
-                  + " or write smaller records; "
-                  + RETRY);
+              (multiline ? "a multiline event" : "a record")
+                  + " reached "
+                  + size
+                  + " bytes, over maxRecordBytes "
+                  + value,
+              multiline
+                  ? "check the decoding's multiline startPattern or continuePattern (events that"
+                      + " run together grow until a limit) and set maxLines; if events really are"
+                      + " this large, "
+                      + moreMemory("maxRecordBytes", value, heapBytes, "event")
+                      + "; "
+                      + RETRY
+                  : moreMemory("maxRecordBytes", value, heapBytes, "record")
+                      + ", or write smaller records; if a whole file is read as one record, use"
+                      + " a line framing (encodingType STRING_LINE or JSON_OBJECT_LINE, or"
+                      + " decoding); "
+                      + RETRY);
       case MAX_DOCUMENT_BYTES ->
           new OversizedText(
               "maxDocumentBytes",
-              "a document or block reached " + size + " bytes, over maxDocumentBytes " + value,
-              "this source sets maxDocumentBytes from the task's heap, so give the task more memory,"
-                  + " or write smaller documents (avro: smaller blocks); "
-                  + RETRY);
-      case MAX_CODEC_MEMORY_BYTES, AVRO_XZ_MEMORY ->
+              (avro ? "an avro block" : "a document")
+                  + " reached "
+                  + size
+                  + " bytes, over maxDocumentBytes "
+                  + value,
+              avro
+                  ? moreMemory("maxDocumentBytes", value, heapBytes, "block")
+                      + ", or write the avro file with smaller blocks; "
+                      + RETRY
+                  : moreMemory("maxDocumentBytes", value, heapBytes, "document")
+                      + ", or write smaller documents; if the object holds many records, read it"
+                      + " with a line or element framing (encodingType JSON_OBJECT_LINE or"
+                      + " STRING_LINE, or decoding with json lines or array, xml elements or yaml"
+                      + " multi_document); "
+                      + RETRY);
+      case MAX_CODEC_MEMORY_BYTES ->
           new OversizedText(
               "xz memory",
               "xz needs " + size + " bytes of memory, over its limit of " + value,
-              (value < Decompressors.XZ_DEFAULT_MEMORY
-                      ? "give the task more memory (xz may use half the heap, up to 128 MiB), or "
-                      : "")
+              xzMemory(value)
                   + "recompress the object with a smaller xz dictionary (the presets -0 to -9"
+                  + " need at most 65 MiB); "
+                  + RETRY);
+      case AVRO_XZ_MEMORY ->
+          new OversizedText(
+              "avro xz memory",
+              "an avro block's xz data needs "
+                  + size
+                  + " bytes of memory, over its limit of "
+                  + value,
+              xzMemory(value)
+                  + "rewrite the avro file with a lower xz level for its blocks (levels 0 to 9"
                   + " need at most 65 MiB); "
                   + RETRY);
       case HEAP_SHARE ->
           new OversizedText(
               "parquet heap share",
               "parquet needs " + size + " bytes, over its share of the heap, " + value,
-              "give the task more memory, or write the file with smaller row groups (fewer row"
-                  + " groups or columns if the footer is too large); "
+              "give the task more memory, or write the file with smaller row groups or rows"
+                  + " (fewer row groups or columns if the footer is too large); "
                   + RETRY);
       case MAX_LINES ->
           new OversizedText(
@@ -207,15 +242,22 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       case ZSTD_WINDOW ->
           new OversizedText(
               "zstd window",
-              "a zstd frame needs a window over " + value + " bytes",
-              "recompress the object without --long, or with --long=27 or less; no setting"
-                  + " raises this limit; "
+              (avro ? "an avro block's zstd data" : "a zstd frame")
+                  + " needs a window over "
+                  + value
+                  + " bytes",
+              (avro
+                      ? "rewrite the avro file with a zstandard level whose window is 128 MiB or"
+                          + " less (no long mode)"
+                      : "recompress the object without --long, or with --long=27 or less")
+                  + "; no setting raises this limit; "
                   + RETRY);
       case NATIVE_MEMORY ->
           new OversizedText(
               "zstd native memory",
               "zstd could not allocate native memory",
-              "give the task more memory outside the Java heap (the task's memory above -Xmx); "
+              "the worker ran out of memory outside the Java heap: give the worker more memory"
+                  + " or run fewer tasks on it; if it was momentary, "
                   + RETRY);
       case FORMAT_MAXIMUM ->
           new OversizedText(
@@ -230,6 +272,28 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
                   + " messages; parquet: a smaller footer); no setting raises this limit; "
                   + RETRY);
     };
+  }
+
+  /** "maxRecordBytes is 1/128 of the task's heap, so give the task a heap of at least ...". */
+  private static String moreMemory(String setting, long value, long heapBytes, String unit) {
+    long share = heapBytes > 0 && value > 0 ? Math.round((double) heapBytes / value) : 0;
+    return share > 0
+        ? "this source sets "
+            + setting
+            + " to 1/"
+            + share
+            + " of the task's heap, so give the task a heap of at least "
+            + share
+            + " times the "
+            + unit
+            + "'s size"
+        : "this source sets " + setting + " from the task's heap, so give the task more memory";
+  }
+
+  private static String xzMemory(long value) {
+    return value < Decompressors.XZ_DEFAULT_MEMORY
+        ? "give the task more memory (xz may use half the heap, up to 128 MiB), or "
+        : "";
   }
 
   private static String unit(String format) {
@@ -251,9 +315,14 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
               + " the object is written; "
               + RETRY;
       case CORRUPT_COMPRESSION ->
-          "check the source's compression setting against the object, and that the object was"
-              + " complete when it was announced; "
-              + RETRY;
+          format.equals("avro")
+              ? "an avro block's own compressed data is damaged (the source's compression setting"
+                  + " does not apply to it): check that the object was complete when it was"
+                  + " announced, and rewrite the file if it is damaged; "
+                  + RETRY
+              : "check the source's compression setting against the object, and that the object"
+                  + " was complete when it was announced; "
+                  + RETRY;
     };
   }
 
@@ -389,8 +458,6 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       try {
         S3Client client = s3Clients.clientFor(ref.region());
         result = decoder.decode(client, ref, maxObjectSizeBytes, spoolDir, this::visit);
-      } catch (DeadLetterWriteException e) {
-        throw e;
       } catch (Exception e) {
         if (emitter.stopped()) {
           return;
@@ -497,7 +564,8 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
         case DecodeOutcome.Oversized oversized -> {
           track(oversized.span());
           context.deserializeFailureCounter().increase(Map.of());
-          OversizedText text = oversizedText(format, oversized);
+          OversizedText text =
+              oversizedText(format, decoder.multiline(), decoder.heapBytes(), oversized);
           add(
               summary(
                   "OVERSIZED " + oversized.limit(),
@@ -649,11 +717,12 @@ public class S3RealtimeRawDataConverter implements BatchEmittingConverter<S3Even
       try {
         dlqWriter.writeToDlq(System.currentTimeMillis(), value, text, entryNodeId);
       } catch (RuntimeException e) {
-        if (emitter.stopped()) {
-          return;
-        }
-        throw new DeadLetterWriteException(
-            "failed to write a DLQ entry for s3://" + ref.bucket() + "/" + ref.key(), e);
+        log.error(
+            "failed to write a DLQ entry for s3://{}/{}: {}",
+            ref.bucket(),
+            ref.key(),
+            text.lines().findFirst().orElse(""),
+            e);
       }
     }
 

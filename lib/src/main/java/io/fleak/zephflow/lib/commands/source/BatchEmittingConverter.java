@@ -31,8 +31,7 @@ import java.util.List;
  * Emitter#accept} is the downstream's and is the converter's to dead-letter. An exception escaping
  * {@link #emit} is a converter bug: it is dead-lettered with the fetched record under the failing
  * node's id (the source's unless it is a {@code NodeExecutionException}), and a failed DLQ write
- * ends the source. A converter whose own DLQ write fails throws {@link DeadLetterWriteException},
- * which ends the source without that record being dead-lettered or acknowledged.
+ * ends the source.
  */
 public interface BatchEmittingConverter<T> extends RawDataConverter<T> {
 
