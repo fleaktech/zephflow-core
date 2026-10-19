@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.hadoop.conf.Configuration;
@@ -879,13 +880,30 @@ class S3RealtimeRawDataConverterTest {
       yaml.append("--- 1\n--- {a: 1}\n");
     }
     stub("x.yaml", utf8(yaml.toString()));
-    TestEmitter emitter = new TestEmitter();
+    // Counted, not recorded: a mock or a kept batch would hold half a million calls or records.
+    AtomicLong records = new AtomicLong();
+    AtomicLong failures = new AtomicLong();
+    BatchEmittingConverter.Emitter emitter =
+        new BatchEmittingConverter.Emitter() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            records.addAndGet(batch.size());
+          }
+
+          @Override
+          public boolean stopped() {
+            return false;
+          }
+        };
+    SourceExecutionContext<S3EventMessage> counting =
+        new SourceExecutionContext<>(
+            null, null, null, counter(null), counter(null), counter(failures), null);
 
     converter(
             decoding("{\"format\":{\"type\":\"yaml\",\"mode\":\"multi_document\"}}"), HEAP, 4 * MIB)
-        .emit(message("x.yaml"), context, emitter);
+        .emit(message("x.yaml"), counting, emitter);
 
-    assertEquals(500_000, emitter.records().size());
+    assertEquals(List.of(500_000L, 500_000L), List.of(records.get(), failures.get()));
     assertEquals(
         List.of(
             "object s3://b/x.yaml version v1; 500000 outcomes; recordIndex "
@@ -1223,6 +1241,23 @@ class S3RealtimeRawDataConverterTest {
     ranges.add(205, null);
     assertEquals(
         "recordIndex " + indexes(1, 197, 2) + ", 199-200, and 2 more ranges", ranges.describe());
+  }
+
+  /** A counter that adds each call's count to {@code total}, or ignores it when that is null. */
+  private static FleakCounter counter(AtomicLong total) {
+    return new FleakCounter() {
+      @Override
+      public void increase(Map<String, String> additionalTags) {
+        increase(1, additionalTags);
+      }
+
+      @Override
+      public void increase(long n, Map<String, String> additionalTags) {
+        if (total != null) {
+          total.addAndGet(n);
+        }
+      }
+    };
   }
 
   /** "first, first + step, ..., last". */
