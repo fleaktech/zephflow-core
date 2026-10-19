@@ -29,6 +29,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -316,7 +317,11 @@ class S3ObjectDownloaderTest {
     SourceReadException e =
         assertThrows(SourceReadException.class, () -> downloader.download(s3, REF, 1024));
 
-    assertEquals("creating the local copy of s3://b/k failed", e.getMessage());
+    NoSuchFileException missing = assertInstanceOf(NoSuchFileException.class, e.getCause());
+    assertEquals(spoolDir, Path.of(missing.getFile()).getParent());
+    assertEquals(
+        new Thrown("creating the local copy of s3://b/k failed", missing.toString(), List.of()),
+        Thrown.of(e));
     verify(abortable).abort();
     verify(s3, times(1)).getObject(any(GetObjectRequest.class));
   }
@@ -332,7 +337,78 @@ class S3ObjectDownloaderTest {
     SourceReadException e =
         assertThrows(SourceReadException.class, () -> downloader.download(s3, REF, 1024));
 
-    assertEquals("downloading s3://b/k failed after 3 attempts", e.getMessage());
+    assertEquals(
+        new Thrown(
+            "downloading s3://b/k failed after 3 attempts",
+            "java.io.IOException: connection reset",
+            List.of(
+                "java.io.IOException: connection reset", "java.io.IOException: connection reset")),
+        Thrown.of(e));
+    assertEquals(List.of(), spoolFiles());
+  }
+
+  @Test
+  void anOpeningErrorAfterABrokenAttemptKeepsTheEarlierError() {
+    S3Exception slowDown =
+        (S3Exception) S3Exception.builder().statusCode(503).message("SlowDown").build();
+    when(s3.getObject(any(GetObjectRequest.class)))
+        .thenReturn(body(DATA.length, breaking(5, resetError()), mock(Abortable.class)))
+        .thenThrow(slowDown);
+
+    SourceReadException e =
+        assertThrows(SourceReadException.class, () -> downloader.download(s3, REF, 1024));
+
+    assertEquals(
+        new Thrown(
+            "opening s3://b/k failed",
+            slowDown.toString(),
+            List.of("java.io.IOException: connection reset")),
+        Thrown.of(e));
+    verify(s3, times(2)).getObject(any(GetObjectRequest.class));
+  }
+
+  @Test
+  void aCloseFailureAfterABrokenBodyIsKeptWithTheBodyError() {
+    when(s3.getObject(any(GetObjectRequest.class)))
+        .thenAnswer(
+            invocation -> body(DATA.length, breaking(5, resetError()), mock(Abortable.class)));
+    S3ObjectDownloader failingClose =
+        new S3ObjectDownloader(
+            spoolDir,
+            file ->
+                new FilterOutputStream(Files.newOutputStream(file)) {
+                  @Override
+                  public void close() throws IOException {
+                    super.close();
+                    throw new IOException("No space left on device");
+                  }
+                });
+
+    SourceReadException e =
+        assertThrows(SourceReadException.class, () -> failingClose.download(s3, REF, 1024));
+
+    assertEquals(
+        List.of("java.io.IOException: No space left on device"),
+        Arrays.stream(e.getCause().getSuppressed()).map(Throwable::toString).toList());
+    assertEquals(List.of(), spoolFiles());
+  }
+
+  @Test
+  void aBodyLongerThanItsLengthIsNotWrittenPastIt() {
+    byte[] longer = Arrays.copyOf(DATA, DATA.length + 2);
+    when(s3.getObject(any(GetObjectRequest.class)))
+        .thenAnswer(invocation -> body(DATA.length, longer));
+
+    SourceReadException e =
+        assertThrows(SourceReadException.class, () -> downloader.download(s3, REF, 1024));
+
+    String longerError = "java.io.IOException: the body is longer than its 18 bytes";
+    assertEquals(
+        new Thrown(
+            "downloading s3://b/k failed after 3 attempts",
+            longerError,
+            List.of(longerError, longerError)),
+        Thrown.of(e));
     assertEquals(List.of(), spoolFiles());
   }
 

@@ -94,8 +94,8 @@ record, and the downstream can take as long as it needs without holding a connec
   later attempt is a `missing` skip. A failure to write the local file (a full disk) is not retried.
   An interrupt is not retried either. A download that does not succeed is a read failure: an
   object summary with the notification as its value (3.3), as today's download failures are.
-- The decoder reads the file through a new `ByteInput.ofFile(Path)` in the decoder, which streams the
-  file and offers random access to it, so parquet reads its footer and row groups from disk.
+- The decoder reads the file through a new `ByteInput.ofFile(Path)` in the decoder, which streams
+  the file and offers random access to it, so parquet reads its footer and row groups from disk.
 - `maxObjectSizeBytes` is also the disk cap: the source handles one object at a time, so it needs
   at most that much disk. There is no fallback to decoding straight from S3.
 - The spool directory is a new directory under the JVM's working directory, created when the source
@@ -149,8 +149,8 @@ different groups.
 - A **record entry**'s value is the record's bytes, whole. Unlike FsSource's entries, it has no
   metadata, because dynamicapi's replay merges an entry's metadata into the replayed record's
   fields. Its error text is the first line, the decoder error's stack trace, and a line naming the
-  object, the `recordIndex` when it is at least 1, and the span when there is one. Its node id is the
-  source's.
+  object, the `recordIndex` when it is at least 1, and the span when there is one. Its node id is
+  the source's.
 - An **object summary** is one entry per object and outcome kind, written when the object ends. It
   keeps today's shape: the notification as the value, so the object can be replayed by sending the
   notification again, and the source's node id. Its error text is the first line, the first error's
@@ -163,12 +163,12 @@ different groups.
   It keeps today's shape: the notification as the value, the failing node's id from
   `NodeExecutionException`, and that exception's stack trace, followed by the object, how many
   batches failed and their record index ranges (adjacent ranges merged, at most 100 listed). The
-  runner reports only the first failing node and its error, not which records failed, so the
-  records of a failed batch cannot be dead-lettered on their own; recovery is sending the
-  notification again, which emits the object's other records again too. With a DLQ configured, the
-  runner throws only after the whole batch ran (siblings of a failing record still reach the
-  sinks), so going on with the next batch loses nothing else, as today. Storing the failed batch's
-  records as JSON (generic-decoder Appendix A) is deferred: it needs a format marker that dynamicapi,
+  runner reports only the first failing node and its error, not which records failed, so the records
+  of a failed batch cannot be dead-lettered on their own; recovery is sending the notification
+  again, which emits the object's other records again too. With a DLQ configured, the runner throws
+  only after the whole batch ran (siblings of a failing record still reach the sinks), so going on
+  with the next batch loses nothing else, as today. Storing the failed batch's records as JSON
+  (generic-decoder Appendix A) is deferred: it needs a format marker that dynamicapi,
   zephflow-plus's replay and the DLQ schema understand first.
 
 Without a configured DLQ, failures are logged and dropped, as today.
@@ -332,9 +332,10 @@ follow-up, dynamicapi's sampler both use it:
 - `decode(S3Client, S3ObjectRef, maxObjectSizeBytes, spoolDir, visitor)` downloads the object as in
   3.2 and hands each `DecodeOutcome` to the visitor until the visitor asks to stop or the object
   ends, then deletes the local file, whatever the outcome. The caller owns `spoolDir`: the source
-  passes its spool directory, and a sampler passes a directory it creates and removes itself. It returns whether the object was missing, too large, finished
-  or stopped; the stored length, ETag and version id from the response; and the bytes downloaded. A
-  failed download throws `SourceReadException`.
+  passes its spool directory, and a sampler passes a directory it creates and removes itself. It
+  returns whether the object was missing, too large, finished or stopped; the stored length, ETag
+  and version id from the response; and the bytes downloaded. A failed download throws
+  `SourceReadException`.
 - `recordDecoder()` and `limits()` expose the compiled decoder and limits, for a caller that holds
   an object's bytes itself (the sampler's dataset mode, which shows each record's raw bytes). Spans
   index the stream after decompression and transcoding, so they slice the stored bytes only for an
@@ -388,12 +389,12 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
 
 - The download against a mocked `S3Client`: a body that breaks at any offset, or with any of the
   errors a body read throws, is downloaded again, with the partial file deleted before the next
-  attempt; 3 failed attempts are a
-  read failure; `NoSuchKey` on a later attempt is `missing`; a premature end; a failed write is not
-  retried; an interrupt is not retried; a response without a length; an oversized object is
-  aborted, not downloaded; a zero-length object; the local file is deleted on every outcome. The spool directory is created under the working
-  directory, falls back to `java.io.tmpdir`, and is deleted on close. `ByteInput.ofFile`: streaming,
-  ranges, and a zero-length range.
+  attempt; 3 failed attempts are a read failure; `NoSuchKey` on a later attempt is `missing`; a
+  premature end; a failed write is not retried; an interrupt is not retried; a response without a
+  length; an oversized object is aborted, not downloaded; a zero-length object; the local file is
+  deleted on every outcome. The spool directory is created under the working directory, falls back
+  to `java.io.tmpdir`, and is deleted on close. `ByteInput.ofFile`: streaming, ranges, and a
+  zero-length range.
 - The existing LocalStack integration test issues only the plain `GetObject` the download uses. Its
   assertion on the DLQ entry of `bad.jsonl` (`failed to process s3://…`) is updated in PR 4b to the
   record entry of 3.3; no cases are added.

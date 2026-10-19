@@ -21,6 +21,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -86,7 +87,8 @@ final class S3ObjectDownloader {
       } catch (NoSuchKeyException e) {
         return new Missing();
       } catch (RuntimeException e) {
-        throw new SourceReadException(describe(ref, "opening") + " failed", e);
+        throw withEarlierAttempts(
+            new SourceReadException(describe(ref, "opening") + " failed", e), failures);
       }
       GetObjectResponse response = body.response();
       Long storedLength = response.contentLength();
@@ -94,7 +96,9 @@ final class S3ObjectDownloader {
         abortQuietly(body);
         closeQuietly(body);
         if (storedLength == null) {
-          throw new SourceReadException(describe(ref, "opening") + " gave no content length", null);
+          throw withEarlierAttempts(
+              new SourceReadException(describe(ref, "opening") + " gave no content length", null),
+              failures);
         }
         return new TooLarge(storedLength);
       }
@@ -102,7 +106,9 @@ final class S3ObjectDownloader {
         Path file = copy(body, ref, storedLength);
         return new Downloaded(file, storedLength, response.eTag(), response.versionId());
       } catch (BodyFailure e) {
-        failures.add(e.getCause());
+        Exception cause = e.getCause();
+        Arrays.stream(e.getSuppressed()).forEach(cause::addSuppressed);
+        failures.add(cause);
         if (Thread.currentThread().isInterrupted()) {
           throw failure(describe(ref, "downloading") + " was interrupted", failures);
         }
@@ -120,8 +126,14 @@ final class S3ObjectDownloader {
 
   /** The last attempt's error is the cause; the earlier attempts' errors are suppressed. */
   private static SourceReadException failure(String message, List<Exception> failures) {
-    SourceReadException e = new SourceReadException(message, failures.getLast());
-    failures.subList(0, failures.size() - 1).forEach(e::addSuppressed);
+    return withEarlierAttempts(
+        new SourceReadException(message, failures.getLast()),
+        failures.subList(0, failures.size() - 1));
+  }
+
+  private static SourceReadException withEarlierAttempts(
+      SourceReadException e, List<Exception> earlier) {
+    earlier.forEach(e::addSuppressed);
     return e;
   }
 
@@ -151,6 +163,10 @@ final class S3ObjectDownloader {
           }
           if (n < 0) {
             break;
+          }
+          if (copied + n > storedLength) {
+            throw new BodyFailure(
+                new IOException("the body is longer than its %d bytes".formatted(storedLength)));
           }
           try {
             out.write(buffer, 0, n);
