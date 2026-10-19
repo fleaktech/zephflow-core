@@ -50,7 +50,9 @@ traces), no zstd or other codecs, no CSV options.
 only to such a converter, so every other source, including those in zephflow-plus, runs exactly as
 before. On this path the fetched messages are sampled to the raw-data sampler as today, then handled
 one at a time: a message's objects are decoded and emitted, and the message is committed (deleted
-from SQS) before the next one starts.
+from SQS) before the next one starts. `SimpleSourceCommand` decides when a message is done and
+acknowledges it to the converter; the converter queues its receipt handle only then, never while
+emitting.
 
 For each object of a message, in order:
 
@@ -124,6 +126,10 @@ So I3 holds for the bad records whose bytes the decoder hands over and that fit 
 others are listed in their object's summary by index and position, and recovered from the object.
 `Oversized` never becomes a record entry, because its 4 KiB preview would replay as a complete
 record (6).
+
+An exception that escapes the converter is a bug, outside these rows: `SimpleSourceCommand`
+dead-letters the notification with the stack trace and the failing node's id, in the framework's
+shape of today, and a failed DLQ write ends the source, as it does on the other path.
 
 Every outcome other than `Decoded` is counted in `deserializeFailureCount`. A failed batch is not:
 the runner already counts the failing node's records, as today.
