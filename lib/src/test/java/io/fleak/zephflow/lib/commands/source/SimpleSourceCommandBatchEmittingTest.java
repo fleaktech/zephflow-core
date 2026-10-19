@@ -56,6 +56,31 @@ class SimpleSourceCommandBatchEmittingTest {
         emitter.accept(List.of(record(sourceRecord + "-" + batch)));
       }
     }
+
+    @Override
+    public void acknowledge(String sourceRecord) {
+      events.add("ack " + sourceRecord);
+    }
+  }
+
+  /** The body of a converter's emit; the converter built from it records acknowledgements. */
+  @FunctionalInterface
+  private interface EmitBody {
+    void emit(String sourceRecord, BatchEmittingConverter.Emitter emitter);
+  }
+
+  private BatchEmittingConverter<String> converter(EmitBody body) {
+    return new BatchEmittingConverter<>() {
+      @Override
+      public void emit(String sourceRecord, SourceExecutionContext<?> context, Emitter emitter) {
+        body.emit(sourceRecord, emitter);
+      }
+
+      @Override
+      public void acknowledge(String sourceRecord) {
+        events.add("ack " + sourceRecord);
+      }
+    };
   }
 
   @BeforeEach
@@ -91,31 +116,40 @@ class SimpleSourceCommandBatchEmittingTest {
   }
 
   @Test
-  void eachRecordIsCommittedAfterItsLastBatchEvenWhenTheFetcherIsExhausted() {
+  void eachRecordIsAcknowledgedAndCommittedAfterItsLastBatchEvenWhenTheFetcherIsExhausted() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
 
     run(new TwoBatches());
 
     assertEquals(
-        List.of("accept a-1", "accept a-2", "commit", "accept b-1", "accept b-2", "commit"),
+        List.of(
+            "accept a-1",
+            "accept a-2",
+            "ack a",
+            "commit",
+            "accept b-1",
+            "accept b-2",
+            "ack b",
+            "commit"),
         events);
     verify(sampler).maybeSample(List.of("a", "b"));
     assertEquals(List.of(), dlq);
   }
 
   @Test
-  void aStopBetweenBatchesLeavesTheRecordUncommittedAndTheRestUnhandled() {
+  void aStopBetweenBatchesLeavesTheRecordUnacknowledgedAndTheRestUnhandled() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
     stopAfterFirstBatch();
 
     run(
-        (sourceRecord, context, emitter) -> {
-          for (int batch = 1; batch <= 2 && !emitter.stopped(); batch++) {
-            emitter.accept(List.of(record(sourceRecord + "-" + batch)));
-          }
-        });
+        converter(
+            (sourceRecord, emitter) -> {
+              for (int batch = 1; batch <= 2 && !emitter.stopped(); batch++) {
+                emitter.accept(List.of(record(sourceRecord + "-" + batch)));
+              }
+            }));
 
     assertEquals(List.of("accept a-1"), events);
     assertEquals(List.of(), dlq);
@@ -134,19 +168,50 @@ class SimpleSourceCommandBatchEmittingTest {
   }
 
   @Test
-  void anExceptionEscapingEmitIsDeadLetteredWithTheRecordAndTheRecordIsCommitted() {
+  void aStopDuringACommitLeavesTheNextRecordUnhandled() {
+    when(fetcher.fetch()).thenReturn(List.of("a", "b"));
+    when(fetcher.isExhausted()).thenReturn(true);
+    when(fetcher.committer())
+        .thenReturn(
+            () -> {
+              events.add("commit");
+              source.terminate();
+            });
+
+    run(converter((sourceRecord, emitter) -> emitter.accept(List.of(record(sourceRecord)))));
+
+    assertEquals(List.of("accept a", "ack a", "commit"), events);
+  }
+
+  @Test
+  void aStopDuringTheFetchLeavesEveryFetchedRecordUnhandled() {
+    when(fetcher.fetch())
+        .thenAnswer(
+            invocation -> {
+              source.terminate();
+              return List.of("a", "b");
+            });
+
+    run(converter((sourceRecord, emitter) -> emitter.accept(List.of(record(sourceRecord)))));
+
+    assertEquals(List.of(), events);
+  }
+
+  @Test
+  void anExceptionEscapingEmitIsDeadLetteredAndTheRecordAcknowledged() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
 
     run(
-        (sourceRecord, context, emitter) -> {
-          if (sourceRecord.equals("a")) {
-            throw new IllegalStateException("bug");
-          }
-          emitter.accept(List.of(record(sourceRecord)));
-        });
+        converter(
+            (sourceRecord, emitter) -> {
+              if (sourceRecord.equals("a")) {
+                throw new IllegalStateException("bug");
+              }
+              emitter.accept(List.of(record(sourceRecord)));
+            }));
 
-    assertEquals(List.of("commit", "accept b", "commit"), events);
+    assertEquals(List.of("ack a", "commit", "accept b", "ack b", "commit"), events);
     assertEquals(
         List.of(new DlqEntry(null, "a", "java.lang.IllegalStateException: bug", NODE_ID)), dlq);
   }
@@ -157,11 +222,12 @@ class SimpleSourceCommandBatchEmittingTest {
     when(fetcher.isExhausted()).thenReturn(true);
 
     run(
-        (sourceRecord, context, emitter) -> {
-          throw new NodeExecutionException("eval_1", "eval", "missing field", null);
-        });
+        converter(
+            (sourceRecord, emitter) -> {
+              throw new NodeExecutionException("eval_1", "eval", "missing field", null);
+            }));
 
-    assertEquals(List.of("commit"), events);
+    assertEquals(List.of("ack a", "commit"), events);
     assertEquals(
         List.of(
             new DlqEntry(
@@ -173,39 +239,41 @@ class SimpleSourceCommandBatchEmittingTest {
   }
 
   @Test
-  void aRecordThatCannotBeDeadLetteredIsLeftUncommittedWithTheRest() {
-    when(fetcher.fetch()).thenReturn(List.of("a", "b"));
-    when(fetcher.isExhausted()).thenReturn(true);
+  void aFailedDlqWriteEndsTheSourceWithNothingAcknowledged() {
+    when(fetcher.fetch()).thenReturn(List.of("a", "b"), List.of("c"));
     doThrow(new IllegalStateException("dlq closed"))
         .when(dlqWriter)
         .writeToDlq(anyLong(), any(), anyString(), anyString());
 
     run(
-        (sourceRecord, context, emitter) -> {
-          if (sourceRecord.equals("a")) {
-            throw new IllegalStateException("bug");
-          }
-          emitter.accept(List.of(record(sourceRecord)));
-        });
+        converter(
+            (sourceRecord, emitter) -> {
+              if (sourceRecord.equals("a")) {
+                throw new IllegalStateException("bug");
+              }
+              emitter.accept(List.of(record(sourceRecord)));
+            }));
 
     assertEquals(List.of(), events);
+    verify(fetcher, times(1)).fetch();
   }
 
   @Test
-  void withoutADlqAFailedRecordIsDroppedAndCommitted() {
+  void withoutADlqAFailedRecordIsDroppedAndAcknowledged() {
     when(fetcher.fetch()).thenReturn(List.of("a", "b"));
     when(fetcher.isExhausted()).thenReturn(true);
     dlqWriter = null;
 
     run(
-        (sourceRecord, context, emitter) -> {
-          if (sourceRecord.equals("a")) {
-            throw new IllegalStateException("bug");
-          }
-          emitter.accept(List.of(record(sourceRecord)));
-        });
+        converter(
+            (sourceRecord, emitter) -> {
+              if (sourceRecord.equals("a")) {
+                throw new IllegalStateException("bug");
+              }
+              emitter.accept(List.of(record(sourceRecord)));
+            }));
 
-    assertEquals(List.of("commit", "accept b", "commit"), events);
+    assertEquals(List.of("ack a", "commit", "accept b", "ack b", "commit"), events);
   }
 
   @Test
