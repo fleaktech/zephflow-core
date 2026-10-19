@@ -64,7 +64,7 @@ final class S3ObjectDownloader {
   record Missing() implements Download {}
 
   /** The stored size is over the limit; the body was not downloaded. */
-  record TooLarge(long storedLength) implements Download {}
+  record TooLarge(long storedLength, String eTag, String versionId) implements Download {}
 
   /** The object's bytes are in {@code file}; closing deletes it. */
   record Downloaded(Path file, long storedLength, String eTag, String versionId)
@@ -100,7 +100,7 @@ final class S3ObjectDownloader {
               new SourceReadException(describe(ref, "opening") + " gave no content length", null),
               failures);
         }
-        return new TooLarge(storedLength);
+        return new TooLarge(storedLength, response.eTag(), response.versionId());
       }
       try {
         Path file = copy(body, ref, storedLength);

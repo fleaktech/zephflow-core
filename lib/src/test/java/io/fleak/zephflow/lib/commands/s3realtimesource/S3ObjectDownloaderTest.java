@@ -420,7 +420,7 @@ class S3ObjectDownloaderTest {
             new ResponseInputStream<>(
                 response(100), AbortableInputStream.create(unreadable(), abortable)));
 
-    assertEquals(new TooLarge(100), downloader.download(s3, REF, 99));
+    assertEquals(new TooLarge(100, ETAG, VERSION), downloader.download(s3, REF, 99));
     verify(abortable).abort();
     assertEquals(List.of(), spoolFiles());
   }
