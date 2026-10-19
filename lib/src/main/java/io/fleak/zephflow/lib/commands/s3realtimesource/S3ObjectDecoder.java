@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 import static io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeRawDataConverter.S3_METADATA_BUCKET;
 import static io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeRawDataConverter.S3_METADATA_KEY;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDownloader.Download;
@@ -89,6 +90,8 @@ public final class S3ObjectDecoder {
     this.addS3Metadata = decoding.addS3Metadata();
   }
 
+  /** Skips the validation and the fixed limits; for tests that wrap the decoder only. */
+  @VisibleForTesting
   S3ObjectDecoder(RecordDecoder recordDecoder, DecodeLimits limits, boolean addS3Metadata) {
     this.recordDecoder = recordDecoder;
     this.limits = limits;

@@ -97,6 +97,17 @@ class S3DecodeLimitsTest {
   }
 
   @Test
+  void maxHeapSizeCountsAsAnXmx() {
+    assertEquals(
+        List.of(512 * MIB, GIB),
+        List.of(
+            S3DecodeLimits.nominalHeapBytes(
+                Map.of("TASK_MAX_MEMORY", "2048"), List.of("-Xmx1g", "-XX:MaxHeapSize=512m"), 1),
+            S3DecodeLimits.nominalHeapBytes(
+                Map.of(), List.of("-XX:MaxHeapSize=512m", "-Xmx1g"), 1)));
+  }
+
+  @Test
   void withoutXmxTaskMaxMemoryIsUsedWithGridsFloorAndParse() {
     assertEquals(
         List.of(2048 * MIB, 1024 * MIB, 1024 * MIB, 1024 * MIB),

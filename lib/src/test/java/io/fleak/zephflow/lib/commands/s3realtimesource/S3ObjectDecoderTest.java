@@ -39,6 +39,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -148,8 +150,11 @@ class S3ObjectDecoderTest {
 
     assertEquals(new Result(Status.FINISHED, LINES.length, "\"e\"", "v1"), result);
     assertEquals(
-        List.of(json("{\"a\":1}"), json("{\"a\":2}"), json("{\"a\":3}")),
-        seen.stream().map(o -> ((DecodeOutcome.Decoded) o).record()).toList());
+        List.of(
+            new DecodeOutcome.Decoded(json("{\"a\":1}"), 1, new RawSpan(0, 7)),
+            new DecodeOutcome.Decoded(json("{\"a\":2}"), 2, new RawSpan(8, 7)),
+            new DecodeOutcome.Decoded(json("{\"a\":3}"), 3, new RawSpan(16, 7))),
+        seen);
   }
 
   @Test
@@ -195,16 +200,24 @@ class S3ObjectDecoderTest {
     DecodingConfig badRegex =
         new DecodingConfig(
             null, new TextFormatConfig(null, new FramingConfig.Multiline("(", null, null)));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new S3ObjectDecoder(new S3Decoding(null, null, badRegex, false), 2048 * MIB));
+    assertEquals(
+        "invalid startPattern: "
+            + assertThrows(PatternSyntaxException.class, () -> Pattern.compile("(")).getMessage(),
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new S3ObjectDecoder(new S3Decoding(null, null, badRegex, false), 2048 * MIB))
+            .getMessage());
     DecodingConfig compressedParquet =
         JsonUtils.fromJsonString(
             "{\"compression\":\"gzip\",\"format\":{\"type\":\"parquet\"}}", DecodingConfig.class);
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new S3ObjectDecoder(new S3Decoding(null, null, compressedParquet, false), 2048 * MIB));
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    new S3ObjectDecoder(
+                        new S3Decoding(null, null, compressedParquet, false), 2048 * MIB))
+            .getMessage());
   }
 
   @Test

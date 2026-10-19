@@ -183,7 +183,7 @@ Without a configured DLQ, failures are logged and dropped, as today.
 
 - The limits are fixed proportions of a heap size, the first of:
   - the size a caller of 5 passes (at least 1 MiB);
-  - the JVM's last `-Xmx` input argument, as given;
+  - the JVM's last `-Xmx` (or `-XX:MaxHeapSize=`) input argument, as given;
   - max(`TASK_MAX_MEMORY`, 1024 MiB), parsed as grid parses it, which is the `-Xmx` grid gives a
     pipeline from the environment variable it sets;
   - `Runtime.maxMemory()`.

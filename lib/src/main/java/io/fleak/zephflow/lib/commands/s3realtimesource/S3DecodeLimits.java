@@ -28,6 +28,7 @@ final class S3DecodeLimits {
 
   private static final long MIB = 1024L * 1024;
   static final String TASK_MAX_MEMORY = "TASK_MAX_MEMORY";
+  private static final String MAX_HEAP_SIZE = "-XX:MaxHeapSize=";
   private static final long GRID_MIN_HEAP_MIB = 1024;
 
   private S3DecodeLimits() {}
@@ -57,15 +58,19 @@ final class S3DecodeLimits {
   }
 
   /**
-   * The last {@code -Xmx} argument, which is the heap the JVM was started with; else max({@code
-   * TASK_MAX_MEMORY}, 1024) MiB, which is the {@code -Xmx} grid starts a pipeline with, parsed as
-   * grid parses it; else {@code maxMemory}.
+   * The last {@code -Xmx} or {@code -XX:MaxHeapSize=} argument, which is the heap the JVM was
+   * started with; else max({@code TASK_MAX_MEMORY}, 1024) MiB, which is the {@code -Xmx} grid
+   * starts a pipeline with, parsed as grid parses it; else {@code maxMemory}.
    */
   static long nominalHeapBytes(Map<String, String> env, List<String> jvmArgs, long maxMemory) {
     Long xmx = null;
     for (String arg : jvmArgs) {
-      if (arg.startsWith("-Xmx")) {
-        Long parsed = parseSize(arg.substring(4));
+      String size =
+          arg.startsWith("-Xmx")
+              ? arg.substring(4)
+              : arg.startsWith(MAX_HEAP_SIZE) ? arg.substring(MAX_HEAP_SIZE.length()) : null;
+      if (size != null) {
+        Long parsed = parseSize(size);
         if (parsed != null) {
           xmx = parsed;
         }
