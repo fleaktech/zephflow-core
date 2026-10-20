@@ -83,11 +83,7 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
     flusher.initialize();
 
     SimpleSinkCommand.SinkMessagePreProcessor<SplunkHecOutboundEvent> messagePreProcessor =
-        new SplunkHecSinkMessageProcessor(
-            config.getIndex(),
-            config.getSourcetype(),
-            config.getSource(),
-            SplunkHecSinkMessageProcessor.csvOptions(config));
+        SplunkHecSinkMessageProcessor.fromConfig(config);
 
     return new SinkExecutionContext<>(
         flusher,

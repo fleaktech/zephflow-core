@@ -14,6 +14,8 @@
 package io.fleak.zephflow.lib.commands.kafkasink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
+import java.util.List;
 import java.util.Map;
 import lombok.*;
 
@@ -28,11 +30,18 @@ public interface KafkaSinkDto {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  class Config implements CommandConfig {
+  class Config implements CommandConfig, KvSinkConfig {
     @NonNull private String broker;
     @NonNull private String topic;
     private String partitionKeyFieldExpressionStr;
     @NonNull private String encodingType;
+
+    private List<String> kvFields;
+
+    private String kvPairDelimiter;
+
+    private Boolean kvCleanFields;
+
     private Map<String, String> properties;
 
     private String credentialId;

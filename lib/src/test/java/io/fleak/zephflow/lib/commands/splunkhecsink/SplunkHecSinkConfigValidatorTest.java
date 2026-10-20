@@ -170,4 +170,59 @@ class SplunkHecSinkConfigValidatorTest {
         IllegalArgumentException.class,
         () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
   }
+
+  @Test
+  void validateConfig_kvWithoutFieldsValid() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncodingType("KV");
+    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_kvWithOptionsValid() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncodingType("KV");
+    c.setKvFields(List.of("src_ip", "action"));
+    c.setKvPairDelimiter("|");
+    c.setKvCleanFields(true);
+    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_kvWithDuplicateFields() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncodingType("KV");
+    c.setKvFields(List.of("src_ip", " src_ip"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_kvWithInvalidDelimiter() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncodingType("KV");
+    c.setKvPairDelimiter("=");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_jsonObjectIgnoresInvalidKvOptions() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncodingType("JSON_OBJECT");
+    c.setKvPairDelimiter("=");
+    c.setKvFields(List.of("a", "a"));
+    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_unsupportedEncodingRejected() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncodingType("JSON_OBJECT_LINE");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
+  }
 }

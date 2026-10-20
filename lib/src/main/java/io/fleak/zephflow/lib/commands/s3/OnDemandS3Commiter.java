@@ -60,6 +60,11 @@ public class OnDemandS3Commiter extends S3Commiter<RecordFleakData> {
   }
 
   @Override
+  public void validate(RecordFleakData event) throws Exception {
+    fleakSerializer.serialize(List.of(event));
+  }
+
+  @Override
   public void close() {
     s3Client.close();
   }

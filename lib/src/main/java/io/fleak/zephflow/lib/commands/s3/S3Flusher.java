@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.s3;
 
+import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import java.io.IOException;
@@ -32,10 +33,21 @@ public class S3Flusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
       SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedInputEvents,
       Map<String, String> metricTags)
       throws Exception {
-    List<RecordFleakData> events = preparedInputEvents.preparedList();
-
-    long size = s3Commiter.commit(events);
-    return new SimpleSinkCommand.FlushResult(events.size(), size, List.of());
+    List<RecordFleakData> writable = new ArrayList<>();
+    List<ErrorOutput> errors = new ArrayList<>();
+    for (RecordFleakData event : preparedInputEvents.preparedList()) {
+      try {
+        s3Commiter.validate(event);
+        writable.add(event);
+      } catch (Exception e) {
+        errors.add(new ErrorOutput(event, e.getMessage()));
+      }
+    }
+    if (writable.isEmpty()) {
+      return new SimpleSinkCommand.FlushResult(0, 0, errors);
+    }
+    long size = s3Commiter.commit(writable);
+    return new SimpleSinkCommand.FlushResult(writable.size(), size, errors);
   }
 
   @Override

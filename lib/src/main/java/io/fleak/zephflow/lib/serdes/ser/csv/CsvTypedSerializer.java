@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.serdes.ser.csv;
 import io.fleak.zephflow.lib.serdes.ser.MultipleEventsTypedSerializer;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,7 +51,8 @@ public class CsvTypedSerializer extends MultipleEventsTypedSerializer<Map<String
     }
     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
 
-    try (OutputStreamWriter out = new OutputStreamWriter(byteArrayOutputStream);
+    try (OutputStreamWriter out =
+            new OutputStreamWriter(byteArrayOutputStream, StandardCharsets.UTF_8);
         CSVPrinter printer = new CSVPrinter(out, CSVFormat.DEFAULT)) {
       if (options.includeHeader()) {
         printer.printRecord(header);
