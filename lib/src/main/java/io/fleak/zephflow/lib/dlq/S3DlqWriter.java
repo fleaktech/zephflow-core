@@ -198,7 +198,7 @@ public class S3DlqWriter extends DlqWriter {
       return;
     }
 
-    String objectKey = generateS3ObjectKey(timestamp);
+    String objectKey = generateS3ObjectKey(timestamp, batch.size());
     try {
       uploadToS3WithRetry(data, objectKey);
       log.info("Uploaded {} records to s3://{}/{}", batch.size(), bucketName, objectKey);
@@ -208,7 +208,7 @@ public class S3DlqWriter extends DlqWriter {
   }
 
   @VisibleForTesting
-  String generateS3ObjectKey(long timestamp) {
+  String generateS3ObjectKey(long timestamp, int recordCount) {
     Instant instant = Instant.ofEpochMilli(timestamp);
     ZonedDateTime utcDateTime = instant.atZone(ZoneOffset.UTC);
 
@@ -221,7 +221,8 @@ public class S3DlqWriter extends DlqWriter {
 
     String timePath =
         String.format(
-            "%s/dt=%s/hr=%s/%s-%d_%s.avro", pathSegment, date, hour, filePrefix, timestamp, uuid);
+            "%s/dt=%s/hr=%s/%s-%d_%s_n%d.avro",
+            pathSegment, date, hour, filePrefix, timestamp, uuid, recordCount);
     if (keyPrefix != null && !keyPrefix.isEmpty()) {
       return keyPrefix + "/" + timePath;
     }

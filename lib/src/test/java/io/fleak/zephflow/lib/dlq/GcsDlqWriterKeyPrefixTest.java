@@ -29,7 +29,7 @@ class GcsDlqWriterKeyPrefixTest {
   @Test
   void testCleanPrefix() {
     GcsDlqWriter writer = createWriter("env/pipeline/deployment");
-    String key = writer.generateObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("env/pipeline/deployment/dead-letters/"));
     assertFalse(key.contains("//"));
   }
@@ -37,7 +37,7 @@ class GcsDlqWriterKeyPrefixTest {
   @Test
   void testLeadingAndTrailingSlashes() {
     GcsDlqWriter writer = createWriter("/leading/slash/");
-    String key = writer.generateObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("leading/slash/dead-letters/"));
     assertFalse(key.contains("//"));
   }
@@ -45,29 +45,36 @@ class GcsDlqWriterKeyPrefixTest {
   @Test
   void testWhitespaceOnlyPrefix() {
     GcsDlqWriter writer = createWriter("   ");
-    String key = writer.generateObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("dead-letters/"));
   }
 
   @Test
   void testAllSlashesPrefix() {
     GcsDlqWriter writer = createWriter("////");
-    String key = writer.generateObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("dead-letters/"));
   }
 
   @Test
   void testNullPrefix() {
     GcsDlqWriter writer = createWriter(null);
-    String key = writer.generateObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("dead-letters/"));
   }
 
   @Test
   void testPrefixWithSurroundingWhitespaceAndSlashes() {
     GcsDlqWriter writer = createWriter("  /prod/data/  ");
-    String key = writer.generateObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("prod/data/dead-letters/"));
     assertFalse(key.contains("//"));
+  }
+
+  @Test
+  void testRecordCountSuffix() {
+    GcsDlqWriter writer = createWriter("env/pipeline/deployment");
+    String key = writer.generateObjectKey(FIXED_TIMESTAMP, 3);
+    assertTrue(key.matches(".*/deadletter-1700000000000_[0-9a-f\\-]+_n3\\.avro"), key);
   }
 }

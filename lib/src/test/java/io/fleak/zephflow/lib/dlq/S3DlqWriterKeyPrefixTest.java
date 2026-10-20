@@ -29,7 +29,7 @@ class S3DlqWriterKeyPrefixTest {
   @Test
   void testCleanPrefix() {
     S3DlqWriter writer = createWriter("env/pipeline/deployment");
-    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("env/pipeline/deployment/dead-letters/"));
     assertFalse(key.contains("//"));
   }
@@ -37,7 +37,7 @@ class S3DlqWriterKeyPrefixTest {
   @Test
   void testLeadingAndTrailingSlashes() {
     S3DlqWriter writer = createWriter("/leading/slash/");
-    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("leading/slash/dead-letters/"));
     assertFalse(key.contains("//"));
   }
@@ -45,29 +45,36 @@ class S3DlqWriterKeyPrefixTest {
   @Test
   void testWhitespaceOnlyPrefix() {
     S3DlqWriter writer = createWriter("   ");
-    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("dead-letters/"));
   }
 
   @Test
   void testAllSlashesPrefix() {
     S3DlqWriter writer = createWriter("////");
-    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("dead-letters/"));
   }
 
   @Test
   void testNullPrefix() {
     S3DlqWriter writer = createWriter(null);
-    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("dead-letters/"));
   }
 
   @Test
   void testPrefixWithSurroundingWhitespaceAndSlashes() {
     S3DlqWriter writer = createWriter("  /prod/data/  ");
-    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP);
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 1);
     assertTrue(key.startsWith("prod/data/dead-letters/"));
     assertFalse(key.contains("//"));
+  }
+
+  @Test
+  void testRecordCountSuffix() {
+    S3DlqWriter writer = createWriter("env/pipeline/deployment");
+    String key = writer.generateS3ObjectKey(FIXED_TIMESTAMP, 3);
+    assertTrue(key.matches(".*/deadletter-1700000000000_[0-9a-f\\-]+_n3\\.avro"), key);
   }
 }
