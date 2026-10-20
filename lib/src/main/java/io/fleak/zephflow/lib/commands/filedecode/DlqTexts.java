@@ -38,7 +38,7 @@ public record DlqTexts(
     String limitSetting,
     boolean blockCodecOnly) {
 
-  /** The words after "OVERSIZED <format> <noun>: ", the detail line, and what to do. */
+  /** The words after {@code "OVERSIZED <format> <noun>: "}, the detail line, and what to do. */
   public record OversizedText(String label, String detail, String action) {}
 
   /**
