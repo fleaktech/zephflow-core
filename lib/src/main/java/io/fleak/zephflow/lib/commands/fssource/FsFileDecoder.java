@@ -79,6 +79,7 @@ final class FsFileDecoder {
       SourceDecoding decoding,
       Long maxFileBytes,
       boolean fileNameRegex,
+      boolean exactObjectKey,
       long heapBytes,
       long localSpoolMaxBytes,
       DlqWriter dlqWriter,
@@ -90,12 +91,15 @@ final class FsFileDecoder {
     this.randomAccess = config.format() instanceof ParquetFormatConfig;
     this.format = SourceDecoding.formatName(config.format());
     this.retry =
-        fileNameRegex
-            ? "then upload the corrected file under a new name that matches fileNameRegex (with a"
-                + " ts no older than the files already read, if the regex has one); a name already"
-                + " read is not read again"
-            : "then upload the corrected file under a new name; a name already read is not read"
-                + " again";
+        exactObjectKey
+            ? "then upload the corrected file under a new key and set exactObjectKey to it; a key"
+                + " already read is not read again"
+            : fileNameRegex
+                ? "then upload the corrected file under a new name that matches fileNameRegex (with a"
+                    + " ts no older than the files already read, if the regex has one); a name already"
+                    + " read is not read again"
+                : "then upload the corrected file under a new name; a name already read is not read"
+                    + " again";
     this.settings =
         new Settings(
             new DlqTexts(

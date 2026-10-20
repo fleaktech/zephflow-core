@@ -36,6 +36,7 @@ import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -323,6 +324,43 @@ class FsSourceDecodingTest {
               1L),
           counters);
     }
+  }
+
+  @Test
+  void aStopReadsTheCurrentFileToItsEndAndNoFurther() throws Exception {
+    StringBuilder first = new StringBuilder();
+    for (int i = 1; i <= 2500; i++) {
+      first.append("{\"i\":").append(i).append("}\n");
+    }
+    file("f_1.jsonl", first.toString());
+    file("f_2.jsonl", "{\"i\":0}\n");
+    command = new FsSourceCommand("source", JobContext.builder().build());
+    command.parseAndValidateArg(
+        Map.of(
+            "backend", "file",
+            "root", root.toUri().toString(),
+            "fileNameRegex", "f_(?<ts>\\d+)\\.jsonl",
+            "encodingType", "JSON_OBJECT_LINE"));
+    command.initialize(new RecordingMetricClientProvider());
+
+    command.execute(
+        "user",
+        new SourceEventAcceptor() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            batches.add(batch.size());
+            try {
+              command.terminate();
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
+          }
+
+          @Override
+          public void terminate() {}
+        });
+
+    assertEquals(List.of(1000, 1000, 500), batches);
   }
 
   @Test

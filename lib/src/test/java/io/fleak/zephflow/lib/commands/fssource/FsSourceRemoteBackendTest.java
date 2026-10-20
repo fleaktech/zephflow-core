@@ -33,23 +33,25 @@ import io.fleak.zephflow.lib.commands.fssource.api.FsBackend;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.api.ListRequest;
-import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackend;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -76,34 +78,58 @@ class FsSourceRemoteBackendTest {
   private final Map<String, Integer> sizes = new LinkedHashMap<>();
   private final List<String> opened = new ArrayList<>();
   private final List<Long> spoolFilesAtOpen = new ArrayList<>();
+  private final List<Integer> spoolsAtOpen = new ArrayList<>();
+  private Set<Path> spoolsBefore;
   private final List<Integer> batches = new ArrayList<>();
   private final Map<String, Long> counters = new TreeMap<>();
   private FsSourceCommand command;
+  private FsBackend registeredBefore;
 
   @BeforeEach
-  void registerFakeBackend() {
+  void registerFakeBackend() throws IOException {
+    try {
+      registeredBefore = FsBackendRegistry.get("gs");
+    } catch (IllegalArgumentException notRegistered) {
+      registeredBefore = null;
+    }
     FsBackendRegistry.unregister("gs");
     FsBackendRegistry.register(new FakeBackend());
+    spoolsBefore = spools();
   }
 
   @AfterEach
   void restoreBackend() {
     FsBackendRegistry.unregister("gs");
-    FsBackendRegistry.register(new GcsBackend());
+    if (registeredBefore != null) {
+      FsBackendRegistry.register(registeredBefore);
+    }
   }
 
   @Test
   void eachFileIsCopiedAndItsCopyDeletedBeforeTheNextOne() throws Exception {
-    Set<Path> spoolsBefore = spools();
     file("f_1.jsonl", lines(1, 3));
     file("f_2.jsonl", lines(4, 6));
 
-    run(Long.MAX_VALUE);
+    try (BoundedLogCapture logs = new BoundedLogCapture(FsFileAccess.class)) {
+      run(Long.MAX_VALUE);
 
+      assertMatch(
+          List.of(
+              Pattern.quote(
+                      "fs_source reading urn=gs://b/f_1.jsonl listedSizeBytes=24 from a local"
+                          + " copy ")
+                  + ".*/fs-spool-[^/]+/file-[^/]+\\.part of 24 bytes",
+              Pattern.quote(
+                      "fs_source reading urn=gs://b/f_2.jsonl listedSizeBytes=24 from a local"
+                          + " copy ")
+                  + ".*/fs-spool-[^/]+/file-[^/]+\\.part of 24 bytes"),
+          infos(logs));
+    }
     assertEquals(List.of(3, 3), batches);
     assertEquals(List.of("gs://b/f_1.jsonl", "gs://b/f_2.jsonl"), opened);
-    assertEquals(List.of(0L, 0L), spoolFilesAtOpen);
-    assertEquals(spoolsBefore, spools(), "the spool is deleted when the run ends");
+    assertEquals(List.of(1, 1), spoolsAtOpen, "one spool, created on the first copy");
+    assertEquals(List.of(0L, 0L), spoolFilesAtOpen, "the copy is deleted before the next file");
+    assertEquals(Set.of(), newSpools(), "the spool is deleted when the run ends");
   }
 
   @Test
@@ -125,8 +151,16 @@ class FsSourceRemoteBackendTest {
     for (int run = 0; run < 2; run++) {
       batches.clear();
       counters.clear();
-      try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class)) {
+      try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class);
+          BoundedLogCapture access = new BoundedLogCapture(FsFileAccess.class)) {
         assertThrows(IllegalStateException.class, () -> run(16));
+
+        assertEquals(
+            List.of(
+                "fs_source reading urn=gs://b/f_1.jsonl listedSizeBytes="
+                    + (content.length() + 100)
+                    + " streamed: it listed over localSpoolMaxBytes 16"),
+            infos(access));
 
         assertEquals(
             List.of(
@@ -233,6 +267,33 @@ class FsSourceRemoteBackendTest {
         .toList();
   }
 
+  private static List<String> infos(BoundedLogCapture logs) {
+    return logs.events().stream()
+        .filter(e -> e.getLevel() == Level.INFO)
+        .map(LogEvent::getMessage)
+        .map(Message::getFormattedMessage)
+        .toList();
+  }
+
+  private static void assertMatch(List<String> patterns, List<String> actual) {
+    assertEquals(
+        patterns,
+        IntStream.range(0, actual.size())
+            .mapToObj(
+                i ->
+                    i < patterns.size() && actual.get(i).matches(patterns.get(i))
+                        ? patterns.get(i)
+                        : actual.get(i))
+            .toList());
+  }
+
+  /** The spool directories this test created under the working directory. */
+  private Set<Path> newSpools() throws IOException {
+    Set<Path> created = new HashSet<>(spools());
+    created.removeAll(spoolsBefore);
+    return created;
+  }
+
   /** The spool directories under the working directory, where FsSource creates its spool. */
   private static Set<Path> spools() throws IOException {
     try (Stream<Path> dirs = Files.list(Path.of(System.getProperty("user.dir")))) {
@@ -241,10 +302,10 @@ class FsSourceRemoteBackendTest {
     }
   }
 
-  private static long spoolFiles() {
+  private long spoolFiles() {
     try {
       long count = 0;
-      for (Path spool : spools()) {
+      for (Path spool : newSpools()) {
         try (Stream<Path> copies = Files.list(spool)) {
           count += copies.count();
         }
@@ -285,6 +346,11 @@ class FsSourceRemoteBackendTest {
     public FileReader createReader(FsBackendConfig cfg) {
       return (key, offset) -> {
         opened.add(key.urn());
+        try {
+          spoolsAtOpen.add(newSpools().size());
+        } catch (IOException e) {
+          throw new UncheckedIOException(e);
+        }
         spoolFilesAtOpen.add(spoolFiles());
         return files.get(key.urn().substring("gs://b/".length())).get();
       };

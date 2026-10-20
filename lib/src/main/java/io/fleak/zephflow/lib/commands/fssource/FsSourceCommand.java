@@ -332,6 +332,7 @@ public final class FsSourceCommand extends SourceCommand {
             new SourceDecoding(config.getEncodingType(), null, null),
             config.getMaxFileBytes(),
             config.getFileNameRegex() != null,
+            config.getExactObjectKey() != null,
             executionContext.heapBytes,
             executionContext.localSpoolMaxBytes,
             executionContext.dlqWriter,

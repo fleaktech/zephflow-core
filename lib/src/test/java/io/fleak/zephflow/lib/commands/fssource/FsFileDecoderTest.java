@@ -56,6 +56,7 @@ class FsFileDecoderTest {
                 null, null, new DecodingConfig(List.of(), new ParquetFormatConfig())),
             null,
             false,
+            false,
             64L * 1024 * 1024,
             CAP,
             new CapturingDlqWriter(),
