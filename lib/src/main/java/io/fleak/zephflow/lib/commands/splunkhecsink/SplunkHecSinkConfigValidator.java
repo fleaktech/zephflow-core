@@ -29,7 +29,7 @@ import org.apache.commons.lang3.StringUtils;
 public class SplunkHecSinkConfigValidator implements ConfigValidator {
 
   static final List<EncodingType> SUPPORTED_ENCODING_TYPES =
-      List.of(EncodingType.JSON_OBJECT, EncodingType.CSV);
+      List.of(EncodingType.JSON_OBJECT, EncodingType.CSV, EncodingType.KV);
 
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
@@ -64,6 +64,9 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
       Preconditions.checkArgument(
           encodingType != EncodingType.CSV || CollectionUtils.isNotEmpty(config.getCsvColumns()),
           "csvColumns is required when encodingType is CSV");
+      if (encodingType == EncodingType.KV) {
+        config.validateKvOptions();
+      }
     }
     SplunkHecSinkMessageProcessor.csvOptions(config);
 

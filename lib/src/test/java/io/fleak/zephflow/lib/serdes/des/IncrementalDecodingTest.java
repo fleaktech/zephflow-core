@@ -51,7 +51,7 @@ class IncrementalDecodingTest {
   @EnumSource(EncodingType.class)
   void everyFactoryHasExplicitIncrementalCoverageAndMatchesLegacy(EncodingType type)
       throws Exception {
-    if (type == EncodingType.PARQUET) {
+    if (type == EncodingType.PARQUET || type == EncodingType.KV) {
       assertThrows(UnsupportedOperationException.class, () -> decoder(type));
       return;
     }
@@ -176,7 +176,7 @@ class IncrementalDecodingTest {
   @ParameterizedTest
   @EnumSource(
       value = EncodingType.class,
-      names = {"PARQUET"},
+      names = {"PARQUET", "KV"},
       mode = EnumSource.Mode.EXCLUDE)
   void downstreamFailureIsNeverReclassifiedAsDecodeError(EncodingType type) {
     RuntimeException failure = new RuntimeException("storage failed");
@@ -210,7 +210,7 @@ class IncrementalDecodingTest {
   @ParameterizedTest
   @EnumSource(
       value = EncodingType.class,
-      names = {"PARQUET"},
+      names = {"PARQUET", "KV"},
       mode = EnumSource.Mode.EXCLUDE)
   void absentTransportPayloadIsAnOrderedErrorWithoutInventingRawBytes(EncodingType type) {
     var deserializer = decoder(type);

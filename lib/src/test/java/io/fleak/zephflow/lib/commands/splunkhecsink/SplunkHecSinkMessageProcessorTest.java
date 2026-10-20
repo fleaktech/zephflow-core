@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -170,5 +171,108 @@ class SplunkHecSinkMessageProcessorTest {
     CsvSerializerOptions options = SplunkHecSinkMessageProcessor.csvOptions(config);
     assertEquals(List.of("a"), options.columns());
     assertFalse(options.includeHeader());
+  }
+
+  @Test
+  void preprocess_kv_eventIsKeyValueLine() throws Exception {
+    SplunkHecSinkMessageProcessor processor =
+        new SplunkHecSinkMessageProcessor(
+            "security_logs",
+            "fleak:kv",
+            null,
+            new KvSerializerOptions(List.of("time", "src_ip", "dst_ip", "action"), null, false));
+
+    SplunkHecOutboundEvent out = processor.preprocess(firewallRecord(), 0L);
+
+    JsonNode envelope =
+        OBJECT_MAPPER.readTree(new String(out.preEncodedNdjsonLine(), StandardCharsets.UTF_8));
+    assertEquals("time=2026-10-19 src_ip=1.2.3.4 action=allow", envelope.get("event").asText());
+    assertEquals("fleak:kv", envelope.get("sourcetype").asText());
+  }
+
+  @Test
+  void preprocess_kv_rejectsEventWithNoConfiguredFields() {
+    SplunkHecSinkMessageProcessor processor =
+        new SplunkHecSinkMessageProcessor(
+            null, null, null, new KvSerializerOptions(List.of("missing"), null, false));
+
+    assertThrows(IllegalArgumentException.class, () -> processor.preprocess(firewallRecord(), 0L));
+  }
+
+  @Test
+  void kvOptions_onlyForKvEncoding() {
+    SplunkHecSinkDto.Config config =
+        SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
+    config.setKvFields(List.of("a"));
+    assertNull(SplunkHecSinkMessageProcessor.kvOptions(config));
+
+    config.setEncodingType("KV");
+    config.setKvPairDelimiter("|");
+    config.setKvCleanFields(true);
+    KvSerializerOptions options = SplunkHecSinkMessageProcessor.kvOptions(config);
+    assertEquals(List.of("a"), options.fields());
+    assertEquals("|", options.pairDelimiter());
+    assertTrue(options.cleanFields());
+  }
+
+  private static String eventOf(SplunkHecSinkMessageProcessor processor, RecordFleakData record)
+      throws Exception {
+    return OBJECT_MAPPER
+        .readTree(
+            new String(
+                processor.preprocess(record, 0L).preEncodedNdjsonLine(), StandardCharsets.UTF_8))
+        .get("event")
+        .toString();
+  }
+
+  @Test
+  void fromConfig_picksSerializerFromEncodingType() throws Exception {
+    SplunkHecSinkDto.Config config =
+        SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
+    config.setCsvColumns(List.of("src_ip", "action"));
+    config.setKvFields(List.of("src_ip", "action"));
+    RecordFleakData record = firewallRecord();
+
+    assertTrue(eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record).startsWith("{"));
+
+    config.setEncodingType("CSV");
+    assertEquals(
+        "\"1.2.3.4,allow\"", eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record));
+
+    config.setEncodingType("KV");
+    assertEquals(
+        "\"src_ip=1.2.3.4 action=allow\"",
+        eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record));
+  }
+
+  @Test
+  void preprocess_kv_quotedValueStaysOneJsonEscapedLine() throws Exception {
+    SplunkHecSinkMessageProcessor processor =
+        new SplunkHecSinkMessageProcessor(
+            null, null, null, new KvSerializerOptions(List.of("msg"), null, false));
+    RecordFleakData record =
+        new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("say \"hi\"\nbye")));
+
+    SplunkHecOutboundEvent out = processor.preprocess(record, 0L);
+
+    String line = new String(out.preEncodedNdjsonLine(), StandardCharsets.UTF_8);
+    assertEquals(1, line.lines().count(), "envelope must stay on one NDJSON line");
+    assertEquals(
+        "msg=\"say \\\"hi\\\"\\nbye\"", OBJECT_MAPPER.readTree(line).get("event").asText());
+  }
+
+  @Test
+  void preprocess_kv_nonAsciiSurvivesAsUtf8() throws Exception {
+    SplunkHecSinkMessageProcessor processor =
+        new SplunkHecSinkMessageProcessor(
+            null, null, null, new KvSerializerOptions(List.of("city"), null, false));
+    RecordFleakData record =
+        new RecordFleakData(Map.of("city", new StringPrimitiveFleakData("Zürich 苏黎世")));
+
+    SplunkHecOutboundEvent out = processor.preprocess(record, 0L);
+
+    JsonNode envelope =
+        OBJECT_MAPPER.readTree(new String(out.preEncodedNdjsonLine(), StandardCharsets.UTF_8));
+    assertEquals("city=\"Zürich 苏黎世\"", envelope.get("event").asText());
   }
 }

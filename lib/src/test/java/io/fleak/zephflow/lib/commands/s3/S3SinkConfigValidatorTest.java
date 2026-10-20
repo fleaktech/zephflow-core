@@ -192,4 +192,29 @@ class S3SinkConfigValidatorTest {
             () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
     assertTrue(exception.getMessage().contains("compressionType"));
   }
+
+  @Test
+  void validateKvConfig_parsesKvOptions() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "KV");
+    configMap.put("credentialId", "credential_2");
+    configMap.put("kvFields", List.of("src_ip", "action"));
+    configMap.put("kvPairDelimiter", "|");
+    configMap.put("kvCleanFields", true);
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    validator.validateConfig(config, "abc", JOB_CONTEXT);
+    assertEquals(List.of("src_ip", "action"), config.kvSerializerOptions().fields());
+    assertEquals("|", config.kvSerializerOptions().pairDelimiter());
+    assertTrue(config.kvSerializerOptions().cleanFields());
+
+    configMap.put("kvFields", List.of("a", "a"));
+    S3SinkDto.Config duplicate = configParser.parseConfig(configMap);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(duplicate, "abc", JOB_CONTEXT));
+  }
 }

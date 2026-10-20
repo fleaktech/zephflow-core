@@ -447,4 +447,111 @@ public class S3SinkCommandTest {
     }
     return records;
   }
+
+  private record S3Object(String key, byte[] data) {}
+
+  private S3Object writeOnlyObject(S3SinkDto.Config config, List<RecordFleakData> events)
+      throws Exception {
+    JobContext jobContext = JobContext.builder().metricTags(JOB_CONTEXT.getMetricTags()).build();
+    S3SinkCommand command =
+        (S3SinkCommand) new S3SinkCommandFactory().createCommand("myNodeId", jobContext);
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    ScalarSinkCommand.SinkResult sinkResult;
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      sinkResult = command.writeToSink(events, "test_user", command.getExecutionContext());
+    } finally {
+      command.terminate();
+    }
+    assertTrue(sinkResult.getFailureEvents().isEmpty(), sinkResult.getFailureEvents().toString());
+
+    var resp = s3Client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET_NAME).build());
+    assertEquals(1, resp.contents().size());
+    String key = resp.contents().get(0).key();
+    byte[] data =
+        s3Client
+            .getObjectAsBytes(GetObjectRequest.builder().bucket(BUCKET_NAME).key(key).build())
+            .asByteArray();
+    return new S3Object(key, data);
+  }
+
+  private static List<RecordFleakData> firewallEvents() {
+    Map<String, Object> second = new HashMap<>();
+    second.put("src.ip", "10.0.0.2");
+    second.put("action", "deny");
+    second.put("msg", "port scan");
+    return List.of(
+        (RecordFleakData)
+            FleakData.wrap(Map.of("src.ip", "10.0.0.1", "action", "allow", "extra", "dropped")),
+        (RecordFleakData) FleakData.wrap(second));
+  }
+
+  @Test
+  public void testWriteKvIntoS3_withoutBatching() throws Exception {
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName("kv-test")
+            .encodingType(EncodingType.KV.toString())
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .batching(false)
+            .kvFields(List.of("src.ip", "action", "msg"))
+            .kvPairDelimiter("|")
+            .kvCleanFields(true)
+            .build();
+
+    S3Object object = writeOnlyObject(config, firewallEvents());
+
+    assertTrue(object.key().endsWith(".raw"), "KV objects use the .raw suffix: " + object.key());
+    assertEquals(
+        "src_ip=10.0.0.1|action=allow\nsrc_ip=10.0.0.2|action=deny|msg=\"port scan\"",
+        new String(object.data(), java.nio.charset.StandardCharsets.UTF_8));
+  }
+
+  @Test
+  public void testWriteKvIntoS3_batchedAndGzipped() throws Exception {
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName("kv-batch-test")
+            .encodingType(EncodingType.KV.toString())
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .batching(true)
+            .batchSize(2)
+            .compressionType(CompressionType.GZIP)
+            .kvFields(List.of("action", "src.ip"))
+            .build();
+
+    List<RecordFleakData> events = new ArrayList<>(firewallEvents());
+    events.add(1, (RecordFleakData) FleakData.wrap(Map.of("user", "heartbeat")));
+    S3Object object = writeOnlyObject(config, events);
+
+    assertTrue(object.key().endsWith(".raw.gz"), "gzipped KV objects use .raw.gz: " + object.key());
+    assertEquals(
+        "action=allow src.ip=10.0.0.1\naction=deny src.ip=10.0.0.2",
+        new String(gunzip(object.data()), java.nio.charset.StandardCharsets.UTF_8));
+  }
+
+  @Test
+  public void testNonKvEncodingIgnoresInvalidKvOptions() throws Exception {
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName("jsonl-with-stale-kv")
+            .encodingType(EncodingType.JSON_OBJECT_LINE.toString())
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .batching(false)
+            .kvFields(List.of("a", "a"))
+            .kvPairDelimiter("=")
+            .build();
+
+    S3Object object = writeOnlyObject(config, firewallEvents());
+
+    assertTrue(object.key().endsWith(".jsonl"), object.key());
+    assertEquals(
+        2, new String(object.data(), java.nio.charset.StandardCharsets.UTF_8).lines().count());
+  }
 }

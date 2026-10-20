@@ -32,6 +32,8 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -136,7 +138,12 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
             usernamePasswordCredentialOpt.orElse(null),
             config.getS3EndpointOverride());
     SerializerFactory<?> serializerFactory =
-        SerializerFactory.createSerializerFactory(encodingType);
+        SerializerFactory.createSerializerFactory(
+            encodingType,
+            CsvSerializerOptions.DEFAULT,
+            encodingType == EncodingType.KV
+                ? config.kvSerializerOptions()
+                : KvSerializerOptions.DEFAULT);
     FleakSerializer<?> serializer = serializerFactory.createSerializer();
     S3Commiter<RecordFleakData> commiter =
         new OnDemandS3Commiter(
@@ -157,7 +164,12 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
       return new ParquetBlobFileWriter(config.getAvroSchema());
     } else {
       SerializerFactory<?> serializerFactory =
-          SerializerFactory.createSerializerFactory(encodingType);
+          SerializerFactory.createSerializerFactory(
+              encodingType,
+              CsvSerializerOptions.DEFAULT,
+              encodingType == EncodingType.KV
+                  ? config.kvSerializerOptions()
+                  : KvSerializerOptions.DEFAULT);
       FleakSerializer<?> serializer = serializerFactory.createSerializer();
       return new TextBlobFileWriter(
           serializer, encodingType, CompressorFactory.getCompressor(config.getCompressionType()));

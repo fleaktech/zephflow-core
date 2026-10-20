@@ -53,7 +53,11 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
       throw new IllegalArgumentException("Topic must be provided");
     }
     EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-    SerializerFactory.validateEncodingType(encodingType);
+    if (encodingType == EncodingType.KV) {
+      config.validateKvOptions();
+    } else {
+      SerializerFactory.validateEncodingType(encodingType);
+    }
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }

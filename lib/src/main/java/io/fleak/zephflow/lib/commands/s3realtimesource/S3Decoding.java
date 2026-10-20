@@ -97,6 +97,7 @@ public record S3Decoding(
       case CSV -> new CsvFormatConfig(null, null, null, null, null, null, null, true, null);
       case XML -> new XmlFormatConfig(XmlFormatConfig.Mode.DOCUMENT, null);
       case PARQUET -> throw new IllegalArgumentException("PARQUET is rejected; use decoding");
+      case KV -> throw new IllegalArgumentException("KV is a sink-only format");
     };
   }
 }

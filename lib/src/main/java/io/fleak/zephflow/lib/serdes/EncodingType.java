@@ -25,6 +25,7 @@ public enum EncodingType {
   STRING_LINE("txt"),
   TEXT("txt"),
   XML("xml"),
+  KV("raw"),
   PARQUET("parquet");
   private final String fileExtension;
 

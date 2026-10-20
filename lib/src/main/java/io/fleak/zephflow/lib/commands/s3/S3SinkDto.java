@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.CompressionType;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
+import java.util.List;
 import java.util.Map;
 import lombok.*;
 
@@ -36,5 +38,19 @@ public interface S3SinkDto {
     @Builder.Default private long flushIntervalMillis = 10_000;
     private Map<String, Object> avroSchema;
     private CompressionType compressionType;
+
+    private List<String> kvFields;
+
+    private String kvPairDelimiter;
+
+    private Boolean kvCleanFields;
+
+    public KvSerializerOptions kvSerializerOptions() {
+      return KvSerializerOptions.of(kvFields, kvPairDelimiter, kvCleanFields);
+    }
+
+    public void validateKvOptions() {
+      kvSerializerOptions();
+    }
   }
 }

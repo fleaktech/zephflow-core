@@ -192,4 +192,60 @@ class KafkaSinkCommandTest {
             + processingTime
             + "ms - Performance test PASSED");
   }
+
+  @Test
+  public void testWriteKvToSink() throws Exception {
+    String topic = "kv-test-topic";
+    try (AdminClient admin =
+        AdminClient.create(
+            Map.of(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,
+                KAFKA_CONTAINER.getBootstrapServers()))) {
+      admin
+          .createTopics(Collections.singleton(new NewTopic(topic, 1, (short) 1)))
+          .all()
+          .get(30, TimeUnit.SECONDS);
+    }
+
+    KafkaSinkCommand command =
+        (KafkaSinkCommand)
+            new KafkaSinkCommandFactory().createCommand("kv_node", TestUtils.JOB_CONTEXT);
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .topic(topic)
+            .broker(KAFKA_CONTAINER.getBootstrapServers())
+            .encodingType(EncodingType.KV.toString())
+            .kvFields(List.of("user", "action", "missing"))
+            .kvPairDelimiter(", ")
+            .build();
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+
+    List<RecordFleakData> events =
+        List.of(
+            (RecordFleakData) FleakData.wrap(Map.of("user", "alice smith", "action", "login")),
+            (RecordFleakData) FleakData.wrap(Map.of("host", "heartbeat")),
+            (RecordFleakData) FleakData.wrap(Map.of("user", "bob", "action", "logout")));
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var result = command.writeToSink(events, "test_user", command.getExecutionContext());
+      assertTrue(result.getFailureEvents().isEmpty(), result.getFailureEvents().toString());
+    } finally {
+      command.terminate();
+    }
+
+    Properties consumerProps = getProperties();
+    consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "kv-test-consumer-group");
+    List<String> values = new ArrayList<>();
+    try (KafkaConsumer<byte[], byte[]> kvConsumer = new KafkaConsumer<>(consumerProps)) {
+      kvConsumer.subscribe(Collections.singletonList(topic));
+      long deadline = System.currentTimeMillis() + 15_000;
+      while (values.size() < 2 && System.currentTimeMillis() < deadline) {
+        kvConsumer
+            .poll(Duration.ofMillis(500))
+            .forEach(
+                r -> values.add(new String(r.value(), java.nio.charset.StandardCharsets.UTF_8)));
+      }
+    }
+    assertEquals(List.of("user=\"alice smith\", action=login", "user=bob, action=logout"), values);
+  }
 }

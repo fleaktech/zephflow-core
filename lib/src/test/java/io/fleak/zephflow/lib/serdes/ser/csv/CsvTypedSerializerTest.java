@@ -326,4 +326,15 @@ class CsvTypedSerializerTest {
 
     assertEquals(",1.2.3.4\r\n", csvOutput);
   }
+
+  @Test
+  void writesUtf8RegardlessOfPlatformCharset() throws Exception {
+    Map<String, Object> event = new LinkedHashMap<>();
+    event.put("city", "Zürich");
+    event.put("user", "张伟");
+    byte[] bytes =
+        new CsvTypedSerializer(new CsvSerializerOptions(List.of("city", "user"), false))
+            .serializeToMultipleTypedEvent(List.of(event));
+    assertArrayEquals("Zürich,张伟\r\n".getBytes(StandardCharsets.UTF_8), bytes);
+  }
 }

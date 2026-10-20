@@ -32,6 +32,7 @@ public class S3SinkConfigValidator implements ConfigValidator {
   static {
     SUPPORTED_ENCODING_TYPES = new HashSet<>(SerializerFactory.SUPPORTED_ENCODING_TYPES);
     SUPPORTED_ENCODING_TYPES.add(EncodingType.PARQUET);
+    SUPPORTED_ENCODING_TYPES.add(EncodingType.KV);
   }
 
   @Override
@@ -49,6 +50,10 @@ public class S3SinkConfigValidator implements ConfigValidator {
               + encodingType
               + ". Supported types: "
               + SUPPORTED_ENCODING_TYPES);
+    }
+
+    if (encodingType == EncodingType.KV) {
+      config.validateKvOptions();
     }
 
     if (config.isBatching()) {

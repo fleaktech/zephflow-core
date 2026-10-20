@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
 import java.util.List;
 import lombok.*;
 
@@ -43,5 +44,19 @@ public interface SplunkHecSinkDto {
     private String encodingType;
 
     private List<String> csvColumns;
+
+    private List<String> kvFields;
+
+    private String kvPairDelimiter;
+
+    private Boolean kvCleanFields;
+
+    public KvSerializerOptions kvSerializerOptions() {
+      return KvSerializerOptions.of(kvFields, kvPairDelimiter, kvCleanFields);
+    }
+
+    public void validateKvOptions() {
+      kvSerializerOptions();
+    }
   }
 }
