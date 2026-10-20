@@ -511,4 +511,29 @@ class KafkaSinkFlusherTest {
     events.forEach(event -> preparedEvents.add(event, event));
     return preparedEvents;
   }
+
+  @Test
+  void testEmptySerializedRecord_IsReportedNotDropped() throws Exception {
+    FleakSerializer<Object> emptySerializer = mock(FleakSerializer.class);
+    when(emptySerializer.serialize(anyList()))
+        .thenReturn(new SerializedEvent(null, new byte[0], Map.of()));
+    KafkaSinkFlusher emptyFlusher =
+        new KafkaSinkFlusher(
+            mockProducer,
+            topic,
+            emptySerializer,
+            null,
+            mockDeliveredCountCounter,
+            mockDeliveredSizeCounter,
+            mockAsyncErrorCounter);
+
+    SimpleSinkCommand.FlushResult result =
+        emptyFlusher.flush(createPreparedEvents(testEvents.subList(0, 2)), TEST_METRIC_TAGS);
+
+    assertEquals(0, result.successCount());
+    assertEquals(2, result.errorOutputList().size());
+    assertEquals("Serializer produced no record", result.errorOutputList().get(0).errorMessage());
+    verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+    emptyFlusher.close();
+  }
 }

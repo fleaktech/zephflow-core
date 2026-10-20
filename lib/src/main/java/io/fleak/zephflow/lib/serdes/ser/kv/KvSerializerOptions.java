@@ -14,12 +14,16 @@
 package io.fleak.zephflow.lib.serdes.ser.kv;
 
 import io.fleak.zephflow.lib.serdes.ser.FieldNames;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 
 public record KvSerializerOptions(List<String> fields, String pairDelimiter, boolean cleanFields) {
+
+  private static final Pattern FORBIDDEN_DELIMITER_CHARS =
+      Pattern.compile("[A-Za-z0-9_.:/=\"\\\\\\r\\n-]");
 
   public static final String DEFAULT_PAIR_DELIMITER = " ";
 
@@ -28,7 +32,7 @@ public record KvSerializerOptions(List<String> fields, String pairDelimiter, boo
 
   public KvSerializerOptions {
     if (fields != null) {
-      Set<String> names = new LinkedHashSet<>();
+      Set<String> names = new HashSet<>();
       for (String field : fields) {
         String name = FieldNames.normalize(field);
         if (StringUtils.isEmpty(name)) {
@@ -38,14 +42,15 @@ public record KvSerializerOptions(List<String> fields, String pairDelimiter, boo
           throw new IllegalArgumentException("Duplicate KV field: " + name);
         }
       }
-      fields = List.copyOf(names);
+      fields = List.copyOf(fields);
     }
     if (StringUtils.isEmpty(pairDelimiter)) {
       pairDelimiter = DEFAULT_PAIR_DELIMITER;
     }
-    if (StringUtils.containsAny(pairDelimiter, '=', '"', '\\', '\n', '\r')) {
+    if (FORBIDDEN_DELIMITER_CHARS.matcher(pairDelimiter).find()) {
       throw new IllegalArgumentException(
-          "KV pair delimiter must not contain '=', '\"', '\\' or line breaks");
+          "KV pair delimiter must not contain letters, digits, '_', '.', ':', '/', '-', '=',"
+              + " '\"', '\\' or line breaks");
     }
   }
 

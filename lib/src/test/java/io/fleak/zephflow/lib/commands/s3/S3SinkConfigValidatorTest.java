@@ -207,9 +207,9 @@ class S3SinkConfigValidatorTest {
 
     S3SinkDto.Config config = configParser.parseConfig(configMap);
     validator.validateConfig(config, "abc", JOB_CONTEXT);
-    assertEquals(List.of("src_ip", "action"), config.kvSerializerOptions().fields());
-    assertEquals("|", config.kvSerializerOptions().pairDelimiter());
-    assertTrue(config.kvSerializerOptions().cleanFields());
+    assertEquals(List.of("src_ip", "action"), config.kvOptions().fields());
+    assertEquals("|", config.kvOptions().pairDelimiter());
+    assertTrue(config.kvOptions().cleanFields());
 
     configMap.put("kvFields", List.of("a", "a"));
     S3SinkDto.Config duplicate = configParser.parseConfig(configMap);

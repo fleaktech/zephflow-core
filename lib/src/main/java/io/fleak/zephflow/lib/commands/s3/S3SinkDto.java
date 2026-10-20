@@ -15,7 +15,7 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
 import java.util.List;
 import java.util.Map;
 import lombok.*;
@@ -26,7 +26,7 @@ public interface S3SinkDto {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  class Config implements CommandConfig {
+  class Config implements CommandConfig, KvSinkConfig {
     @NonNull private String regionStr;
     @NonNull private String bucketName;
     @NonNull private String keyName;
@@ -44,13 +44,5 @@ public interface S3SinkDto {
     private String kvPairDelimiter;
 
     private Boolean kvCleanFields;
-
-    public KvSerializerOptions kvSerializerOptions() {
-      return KvSerializerOptions.of(kvFields, kvPairDelimiter, kvCleanFields);
-    }
-
-    public void validateKvOptions() {
-      kvSerializerOptions();
-    }
   }
 }

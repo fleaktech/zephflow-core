@@ -33,7 +33,6 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -137,11 +136,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
     SerializerFactory<?> serializerFactory =
         SerializerFactory.createSerializerFactory(
-            encodingType,
-            CsvSerializerOptions.DEFAULT,
-            encodingType == EncodingType.KV
-                ? config.kvSerializerOptions()
-                : KvSerializerOptions.DEFAULT);
+            encodingType, CsvSerializerOptions.DEFAULT, config.kvOptions());
     FleakSerializer<?> serializer = serializerFactory.createSerializer();
 
     PathExpression partitionKeyExpression =

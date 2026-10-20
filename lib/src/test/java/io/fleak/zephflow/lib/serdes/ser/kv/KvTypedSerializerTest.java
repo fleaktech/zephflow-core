@@ -115,37 +115,46 @@ class KvTypedSerializerTest {
   }
 
   @Test
-  void eventWithNoConfiguredFieldsSerializesToNothing() {
+  void eventWithNoConfiguredFieldsIsRejected() {
     KvTypedSerializer serializer =
         new KvTypedSerializer(new KvSerializerOptions(List.of("missing"), null, false));
-    assertEquals("", serializer.toLine(event("other", 1)));
-    assertEquals(0, serializer.serializeToMultipleTypedEvent(List.of(event("other", 1))).length);
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> serializer.toLine(event("other", 1)));
+    assertEquals("event has none of the configured KV fields", e.getMessage());
   }
 
   @Test
-  void eventWithOnlyNullValuesSerializesToNothingWhenUnpinned() {
-    assertEquals("", new KvTypedSerializer(KvSerializerOptions.DEFAULT).toLine(event("a", null)));
+  void eventWithOnlyNullValuesIsRejectedWhenUnpinned() {
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new KvTypedSerializer(KvSerializerOptions.DEFAULT).toLine(event("a", null)));
+    assertEquals("event has no non-null fields to write as KV", e.getMessage());
   }
 
   @Test
-  void emptyEventsAddNoBlankLinesToABatch() {
-    assertEquals(
-        "src_ip=1\nsrc_ip=3",
-        serialize(
-            new KvSerializerOptions(List.of("src_ip"), null, false),
-            List.of(event("src_ip", 1), event("other", 2), event("src_ip", 3), event("x", 4))));
+  void batchWithAnEmptyEventFailsSoSinksCanRejectItPerRecord() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            serialize(
+                new KvSerializerOptions(List.of("src_ip"), null, false),
+                List.of(event("src_ip", 1), event("other", 2))));
   }
 
   @Test
-  void s3RecordValidationAcceptsEventsWithNoPairs() {
+  void s3RecordValidationRejectsOnlyTheEventWithNoPairs() {
     var serializer =
         SerializerFactory.createSerializerFactory(
                 EncodingType.KV, null, new KvSerializerOptions(List.of("src_ip"), null, false))
             .createSerializer();
     var writer =
         new TextBlobFileWriter(serializer, EncodingType.KV, CompressorFactory.getCompressor(null));
-    assertDoesNotThrow(
+    assertThrows(
+        IllegalArgumentException.class,
         () -> writer.validateRecord((RecordFleakData) FleakData.wrap(Map.of("other", "x"))));
+    assertDoesNotThrow(
+        () -> writer.validateRecord((RecordFleakData) FleakData.wrap(Map.of("src_ip", "x"))));
   }
 
   @Test
@@ -163,7 +172,7 @@ class KvTypedSerializerTest {
   @Test
   void optionsNormalizeAndValidate() {
     KvSerializerOptions options = KvSerializerOptions.of(List.of(" a ", "b"), "", null);
-    assertEquals(List.of("a", "b"), options.fields());
+    assertEquals(List.of(" a ", "b"), options.fields());
     assertEquals(" ", options.pairDelimiter());
     assertFalse(options.cleanFields());
 
@@ -241,7 +250,7 @@ class KvTypedSerializerTest {
     byte[] bytes =
         new KvTypedSerializer(KvSerializerOptions.DEFAULT)
             .serializeToMultipleTypedEvent(List.of(event("user", "张伟", "city", "Zürich")));
-    assertEquals("city=Zürich user=张伟", new String(bytes, StandardCharsets.UTF_8));
+    assertEquals("city=\"Zürich\" user=\"张伟\"", new String(bytes, StandardCharsets.UTF_8));
   }
 
   @Test
@@ -284,7 +293,7 @@ class KvTypedSerializerTest {
   @Test
   void cleanFieldsKeepsKeysThatCollideAfterCleaning() {
     assertEquals(
-        "a_b=2 a_b=1",
+        "a_b=2 a_b_2=1",
         serialize(new KvSerializerOptions(null, null, true), List.of(event("a.b", 1, "a-b", 2))));
   }
 
@@ -303,7 +312,8 @@ class KvTypedSerializerTest {
     inner.put("a", null);
     Map<String, Object> e = event("m", new LinkedHashMap<>(), "l", List.of(), "n", inner);
     assertEquals(
-        "l=[] m={} n=\"{\\\"a\\\":null}\"", serialize(KvSerializerOptions.DEFAULT, List.of(e)));
+        "l=\"[]\" m=\"{}\" n=\"{\\\"a\\\":null}\"",
+        serialize(KvSerializerOptions.DEFAULT, List.of(e)));
   }
 
   @Test
@@ -347,13 +357,23 @@ class KvTypedSerializerTest {
   }
 
   @Test
-  void fieldNamesDropInvisibleCharsAndNonBreakingSpaces() {
-    KvSerializerOptions options =
-        new KvSerializerOptions(List.of("src_ip\u200B", "\u00A0action\u00A0"), null, false);
-    assertEquals(List.of("src_ip", "action"), options.fields());
+  void pinnedFieldsAreLookedUpByTheirRawName() {
+    KvSerializerOptions options = new KvSerializerOptions(List.of(" action", "a.b"), null, false);
+    assertEquals(List.of(" action", "a.b"), options.fields());
+    Map<String, Object> nested = new LinkedHashMap<>();
+    nested.put("b", "nested");
     assertEquals(
-        "src_ip=1.2.3.4 action=allow",
-        serialize(options, List.of(event("action", "allow", "src_ip", "1.2.3.4"))));
+        "_action=allow a.b=top",
+        serialize(options, List.of(event(" action", "allow", "a.b", "top", "a", nested))));
+  }
+
+  @Test
+  void blankAndDuplicateFieldsAreDetectedAfterNormalizing() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new KvSerializerOptions(List.of("src_ip", "src_ip​"), null, false));
+    assertThrows(
+        IllegalArgumentException.class, () -> new KvSerializerOptions(List.of(" ​"), null, false));
   }
 
   @Test
@@ -363,5 +383,49 @@ class KvTypedSerializerTest {
         serialize(
             KvSerializerOptions.DEFAULT,
             List.of(event("Logon_Type", 3, "a", 2, "action", "x", "A", 1))));
+  }
+
+  @Test
+  void valuesOutsideTheSafeSetAreQuoted() {
+    Map<String, Object> e =
+        event(
+            "path", "a-b.c:d/e_f9",
+            "csv", "a,b",
+            "semi", "a;b",
+            "nbsp", "a b",
+            "at", "user@example.com",
+            "plus", "+1");
+    assertEquals(
+        "at=\"user@example.com\" csv=\"a,b\" nbsp=\"a b\" path=a-b.c:d/e_f9 plus=\"+1\""
+            + " semi=\"a;b\"",
+        serialize(KvSerializerOptions.DEFAULT, List.of(e)));
+  }
+
+  @Test
+  void delimitersThatCanAppearInKeysOrUnquotedValuesAreRejected() {
+    for (String delimiter : List.of("_", "a", "Z", "7", ".", ":", "/", "-", " _ ")) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> new KvSerializerOptions(null, delimiter, false),
+          "delimiter " + delimiter);
+    }
+    for (String delimiter : List.of(" ", "|", ", ", "\t", ";", " | ")) {
+      assertDoesNotThrow(() -> new KvSerializerOptions(null, delimiter, false), delimiter);
+    }
+  }
+
+  @Test
+  void collidingKeysGetNumberedSuffixesThatStayUnique() {
+    Map<String, Object> e = event("a.b", 1, "a_b", 2, "a_b_2", 3);
+    assertEquals(
+        "a_b=1 a_b_2=2 a_b_2_2=3",
+        serialize(new KvSerializerOptions(null, null, true), List.of(e)));
+  }
+
+  @Test
+  void collisionsFromParseBreakingKeyCharsAreSuffixedToo() {
+    assertEquals(
+        "a_b=1 a_b_2=2",
+        serialize(KvSerializerOptions.DEFAULT, List.of(event("a b", 1, "a_b", 2))));
   }
 }

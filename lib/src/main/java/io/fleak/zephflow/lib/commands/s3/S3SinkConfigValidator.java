@@ -52,9 +52,7 @@ public class S3SinkConfigValidator implements ConfigValidator {
               + SUPPORTED_ENCODING_TYPES);
     }
 
-    if (encodingType == EncodingType.KV) {
-      config.validateKvOptions();
-    }
+    config.validateKvOptions();
 
     if (config.isBatching()) {
       if (config.getBatchSize() <= 0) {

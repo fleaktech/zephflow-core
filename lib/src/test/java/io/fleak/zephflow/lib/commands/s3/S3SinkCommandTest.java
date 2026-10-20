@@ -27,6 +27,7 @@ import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
+import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -448,7 +449,7 @@ public class S3SinkCommandTest {
     return records;
   }
 
-  private record S3Object(String key, byte[] data) {}
+  private record S3Object(String key, byte[] data, List<ErrorOutput> failures) {}
 
   private S3Object writeOnlyObject(S3SinkDto.Config config, List<RecordFleakData> events)
       throws Exception {
@@ -463,7 +464,6 @@ public class S3SinkCommandTest {
     } finally {
       command.terminate();
     }
-    assertTrue(sinkResult.getFailureEvents().isEmpty(), sinkResult.getFailureEvents().toString());
 
     var resp = s3Client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET_NAME).build());
     assertEquals(1, resp.contents().size());
@@ -472,7 +472,7 @@ public class S3SinkCommandTest {
         s3Client
             .getObjectAsBytes(GetObjectRequest.builder().bucket(BUCKET_NAME).key(key).build())
             .asByteArray();
-    return new S3Object(key, data);
+    return new S3Object(key, data, sinkResult.getFailureEvents());
   }
 
   private static List<RecordFleakData> firewallEvents() {
@@ -501,7 +501,13 @@ public class S3SinkCommandTest {
             .kvCleanFields(true)
             .build();
 
-    S3Object object = writeOnlyObject(config, firewallEvents());
+    List<RecordFleakData> events = new ArrayList<>(firewallEvents());
+    events.add(1, (RecordFleakData) FleakData.wrap(Map.of("user", "heartbeat")));
+    S3Object object = writeOnlyObject(config, events);
+
+    assertEquals(1, object.failures().size());
+    assertEquals(
+        "event has none of the configured KV fields", object.failures().get(0).errorMessage());
 
     assertTrue(object.key().endsWith(".raw"), "KV objects use the .raw suffix: " + object.key());
     assertEquals(
@@ -528,6 +534,15 @@ public class S3SinkCommandTest {
     events.add(1, (RecordFleakData) FleakData.wrap(Map.of("user", "heartbeat")));
     S3Object object = writeOnlyObject(config, events);
 
+    assertEquals(1, object.failures().size());
+    assertTrue(
+        object
+            .failures()
+            .get(0)
+            .errorMessage()
+            .endsWith("event has none of the configured KV fields"),
+        object.failures().get(0).errorMessage());
+
     assertTrue(object.key().endsWith(".raw.gz"), "gzipped KV objects use .raw.gz: " + object.key());
     assertEquals(
         "action=allow src.ip=10.0.0.1\naction=deny src.ip=10.0.0.2",
@@ -549,6 +564,8 @@ public class S3SinkCommandTest {
             .build();
 
     S3Object object = writeOnlyObject(config, firewallEvents());
+
+    assertTrue(object.failures().isEmpty(), object.failures().toString());
 
     assertTrue(object.key().endsWith(".jsonl"), object.key());
     assertEquals(

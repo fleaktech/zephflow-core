@@ -64,11 +64,9 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
       Preconditions.checkArgument(
           encodingType != EncodingType.CSV || CollectionUtils.isNotEmpty(config.getCsvColumns()),
           "csvColumns is required when encodingType is CSV");
-      if (encodingType == EncodingType.KV) {
-        config.validateKvOptions();
-      }
     }
     SplunkHecSinkMessageProcessor.csvOptions(config);
+    config.validateKvOptions();
 
     if (enforceCredentials(jobContext)) {
       lookupApiKeyCredential(jobContext, config.getCredentialId());

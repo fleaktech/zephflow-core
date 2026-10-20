@@ -24,7 +24,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvTypedSerializer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.apache.commons.lang3.StringUtils;
@@ -32,55 +32,49 @@ import org.apache.commons.lang3.StringUtils;
 public class SplunkHecSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<SplunkHecOutboundEvent> {
 
+  @FunctionalInterface
+  interface LineEncoder {
+    String encode(RecordFleakData event) throws Exception;
+  }
+
   private final String index;
   private final String sourcetype;
   private final String source;
-  private final FleakSerializer<?> lineSerializer;
+  private final LineEncoder lineEncoder;
 
   public SplunkHecSinkMessageProcessor(String index, String sourcetype, String source) {
-    this(index, sourcetype, source, (FleakSerializer<?>) null);
-  }
-
-  public SplunkHecSinkMessageProcessor(
-      String index, String sourcetype, String source, CsvSerializerOptions csvOptions) {
-    this(
-        index,
-        sourcetype,
-        source,
-        csvOptions == null
-            ? null
-            : SerializerFactory.createSerializerFactory(EncodingType.CSV, csvOptions)
-                .createSerializer());
-  }
-
-  public SplunkHecSinkMessageProcessor(
-      String index, String sourcetype, String source, KvSerializerOptions kvOptions) {
-    this(
-        index,
-        sourcetype,
-        source,
-        kvOptions == null
-            ? null
-            : SerializerFactory.createSerializerFactory(EncodingType.KV, null, kvOptions)
-                .createSerializer());
+    this(index, sourcetype, source, null);
   }
 
   private SplunkHecSinkMessageProcessor(
-      String index, String sourcetype, String source, FleakSerializer<?> lineSerializer) {
+      String index, String sourcetype, String source, LineEncoder lineEncoder) {
     this.index = index;
     this.sourcetype = sourcetype;
     this.source = source;
-    this.lineSerializer = lineSerializer;
+    this.lineEncoder = lineEncoder;
   }
 
   static SplunkHecSinkMessageProcessor fromConfig(SplunkHecSinkDto.Config config) {
-    KvSerializerOptions kvOptions = kvOptions(config);
-    if (kvOptions != null) {
-      return new SplunkHecSinkMessageProcessor(
-          config.getIndex(), config.getSourcetype(), config.getSource(), kvOptions);
-    }
     return new SplunkHecSinkMessageProcessor(
-        config.getIndex(), config.getSourcetype(), config.getSource(), csvOptions(config));
+        config.getIndex(), config.getSourcetype(), config.getSource(), lineEncoder(config));
+  }
+
+  private static LineEncoder lineEncoder(SplunkHecSinkDto.Config config) {
+    EncodingType encodingType = encodingType(config);
+    if (encodingType == EncodingType.KV) {
+      KvTypedSerializer kvSerializer = new KvTypedSerializer(config.kvOptions());
+      return event -> kvSerializer.toLine(event.unwrap());
+    }
+    if (encodingType == EncodingType.CSV) {
+      FleakSerializer<?> csvSerializer =
+          SerializerFactory.createSerializerFactory(EncodingType.CSV, csvOptions(config))
+              .createSerializer();
+      return event -> {
+        byte[] bytes = csvSerializer.serialize(List.of(event)).value();
+        return StringUtils.removeEnd(new String(bytes, StandardCharsets.UTF_8), "\r\n");
+      };
+    }
+    return null;
   }
 
   static CsvSerializerOptions csvOptions(SplunkHecSinkDto.Config config) {
@@ -88,13 +82,6 @@ public class SplunkHecSinkMessageProcessor
       return null;
     }
     return new CsvSerializerOptions(config.getCsvColumns(), false);
-  }
-
-  static KvSerializerOptions kvOptions(SplunkHecSinkDto.Config config) {
-    if (encodingType(config) != EncodingType.KV) {
-      return null;
-    }
-    return config.kvSerializerOptions();
   }
 
   private static EncodingType encodingType(SplunkHecSinkDto.Config config) {
@@ -106,10 +93,10 @@ public class SplunkHecSinkMessageProcessor
   @Override
   public SplunkHecOutboundEvent preprocess(RecordFleakData event, long ts) throws Exception {
     ObjectNode envelope = OBJECT_MAPPER.createObjectNode();
-    if (lineSerializer == null) {
+    if (lineEncoder == null) {
       envelope.set("event", OBJECT_MAPPER.readTree(toJsonString(event)));
     } else {
-      envelope.put("event", toLine(event));
+      envelope.put("event", lineEncoder.encode(event));
     }
     if (StringUtils.isNotBlank(sourcetype)) {
       envelope.put("sourcetype", sourcetype);
@@ -122,14 +109,5 @@ public class SplunkHecSinkMessageProcessor
     }
     String json = OBJECT_MAPPER.writeValueAsString(envelope) + "\n";
     return new SplunkHecOutboundEvent(json.getBytes(StandardCharsets.UTF_8));
-  }
-
-  private String toLine(RecordFleakData event) throws Exception {
-    byte[] bytes = lineSerializer.serialize(List.of(event)).value();
-    String line = StringUtils.removeEnd(new String(bytes, StandardCharsets.UTF_8), "\r\n");
-    if (line.isEmpty()) {
-      throw new IllegalArgumentException("event has none of the configured fields to send");
-    }
-    return line;
   }
 }

@@ -232,7 +232,11 @@ class SplunkHecSinkCommandTest {
     assertEquals(3, result.getInputCount());
     assertEquals(1, result.getFailureEvents().size());
     assertTrue(
-        result.getFailureEvents().get(0).errorMessage().contains("none of the configured fields"),
+        result
+            .getFailureEvents()
+            .get(0)
+            .errorMessage()
+            .contains("none of the configured KV fields"),
         result.getFailureEvents().get(0).errorMessage());
     assertEquals(2, envelopes.size());
     assertEquals(

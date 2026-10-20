@@ -48,6 +48,7 @@ import org.apache.kafka.common.PartitionInfo;
  */
 @Slf4j
 public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
+  private static final String NO_RECORD_ERROR = "Serializer produced no record";
 
   private final KafkaProducer<byte[], byte[]> producer;
   private final String topic;
@@ -140,6 +141,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       try {
         byte[] eventValue = serializeValue(event);
         if (eventValue == null) {
+          errorOutputs.add(new ErrorOutput(event, NO_RECORD_ERROR));
           continue;
         }
         byte[] keyBytesValue = keyBytes(event);
@@ -182,6 +184,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       try {
         byte[] eventValue = serializeValue(event);
         if (eventValue == null) {
+          errorOutputs.add(new ErrorOutput(event, NO_RECORD_ERROR));
           continue;
         }
         Future<RecordMetadata> future =
@@ -286,7 +289,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
           key = keyBytes(event);
           if (value == null) {
             rejected++;
-            errors.add(new ErrorOutput(event, "Serializer produced no record"));
+            errors.add(new ErrorOutput(event, NO_RECORD_ERROR));
             continue;
           }
         } catch (Exception failure) {

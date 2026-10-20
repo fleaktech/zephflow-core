@@ -18,9 +18,11 @@ import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
@@ -29,6 +31,7 @@ public class KvTypedSerializer extends MultipleEventsTypedSerializer<Map<String,
 
   private static final Pattern UNCLEAN_KEY_CHARS = Pattern.compile("[^A-Za-z0-9_]");
   private static final Pattern KEY_BREAKING_CHARS = Pattern.compile("[\\s=\"]");
+  private static final Pattern SAFE_VALUE = Pattern.compile("[A-Za-z0-9_.:/-]+");
   private static final Comparator<String> KEY_ORDER =
       String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder());
 
@@ -42,23 +45,27 @@ public class KvTypedSerializer extends MultipleEventsTypedSerializer<Map<String,
   protected byte[] serializeToMultipleTypedEvent(List<Map<String, Object>> typedValues) {
     StringJoiner lines = new StringJoiner("\n");
     for (Map<String, Object> event : typedValues) {
-      String line = toLine(event);
-      if (!line.isEmpty()) {
-        lines.add(line);
-      }
+      lines.add(toLine(event));
     }
     return lines.toString().getBytes(StandardCharsets.UTF_8);
   }
 
-  String toLine(Map<String, Object> event) {
+  public String toLine(Map<String, Object> event) {
     Collection<String> keys = options.hasPinnedFields() ? options.fields() : sortedKeys(event);
     StringJoiner pairs = new StringJoiner(options.pairDelimiter());
+    Set<String> written = new HashSet<>();
     for (String key : keys) {
       Object value = event.get(key);
       if (value == null) {
         continue;
       }
-      pairs.add(formatKey(key) + "=" + formatValue(value));
+      pairs.add(uniqueKey(formatKey(key), written) + "=" + formatValue(value));
+    }
+    if (written.isEmpty()) {
+      throw new IllegalArgumentException(
+          options.hasPinnedFields()
+              ? "event has none of the configured KV fields"
+              : "event has no non-null fields to write as KV");
     }
     return pairs.toString();
   }
@@ -67,6 +74,14 @@ public class KvTypedSerializer extends MultipleEventsTypedSerializer<Map<String,
     TreeSet<String> keys = new TreeSet<>(KEY_ORDER);
     keys.addAll(event.keySet());
     return keys;
+  }
+
+  private static String uniqueKey(String key, Set<String> written) {
+    String candidate = key;
+    for (int n = 2; !written.add(candidate); n++) {
+      candidate = key + "_" + n;
+    }
+    return candidate;
   }
 
   private String formatKey(String key) {
@@ -83,20 +98,7 @@ public class KvTypedSerializer extends MultipleEventsTypedSerializer<Map<String,
         value instanceof Map<?, ?> || value instanceof Collection<?>
             ? JsonUtils.toJsonString(value)
             : String.valueOf(value);
-    return needsQuotes(text) ? quote(text) : text;
-  }
-
-  private boolean needsQuotes(String text) {
-    if (text.isEmpty() || text.contains(options.pairDelimiter())) {
-      return true;
-    }
-    for (int i = 0; i < text.length(); i++) {
-      char c = text.charAt(i);
-      if (Character.isWhitespace(c) || c == '"' || c == '=' || c == '\\') {
-        return true;
-      }
-    }
-    return false;
+    return SAFE_VALUE.matcher(text).matches() ? text : quote(text);
   }
 
   private static String quote(String text) {

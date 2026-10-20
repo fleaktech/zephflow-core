@@ -103,11 +103,8 @@ class SplunkHecSinkMessageProcessorTest {
   @Test
   void preprocess_csv_eventIsOrderedCsvLineWithoutHeader() throws Exception {
     SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            "security_logs",
-            "fleak:csv",
-            null,
-            new CsvSerializerOptions(List.of("time", "src_ip", "dst_ip", "action"), false));
+        csvProcessor(
+            "security_logs", "fleak:csv", null, List.of("time", "src_ip", "dst_ip", "action"));
 
     SplunkHecOutboundEvent out = processor.preprocess(firewallRecord(), 0L);
 
@@ -123,8 +120,7 @@ class SplunkHecSinkMessageProcessorTest {
   @Test
   void preprocess_csv_quotesValuesWithDelimiters() throws Exception {
     SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            null, null, null, new CsvSerializerOptions(List.of("msg", "city"), false));
+        csvProcessor(null, null, null, List.of("msg", "city"));
     RecordFleakData record =
         new RecordFleakData(
             Map.of(
@@ -141,8 +137,7 @@ class SplunkHecSinkMessageProcessorTest {
   @Test
   void preprocess_csv_keepsNewlineInsideQuotedValue() throws Exception {
     SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            null, null, null, new CsvSerializerOptions(List.of("msg", "code"), false));
+        csvProcessor(null, null, null, List.of("msg", "code"));
     RecordFleakData record =
         new RecordFleakData(
             Map.of(
@@ -176,11 +171,8 @@ class SplunkHecSinkMessageProcessorTest {
   @Test
   void preprocess_kv_eventIsKeyValueLine() throws Exception {
     SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            "security_logs",
-            "fleak:kv",
-            null,
-            new KvSerializerOptions(List.of("time", "src_ip", "dst_ip", "action"), null, false));
+        kvProcessor(
+            "security_logs", "fleak:kv", null, List.of("time", "src_ip", "dst_ip", "action"));
 
     SplunkHecOutboundEvent out = processor.preprocess(firewallRecord(), 0L);
 
@@ -192,9 +184,7 @@ class SplunkHecSinkMessageProcessorTest {
 
   @Test
   void preprocess_kv_rejectsEventWithNoConfiguredFields() {
-    SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            null, null, null, new KvSerializerOptions(List.of("missing"), null, false));
+    SplunkHecSinkMessageProcessor processor = kvProcessor(null, null, null, List.of("missing"));
 
     assertThrows(IllegalArgumentException.class, () -> processor.preprocess(firewallRecord(), 0L));
   }
@@ -204,12 +194,14 @@ class SplunkHecSinkMessageProcessorTest {
     SplunkHecSinkDto.Config config =
         SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
     config.setKvFields(List.of("a"));
-    assertNull(SplunkHecSinkMessageProcessor.kvOptions(config));
+    config.setKvPairDelimiter("=");
+    assertFalse(config.usesKvEncoding());
+    assertEquals(KvSerializerOptions.DEFAULT, config.kvOptions());
 
     config.setEncodingType("KV");
     config.setKvPairDelimiter("|");
     config.setKvCleanFields(true);
-    KvSerializerOptions options = SplunkHecSinkMessageProcessor.kvOptions(config);
+    KvSerializerOptions options = config.kvOptions();
     assertEquals(List.of("a"), options.fields());
     assertEquals("|", options.pairDelimiter());
     assertTrue(options.cleanFields());
@@ -247,9 +239,7 @@ class SplunkHecSinkMessageProcessorTest {
 
   @Test
   void preprocess_kv_quotedValueStaysOneJsonEscapedLine() throws Exception {
-    SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            null, null, null, new KvSerializerOptions(List.of("msg"), null, false));
+    SplunkHecSinkMessageProcessor processor = kvProcessor(null, null, null, List.of("msg"));
     RecordFleakData record =
         new RecordFleakData(Map.of("msg", new StringPrimitiveFleakData("say \"hi\"\nbye")));
 
@@ -263,9 +253,7 @@ class SplunkHecSinkMessageProcessorTest {
 
   @Test
   void preprocess_kv_nonAsciiSurvivesAsUtf8() throws Exception {
-    SplunkHecSinkMessageProcessor processor =
-        new SplunkHecSinkMessageProcessor(
-            null, null, null, new KvSerializerOptions(List.of("city"), null, false));
+    SplunkHecSinkMessageProcessor processor = kvProcessor(null, null, null, List.of("city"));
     RecordFleakData record =
         new RecordFleakData(Map.of("city", new StringPrimitiveFleakData("Zürich 苏黎世")));
 
@@ -274,5 +262,35 @@ class SplunkHecSinkMessageProcessorTest {
     JsonNode envelope =
         OBJECT_MAPPER.readTree(new String(out.preEncodedNdjsonLine(), StandardCharsets.UTF_8));
     assertEquals("city=\"Zürich 苏黎世\"", envelope.get("event").asText());
+  }
+
+  private static SplunkHecSinkMessageProcessor csvProcessor(
+      String index, String sourcetype, String source, List<String> columns) {
+    SplunkHecSinkDto.Config config =
+        SplunkHecSinkDto.Config.builder()
+            .hecUrl("https://splunk:8088")
+            .credentialId("c")
+            .index(index)
+            .sourcetype(sourcetype)
+            .source(source)
+            .encodingType("CSV")
+            .csvColumns(columns)
+            .build();
+    return SplunkHecSinkMessageProcessor.fromConfig(config);
+  }
+
+  private static SplunkHecSinkMessageProcessor kvProcessor(
+      String index, String sourcetype, String source, List<String> fields) {
+    SplunkHecSinkDto.Config config =
+        SplunkHecSinkDto.Config.builder()
+            .hecUrl("https://splunk:8088")
+            .credentialId("c")
+            .index(index)
+            .sourcetype(sourcetype)
+            .source(source)
+            .encodingType("KV")
+            .kvFields(fields)
+            .build();
+    return SplunkHecSinkMessageProcessor.fromConfig(config);
   }
 }

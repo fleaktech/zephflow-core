@@ -228,7 +228,10 @@ class KafkaSinkCommandTest {
     try {
       command.initialize(new MetricClientProvider.NoopMetricClientProvider());
       var result = command.writeToSink(events, "test_user", command.getExecutionContext());
-      assertTrue(result.getFailureEvents().isEmpty(), result.getFailureEvents().toString());
+      assertEquals(1, result.getFailureEvents().size());
+      assertEquals(
+          "event has none of the configured KV fields",
+          result.getFailureEvents().get(0).errorMessage());
     } finally {
       command.terminate();
     }

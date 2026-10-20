@@ -14,7 +14,7 @@
 package io.fleak.zephflow.lib.commands.kafkasink;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
+import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
 import java.util.List;
 import java.util.Map;
 import lombok.*;
@@ -30,7 +30,7 @@ public interface KafkaSinkDto {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  class Config implements CommandConfig {
+  class Config implements CommandConfig, KvSinkConfig {
     @NonNull private String broker;
     @NonNull private String topic;
     private String partitionKeyFieldExpressionStr;
@@ -77,13 +77,5 @@ public interface KafkaSinkDto {
 
     /** How often the background forwarder retries draining the local queue during an outage. */
     @Builder.Default private long forwardRetryIntervalMillis = 5_000L;
-
-    public KvSerializerOptions kvSerializerOptions() {
-      return KvSerializerOptions.of(kvFields, kvPairDelimiter, kvCleanFields);
-    }
-
-    public void validateKvOptions() {
-      kvSerializerOptions();
-    }
   }
 }
