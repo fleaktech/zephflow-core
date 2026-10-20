@@ -19,6 +19,7 @@ import static io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeRawDataC
 import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDownloader.Download;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDownloader.Downloaded;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDownloader.Missing;
@@ -31,8 +32,6 @@ import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
-import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -93,9 +92,7 @@ public final class S3ObjectDecoder {
     this.limits = S3DecodeLimits.forFormat(config.format(), heapBytes);
     this.addS3Metadata = decoding.addS3Metadata();
     this.heapBytes = heapBytes;
-    this.multiline =
-        config.format() instanceof TextFormatConfig text
-            && text.framing() instanceof FramingConfig.Multiline;
+    this.multiline = SourceDecoding.multiline(config.format());
   }
 
   /** Skips the validation and the fixed limits; for tests that wrap the decoder only. */
