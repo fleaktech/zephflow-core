@@ -2,8 +2,7 @@
   "batchSizes" : [ ],
   "checkpointedAsDone" : true,
   "counters" : {
-    "input_deser_err_count" : 1,
-    "input_event_size" : 5
+    "input_deser_err_count" : 1
   },
   "dlq" : [ {
     "metadata" : {

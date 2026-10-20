@@ -1,11 +1,18 @@
 {
-  "batchSizes" : [ ],
+  "batchSizes" : [ 3 ],
   "checkpointedAsDone" : true,
   "counters" : {
-    "input_file_skipped_count{skip_reason=file_too_large}" : 1
+    "input_event_count" : 3,
+    "input_event_size" : 33
   },
   "dlq" : [ ],
   "failed" : null,
-  "records" : [ ],
+  "records" : [ {
+    "__raw__" : "first line"
+  }, {
+    "__raw__" : "second line"
+  }, {
+    "__raw__" : "third line"
+  } ],
   "secondRunHadOutput" : false
 }

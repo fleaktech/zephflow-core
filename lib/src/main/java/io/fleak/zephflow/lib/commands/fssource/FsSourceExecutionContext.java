@@ -29,7 +29,8 @@ public final class FsSourceExecutionContext implements ExecutionContext {
   FsBackendConfig backendConfig;
   FileLister lister;
   FileReader reader;
-  FsPayloadReader payloadReader;
+  long localSpoolMaxBytes;
+  long heapBytes;
   CheckpointClient checkpointClient;
   String checkpointScope;
   int replicaIndex;

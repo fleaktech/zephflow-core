@@ -4,11 +4,10 @@
   "counters" : {
     "input_deser_err_count" : 1,
     "input_event_count" : 1,
-    "input_event_size" : 23
+    "input_event_size" : 8
   },
   "dlq" : [ {
     "metadata" : {
-      "__md_fs_source_record_index" : "2",
       "__md_fs_source_urn" : "<root>/data.json"
     },
     "value" : ""

@@ -203,7 +203,10 @@ compatibility switches:
 
 1. **An oversized line or CSV record no longer drops the file.** It becomes an `OVERSIZED` summary
    and the rest of the file is read; the records before it are emitted. Line formats and CSV check
-   the record itself, with no read-ahead slack. In JSON_ARRAY (and the library-parsed modes of
+   the record itself, with no read-ahead slack. Legacy's caps were looser: it checked a
+   JSON_OBJECT_LINE or STRING_LINE line against `maxFileBytes` only once `chunkSizeBytes` (default
+   16 MiB) was buffered without a newline, so a longer line in a smaller file was emitted, and it let
+   a CSV record run 64 KiB past `maxFileBytes`; such lines and records are now `OVERSIZED` summaries. In JSON_ARRAY (and the library-parsed modes of
    `decoding`: xml `elements`, yaml `multi_document`) an oversized element still ends the file after
    the elements before it, as in legacy, with the decoder's 64 KiB slack; the file is done. A CSV
    quote left open to the end of the file ends it too (4.1.6).
@@ -219,13 +222,16 @@ compatibility switches:
    JSON_OBJECT_LINE and STRING_LINE whatever its size.
 6. **The decoding differences of the S3 realtime spec 4.2** that concern decoding apply:
    - a JSON_OBJECT_LINE line holding an array is a failed record;
+   - JSON_ARRAY: a malformed element ends the file after the elements before it with a terminal
+     `MALFORMED` summary, where legacy wrote an empty-valued entry with the element's index;
    - CSV: a quote left open to the end of the file ends it after the rows before it, with a
      `MALFORMED` summary (no bytes), or an `OVERSIZED maxRecordBytes` summary when the rest of the
      file is over that limit, and the file is done, as legacy ended it;
    - CSV: other quoting errors (text after a closing quote) fail only their row, which becomes a
      record entry, and the rows after it are read; legacy ended the file at the first one with an
-     empty-valued entry. A row of more than 16,384 columns fails, where legacy accepted it, and a
-     short row's entry holds the row's bytes, where legacy re-formatted its values;
+     empty-valued entry. A row of more than 16,384 columns fails, and a header of more than 16,384
+     columns ends the file with no records, as a terminal `MALFORMED` summary; legacy accepted both.
+     A short row's entry holds the row's bytes, where legacy re-formatted its values;
    - CSV: a row with more columns than the header fails; duplicate header names end the file with no
      records (legacy kept the last column), as a terminal `MALFORMED` summary, and the file is done;
      an empty header name becomes `_c<i>` (legacy failed the file);
@@ -252,7 +258,7 @@ compatibility switches:
 10. **`chunkSizeBytes` has no effect**; batches are bounded as in 3.4.
 11. **`skippedFileCount`** no longer has `nothing_deserialized`, and `file_too_large` means only a
     random-access file that cannot be copied. **`deserializeFailureCount`** counts every outcome
-    other than `Decoded`, so an oversized line or a CSV header failure adds to it, where an oversized
+    other than `Decoded` and a terminal `CORRUPT_COMPRESSION` (a read failure), so an oversized line or a CSV header failure adds to it, where an oversized
     line was a `file_too_large` skip.
 12. **`inputEventSizeCount`** is the end of the last record's span (the stored size for formats
     without spans, 0 for a file without records), where it was every decompressed byte read.
@@ -356,7 +362,7 @@ Small PRs into the integration branch `feature/fs-decoder`; the user merges it i
 - A compressed file that never decodes (damaged, bytes after its end, a wrong compression setting)
   is read again on every run and holds its bucket's watermark until it is rewritten (F10), shown by
   the error log and `read_error`. When no other file of the run is emitted, the run fails, and grid
-  retries the task (dynamicapi submits it with 3 retries; grid's own default is none), so the batches decoded before the failure are emitted and
+  retries the task (dynamicapi submits it with 3 retries), so the batches decoded before the failure are emitted and
   its record entries written again on each attempt. Legacy did the same for its read errors.
 - Outside grid, a run killed while copying leaves one copy of up to `localSpoolMaxBytes` in the
   working directory or `java.io.tmpdir`; nothing removes it (6.1).

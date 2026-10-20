@@ -204,7 +204,7 @@ class UnitRunTest {
                 ErrorKind.CORRUPT_COMPRESSION, new byte[0], 4, null, truncated, true)));
     assertFalse(run.visit(decoded(5, 40, 10)));
 
-    assertEquals(new ReadFailed(truncated), run.complete(100));
+    assertEquals(new ReadFailed(truncated, true), run.complete(100));
     assertEquals(List.of(), emitter.batches);
     assertEquals(List.of("MALFORMED json record: IOException"), firstLines());
     assertEquals(
@@ -221,7 +221,7 @@ class UnitRunTest {
     run.readFailed(reset);
 
     assertFalse(run.visit(decoded(3, 30, 10)));
-    assertEquals(new ReadFailed(reset), run.complete(100));
+    assertEquals(new ReadFailed(reset, false), run.complete(100));
     assertEquals(List.of(), emitter.batches);
     assertEquals(List.of(), dlq);
   }
@@ -280,7 +280,7 @@ class UnitRunTest {
     }
     run.readFailed(reset);
 
-    assertEquals(new ReadFailed(reset), run.complete(100_000));
+    assertEquals(new ReadFailed(reset, false), run.complete(100_000));
     assertEquals(
         List.of((long) UnitRun.MAX_BATCH_RECORDS, UnitRun.MAX_BATCH_RECORDS * 10L),
         List.of(inputEvents.get(), inputBytes.get()));
@@ -295,7 +295,7 @@ class UnitRunTest {
     }
     run.readFailed(reset);
 
-    assertEquals(new ReadFailed(reset), run.complete(100_000));
+    assertEquals(new ReadFailed(reset, false), run.complete(100_000));
     assertEquals(
         List.of((long) UnitRun.MAX_BATCH_RECORDS, 0L),
         List.of(inputEvents.get(), inputBytes.get()));

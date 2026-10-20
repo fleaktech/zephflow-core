@@ -1,15 +1,8 @@
 {
   "batchSizes" : [ ],
   "checkpointedAsDone" : true,
-  "counters" : {
-    "input_deser_err_count" : 1
-  },
-  "dlq" : [ {
-    "metadata" : {
-      "__md_fs_source_urn" : "<root>/data.json"
-    },
-    "value" : ""
-  } ],
+  "counters" : { },
+  "dlq" : [ ],
   "failed" : null,
   "records" : [ ],
   "secondRunHadOutput" : false

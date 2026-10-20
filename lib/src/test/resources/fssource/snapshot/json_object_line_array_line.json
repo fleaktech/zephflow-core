@@ -1,16 +1,21 @@
 {
-  "batchSizes" : [ 3 ],
+  "batchSizes" : [ 2 ],
   "checkpointedAsDone" : true,
   "counters" : {
-    "input_event_count" : 3,
-    "input_event_size" : 26
+    "input_deser_err_count" : 1,
+    "input_event_count" : 2,
+    "input_event_size" : 25
   },
-  "dlq" : [ ],
+  "dlq" : [ {
+    "metadata" : {
+      "__md_fs_source_record_index" : "2",
+      "__md_fs_source_urn" : "<root>/data.jsonl"
+    },
+    "value" : "[{\"a\":2}]"
+  } ],
   "failed" : null,
   "records" : [ {
     "a" : 1
-  }, {
-    "a" : 2
   }, {
     "a" : 3
   } ],

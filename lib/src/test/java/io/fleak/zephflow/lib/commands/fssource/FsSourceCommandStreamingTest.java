@@ -25,9 +25,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,21 +83,22 @@ class FsSourceCommandStreamingTest {
   }
 
   @Test
-  void aLineOrientedFileIsEmittedInSeveralChunks(@TempDir Path dir) throws Exception {
+  void aLineOrientedFileIsEmittedInBatchesOfAThousandRecords(@TempDir Path dir) throws Exception {
     StringBuilder payload = new StringBuilder();
-    for (int value = 0; value < 500; value++) {
+    for (int value = 0; value < 2500; value++) {
       payload.append("{\"v\":").append(value).append("}\n");
     }
     Files.writeString(dir.resolve("a.log"), payload.toString());
 
     Run run = run(dir, "JSON_OBJECT_LINE", Map.of("chunkSizeBytes", 256));
 
-    assertEquals(500, run.values().size(), "every record is emitted exactly once");
     // JSON integers unwrap as Long (NumberPrimitiveFleakData.unwrap()), not Integer.
-    assertEquals(0L, run.values().getFirst());
-    assertEquals(499L, run.values().getLast());
-    assertTrue(
-        run.acceptCalls() > 1, "a 500-line file at a 256-byte chunk must stream, not buffer");
+    assertEquals(
+        new Run(
+            LongStream.range(0, 2500).boxed().map(v -> (Object) v).toList(),
+            Collections.nCopies(2500, null),
+            3),
+        run);
   }
 
   @Test
@@ -124,18 +128,19 @@ class FsSourceCommandStreamingTest {
   void aStringLineFileStreamsEvenWhenItIsBiggerThanMaxFileBytes(@TempDir Path dir)
       throws Exception {
     StringBuilder payload = new StringBuilder();
-    for (int value = 0; value < 500; value++) {
+    for (int value = 0; value < 2500; value++) {
       payload.append("line-").append(value).append("\n");
     }
     Files.writeString(dir.resolve("a.log"), payload.toString());
 
     Run run = run(dir, "STRING_LINE", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
-    assertEquals(500, run.raws().size(), "STRING_LINE is line-delimited, so it streams");
-    assertEquals("line-0", run.raws().getFirst());
-    assertEquals("line-499", run.raws().getLast());
-    assertTrue(
-        run.acceptCalls() > 1, "a 500-line file at a 256-byte chunk must stream, not buffer");
+    assertEquals(
+        new Run(
+            Collections.nCopies(2500, null),
+            IntStream.range(0, 2500).mapToObj(v -> (Object) ("line-" + v)).toList(),
+            3),
+        run);
   }
 
   @Test

@@ -38,14 +38,12 @@ public interface FsSourceDto {
     private Map<String, Object> backendConfig;
 
     /**
-     * Cap, in decompressed bytes, on what has to be held in memory at once: the whole payload for
-     * single-document encodings (JSON_OBJECT, TEXT, XML), one line for line-delimited ones
-     * (JSON_OBJECT_LINE, STRING_LINE) and one record for streamed ones (CSV, JSON_ARRAY). Null uses
-     * the default.
+     * The largest record and document, in decompressed bytes, for every format. Null derives them
+     * from the task's heap.
      */
     private Long maxFileBytes;
 
-    /** Target size of one streamed chunk, in decompressed bytes. Null uses the default. */
+    /** Accepted and ignored: batches are bounded by record count and estimated size. */
     private Integer chunkSizeBytes;
 
     /** Cap on how many files one run processes. Null uses the default. */
