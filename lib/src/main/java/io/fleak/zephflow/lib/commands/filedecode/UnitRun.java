@@ -54,7 +54,14 @@ public final class UnitRun {
 
   /** What every unit of a source shares. */
   public record Settings(
-      DlqTexts texts, Policy policy, long batchBytes, DlqWriter dlqWriter, String nodeId) {}
+      DlqTexts texts, Policy policy, long batchBytes, DlqWriter dlqWriter, String nodeId) {
+    public Settings {
+      if (texts.blockCodecOnly() != policy.endEarly()) {
+        throw new IllegalArgumentException(
+            "the texts' blockCodecOnly must match the policy's endEarly");
+      }
+    }
+  }
 
   /**
    * How a source handles failures.
@@ -99,7 +106,10 @@ public final class UnitRun {
   /** The source was told to stop; nothing more was written. */
   public record Stopped() implements End {}
 
-  /** Reading the unit failed; nothing more was emitted or written (an {@code endEarly} policy). */
+  /**
+   * Reading the unit failed; nothing more was emitted or written (an {@code endEarly} policy). The
+   * input bytes counted are those through the last record emitted.
+   */
   public record ReadFailed(Exception error) implements End {}
 
   /** The downstream failed a batch; nothing more was emitted or written ({@code endEarly}). */
@@ -146,6 +156,8 @@ public final class UnitRun {
   private long batchFirstIndex = -1;
   private long batchLastIndex = -1;
   private long lastSpanEnd = -1;
+  private long batchSpanEnd = -1;
+  private long emittedSpanEnd = -1;
   private long decodedCount;
   private long lastRecordIndex;
   private RecordFleakData firstRecord;
@@ -214,6 +226,9 @@ public final class UnitRun {
           batchFirstIndex = decoded.recordIndex();
         }
         batchLastIndex = decoded.recordIndex();
+        if (decoded.span() != null && decoded.span().length() >= 0) {
+          batchSpanEnd = Math.max(batchSpanEnd, decoded.span().offset() + decoded.span().length());
+        }
         batch.add(decoded.record());
         batchSize += estimate(decoded.record());
         if (firstRecord == null) {
@@ -305,20 +320,29 @@ public final class UnitRun {
    */
   public End complete(long storedLength) {
     if (endedEarly != null) {
-      return endedEarly;
+      return endEarly();
     }
     if (emitter.stopped()) {
       return new Stopped();
     }
     flush();
     if (endedEarly != null) {
-      return endedEarly;
+      return endEarly();
     }
     if (emitter.stopped()) {
       return new Stopped();
     }
     finish(storedLength);
     return new Finished();
+  }
+
+  private End endEarly() {
+    if (emittedSpanEnd > 0) {
+      counters
+          .inputBytes()
+          .increase(emittedSpanEnd, getCallingUserTagAndEventTags(null, firstRecord));
+    }
+    return endedEarly;
   }
 
   /** Writes an entry with the summary value, such as a unit too large to read, under the source. */
@@ -350,6 +374,7 @@ public final class UnitRun {
     long last = batchLastIndex;
     batch = new ArrayList<>();
     batchSize = 0;
+    emittedSpanEnd = Math.max(emittedSpanEnd, batchSpanEnd);
     counters
         .inputEvents()
         .increase(emitting.size(), getCallingUserTagAndEventTags(null, emitting.getFirst()));

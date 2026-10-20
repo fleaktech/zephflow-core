@@ -27,7 +27,6 @@ import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -68,7 +67,7 @@ class SpoolDownloaderTest {
 
   @BeforeEach
   void setUp() {
-    downloader = new SpoolDownloader(spoolDir);
+    downloader = new SpoolDownloader(spoolDir, "download-");
   }
 
   private Download<String> download() throws SourceReadException {
@@ -117,6 +116,28 @@ class SpoolDownloaderTest {
   }
 
   @Test
+  void aFileListedOverTheCapIsNotCopied() throws SourceReadException {
+    Abortable abortable = mock(Abortable.class);
+    openings.add(
+        new AtLeast<>(
+            AbortableInputStream.create(unreadable(), abortable), DATA.length, 4, "info"));
+
+    assertEquals(new OverCap<>("info"), download());
+    verify(abortable).abort();
+    assertEquals(1, opened);
+    assertEquals(List.of(), spoolFiles());
+  }
+
+  @Test
+  void aCopyIsNamedByThePrefix() throws IOException {
+    openings.add(new AtLeast<>(new ByteArrayInputStream(DATA), DATA.length, 1024, "info"));
+
+    try (Copied<String> copied = (Copied<String>) download()) {
+      assertTrue(copied.file().getFileName().toString().startsWith("download-"));
+    }
+  }
+
+  @Test
   void aBodyShorterThanListedIsDownloadedAgain() throws IOException {
     openings.add(new AtLeast<>(new ByteArrayInputStream(DATA, 0, 4), DATA.length, 1024, "info"));
     openings.add(new AtLeast<>(new ByteArrayInputStream(DATA), DATA.length, 1024, "info"));
@@ -135,7 +156,7 @@ class SpoolDownloaderTest {
 
     SourceReadException e = assertThrows(SourceReadException.class, this::download);
 
-    String reset = "java.io.UncheckedIOException: java.io.IOException: connection reset";
+    String reset = "java.io.IOException: connection reset";
     assertEquals(
         new Thrown("downloading gs://b/k failed after 3 attempts", reset, List.of(reset, reset)),
         Thrown.of(e));
@@ -171,7 +192,7 @@ class SpoolDownloaderTest {
         new Thrown(
             "opening gs://b/k failed",
             forbidden.toString(),
-            List.of("java.io.UncheckedIOException: java.io.IOException: connection reset")),
+            List.of("java.io.IOException: connection reset")),
         Thrown.of(e));
   }
 
@@ -181,6 +202,15 @@ class SpoolDownloaderTest {
     } catch (IOException e) {
       throw new AssertionError(e);
     }
+  }
+
+  private static InputStream unreadable() {
+    return new InputStream() {
+      @Override
+      public int read() {
+        throw new AssertionError("the body must not be read");
+      }
+    };
   }
 
   /** Delivers a few bytes, then fails as a GCS read channel does. */
@@ -194,9 +224,9 @@ class SpoolDownloaderTest {
       }
 
       @Override
-      public int read(byte[] b, int off, int len) {
+      public int read(byte[] b, int off, int len) throws IOException {
         if (delivered) {
-          throw new UncheckedIOException(new IOException("connection reset"));
+          throw new IOException("connection reset");
         }
         delivered = true;
         System.arraycopy(DATA, 0, b, off, 4);

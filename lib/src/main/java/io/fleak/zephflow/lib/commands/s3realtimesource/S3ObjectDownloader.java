@@ -45,7 +45,7 @@ final class S3ObjectDownloader {
   }
 
   S3ObjectDownloader(Path spoolDir, OutputOpener outputOpener) {
-    this.downloader = new SpoolDownloader(spoolDir, outputOpener::open);
+    this.downloader = new SpoolDownloader(spoolDir, "object-", outputOpener::open);
   }
 
   /** Opens the local copy for writing; replaceable so tests can fail the writes. */

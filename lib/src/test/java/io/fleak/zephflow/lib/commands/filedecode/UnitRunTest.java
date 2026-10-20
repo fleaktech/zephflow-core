@@ -248,6 +248,49 @@ class UnitRunTest {
                 .toList()),
         emitter.batches);
     assertEquals(List.of(), dlq);
+    assertEquals(
+        List.of((long) UnitRun.MAX_BATCH_RECORDS, 100_010L, 1L),
+        List.of(inputEvents.get(), inputBytes.get(), decodeFailures.get()));
+  }
+
+  @Test
+  void aDownstreamFailureOfTheLastBatchEndsTheFileWithoutItsSummaries() {
+    UnitRun run = run(dlqWriter);
+    NodeExecutionException failure =
+        new NodeExecutionException("eval_1", "eval", "missing field", null);
+    emitter.failure = failure;
+
+    assertTrue(run.visit(decoded(1, 0, 10)));
+    assertTrue(run.visit(oversized(2, 10)));
+    assertTrue(run.visit(decoded(3, 26, 10)));
+
+    assertEquals(new DownstreamFailed(failure), run.complete(36));
+    assertEquals(List.of(List.of(record(1), record(3))), emitter.batches);
+    assertEquals(List.of(), dlq);
+    assertEquals(
+        List.of(2L, 36L, 1L), List.of(inputEvents.get(), inputBytes.get(), decodeFailures.get()));
+  }
+
+  @Test
+  void anEarlyEndCountsTheBytesThroughTheLastRecordEmitted() {
+    UnitRun run = run(dlqWriter);
+    IOException reset = new IOException("connection reset");
+    for (long i = 1; i <= UnitRun.MAX_BATCH_RECORDS + 1; i++) {
+      assertTrue(run.visit(decoded(i, (i - 1) * 10, 10)));
+    }
+    run.readFailed(reset);
+
+    assertEquals(new ReadFailed(reset), run.complete(100_000));
+    assertEquals(
+        List.of((long) UnitRun.MAX_BATCH_RECORDS, UnitRun.MAX_BATCH_RECORDS * 10L),
+        List.of(inputEvents.get(), inputBytes.get()));
+  }
+
+  @Test
+  void theTextsMustMatchThePolicy() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new Settings(TEXTS, Policy.SUMMARIZE, 1024, dlqWriter, "source"));
   }
 
   @Test

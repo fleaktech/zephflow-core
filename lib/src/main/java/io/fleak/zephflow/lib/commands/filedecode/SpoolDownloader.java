@@ -40,14 +40,19 @@ public final class SpoolDownloader {
   private static final int BUFFER_SIZE = 64 * 1024;
 
   private final Path spoolDir;
+  private final String filePrefix;
   private final OutputOpener outputOpener;
 
-  public SpoolDownloader(Path spoolDir) {
-    this(spoolDir, Files::newOutputStream);
+  /**
+   * @param filePrefix the start of each local copy's name
+   */
+  public SpoolDownloader(Path spoolDir, String filePrefix) {
+    this(spoolDir, filePrefix, Files::newOutputStream);
   }
 
-  public SpoolDownloader(Path spoolDir, OutputOpener outputOpener) {
+  public SpoolDownloader(Path spoolDir, String filePrefix, OutputOpener outputOpener) {
     this.spoolDir = spoolDir;
+    this.filePrefix = filePrefix;
     this.outputOpener = outputOpener;
   }
 
@@ -76,7 +81,7 @@ public final class SpoolDownloader {
 
   /**
    * A body that must be at least {@code length} bytes; one that is longer than {@code capBytes} is
-   * not kept ({@link OverCap}).
+   * not kept ({@link OverCap}), and one listed longer is not copied at all.
    */
   public record AtLeast<T>(InputStream body, long length, long capBytes, T info)
       implements Opening<T> {}
@@ -119,6 +124,10 @@ public final class SpoolDownloader {
           case Exact<T> exact -> {
             Local local = copy(exact.body(), target, exact.length(), exact.length(), true);
             yield new Copied<>(local.file(), local.bytes(), exact.info());
+          }
+          case AtLeast<T> atLeast when atLeast.length() > atLeast.capBytes() -> {
+            discard(atLeast.body());
+            yield new OverCap<>(atLeast.info());
           }
           case AtLeast<T> atLeast -> {
             Local local = copy(atLeast.body(), target, atLeast.length(), atLeast.capBytes(), false);
@@ -179,7 +188,7 @@ public final class SpoolDownloader {
     boolean done = false;
     try {
       try {
-        file = Files.createTempFile(spoolDir, "download-", ".part");
+        file = Files.createTempFile(spoolDir, filePrefix, ".part");
       } catch (IOException e) {
         throw new SourceReadException(
             describe(target, "creating the local copy of") + " failed", e);
