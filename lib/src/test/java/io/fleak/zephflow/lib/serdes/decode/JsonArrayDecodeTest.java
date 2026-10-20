@@ -195,7 +195,15 @@ class JsonArrayDecodeTest {
     assertEquals(new Ok(json("{\"a\":1}"), 1, new RawSpan(1, 7)), outcomes.get(0));
     Big oversized = (Big) outcomes.get(1);
     assertEquals(
-        new Big(2, RawSpan.toEnd(9), oversized.sizeSoFar(), big.substring(0, 4096), true),
+        new Big(
+            2,
+            1,
+            RawSpan.toEnd(9),
+            LimitKind.MAX_RECORD_BYTES,
+            1000,
+            oversized.sizeSoFar(),
+            big.substring(0, 4096),
+            true),
         oversized);
   }
 

@@ -118,7 +118,20 @@ class S3RealtimeSourceFetcherTest {
     List<S3EventMessage> result = fetcher.fetch();
 
     assertTrue(result.isEmpty());
-    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("exceeded maxRetries"), eq("nodeId"));
+    verify(dlqWriter)
+        .writeToDlq(
+            anyLong(),
+            any(),
+            eq(
+                "RETRIES_EXCEEDED s3 notification\nAction: the message was received more than"
+                    + " maxRetries times without finishing: check this source's earlier DLQ"
+                    + " entries and logs for why, raise visibilityTimeoutSeconds so a whole receive"
+                    + " finishes in time (or lower maxNumberOfMessages), or raise maxRetries; then"
+                    + " send this notification again\nreceived "
+                    + (MAX_RETRIES + 1)
+                    + " times, over maxRetries="
+                    + MAX_RETRIES),
+            eq("nodeId"));
     verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
   }
 
@@ -140,7 +153,15 @@ class S3RealtimeSourceFetcherTest {
     List<S3EventMessage> result = fetcher.fetch();
 
     assertTrue(result.isEmpty());
-    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("failed to parse"), eq("nodeId"));
+    verify(dlqWriter)
+        .writeToDlq(
+            anyLong(),
+            any(),
+            eq(
+                "MALFORMED s3 notification\nAction: check that only S3 event notifications in"
+                    + " S3's JSON format are sent to this queue, and fix what sends the others"
+                    + "\nfailed to parse S3 event notification: malformed S3 event notification"),
+            eq("nodeId"));
     verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
   }
 

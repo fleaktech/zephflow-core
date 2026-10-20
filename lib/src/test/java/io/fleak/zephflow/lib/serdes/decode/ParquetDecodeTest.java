@@ -318,7 +318,9 @@ class ParquetDecodeTest {
     for (RowGroup group : groups) {
       long rows = group.getNum_rows();
       if (declaredSize(group) == largest) {
-        expected.add(new Big(index, null, largest, "", false));
+        expected.add(
+            new Big(
+                index, rows, null, LimitKind.MAX_DOCUMENT_BYTES, largest - 1, largest, "", false));
       } else {
         expected.addAll(numbersDecoded((int) index - 1, (int) (index - 1 + rows)));
       }
@@ -351,7 +353,7 @@ class ParquetDecodeTest {
     assertTrue(size > footerEstimate(file));
     Recording recording = new Recording(file, new ArrayList<>());
     assertEquals(
-        List.of(new Big(1, null, size, "", false)),
+        List.of(new Big(1, 3000, null, LimitKind.MAX_DOCUMENT_BYTES, size - 1, size, "", false)),
         decode(decoder(PARQUET), ranges(recording), new DecodeLimits(0, size - 1)));
     assertEquals(
         footerRequests(file), recording.requests().stream().map(r -> List.of(r[0], r[1])).toList());
@@ -487,7 +489,7 @@ class ParquetDecodeTest {
     assertEquals(
         List.of(
             new Ok(json("{\"s\":\"a\"}"), 1, null),
-            new Big(2, null, 124, "", false),
+            new Big(2, 1, null, LimitKind.MAX_RECORD_BYTES, 123, 124, "", false),
             new Ok(json("{\"s\":\"b\"}"), 3, null)),
         decode(decoder(PARQUET), ByteInput.ofBytes(file), new DecodeLimits(123, 0)));
   }
@@ -708,5 +710,26 @@ class ParquetDecodeTest {
                 false),
             new Ok(json("{\"m\":{\"a\":1}}"), 3, null)),
         decode(PARQUET, file));
+  }
+
+  @Test
+  void withoutARecordLimitARowMayTakeOneSixtyFourthOfTheDocumentLimit() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType("message m { required binary s (STRING); }");
+    SimpleGroupFactory rows = new SimpleGroupFactory(schema);
+    byte[] file =
+        ParquetTestFiles.write(
+            schema,
+            List.of(
+                rows.newGroup().append("s", "a"),
+                rows.newGroup().append("s", "x".repeat(1000)),
+                rows.newGroup().append("s", "b")),
+            options -> {});
+    assertEquals(
+        List.of(
+            new Ok(json("{\"s\":\"a\"}"), 1, null),
+            new Big(2, 1, null, LimitKind.MAX_DOCUMENT_BYTES, 1023, 1024, "", false),
+            new Ok(json("{\"s\":\"b\"}"), 3, null)),
+        decode(decoder(PARQUET), ByteInput.ofBytes(file), new DecodeLimits(0, 64 * 1023)));
   }
 }

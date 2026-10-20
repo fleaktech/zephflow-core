@@ -16,6 +16,8 @@ package io.fleak.zephflow.lib.serdes.decode.compress;
 import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdDecompressCtx;
 import com.github.luben.zstd.ZstdException;
+import com.google.common.annotations.VisibleForTesting;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import java.io.IOException;
 import java.io.InputStream;
@@ -104,11 +106,19 @@ final class ZstdFrameStream extends InputStream {
   }
 
   /** zstd-jni's exception message is not reliable for these codes, so they are named here. */
-  private IOException classify(ZstdException e) {
+  @VisibleForTesting
+  IOException classify(ZstdException e) {
     long code = e.getErrorCode();
-    if (code == Zstd.errFrameParameterWindowTooLarge() || code == Zstd.errMemoryAllocation()) {
-      flags.markBudget(new DecodeFlags.BudgetExceeded(-1, 0, new byte[0]));
+    if (code == Zstd.errFrameParameterWindowTooLarge()) {
+      flags.markBudget(
+          new DecodeFlags.BudgetExceeded(
+              -1, LimitKind.ZSTD_WINDOW, Decompressors.ZSTD_WINDOW_LIMIT, 0, new byte[0]));
       return new IOException("zstd frame " + (frames + 1) + " needs too much memory", e);
+    }
+    if (code == Zstd.errMemoryAllocation()) {
+      flags.markBudget(
+          new DecodeFlags.BudgetExceeded(-1, LimitKind.NATIVE_MEMORY, 0, 0, new byte[0]));
+      return new IOException("zstd frame " + (frames + 1) + " could not allocate memory", e);
     }
     String problem;
     if (code == Zstd.errPrefixUnknown()) {

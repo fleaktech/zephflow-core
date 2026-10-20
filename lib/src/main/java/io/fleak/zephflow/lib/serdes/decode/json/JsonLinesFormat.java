@@ -19,6 +19,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Decoded;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Failed;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome.Oversized;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatCursor;
@@ -55,7 +56,14 @@ public final class JsonLinesFormat implements FormatCursor {
         }
         case OversizedLine o -> {
           return new Oversized(
-              o.lineNumber(), new RawSpan(o.offset(), o.size()), o.size(), o.preview(), false);
+              o.lineNumber(),
+              1,
+              new RawSpan(o.offset(), o.size()),
+              LimitKind.MAX_RECORD_BYTES,
+              maxRecordBytes,
+              o.size(),
+              o.preview(),
+              false);
         }
         case Line line -> {
           if (Blank.isBlank(line.bytes())) {

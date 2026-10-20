@@ -26,6 +26,16 @@ public sealed interface DecodeOutcome {
   /** Null when the format cannot locate the record in the decompressed stream. */
   RawSpan span();
 
+  /**
+   * The outcome stands for the records from {@code recordIndex} to {@code recordIndex + recordCount
+   * - 1}. It is more than 1 only for the records an avro block or a parquet row group loses, and 0
+   * when no record is lost (an avro block with no records, or bytes left after a block's records);
+   * a terminal outcome counts only its own record.
+   */
+  default long recordCount() {
+    return 1;
+  }
+
   default boolean terminal() {
     return false;
   }
@@ -33,10 +43,38 @@ public sealed interface DecodeOutcome {
   record Decoded(RecordFleakData record, long recordIndex, RawSpan span) implements DecodeOutcome {}
 
   record Failed(
-      ErrorKind kind, byte[] raw, long recordIndex, RawSpan span, Exception error, boolean terminal)
-      implements DecodeOutcome {}
+      ErrorKind kind,
+      byte[] raw,
+      long recordIndex,
+      long recordCount,
+      RawSpan span,
+      Exception error,
+      boolean terminal)
+      implements DecodeOutcome {
 
-  /** A record or unit over its limit. The content is not kept; only a short preview. */
-  record Oversized(long recordIndex, RawSpan span, long sizeSoFar, byte[] preview, boolean terminal)
+    public Failed(
+        ErrorKind kind,
+        byte[] raw,
+        long recordIndex,
+        RawSpan span,
+        Exception error,
+        boolean terminal) {
+      this(kind, raw, recordIndex, 1, span, error, terminal);
+    }
+  }
+
+  /**
+   * A record or unit over {@code limit}, whose value was {@code limitValue}. The content is not
+   * kept; only a short preview.
+   */
+  record Oversized(
+      long recordIndex,
+      long recordCount,
+      RawSpan span,
+      LimitKind limit,
+      long limitValue,
+      long sizeSoFar,
+      byte[] preview,
+      boolean terminal)
       implements DecodeOutcome {}
 }

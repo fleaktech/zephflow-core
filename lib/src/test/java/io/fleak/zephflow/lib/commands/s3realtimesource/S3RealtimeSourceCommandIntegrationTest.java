@@ -28,6 +28,7 @@ import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -115,9 +116,9 @@ class S3RealtimeSourceCommandIntegrationTest {
 
   @Test
   void endToEnd_unparseableObjectDlqdAndAcknowledged() throws Exception {
-    // The object exists but cannot be parsed as JSON. This is a terminal failure: the converter
-    // dead-letters it once (with the real error) and the message is acknowledged on the first
-    // attempt -- no retry storm, no generic "exceeded maxRetries" entry.
+    // The object exists but its only line is not JSON: that line is dead-lettered once with its
+    // own bytes and the real error, and the message is acknowledged on the first attempt -- no
+    // retry storm, no generic "exceeded maxRetries" entry.
     s3.putObject(
         PutObjectRequest.builder().bucket(BUCKET).key("bad.jsonl").build(),
         RequestBody.fromString("this is definitely not json"));
@@ -132,13 +133,19 @@ class S3RealtimeSourceCommandIntegrationTest {
 
     assertTrue(
         acceptor.records.isEmpty(), "no records should be emitted for an unparseable object");
-    assertEquals(1, dlq.captured.size(), "the object should be dead-lettered exactly once");
-    assertTrue(
-        dlq.captured
-            .get(0)
-            .getErrorMessage()
-            .contains("failed to process s3://" + BUCKET + "/bad.jsonl"),
-        "DLQ entry should carry the real parse error, not a generic retry-cap message");
+    assertEquals(1, dlq.captured.size(), "the bad line should be dead-lettered exactly once");
+    DeadLetter entry = dlq.captured.getFirst();
+    List<String> lines = entry.getErrorMessage().lines().toList();
+    assertEquals(
+        List.of(
+            "this is definitely not json",
+            "MALFORMED json record: JsonParseException",
+            "object s3://" + BUCKET + "/bad.jsonl, recordIndex 1, bytes 0-27"),
+        List.of(
+            StandardCharsets.UTF_8.decode(entry.getValue()).toString(),
+            lines.getFirst(),
+            lines.getLast()),
+        "the entry should hold the line's bytes and the real parse error");
   }
 
   @Test

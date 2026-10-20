@@ -81,14 +81,21 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   of one bounded range) for formats that start from a footer (parquet). It must not read itself.
   Opening a parquet decoder on an input without it throws `IllegalStateException` from `open`,
   because that is the caller's mistake, not bad data. `ByteInput.ofBytes`, and so `decodeAll`,
-  offer it.
+  and `ByteInput.ofFile` (a local file) offer it.
 - `DecodeLimits(maxRecordBytes, maxDocumentBytes)` is chosen by the caller; 0 means unlimited
-  (parquet still bounds itself by the heap, see 3.4).
+  (parquet still bounds itself by the heap, see 3.4). An optional third limit,
+  `maxCodecMemoryBytes`, caps the outer codec's memory (xz) separately; 0 keeps the rule of the
+  codec table.
 - `DecodeOutcome` is one of:
   - `Decoded(record, recordIndex, span)`
-  - `Failed(kind, raw, recordIndex, span, error, terminal)`, where `kind` is `MALFORMED` or
-    `CORRUPT_COMPRESSION`
-  - `Oversized(recordIndex, span, sizeSoFar, preview, terminal)`
+  - `Failed(kind, raw, recordIndex, recordCount, span, error, terminal)`, where `kind` is
+    `MALFORMED` or `CORRUPT_COMPRESSION`
+  - `Oversized(recordIndex, recordCount, span, limit, limitValue, sizeSoFar, preview, terminal)`,
+    where `limit` names the limit it went over and `limitValue` is the value that applied (3.4)
+- `recordCount` is how many records an outcome stands for, from `recordIndex` on. It is more than 1
+  only for the records an avro block or a parquet row group loses, and 0 when no record is lost (an
+  avro block with no records, or bytes left after a block's records); a terminal outcome counts
+  only its own record.
 - A failure to read the input itself (network, disk) throws `SourceReadException`. It is never
   reported as bad data.
 
@@ -137,6 +144,29 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   the estimate reached when it went over the limit (a lower bound, since parsing stops there), or
   its whole estimate when it leaves too little for a row group; for a row group, the larger of twice
   its declared stored size and its uncompressed size; for a row, its estimate.
+- Each `Oversized` names its limit by what raises it, and gives the value that applied, so a caller
+  can say which limit was hit and what to change without knowing the format:
+  - `MAX_RECORD_BYTES` and `MAX_DOCUMENT_BYTES`: the caller's limits. A unit held whole (an avro
+    block, the parquet footer and row groups) is under the document limit. A parquet row without
+    `maxRecordBytes` is under 1/64 of the parquet budget, named by that budget's kind.
+  - `MAX_CODEC_MEMORY_BYTES`: what an outer xz codec may use, by the codec table's rule; setting
+    `maxCodecMemoryBytes` always raises it. The value is the cap that applied, in whole KiB.
+  - `AVRO_XZ_MEMORY`: what xz may use inside an avro block, 128 MiB or half the heap, whichever is
+    smaller; no limit raises it, only a larger heap up to 128 MiB.
+  - `HEAP_SHARE`: parquet's share of half the heap when `maxDocumentBytes` is 0. The value is half
+    the heap for the footer's own size; for a footer that leaves too little, the largest footer
+    estimate that would leave a row group a quarter (half the heap, less a quarter of it and the row
+    reserve); for a row group, what the footer and the row reserve leave; for a row, 1/64 of half
+    the heap.
+  - `MAX_LINES`: a multiline rule's `maxLines`, in lines.
+  - `ZSTD_WINDOW`: zstd's fixed 128 MiB window limit.
+  - `NATIVE_MEMORY`: zstd (an outer codec or an avro block's) could not allocate its native memory;
+    the value is 0.
+  - `FORMAT_MAXIMUM`: about 2 GiB, the most an avro block, a protobuf message or a parquet footer
+    can be, since each is held in one array.
+
+  A unit over both a caller's limit and a fixed one names the caller's; a multiline event names the
+  first limit it reaches.
 - Parser-internal limits (Jackson string/name length, YAML code points, XML attribute length) are
   lifted so that only these two limits decide. Nesting depth keeps its default and is `MALFORMED`
   when exceeded.
@@ -176,7 +206,7 @@ classification is never repeated in a format.
 | `deflate` | The zlib format (RFC 1950); concatenated streams are all read; a stream that needs a preset dictionary is `CORRUPT_COMPRESSION` |
 | `zstd` | Concatenated and skippable frames; input that ends inside a frame is `CORRUPT_COMPRESSION`. A frame whose window needs more than zstd's default 128 MiB is `Oversized` |
 | `bzip2` | Concatenated streams |
-| `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxDocumentBytes` (in whole KiB) is `Oversized`; without that limit, the cap is 128 MiB or half the heap, whichever is smaller |
+| `xz` | Concatenated streams and stream padding. A stream that needs more memory than `maxCodecMemoryBytes`, or than `maxDocumentBytes` when `maxCodecMemoryBytes` is 0 (in whole KiB), is `Oversized`; without either limit, the cap is 128 MiB or half the heap, whichever is smaller |
 | `lz4` | The LZ4 frame format only, with skippable frames; not the raw block format, and not frames that need a dictionary. A block without a checksum is handed on as it decodes; a block with one is held until it matches, so up to one block (at most 4 MiB) can be lost when it does not match or is cut short |
 | `snappy` | The Snappy framing format only, with skippable chunks; not raw or Hadoop snappy. The format has no end mark, so input cut exactly between chunks ends cleanly; only the `ByteInput` contract (3.2) catches that |
 
@@ -264,18 +294,20 @@ zstd window over 128 MiB is oversized too). Blocks are framed, so an oversized b
 a damaged compressed block (`CORRUPT_COMPRESSION`), a block claiming more records than it can hold
 (which counts as one record, since its count cannot be trusted), or a record that does not decode
 (`MALFORMED`, including one nested too deeply for the thread stack) loses only the records of its
-block, and decoding goes on with the next block; record numbers still count the lost records. A
-record that decodes but cannot be converted loses only itself, and bytes left after a block's
-records are reported against the block's first record. A wrong sync marker or a file that does not
-end exactly after a block is terminal. Every string, bytes and fixed length is checked against the
-bytes left in the block before anything is allocated. Two budgets bound what one block can make the
-reader do: allocation counts (records in the block, array and map items) may total its byte length
-plus 100,000, since only nulls, empty records and empty fixeds encode in no bytes; and the objects
-built (a record and its fields, array items, map keys and values) may total 16 per byte plus
-1,000,000. A block over either budget loses its records; a block with more than 100,000 records that
-encode in no bytes is one of them. The file header may be up to `maxDocumentBytes` or 16 MiB,
-whichever is larger. In `datum` mode, bytes left after the record are `MALFORMED`, and an empty
-input decodes if the schema fits in zero bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
+block, and decoding goes on with the next block; record numbers still count the lost records, and
+the outcome's `recordCount` says how many there were. A record that decodes but cannot be converted
+loses only itself, and bytes left after a block's records are reported against the block's first
+record. A wrong sync marker or a file that does not end exactly after a block is terminal. Every
+string, bytes and fixed length is checked against the bytes left in the block before anything is
+allocated. Two budgets bound what one block can make the reader do: allocation counts (records in
+the block, array and map items) may total its byte length plus 100,000, since only nulls, empty
+records and empty fixeds encode in no bytes; and the objects built (a record and its fields, array
+items, map keys and values) may total 16 per byte plus 1,000,000. A block over either budget loses
+its records; a block with more than 100,000 records that encode in no bytes is one of them. The file
+header may be up to `maxDocumentBytes` or 16 MiB, whichever is larger; a longer one is `MALFORMED`,
+not `Oversized`, since a header that long is far more likely damaged than real. In `datum` mode,
+bytes left after the record are `MALFORMED`, and an empty input decodes if the schema fits in zero
+bytes. Codecs: null, deflate, snappy, zstandard, bzip2, xz.
 
 **Protobuf.** Messages are parsed as `DynamicMessage` with protobuf's default nesting limit (100).
 Repeated and map fields always appear (empty when unset); other fields follow 4.3 (a field with
@@ -310,12 +342,12 @@ framing); brotli and lzo are `MALFORMED`, and a file with an lz4_raw chunk, whic
 does not know, is a terminal `MALFORMED`. A footer that is missing, damaged or over the limit, or a
 file that does not start and end with `PAR1`, is terminal. A row group over the limit is skipped
 unread as `Oversized`, and one that is damaged, or whose rows its data cannot fill, loses its
-remaining rows as one `Failed` (a negative row count counts as one record); a row over
-`maxRecordBytes` (estimated, see 3.4) or with a value that does not convert loses only itself.
-Decoding then goes on. LIST and MAP groups follow the parquet spec's compatibility rules, and an
-unannotated repeated field is an array. Map keys must be primitive (a map whose key is a group stays
-a record), a null key loses its row, and a repeated key keeps its last value. A decimal with a scale
-over 1,000 loses its row.
+remaining rows as one `Failed` (a negative row count counts as one record); either outcome's
+`recordCount` is the number of rows lost; a row over `maxRecordBytes` (estimated, see 3.4) or with a
+value that does not convert loses only itself. Decoding then goes on. LIST and MAP groups follow the
+parquet spec's compatibility rules, and an unannotated repeated field is an array. Map keys must be
+primitive (a map whose key is a group stays a record), a null key loses its row, and a repeated key
+keeps its last value. A decimal with a scale over 1,000 loses its row.
 
 **Charsets.** Text in any other charset is transcoded to UTF-8 first. Unmarked `UTF-16` and `UTF-32`
 take their byte order from a byte order mark and default to big-endian. Bytes that are invalid in
@@ -378,7 +410,8 @@ Each step is one PR into `feature/generic-decoder`; the branch merges into `main
 
 ## 7. Known limitations
 
-- The decoder is not used by any source yet.
+- Only the S3 realtime source uses the decoder so far (`docs/spec/s3-realtime-source-decoding.md`);
+  the other sources move over in their own changes.
 - Damaged compressed data can decode into wrong but well-formed bytes before the codec notices, for
   every codec. A stream's records are only confirmed once its checksum, if it has one, matches.
 - zstd, bzip2, xz, lz4 and snappy can lose up to 255 decoded bytes that came just before damaged
@@ -484,7 +517,7 @@ Decisions made while implementing PR1 that refine the design above.
 | P34 | zstd uses its own loop over zstd-jni's streaming context. zstd-jni's input stream reports a clean end when the last of several frames is cut short |
 | P35 | bzip2 streams are chained here, one library stream each. commons-compress's concatenated mode looks for the next stream inside the read that ends the previous one, so a failure there loses the previous stream's tail |
 | P36 | Library codecs are read 256 bytes at a time. In a local measurement on 40 MB of log lines this cost under 5% of throughput, while byte-by-byte reads, which would lose nothing, ran at a third to three quarters of the speed |
-| P37 | The xz memory limit is `maxDocumentBytes`, not `max(maxDocumentBytes, 128 MiB)`: with a floor the caller's limit could never apply. Without `maxDocumentBytes` it is 128 MiB (zstd's default window limit) or half the heap, whichever is smaller, so a tiny file declaring a huge dictionary cannot exhaust the heap. zstd's own limit cannot be configured through zstd-jni's context and stays at 128 MiB. Going over it, or over zstd's window limit, is reported through the budget flag as `Oversized`, not as corrupt data |
+| P37 | The xz memory limit is `maxCodecMemoryBytes` when set (a caller whose document limit is small, such as the S3 realtime source's avro and protobuf limits, sets it so ordinary xz files still decode), else `maxDocumentBytes`, not `max(maxDocumentBytes, 128 MiB)`: with a floor the caller's limit could never apply. Without `maxDocumentBytes` it is 128 MiB (zstd's default window limit) or half the heap, whichever is smaller, so a tiny file declaring a huge dictionary cannot exhaust the heap. zstd's own limit cannot be configured through zstd-jni's context and stays at 128 MiB. Going over it, or over zstd's window limit, is reported through the budget flag as `Oversized`, not as corrupt data |
 | P38 | commons-compress, zstd-jni and `org.tukaani:xz` are declared in `lib`; the first two were only transitive before |
 | P39 | lz4 uses its own frame loop; commons-compress only decodes block contents. Its frame reader ends cleanly when the input stops right after an uncompressed block's size. Skippable frames are skipped by reading, because `FileInputStream.skip` goes past the end of a file without saying so |
 | P40 | A library codec leaves a failure alone when another layer already marked it, so an outer codec's memory limit stays `Oversized` through inner codecs |

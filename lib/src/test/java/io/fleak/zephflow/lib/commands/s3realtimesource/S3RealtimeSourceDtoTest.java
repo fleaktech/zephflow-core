@@ -16,8 +16,14 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -84,6 +90,35 @@ class S3RealtimeSourceDtoTest {
             .maxObjectSizeBytes(1024L)
             .maxRetries(3)
             .addS3Metadata(true)
+            .build();
+    assertEquals(expected, config);
+  }
+
+  @Test
+  void aNestedDecodingIsParsedByTheConfigParser() {
+    Map<String, Object> jsonMap =
+        Map.of(
+            "queueUrl",
+            "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
+            "regionStr",
+            "us-east-1",
+            "decoding",
+            Map.of(
+                "compression",
+                "zstd",
+                "format",
+                Map.of("type", "text", "framing", Map.of("type", "line"))));
+    S3RealtimeSourceDto.Config config =
+        (S3RealtimeSourceDto.Config)
+            new JsonConfigParser<>(S3RealtimeSourceDto.Config.class).parseConfig(jsonMap);
+    S3RealtimeSourceDto.Config expected =
+        S3RealtimeSourceDto.Config.builder()
+            .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
+            .regionStr("us-east-1")
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new TextFormatConfig(null, new FramingConfig.Line(null))))
             .build();
     assertEquals(expected, config);
   }

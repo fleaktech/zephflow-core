@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.internal;
 
+import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import lombok.Getter;
 
 /**
@@ -49,8 +50,9 @@ public final class DecodeFlags {
   }
 
   /**
-   * What the budget layer saw when the current record went over its limit. {@code recordStart} is
-   * -1 when the record cannot be located.
+   * What the budget layer saw when the current record went over {@code limit}. {@code recordStart}
+   * is -1 when the record cannot be located.
    */
-  public record BudgetExceeded(long recordStart, long sizeSoFar, byte[] preview) {}
+  public record BudgetExceeded(
+      long recordStart, LimitKind limit, long limitValue, long sizeSoFar, byte[] preview) {}
 }

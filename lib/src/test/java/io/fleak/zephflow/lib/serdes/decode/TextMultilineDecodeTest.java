@@ -67,7 +67,7 @@ class TextMultilineDecodeTest {
   void eventOverMaxLinesIsOversizedWhole() {
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(0, 10), 10, "a\n b\n c\n d", false),
+            new Big(1, 1, new RawSpan(0, 10), LimitKind.MAX_LINES, 3, 10, "a\n b\n c\n d", false),
             new Ok(raw("e"), 5, new RawSpan(11, 1))),
         decode(
             multiline("\"continuePattern\":\"^\\\\s\",\"maxLines\":3"), utf8("a\n b\n c\n d\ne")));
@@ -79,7 +79,7 @@ class TextMultilineDecodeTest {
     assertEquals(
         List.of(
             event(input, "a\n b", 1),
-            new Big(3, new RawSpan(5, 8), 8, "c\n d\n ee", false),
+            new Big(3, 1, new RawSpan(5, 8), LimitKind.MAX_RECORD_BYTES, 4, 8, "c\n d\n ee", false),
             event(input, "f", 6)),
         decode(decoder(CONTINUE), ByteInput.ofBytes(utf8(input)), new DecodeLimits(4, 0)));
     assertEquals(
@@ -88,10 +88,52 @@ class TextMultilineDecodeTest {
   }
 
   @Test
+  void anEventOverBothLimitsNamesTheFirstItReaches() {
+    RecordDecoder twoLines = decoder(multiline("\"continuePattern\":\"^\\\\s\",\"maxLines\":2"));
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 11),
+                LimitKind.MAX_RECORD_BYTES,
+                4,
+                11,
+                "abcde\n x\n y",
+                false),
+            new Ok(raw("z"), 4, new RawSpan(12, 1))),
+        decode(twoLines, ByteInput.ofBytes(utf8("abcde\n x\n y\nz")), new DecodeLimits(4, 0)));
+    assertEquals(
+        List.of(
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 19),
+                LimitKind.MAX_LINES,
+                2,
+                19,
+                "a\n b\n c\n dddddddddd",
+                false),
+            new Ok(raw("z"), 5, new RawSpan(20, 1))),
+        decode(
+            twoLines,
+            ByteInput.ofBytes(utf8("a\n b\n c\n dddddddddd\nz")),
+            new DecodeLimits(10, 0)));
+  }
+
+  @Test
   void oversizedLineMakesItsEventOversized() {
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(0, 15), 15, "ab\n xxxxxxxx\n y", false),
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 15),
+                LimitKind.MAX_RECORD_BYTES,
+                5,
+                15,
+                "ab\n xxxxxxxx\n y",
+                false),
             new Ok(raw("c"), 4, new RawSpan(16, 1))),
         decode(
             decoder(CONTINUE),
@@ -104,7 +146,7 @@ class TextMultilineDecodeTest {
     assertEquals(
         List.of(
             new Ok(raw("S1"), 1, new RawSpan(0, 2)),
-            new Big(2, new RawSpan(3, 9), 9, "Sxxxxxxxx", false),
+            new Big(2, 1, new RawSpan(3, 9), LimitKind.MAX_RECORD_BYTES, 5, 9, "Sxxxxxxxx", false),
             new Ok(raw("S2"), 3, new RawSpan(13, 2))),
         decode(
             decoder(multiline("\"startPattern\":\"^S\"")),
@@ -162,12 +204,28 @@ class TextMultilineDecodeTest {
     RecordDecoder start = decoder(multiline("\"startPattern\":\"^S\""));
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(0, 28), 28, "S" + x + "\n  cont", false),
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 28),
+                LimitKind.MAX_RECORD_BYTES,
+                10,
+                28,
+                "S" + x + "\n  cont",
+                false),
             new Ok(raw("S next"), 3, new RawSpan(29, 6))),
         decode(start, ByteInput.ofBytes(utf8("S" + x + "\n  cont\nS next")), limits));
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(0, 26), 26, "S a\n" + y + "\rc", false),
+            new Big(
+                1,
+                1,
+                new RawSpan(0, 26),
+                LimitKind.MAX_RECORD_BYTES,
+                10,
+                26,
+                "S a\n" + y + "\rc",
+                false),
             new Ok(raw("S z"), 4, new RawSpan(27, 3))),
         decode(start, ByteInput.ofBytes(utf8("S a\n" + y + "\rc\nS z")), limits));
   }
@@ -200,7 +258,7 @@ class TextMultilineDecodeTest {
   void oversizedEventOfBlankLinesIsStillReported() {
     assertEquals(
         List.of(
-            new Big(1, new RawSpan(0, 2), 2, "\n\n", false),
+            new Big(1, 1, new RawSpan(0, 2), LimitKind.MAX_LINES, 2, 2, "\n\n", false),
             new Ok(raw("S1"), 4, new RawSpan(3, 2))),
         decode(multiline("\"startPattern\":\"^S\",\"maxLines\":2"), utf8("\n\n\nS1")));
   }
