@@ -32,16 +32,22 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -248,6 +254,18 @@ class FsSourceSnapshotTest {
                 true),
             new Case("text_valid", "data.txt", bytes("one\ntwo\n"), legacy("TEXT"), true),
             new Case(
+                "text_over_limit",
+                "data.txt",
+                bytes("x".repeat(100)),
+                with(legacy("TEXT"), "maxFileBytes", 32L),
+                true),
+            new Case(
+                "xml_over_limit",
+                "data.xml",
+                bytes("<root><a>" + "x".repeat(100) + "</a></root>"),
+                with(legacy("XML"), "maxFileBytes", 32L),
+                true),
+            new Case(
                 "xml_valid",
                 "data.xml",
                 bytes("<root><a>1</a><b>x</b></root>"),
@@ -332,10 +350,11 @@ class FsSourceSnapshotTest {
           new CapturingDlqWriter();
     }
 
-    Map<String, Object> first = run(command);
-    Map<String, Object> second = run(command);
+    String fileUrn = root.resolve(c.fileName()).toUri().toString();
+    Map<String, Object> first = run(command, fileUrn);
+    Map<String, Object> second = run(command, fileUrn);
     Map<String, Object> actual = new LinkedHashMap<>(first);
-    actual.put("secondRunReadTheFileAgain", !second.equals(emptyRun()));
+    actual.put("secondRunHadOutput", !second.equals(emptyRun()));
     JsonNode actualTree = MAPPER.readTree(MAPPER.writeValueAsString(actual));
 
     Path expectedFile = EXPECTED.resolve(c.name() + ".json");
@@ -352,7 +371,10 @@ class FsSourceSnapshotTest {
     try (Stream<Path> files = Files.list(EXPECTED)) {
       assertEquals(
           cases().map(a -> ((Case) a.get()[0]).name() + ".json").collect(Collectors.toSet()),
-          files.map(f -> f.getFileName().toString()).collect(Collectors.toSet()));
+          files
+              .map(f -> f.getFileName().toString())
+              .filter(n -> n.endsWith(".json"))
+              .collect(Collectors.toSet()));
     }
   }
 
@@ -360,7 +382,7 @@ class FsSourceSnapshotTest {
    * One run's records (more than 100 as their count, first and last three), batch sizes, DLQ
    * entries (value and metadata), failure, counters, and whether a checkpoint marked the file done.
    */
-  private Map<String, Object> run(FsSourceCommand command) {
+  private Map<String, Object> run(FsSourceCommand command, String fileUrn) {
     deadLetters.clear();
     counters.clear();
     List<RecordFleakData> records = new ArrayList<>();
@@ -396,7 +418,9 @@ class FsSourceSnapshotTest {
                 "first",
                 recorded.subList(0, 3),
                 "last",
-                recorded.subList(recorded.size() - 3, recorded.size())));
+                recorded.subList(recorded.size() - 3, recorded.size()),
+                "sha256",
+                sha256(json(recorded))));
     run.put(
         "dlq",
         deadLetters.stream()
@@ -424,15 +448,41 @@ class FsSourceSnapshotTest {
     run.put("batchSizes", batches);
     run.put("failed", failure);
     run.put("counters", new TreeMap<>(counters));
-    run.put("checkpointedAsDone", checkpointed.stream().anyMatch(d -> d.contains("data.")));
+    run.put(
+        "checkpointedAsDone",
+        checkpointed.stream()
+            .anyMatch(d -> JsonUtils.fromJsonString(d, FsCheckpoint.class).isCompleted(fileUrn)));
     return run;
   }
 
-  /** A value of more than 1,000 characters as its start and length. */
+  /** A value of more than 1,000 characters as its start, length and digest. */
   private static String shortened(String value) {
     return value.length() <= 1000
         ? value
-        : value.substring(0, 32) + "... (" + value.length() + " characters)";
+        : value.substring(0, 32)
+            + "... ("
+            + value.length()
+            + " characters, sha256 "
+            + sha256(value)
+            + ")";
+  }
+
+  private static String json(Object value) {
+    try {
+      return MAPPER.writeValueAsString(value);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  private static String sha256(String text) {
+    try {
+      return HexFormat.of()
+          .formatHex(
+              MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   /** The record, or for one of more than 100 fields only its field count. */

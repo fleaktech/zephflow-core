@@ -14,5 +14,5 @@
   }, {
     "__raw__" : "three"
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

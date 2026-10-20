@@ -10,5 +10,5 @@
   "records" : [ {
     "__raw__" : "one\ntwo\n"
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

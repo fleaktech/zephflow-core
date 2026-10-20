@@ -5,5 +5,5 @@
   "dlq" : [ ],
   "failed" : null,
   "records" : [ ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

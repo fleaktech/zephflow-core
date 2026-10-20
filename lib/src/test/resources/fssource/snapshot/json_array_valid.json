@@ -12,5 +12,5 @@
   }, {
     "a" : 2
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

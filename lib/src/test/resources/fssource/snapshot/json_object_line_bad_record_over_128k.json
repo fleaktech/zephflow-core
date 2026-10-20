@@ -11,7 +11,7 @@
       "__md_fs_source_record_index" : "2",
       "__md_fs_source_urn" : "<root>/data.jsonl"
     },
-    "value" : "{\"bad\":\"xxxxxxxxxxxxxxxxxxxxxxxx... (140008 characters)"
+    "value" : "{\"bad\":\"xxxxxxxxxxxxxxxxxxxxxxxx... (140008 characters, sha256 6ac75011a959356c4493f7b2c35cf3f020fd2c6bd77b8bee7eae28f14efcc459)"
   } ],
   "failed" : null,
   "records" : [ {
@@ -19,5 +19,5 @@
   }, {
     "a" : 3
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

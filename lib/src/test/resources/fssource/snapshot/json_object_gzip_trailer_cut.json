@@ -7,5 +7,5 @@
   "dlq" : [ ],
   "failed" : "IllegalStateException",
   "records" : [ ],
-  "secondRunReadTheFileAgain" : true
+  "secondRunHadOutput" : true
 }

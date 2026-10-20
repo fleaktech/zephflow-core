@@ -11,5 +11,5 @@
     "a" : "1",
     "b" : "x"
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

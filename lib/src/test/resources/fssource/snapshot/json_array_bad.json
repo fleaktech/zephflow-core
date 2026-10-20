@@ -17,5 +17,5 @@
   "records" : [ {
     "a" : 1
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

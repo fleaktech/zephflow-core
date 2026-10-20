@@ -17,5 +17,5 @@
     "id" : "3",
     "name" : "z"
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

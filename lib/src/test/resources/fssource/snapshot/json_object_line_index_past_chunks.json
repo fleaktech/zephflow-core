@@ -33,5 +33,5 @@
   }, {
     "line" : 10
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

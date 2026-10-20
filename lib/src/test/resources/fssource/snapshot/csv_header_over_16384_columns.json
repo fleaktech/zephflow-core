@@ -10,5 +10,5 @@
   "records" : [ {
     "<fields>" : 16385
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }

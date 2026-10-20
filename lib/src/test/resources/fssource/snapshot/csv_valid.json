@@ -14,5 +14,5 @@
     "id" : "2",
     "name" : "y"
   } ],
-  "secondRunReadTheFileAgain" : false
+  "secondRunHadOutput" : false
 }
