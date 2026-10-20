@@ -277,8 +277,6 @@ Small PRs into the integration branch `feature/fs-decoder`; the user merges it i
 | 4 | `decoding`, `localSpoolMaxBytes` and the validator (4) |
 | 5 | fleak-integration-tests: an FsSource test written like the S3 realtime source test there. Verified before the core merge with the suite's local clistarter option (`-PzephflowCoreLocalClistarter`) on a build of the integration branch; merged only after a core release with this change and the zephflow-plus bump, like the S3 realtime test |
 
-Before the integration branch is merged, the change runs on the local stack (7).
-
 ### 6.1 Deviations from the agreed plan
 
 - The agreed split was spec → shared pieces → FsSource read path → `decoding` → downstream/no-DLQ
@@ -336,19 +334,12 @@ Before the integration branch is merged, the change runs on the local stack (7).
   own prefix of one bucket and with a fixed `CHECKPOINT_SCOPE` in the job context, one with
   `encodingType` JSON_OBJECT_LINE over a gzipped file holding a bad line, one with `decoding` parquet
   over a parquet file. The good records reach Kafka; the bad line is dead-lettered with its `Action:`
-  line and file-relative index; a second run of each pipeline reads nothing new.
-- **Local stack** (R2, before the integration branch is merged): with `/fleak-start-local` on the
-  branch, an FsSource pipeline is created in the local UI over a real S3 bucket prefix of the dev
-  AWS account, through an AWS connection profile (the UI offers only S3, GCS and Azure, with no
-  endpoint override). dynamicapi sends its DLQ settings to every deployment with self-healing
-  enabled, with an empty bucket by default, so the appserver starts with `DLQ_BUCKET`, `DLQ_REGION`,
-  `DLQ_ACCESS_KEY_ID` and `DLQ_SECRET_ACCESS_KEY` set, and the pipeline is deployed with
-  self-healing enabled (the UI shows that toggle only when the `self_healing` feature flag is on for
-  the user, set through the admin `/features` API) while `SELF_HEALING_ENABLED` stays false, so the self-healing monitor does
-  not replay (and delete) the DLQ before it is inspected. It runs through dynamicapi and grid: its records arrive, the bad record is in the DLQ
-  bucket with its `Action:` line and file-relative index, the task log's info line shows the file
-  was copied, and the grid-injected checkpoint keeps a second run from reading the files again. The
-  buckets and credentials are the user's to provide when the step runs.
+  line and file-relative index; the worker's task log has the info line showing each file was
+  copied to the spool; a second run of each pipeline, through the grid-injected checkpoint, reads
+  nothing new. It runs grid without the appserver, so it replaces a local-stack run (F12).
+- **On dev** (after the release and the dynamicapi bump): a QA ticket covers what the integration
+  test does not, the pipeline built through the UI and dynamicapi's translator, with a DLQ through
+  self-healing.
 
 ## 8. Known limitations
 
