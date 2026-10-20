@@ -1,0 +1,10 @@
+{
+  "counters" : {
+    "input_deser_err_count" : 2,
+    "input_file_skipped_count{skip_reason=nothing_deserialized}" : 1
+  },
+  "dlq" : [ ],
+  "failed" : "IllegalStateException",
+  "records" : [ ],
+  "secondRunReadTheFileAgain" : true
+}

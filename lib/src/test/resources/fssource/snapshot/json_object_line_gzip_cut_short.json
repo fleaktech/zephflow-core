@@ -1,0 +1,9 @@
+{
+  "counters" : {
+    "input_file_skipped_count{skip_reason=read_error}" : 1
+  },
+  "dlq" : [ ],
+  "failed" : "IllegalStateException",
+  "records" : [ ],
+  "secondRunReadTheFileAgain" : true
+}

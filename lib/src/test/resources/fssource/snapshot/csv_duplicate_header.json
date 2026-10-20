@@ -1,0 +1,9 @@
+{
+  "counters" : { },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "id" : "2"
+  } ],
+  "secondRunReadTheFileAgain" : false
+}

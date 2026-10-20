@@ -1,0 +1,33 @@
+{
+  "counters" : {
+    "input_deser_err_count" : 1
+  },
+  "dlq" : [ {
+    "metadata" : {
+      "__md_fs_source_record_index" : "2",
+      "__md_fs_source_urn" : "<root>/data.jsonl"
+    },
+    "value" : "{bad"
+  } ],
+  "failed" : null,
+  "records" : [ {
+    "line" : 1
+  }, {
+    "line" : 2
+  }, {
+    "line" : 3
+  }, {
+    "line" : 4
+  }, {
+    "line" : 5
+  }, {
+    "line" : 6
+  }, {
+    "line" : 7
+  }, {
+    "line" : 9
+  }, {
+    "line" : 10
+  } ],
+  "secondRunReadTheFileAgain" : false
+}
