@@ -1,7 +1,7 @@
 {
-  "counters" : {
-    "input_event_size" : 0
-  },
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : true,
+  "counters" : { },
   "dlq" : [ ],
   "failed" : null,
   "records" : [ ],

@@ -1,4 +1,6 @@
 {
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : false,
   "counters" : {
     "input_file_skipped_count{skip_reason=read_error}" : 1
   },

@@ -1,4 +1,6 @@
 {
+  "batchSizes" : [ 2 ],
+  "checkpointedAsDone" : true,
   "counters" : {
     "input_event_count" : 2,
     "input_event_size" : 17

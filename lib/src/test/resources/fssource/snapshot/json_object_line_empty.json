@@ -1,4 +1,6 @@
 {
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : true,
   "counters" : { },
   "dlq" : [ ],
   "failed" : null,

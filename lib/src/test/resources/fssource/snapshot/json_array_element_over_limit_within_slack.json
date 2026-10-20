@@ -1,0 +1,18 @@
+{
+  "batchSizes" : [ 3 ],
+  "checkpointedAsDone" : true,
+  "counters" : {
+    "input_event_count" : 3,
+    "input_event_size" : 229
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "a" : 1
+  }, {
+    "long" : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }, {
+    "a" : 3
+  } ],
+  "secondRunReadTheFileAgain" : false
+}

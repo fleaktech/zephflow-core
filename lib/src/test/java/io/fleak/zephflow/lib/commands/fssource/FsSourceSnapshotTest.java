@@ -31,6 +31,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
+import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.ByteArrayOutputStream;
@@ -52,6 +53,7 @@ import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -90,6 +92,7 @@ class FsSourceSnapshotTest {
   @TempDir Path root;
   private final List<DeadLetter> deadLetters = new ArrayList<>();
   private final Map<String, Long> counters = new TreeMap<>();
+  private final List<String> checkpointed = new ArrayList<>();
 
   @BeforeEach
   void registerBackend() {
@@ -105,6 +108,12 @@ class FsSourceSnapshotTest {
   static Stream<Arguments> cases() {
     String lines = "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n";
     String csv = "id,name\n1,x\n2,y\n";
+    String document = "{\"a\":{\"b\":[1,2]}}";
+    String manyRows =
+        "id,pad\n"
+            + IntStream.rangeClosed(1, 3000)
+                .mapToObj(i -> i + "," + Integer.toHexString(i * 7919) + "\n")
+                .collect(Collectors.joining());
     String manyLines =
         IntStream.rangeClosed(1, 3000)
             .mapToObj(
@@ -155,7 +164,7 @@ class FsSourceSnapshotTest {
             new Case("string_line_empty", "data.txt", new byte[0], legacy("STRING_LINE"), true),
             csv("csv_empty", ""),
             new Case(
-                "json_object_line_long_line_within_a_read",
+                "json_object_line_long_line_under_chunk_size",
                 "data.jsonl",
                 bytes("{\"a\":1}\n{\"long\":\"" + "x".repeat(100) + "\"}\n{\"a\":3}\n"),
                 with(legacy("JSON_OBJECT_LINE"), "maxFileBytes", 64L),
@@ -246,6 +255,51 @@ class FsSourceSnapshotTest {
                 true),
             new Case("xml_bad", "data.xml", bytes("<root><a>1</a>"), legacy("XML"), true),
             csv("csv_valid", csv),
+            jsonl(
+                "json_object_line_bad_record_over_128k",
+                "{\"a\":1}\n{\"bad\":\"" + "x".repeat(140_000) + "\n{\"a\":3}\n"),
+            new Case(
+                "json_array_element_over_limit_within_slack",
+                "data.json",
+                bytes("[{\"a\":1},{\"long\":\"" + "x".repeat(200) + "\"},{\"a\":3}]"),
+                with(legacy("JSON_ARRAY"), "maxFileBytes", 64L),
+                true),
+            new Case(
+                "json_array_element_over_limit_past_slack",
+                "data.json",
+                bytes("[{\"a\":1},{\"long\":\"" + "x".repeat(200_000) + "\"},{\"a\":3}]"),
+                with(legacy("JSON_ARRAY"), "maxFileBytes", 1000L),
+                true),
+            csv("csv_quote_left_open_after_rows", "id,name\n1,x\n2,\"open\n3,y\n"),
+            new Case(
+                "csv_quote_left_open_past_slack",
+                "data.csv",
+                bytes("id,name\n1,x\n2,\"open" + "y".repeat(200_000) + "\n"),
+                with(legacy("CSV"), "maxFileBytes", 1000L),
+                true),
+            gzipCase("json_object_gzip", "data.json.gz", gzip(document), "JSON_OBJECT"),
+            gzipCase(
+                "json_object_gzip_trailer_cut",
+                "data.json.gz",
+                Arrays.copyOf(gzip(document), gzip(document).length - 6),
+                "JSON_OBJECT"),
+            gzipCase(
+                "json_object_gzip_trailing_bytes",
+                "data.json.gz",
+                concat(gzip(document), bytes("trailing")),
+                "JSON_OBJECT"),
+            gzipCase("xml_gzip", "data.xml.gz", gzip("<root><a>1</a></root>"), "XML"),
+            gzipCase("csv_gzip", "data.csv.gz", gzip(manyRows), "CSV"),
+            gzipCase(
+                "csv_gzip_cut_mid_data",
+                "data.csv.gz",
+                Arrays.copyOf(gzip(manyRows), gzip(manyRows).length / 2),
+                "CSV"),
+            gzipCase(
+                "csv_gzip_trailing_bytes",
+                "data.csv.gz",
+                concat(gzip(csv), bytes("trailing")),
+                "CSV"),
             csv("csv_duplicate_header", "id,id\n1,2\n"),
             csv("csv_empty_header_name", "id,\n1,2\n"),
             csv("csv_quote_left_open", "id,name\n1,\"open\n2,y\n"),
@@ -265,6 +319,14 @@ class FsSourceSnapshotTest {
     config.put("root", root.toUri().toString());
     command.parseAndValidateArg(config);
     command.initialize(new RecordingMetricClientProvider());
+    ((FsSourceExecutionContext) command.getExecutionContext()).checkpointClient =
+        new CheckpointClient.InMemCheckpointClient() {
+          @Override
+          public synchronized void checkpoint(String id, String data) {
+            checkpointed.add(data);
+            super.checkpoint(id, data);
+          }
+        };
     if (c.dlq()) {
       ((FsSourceExecutionContext) command.getExecutionContext()).dlqWriter =
           new CapturingDlqWriter();
@@ -285,11 +347,25 @@ class FsSourceSnapshotTest {
     assertEquals(MAPPER.readTree(expectedFile.toFile()), actualTree);
   }
 
-  /** One run's records, DLQ entries (value and metadata), outcome and counters. */
+  @Test
+  void everyExpectedFileHasACase() throws IOException {
+    try (Stream<Path> files = Files.list(EXPECTED)) {
+      assertEquals(
+          cases().map(a -> ((Case) a.get()[0]).name() + ".json").collect(Collectors.toSet()),
+          files.map(f -> f.getFileName().toString()).collect(Collectors.toSet()));
+    }
+  }
+
+  /**
+   * One run's records (more than 100 as their count, first and last three), batch sizes, DLQ
+   * entries (value and metadata), failure, counters, and whether a checkpoint marked the file done.
+   */
   private Map<String, Object> run(FsSourceCommand command) {
     deadLetters.clear();
     counters.clear();
     List<RecordFleakData> records = new ArrayList<>();
+    List<Integer> batches = new ArrayList<>();
+    checkpointed.clear();
     String failure = null;
     try {
       command.execute(
@@ -298,6 +374,7 @@ class FsSourceSnapshotTest {
             @Override
             public void accept(List<RecordFleakData> batch) {
               records.addAll(batch);
+              batches.add(batch.size());
             }
 
             @Override
@@ -307,7 +384,19 @@ class FsSourceSnapshotTest {
       failure = e.getClass().getSimpleName();
     }
     Map<String, Object> run = new LinkedHashMap<>();
-    run.put("records", records.stream().map(FsSourceSnapshotTest::recorded).toList());
+    List<Map<String, Object>> recorded =
+        records.stream().map(FsSourceSnapshotTest::recorded).toList();
+    run.put(
+        "records",
+        recorded.size() <= 100
+            ? recorded
+            : Map.of(
+                "count",
+                recorded.size(),
+                "first",
+                recorded.subList(0, 3),
+                "last",
+                recorded.subList(recorded.size() - 3, recorded.size())));
     run.put(
         "dlq",
         deadLetters.stream()
@@ -318,7 +407,8 @@ class FsSourceSnapshotTest {
                       "value",
                       d.getValue() == null
                           ? null
-                          : StandardCharsets.UTF_8.decode(d.getValue().duplicate()).toString());
+                          : shortened(
+                              StandardCharsets.UTF_8.decode(d.getValue().duplicate()).toString()));
                   entry.put(
                       "metadata",
                       d.getMetadata() == null
@@ -331,9 +421,18 @@ class FsSourceSnapshotTest {
                   return entry;
                 })
             .toList());
+    run.put("batchSizes", batches);
     run.put("failed", failure);
     run.put("counters", new TreeMap<>(counters));
+    run.put("checkpointedAsDone", checkpointed.stream().anyMatch(d -> d.contains("data.")));
     return run;
+  }
+
+  /** A value of more than 1,000 characters as its start and length. */
+  private static String shortened(String value) {
+    return value.length() <= 1000
+        ? value
+        : value.substring(0, 32) + "... (" + value.length() + " characters)";
   }
 
   /** The record, or for one of more than 100 fields only its field count. */
@@ -346,8 +445,10 @@ class FsSourceSnapshotTest {
     Map<String, Object> run = new LinkedHashMap<>();
     run.put("records", List.of());
     run.put("dlq", List.of());
+    run.put("batchSizes", List.of());
     run.put("failed", null);
     run.put("counters", Map.of());
+    run.put("checkpointedAsDone", false);
     return run;
   }
 
@@ -357,6 +458,10 @@ class FsSourceSnapshotTest {
 
   private static Case jsonl(String name, String content) {
     return new Case(name, "data.jsonl", bytes(content), legacy("JSON_OBJECT_LINE"), true);
+  }
+
+  private static Case gzipCase(String name, String fileName, byte[] content, String encodingType) {
+    return new Case(name, fileName, content, legacy(encodingType), true);
   }
 
   private static Case csv(String name, String content) {
@@ -418,7 +523,7 @@ class FsSourceSnapshotTest {
 
         @Override
         public void increase(long n, Map<String, String> additionalTags) {
-          if (!RECORDED_COUNTERS.contains(name)) {
+          if (n == 0 || !RECORDED_COUNTERS.contains(name)) {
             return;
           }
           String key =
