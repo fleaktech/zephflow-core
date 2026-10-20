@@ -13,57 +13,34 @@
  */
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
+import io.fleak.zephflow.lib.commands.filedecode.LocalSpool;
 import java.nio.file.Path;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.file.PathUtils;
 
-/**
- * The directory one source instance downloads objects into. It lives under the JVM's working
- * directory, which in grid is the task's directory on the worker's data volume (deleted by grid
- * when the task exits), and falls back to {@code java.io.tmpdir} when that is not writable.
- */
-@Slf4j
+/** The directory one S3 realtime source instance downloads objects into ({@link LocalSpool}). */
 final class SpoolDirectory implements AutoCloseable {
 
   private static final String PREFIX = "s3rt-spool-";
 
-  @Getter private final Path path;
+  private final LocalSpool spool;
 
-  private SpoolDirectory(Path path) {
-    this.path = path;
+  private SpoolDirectory(LocalSpool spool) {
+    this.spool = spool;
   }
 
   static SpoolDirectory create() {
-    return create(
-        Path.of(System.getProperty("user.dir")), Path.of(System.getProperty("java.io.tmpdir")));
+    return new SpoolDirectory(LocalSpool.create(PREFIX));
   }
 
   static SpoolDirectory create(Path workingDir, Path tmpDir) {
-    try {
-      return new SpoolDirectory(Files.createTempDirectory(workingDir, PREFIX));
-    } catch (IOException | RuntimeException e) {
-      log.warn("cannot create the spool directory under {}; using {}", workingDir, tmpDir, e);
-    }
-    try {
-      return new SpoolDirectory(Files.createTempDirectory(tmpDir, PREFIX));
-    } catch (IOException e) {
-      throw new UncheckedIOException("cannot create the spool directory under " + tmpDir, e);
-    }
+    return new SpoolDirectory(LocalSpool.create(PREFIX, workingDir, tmpDir));
+  }
+
+  Path getPath() {
+    return spool.getPath();
   }
 
   @Override
   public void close() {
-    if (!Files.exists(path)) {
-      return;
-    }
-    try {
-      PathUtils.deleteDirectory(path);
-    } catch (IOException e) {
-      log.warn("failed to delete the spool directory {}", path, e);
-    }
+    spool.close();
   }
 }
