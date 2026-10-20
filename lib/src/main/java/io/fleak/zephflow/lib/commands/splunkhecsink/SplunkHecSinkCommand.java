@@ -84,7 +84,10 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
 
     SimpleSinkCommand.SinkMessagePreProcessor<SplunkHecOutboundEvent> messagePreProcessor =
         new SplunkHecSinkMessageProcessor(
-            config.getIndex(), config.getSourcetype(), config.getSource());
+            config.getIndex(),
+            config.getSourcetype(),
+            config.getSource(),
+            SplunkHecSinkMessageProcessor.csvOptions(config));
 
     return new SinkExecutionContext<>(
         flusher,
