@@ -15,6 +15,7 @@ package io.fleak.zephflow.runner;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
+import static io.fleak.zephflow.runner.Constants.METRIC_NAME_PIPELINE_ERROR_EVENT;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.CommandConfig;
@@ -23,6 +24,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
 import io.fleak.zephflow.api.SourceEventAcceptor;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
@@ -39,6 +41,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,6 +60,7 @@ class FsSourceDownstreamTest {
 
   @TempDir Path root;
   private final List<Object> seen = new CopyOnWriteArrayList<>();
+  private final AtomicLong errorEvents = new AtomicLong();
 
   @BeforeEach
   void registerBackend() throws Exception {
@@ -92,6 +96,7 @@ class FsSourceDownstreamTest {
     execute(source, runner);
 
     assertEquals(List.of("a", "b", "c", "bad"), seen);
+    assertEquals(1L, errorEvents.get());
   }
 
   @ParameterizedTest
@@ -116,15 +121,14 @@ class FsSourceDownstreamTest {
     return source;
   }
 
-  private static NoSourceDagRunner runner(Check check, boolean useDlq) {
+  private NoSourceDagRunner runner(Check check, boolean useDlq) {
     return new NoSourceDagRunner(
         List.of(Edge.builder().from("source").to("check").build()),
         new Dag<>(
             List.of(Node.<OperatorCommand>builder().id("check").nodeContent(check).build()),
             List.of()),
         new MetricClientProvider.NoopMetricClientProvider(),
-        DagRunCounters.createPipelineCounters(
-            new MetricClientProvider.NoopMetricClientProvider(), Map.of()),
+        DagRunCounters.createPipelineCounters(new ErrorEventCounting(), Map.of()),
         useDlq);
   }
 
@@ -147,6 +151,27 @@ class FsSourceDownstreamTest {
             }
           }
         });
+  }
+
+  /** Counts the runner's error events; every other metric is a no-op. */
+  private final class ErrorEventCounting extends MetricClientProvider.NoopMetricClientProvider {
+    @Override
+    public FleakCounter counter(String name, Map<String, String> tags) {
+      if (!METRIC_NAME_PIPELINE_ERROR_EVENT.equals(name)) {
+        return super.counter(name, tags);
+      }
+      return new FleakCounter() {
+        @Override
+        public void increase(Map<String, String> additionalTags) {
+          errorEvents.incrementAndGet();
+        }
+
+        @Override
+        public void increase(long n, Map<String, String> additionalTags) {
+          errorEvents.addAndGet(n);
+        }
+      };
+    }
   }
 
   /** Fails each record whose {@code v} is "bad", or fails to initialize. */

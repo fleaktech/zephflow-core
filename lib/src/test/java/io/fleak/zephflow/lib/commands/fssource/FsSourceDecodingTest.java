@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.METADATA_FS_SOURCE_RECORD_IN
 import static io.fleak.zephflow.lib.utils.MiscUtils.METADATA_FS_SOURCE_URN;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_DESER_ERR_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_SIZE_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_FILE_SKIPPED_COUNT;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -147,6 +148,25 @@ class FsSourceDecodingTest {
   }
 
   @Test
+  void aSmallBadXmlDocumentKeepsItsBytesAndALargeOneIsSummarized() throws Exception {
+    run(file("small.xml", "<root><a>1</a>"), "XML", Map.of(), true);
+    Files.delete(root.resolve("small.xml"));
+    command = null;
+    run(file("large.xml", "<root><a>" + "x".repeat(140_000)), "XML", Map.of(), true);
+
+    assertEquals(
+        List.of(
+            List.of("<root><a>1</a>", "source", "file " + urn("small.xml") + ", bytes 0-14"),
+            List.of(
+                "",
+                "source",
+                "file "
+                    + urn("large.xml")
+                    + "; 1 outcome; the document (bytes 0-140009); the file ended")),
+        dlq.stream().map(e -> List.of(e.value(), e.nodeId(), e.lastLine())).toList());
+  }
+
+  @Test
   void anOversizedLineIsSummarizedWithTheSettingToRaiseAndTheRestIsRead() throws Exception {
     run(
         file("f_1.jsonl", "{\"a\":1}\n{\"a\":\"" + "x".repeat(200) + "\"}\n{\"a\":3}\n"),
@@ -247,12 +267,19 @@ class FsSourceDecodingTest {
   @Test
   void aCompressionFailureHoldsTheFileDropsTheOpenBatchAndIsReadAgain() throws Exception {
     StringBuilder lines = new StringBuilder();
+    long emittedBytes = 0;
     for (int i = 1; i <= 1500; i++) {
-      lines.append(
+      String line =
           i == 3
               ? "{bad\n"
-              : i == 5 ? "{\"x\":\"" + "y".repeat(200) + "\"}\n" : "{\"i\":" + i + "}\n");
+              : i == 5 ? "{\"x\":\"" + "y".repeat(200) + "\"}\n" : "{\"i\":" + i + "}\n";
+      lines.append(line);
+      // the first batch holds the first 1,000 good lines, through line 1,002
+      if (i <= 1002) {
+        emittedBytes += line.length();
+      }
     }
+    long sizeThroughLastEmittedRecord = emittedBytes - 1;
     Path file =
         file(
             "a.jsonl.gz",
@@ -288,11 +315,13 @@ class FsSourceDecodingTest {
           Map.of(
               METRIC_NAME_INPUT_EVENT_COUNT,
               1000L,
+              METRIC_NAME_INPUT_EVENT_SIZE_COUNT,
+              sizeThroughLastEmittedRecord,
               METRIC_NAME_INPUT_DESER_ERR_COUNT,
               2L,
               METRIC_NAME_INPUT_FILE_SKIPPED_COUNT + "{skip_reason=read_error}",
               1L),
-          withoutSize(counters));
+          counters);
     }
   }
 
@@ -378,12 +407,6 @@ class FsSourceDecodingTest {
 
   private List<String> firstLines() {
     return dlq.stream().map(Entry::firstLine).toList();
-  }
-
-  private static Map<String, Long> withoutSize(Map<String, Long> counters) {
-    Map<String, Long> out = new TreeMap<>(counters);
-    out.keySet().removeIf(k -> k.startsWith("input_event_size"));
-    return out;
   }
 
   private Path file(String name, String content) throws IOException {

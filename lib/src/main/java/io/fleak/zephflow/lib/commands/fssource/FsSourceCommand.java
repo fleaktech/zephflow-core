@@ -347,9 +347,11 @@ public final class FsSourceCommand extends SourceCommand {
             eventAcceptor.accept(batch);
           }
 
+          // A file is read to its end once started, as before; terminate() is checked between
+          // files.
           @Override
           public boolean stopped() {
-            return terminated;
+            return false;
           }
         };
     try (FsFileAccess access =
@@ -364,9 +366,6 @@ public final class FsSourceCommand extends SourceCommand {
 
         FsFileDecoder.Result result = fileDecoder.decode(fileEntry, access, emitter);
         switch (result) {
-          case STOPPED -> {
-            continue;
-          }
           case TOO_LARGE -> {
             // A retry would find the same file over the same cap, so it is done, not retried.
             countSkip(executionContext, SKIP_REASON_FILE_TOO_LARGE);
@@ -430,7 +429,8 @@ public final class FsSourceCommand extends SourceCommand {
     }
     if (emittedFileCount == 0 && skippedFileCount > 0) {
       // Reporting success here would tell the scheduler the batch is done when nothing was read.
-      // Dropped oversized files don't count: they are done, and a retry would find nothing to do.
+      // Files over localSpoolMaxBytes do not count: they are done, and a retry would find nothing
+      // to do.
       throw new IllegalStateException(
           "fs_source read no files: all "
               + skippedFileCount

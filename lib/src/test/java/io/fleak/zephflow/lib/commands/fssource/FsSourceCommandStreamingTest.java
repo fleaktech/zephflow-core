@@ -112,16 +112,16 @@ class FsSourceCommandStreamingTest {
 
     Run run = run(dir, "JSON_OBJECT_LINE", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
-    assertEquals(500, run.values().size(), "maxFileBytes bounds a chunk, not a streamed file");
+    assertEquals(500, run.values().size(), "maxFileBytes bounds a record, not the file");
   }
 
   @Test
-  void aWholeDocumentFileOverTheCapIsSkippedRatherThanBuffered(@TempDir Path dir) throws Exception {
+  void aWholeDocumentOverTheCapIsSummarizedRatherThanBuffered(@TempDir Path dir) throws Exception {
     Files.writeString(dir.resolve("a.json"), "{\"v\":\"" + "x".repeat(500) + "\"}");
 
     Run run = run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L));
 
-    assertEquals(List.of(), run.values(), "the file is over the cap, so nothing is emitted");
+    assertEquals(List.of(), run.values(), "the document is over the cap, so nothing is emitted");
   }
 
   @Test

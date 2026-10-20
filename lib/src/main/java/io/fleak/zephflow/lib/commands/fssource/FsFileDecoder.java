@@ -63,9 +63,7 @@ final class FsFileDecoder {
     /** It needs random access and is over localSpoolMaxBytes; it is not read and is done. */
     TOO_LARGE,
     READ_ERROR,
-    DOWNSTREAM_ERROR,
-    /** The source was told to stop. */
-    STOPPED
+    DOWNSTREAM_ERROR
   }
 
   private final RecordDecoder decoder;
@@ -148,7 +146,7 @@ final class FsFileDecoder {
       }
       return switch (run.complete(bytes instanceof Copied copied ? copied.bytes() : entry.size())) {
         case Finished finished -> Result.DONE;
-        case Stopped stopped -> Result.STOPPED;
+        case Stopped stopped -> throw new IllegalStateException("FsSource's emitter never stops");
         case ReadFailed failed -> {
           logReadFailure(urn, failed.error(), failed.compression());
           yield Result.READ_ERROR;
@@ -183,9 +181,9 @@ final class FsFileDecoder {
                   + retry
                   + "\nfile "
                   + urn
-                  + " listed size "
+                  + " (listed size "
                   + entry.size()
-                  + ", over localSpoolMaxBytes "
+                  + ") does not fit in localSpoolMaxBytes "
                   + localSpoolMaxBytes);
     }
   }
