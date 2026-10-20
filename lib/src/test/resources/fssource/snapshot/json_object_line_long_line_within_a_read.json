@@ -1,0 +1,16 @@
+{
+  "counters" : {
+    "input_event_count" : 3,
+    "input_event_size" : 128
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "a" : 1
+  }, {
+    "long" : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }, {
+    "a" : 3
+  } ],
+  "secondRunReadTheFileAgain" : false
+}

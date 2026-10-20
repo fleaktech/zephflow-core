@@ -1,0 +1,19 @@
+{
+  "counters" : {
+    "input_event_count" : 3,
+    "input_event_size" : 219
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "id" : "1",
+    "name" : "x"
+  }, {
+    "id" : "2",
+    "name" : "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+  }, {
+    "id" : "3",
+    "name" : "z"
+  } ],
+  "secondRunReadTheFileAgain" : false
+}

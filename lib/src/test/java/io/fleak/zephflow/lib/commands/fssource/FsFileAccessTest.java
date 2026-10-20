@@ -40,6 +40,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.function.Supplier;
@@ -156,7 +158,7 @@ class FsFileAccessTest {
   }
 
   @ParameterizedTest
-  @ValueSource(ints = {0, 1, 9, 17})
+  @ValueSource(ints = {0, 1, 9, 17, 18})
   void aBodyThatBreaksIsCopiedAgain(int breakAt) throws Exception {
     bodies.add(() -> breaking(breakAt));
     bodies.add(() -> new ByteArrayInputStream(DATA));
@@ -251,7 +253,7 @@ class FsFileAccessTest {
             "downloading s3://b/k.jsonl was interrupted",
             "java.io.IOException: interrupted"),
         Thrown.of(e));
-    assertEquals(1, opened);
+    assertEquals(List.of(1, List.of()), List.of(opened, spoolFiles()));
   }
 
   @Test
@@ -311,6 +313,70 @@ class FsFileAccessTest {
     EOFException e = assertThrows(EOFException.class, () -> read(streamed.input().openStream()));
 
     assertEquals("the stream of s3://b/k.jsonl ended after 4 of 18 bytes", e.getMessage());
+  }
+
+  @Test
+  void aShortStreamThrowsWhetherReadByteByByteOrFromAnAbortableBody() throws Exception {
+    bodies.add(() -> new ByteArrayInputStream(DATA, 0, 4));
+    bodies.add(
+        () ->
+            AbortableInputStream.create(
+                new ByteArrayInputStream(DATA, 0, 4), mock(Abortable.class)));
+    Streamed streamed = (Streamed) access(4).open(entry(DATA.length), false);
+
+    List<String> messages = new ArrayList<>();
+    try (InputStream in = streamed.input().openStream()) {
+      messages.add(
+          assertThrows(
+                  EOFException.class,
+                  () -> {
+                    while (in.read() >= 0) {}
+                  })
+              .getMessage());
+    }
+    messages.add(
+        assertThrows(EOFException.class, () -> read(streamed.input().openStream())).getMessage());
+
+    assertEquals(
+        List.of(
+            "the stream of s3://b/k.jsonl ended after 4 of 18 bytes",
+            "the stream of s3://b/k.jsonl ended after 4 of 18 bytes"),
+        messages);
+  }
+
+  @Test
+  void skippedBytesCountTowardTheListedSize() throws Exception {
+    bodies.add(() -> new ByteArrayInputStream(DATA));
+    Streamed streamed = (Streamed) access(4).open(entry(DATA.length), false);
+
+    try (InputStream in = streamed.input().openStream()) {
+      assertEquals(10, in.skip(10));
+      assertArrayEquals(Arrays.copyOfRange(DATA, 10, DATA.length), in.readAllBytes());
+    }
+  }
+
+  @Test
+  void aSpoolThatCannotBeCreatedIsAReadFailure() {
+    bodies.add(() -> new ByteArrayInputStream(DATA));
+    IOException readOnly = new IOException("Read-only file system");
+    FsFileAccess access =
+        new FsFileAccess(
+            reader,
+            false,
+            CAP,
+            () -> {
+              throw new UncheckedIOException(readOnly);
+            },
+            Files::newOutputStream);
+
+    SourceReadException e =
+        assertThrows(SourceReadException.class, () -> access.open(entry(DATA.length), false));
+
+    assertEquals(
+        new Thrown(
+            "SourceReadException", "creating the spool directory failed", readOnly.toString()),
+        Thrown.of(e));
+    assertEquals(0, opened);
   }
 
   @Test

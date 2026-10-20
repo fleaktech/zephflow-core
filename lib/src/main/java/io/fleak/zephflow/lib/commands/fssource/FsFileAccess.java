@@ -27,6 +27,7 @@ import java.io.EOFException;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -157,9 +158,13 @@ final class FsFileAccess implements AutoCloseable {
     }
   }
 
-  private SpoolDownloader downloader() {
+  private SpoolDownloader downloader() throws SourceReadException {
     if (downloader == null) {
-      spool = spoolFactory.get();
+      try {
+        spool = spoolFactory.get();
+      } catch (UncheckedIOException e) {
+        throw new SourceReadException("creating the spool directory failed", e.getCause());
+      }
       downloader = new SpoolDownloader(spool.getPath(), COPY_PREFIX, outputOpener);
     }
     return downloader;

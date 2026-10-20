@@ -1,6 +1,8 @@
 {
   "counters" : {
-    "input_deser_err_count" : 1
+    "input_deser_err_count" : 1,
+    "input_event_count" : 1,
+    "input_event_size" : 23
   },
   "dlq" : [ {
     "metadata" : {

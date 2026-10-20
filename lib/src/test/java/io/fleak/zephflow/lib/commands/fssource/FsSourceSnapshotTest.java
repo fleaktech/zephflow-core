@@ -14,6 +14,8 @@
 package io.fleak.zephflow.lib.commands.fssource;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_DESER_ERR_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_SIZE_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_FILE_SKIPPED_COUNT;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -42,6 +44,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -64,6 +67,12 @@ class FsSourceSnapshotTest {
 
   private static final Path EXPECTED = Path.of("src/test/resources/fssource/snapshot");
   private static final boolean UPDATE = Boolean.getBoolean("fssource.snapshot.update");
+  private static final Set<String> RECORDED_COUNTERS =
+      Set.of(
+          METRIC_NAME_INPUT_EVENT_COUNT,
+          METRIC_NAME_INPUT_EVENT_SIZE_COUNT,
+          METRIC_NAME_INPUT_DESER_ERR_COUNT,
+          METRIC_NAME_INPUT_FILE_SKIPPED_COUNT);
   private static final ObjectMapper MAPPER =
       new ObjectMapper()
           .enable(SerializationFeature.INDENT_OUTPUT)
@@ -96,6 +105,11 @@ class FsSourceSnapshotTest {
   static Stream<Arguments> cases() {
     String lines = "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n";
     String csv = "id,name\n1,x\n2,y\n";
+    String manyLines =
+        IntStream.rangeClosed(1, 3000)
+            .mapToObj(
+                i -> "{\"line\":" + i + ",\"pad\":\"" + Integer.toHexString(i * 7919) + "\"}\n")
+            .collect(Collectors.joining());
     StringBuilder chunked = new StringBuilder();
     IntStream.rangeClosed(1, 10)
         .forEach(i -> chunked.append(i == 8 ? "{bad\n" : "{\"line\":" + i + "}\n"));
@@ -114,9 +128,15 @@ class FsSourceSnapshotTest {
                 legacy("JSON_OBJECT_LINE"),
                 true),
             new Case(
-                "json_object_line_gzip_cut_short",
+                "json_object_line_gzip_trailer_cut",
                 "data.jsonl.gz",
                 Arrays.copyOf(gzip(lines), gzip(lines).length - 6),
+                legacy("JSON_OBJECT_LINE"),
+                true),
+            new Case(
+                "json_object_line_gzip_cut_mid_data",
+                "data.jsonl.gz",
+                Arrays.copyOf(gzip(manyLines), gzip(manyLines).length / 2),
                 legacy("JSON_OBJECT_LINE"),
                 true),
             new Case(
@@ -126,6 +146,38 @@ class FsSourceSnapshotTest {
                 legacy("JSON_OBJECT_LINE"),
                 true),
             jsonl("json_object_line_empty", ""),
+            new Case("json_object_empty", "data.json", new byte[0], legacy("JSON_OBJECT"), true),
+            new Case(
+                "json_object_empty_no_dlq", "data.json", new byte[0], legacy("JSON_OBJECT"), false),
+            new Case("json_array_empty", "data.json", new byte[0], legacy("JSON_ARRAY"), true),
+            new Case("xml_empty", "data.xml", new byte[0], legacy("XML"), true),
+            new Case("text_empty", "data.txt", new byte[0], legacy("TEXT"), true),
+            new Case("string_line_empty", "data.txt", new byte[0], legacy("STRING_LINE"), true),
+            csv("csv_empty", ""),
+            new Case(
+                "json_object_line_long_line_within_a_read",
+                "data.jsonl",
+                bytes("{\"a\":1}\n{\"long\":\"" + "x".repeat(100) + "\"}\n{\"a\":3}\n"),
+                with(legacy("JSON_OBJECT_LINE"), "maxFileBytes", 64L),
+                true),
+            new Case(
+                "json_object_line_cr_only_over_limit",
+                "data.jsonl",
+                bytes("{\"a\":1}\r{\"a\":2}\r{\"a\":3}\r"),
+                with(with(legacy("JSON_OBJECT_LINE"), "maxFileBytes", 16L), "chunkSizeBytes", 8),
+                true),
+            new Case(
+                "csv_record_over_limit_within_slack",
+                "data.csv",
+                bytes("id,name\n1,x\n2," + "y".repeat(200) + "\n3,z\n"),
+                with(with(legacy("CSV"), "maxFileBytes", 64L), "chunkSizeBytes", 16),
+                true),
+            new Case(
+                "csv_record_over_limit_past_slack",
+                "data.csv",
+                bytes("id,name\n1,x\n2," + "y".repeat(200_000) + "\n3,z\n"),
+                with(legacy("CSV"), "maxFileBytes", 1000L),
+                true),
             jsonl("json_object_line_array_line", "{\"a\":1}\n[{\"a\":2}]\n{\"a\":3}\n"),
             new Case(
                 "json_object_line_oversized_line",
@@ -198,7 +250,7 @@ class FsSourceSnapshotTest {
             csv("csv_empty_header_name", "id,\n1,2\n"),
             csv("csv_quote_left_open", "id,name\n1,\"open\n2,y\n"),
             csv("csv_text_after_closing_quote", "id,name\n1,\"x\"y\n2,z\n"),
-            csv("csv_short_row", "id,name\n1\n2,y\n"),
+            csv("csv_short_row", "id,name\n\"1\"\n2,y\n"),
             csv("csv_header_over_16384_columns", wideHeader))
         .map(Arguments::of);
   }
@@ -366,8 +418,7 @@ class FsSourceSnapshotTest {
 
         @Override
         public void increase(long n, Map<String, String> additionalTags) {
-          if (!name.equals(METRIC_NAME_INPUT_DESER_ERR_COUNT)
-              && !name.equals(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT)) {
+          if (!RECORDED_COUNTERS.contains(name)) {
             return;
           }
           String key =

@@ -1,5 +1,8 @@
 {
-  "counters" : { },
+  "counters" : {
+    "input_event_count" : 2,
+    "input_event_size" : 16
+  },
   "dlq" : [ ],
   "failed" : null,
   "records" : [ {

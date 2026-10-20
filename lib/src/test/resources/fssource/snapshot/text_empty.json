@@ -1,0 +1,12 @@
+{
+  "counters" : {
+    "input_event_count" : 1,
+    "input_event_size" : 0
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "__raw__" : ""
+  } ],
+  "secondRunReadTheFileAgain" : false
+}

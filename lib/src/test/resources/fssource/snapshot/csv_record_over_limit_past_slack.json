@@ -1,0 +1,14 @@
+{
+  "counters" : {
+    "input_event_count" : 1,
+    "input_event_size" : 81920,
+    "input_file_skipped_count{skip_reason=file_too_large}" : 1
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "id" : "1",
+    "name" : "x"
+  } ],
+  "secondRunReadTheFileAgain" : false
+}
