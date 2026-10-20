@@ -1,0 +1,22 @@
+{
+  "batchSizes" : [ 1 ],
+  "checkpointedAsDone" : true,
+  "counters" : {
+    "input_deser_err_count" : 1,
+    "input_event_count" : 1,
+    "input_event_size" : 16
+  },
+  "dlq" : [ {
+    "metadata" : {
+      "__md_fs_source_record_index" : "1",
+      "__md_fs_source_urn" : "<root>/data.csv"
+    },
+    "value" : "1"
+  } ],
+  "failed" : null,
+  "records" : [ {
+    "id" : "2",
+    "name" : "y"
+  } ],
+  "secondRunHadOutput" : false
+}

@@ -128,6 +128,10 @@ tasks.named('test') {
   // Ordinary unit tests exclude golden; golden runs as its own task (see goldenTest below).
   useJUnitPlatform { excludeTags 'golden', 'lowMemory' }
   testLogging.showStandardStreams = true
+  // -Dfssource.snapshot.update=true rewrites FsSourceSnapshotTest's expected results
+  if (System.getProperty('fssource.snapshot.update') != null) {
+    systemProperty 'fssource.snapshot.update', System.getProperty('fssource.snapshot.update')
+  }
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
     '--add-exports', 'java.base/jdk.internal.ref=ALL-UNNAMED',

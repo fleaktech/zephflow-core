@@ -1,0 +1,11 @@
+{
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : true,
+  "counters" : {
+    "input_file_skipped_count{skip_reason=file_too_large}" : 1
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ ],
+  "secondRunHadOutput" : false
+}
