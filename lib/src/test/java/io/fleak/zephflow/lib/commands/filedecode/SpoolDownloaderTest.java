@@ -67,7 +67,7 @@ class SpoolDownloaderTest {
 
   @BeforeEach
   void setUp() {
-    downloader = new SpoolDownloader(spoolDir, "download-");
+    downloader = new SpoolDownloader(spoolDir, "unit-test-");
   }
 
   private Download<String> download() throws SourceReadException {
@@ -133,7 +133,7 @@ class SpoolDownloaderTest {
     openings.add(new AtLeast<>(new ByteArrayInputStream(DATA), DATA.length, 1024, "info"));
 
     try (Copied<String> copied = (Copied<String>) download()) {
-      assertTrue(copied.file().getFileName().toString().startsWith("download-"));
+      assertTrue(copied.file().getFileName().toString().startsWith("unit-test-"));
     }
   }
 

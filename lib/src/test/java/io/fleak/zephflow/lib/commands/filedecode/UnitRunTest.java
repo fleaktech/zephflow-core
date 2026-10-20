@@ -287,6 +287,21 @@ class UnitRunTest {
   }
 
   @Test
+  void anEarlyEndOfAFileWithoutSpansCountsNoBytes() {
+    UnitRun run = run(dlqWriter);
+    IOException reset = new IOException("connection reset");
+    for (long i = 1; i <= UnitRun.MAX_BATCH_RECORDS + 1; i++) {
+      assertTrue(run.visit(new DecodeOutcome.Decoded(record(i), i, null)));
+    }
+    run.readFailed(reset);
+
+    assertEquals(new ReadFailed(reset), run.complete(100_000));
+    assertEquals(
+        List.of((long) UnitRun.MAX_BATCH_RECORDS, 0L),
+        List.of(inputEvents.get(), inputBytes.get()));
+  }
+
+  @Test
   void theTextsMustMatchThePolicy() {
     assertThrows(
         IllegalArgumentException.class,
