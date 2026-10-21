@@ -1,0 +1,36 @@
+{
+  "batchSizes" : [ 1000 ],
+  "checkpointedAsDone" : false,
+  "counters" : {
+    "input_event_count" : 1000,
+    "input_event_size" : 10759,
+    "input_file_skipped_count{skip_reason=read_error}" : 1
+  },
+  "dlq" : [ ],
+  "failed" : "IllegalStateException",
+  "records" : {
+    "count" : 1000,
+    "first" : [ {
+      "id" : "1",
+      "pad" : "1eef"
+    }, {
+      "id" : "2",
+      "pad" : "3dde"
+    }, {
+      "id" : "3",
+      "pad" : "5ccd"
+    } ],
+    "last" : [ {
+      "id" : "998",
+      "pad" : "7897ba"
+    }, {
+      "id" : "999",
+      "pad" : "78b6a9"
+    }, {
+      "id" : "1000",
+      "pad" : "78d598"
+    } ],
+    "sha256" : "e7c17973c2a20408b6751538032ad2d4659703454f632e8829320ed35af0c9ec"
+  },
+  "secondRunHadOutput" : true
+}

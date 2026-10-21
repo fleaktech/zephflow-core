@@ -1,0 +1,9 @@
+{
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : true,
+  "counters" : { },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ ],
+  "secondRunHadOutput" : false
+}
