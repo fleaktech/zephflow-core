@@ -106,7 +106,8 @@ the differences below.
 
 **Two kinds of DLQ entries.** A **record entry** is written as soon as a bad record is read; its
 value is the record's bytes. A **summary entry** is written at the end of the file; there is one per
-file and kind of problem, it lists every place the problem occurred, and its value is empty.
+file and kind of problem, and its value is empty. It lists where the problem occurred as record
+index ranges, adjacent ones merged: the first 100 ranges are listed and the rest are counted.
 
 | Case | FsSource |
 |---|---|
@@ -124,8 +125,7 @@ failures and outcomes that end the object become summary entries. FsSource ends 
 read and downstream failures. When a file ends early, batches already emitted and record entries
 already written stand; the next run emits and writes them again.
 
-A tool that replays DLQ values as records has to skip empty values, so that summary entries are
-never replayed as records.
+DLQ replay skips empty values, so summary entries are never replayed as records.
 
 **`Action:` texts** are those of the S3 realtime spec, with these differences:
 
@@ -161,7 +161,8 @@ the reason).
 
 **Without a DLQ**, decoder failures are dropped and the file is not read again for them. Record
 failures are counted into the file's summaries instead of record entries, and each summary is logged
-once at error. A `FILE_TOO_LARGE` file is logged at error with its urn, listed size and the cap,
+once at error, per file and kind. This no-DLQ policy is FsSource's only: without a DLQ, the S3
+realtime source logs each entry it would have written at warn, as before. A `FILE_TOO_LARGE` file is logged at error with its urn, listed size and the cap,
 with or without a DLQ. The run's closing error, which counted files "over maxFileBytes", now counts
 files that do not fit in `localSpoolMaxBytes`.
 
@@ -304,6 +305,8 @@ old ones:
 
 ## 5. Compatibility
 
+- No code outside this repository uses the `fssource` classes, so removing `FsPayloadReader` and
+  changing those classes breaks no caller.
 - Existing FsSource configurations stay valid: the change adds two optional fields and makes
   `encodingType` optional.
 - The S3 realtime source's behavior and public classes do not change.
