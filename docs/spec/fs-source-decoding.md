@@ -109,15 +109,15 @@ the differences below.
 
 **Two kinds of DLQ entries.** A **record entry** is written as soon as a bad record is read; its
 value is the record's bytes. A **summary entry** is written at the end of the file; there is one per
-file and kind of problem, and its value is empty. It lists where the problem occurred as record
-index ranges, adjacent ones merged: the first 100 ranges are listed and the rest are counted. The
-one other entry is `FILE_TOO_LARGE`, written instead of reading a file that cannot be read (3.2); its
-value is empty too.
+file and kind of problem (for `OVERSIZED`, one per limit that was exceeded), and its value is
+empty. It lists where the problem occurred as record index ranges, adjacent ones merged: the first
+100 ranges are listed and the rest are counted. The one other entry is `FILE_TOO_LARGE`, written
+instead of reading a file that cannot be read (3.2); its value is empty too.
 
 | Case | FsSource |
 |---|---|
 | How the file is named in texts | `file <urn>` instead of `object s3://…`; first lines say `file` instead of `object` |
-| Record entry (a bad record of at most 128 KiB) | Value: the record's bytes. Metadata: `__md_fs_source_urn`, and `__md_fs_source_record_index` when the record's index is at least 1. The index is the decoder's `recordIndex`, counted from the start of the file: the line number for line framing, else the record's ordinal. Node: the source |
+| Record entry (a bad record of 1 byte to 128 KiB) | Value: the record's bytes. Metadata: `__md_fs_source_urn`, and `__md_fs_source_record_index` when the record's index is at least 1. The index is the decoder's `recordIndex`, counted from the start of the file: the line number for line framing, else the record's ordinal. Node: the source |
 | A terminal `Failed` of a whole document of 1 byte to 128 KiB | A record entry, as above, without the index, so a small bad document keeps its bytes as before. A whole document is a decoder outcome with `recordIndex` -1: json `object`, xml `document`, yaml `document`, protobuf `single`, avro `datum`, and the `encodingType`s JSON_OBJECT and XML. Other terminal `Failed`s, such as a CSV header with duplicate names or an unclosed CSV quote, are summary entries, as in the S3 realtime source |
 | Summary entry: `MALFORMED`, `OVERSIZED`, and a `CORRUPT_COMPRESSION` that does not end the file (an avro block's own codec) | Value: empty. Metadata: `__md_fs_source_urn`. Node: the source |
 | `CORRUPT_COMPRESSION` that ends the file: the file's compression is cut short (for example still being written), damaged, followed by extra bytes, or set wrongly | A read failure |
@@ -135,8 +135,8 @@ records has to skip empty values, so that these entries are never replayed as re
 
 **`Action:` texts** are those of the S3 realtime spec, with these differences:
 
-- A file that was read is not read again, so every summary entry ends with how to get a corrected
-  file read:
+- A file that is done is not read again, so the `Action:` line of every summary entry ends with how
+  to get a corrected file read:
   - with a `fileNameRegex`: "then upload the corrected file under a new name that matches
     fileNameRegex (with a ts no older than the files already read, if the regex has one); a name
     already read is not read again";
@@ -182,8 +182,9 @@ error, which counted files "over maxFileBytes", now counts files that do not fit
 - `inputEventSizeCount` is counted from the records' byte spans, as in the S3 realtime source.
 - `skippedFileCount` keeps its `reason` tag, with the values `read_error`, `downstream_error` and
   `file_too_large`.
-- As before, a run fails when it checkpointed no file as emitted and skipped at least one file for a
-  `read_error` or `downstream_error`.
+- As before, a run fails when no file was read to its end and at least one file was skipped for a
+  `read_error` or `downstream_error`. A `file_too_large` file is checkpointed as done but does not
+  count as read to its end.
 
 ### 3.4 Limits and memory
 
@@ -192,8 +193,9 @@ error, which counted files "over maxFileBytes", now counts files that do not fit
 - **`maxFileBytes` not set:** the limits are proportions of the heap, as in the S3 realtime spec 3.4,
   from the same nominal heap size.
 - The codec memory cap (xz), the batch cap and the in-memory accounting are those of the S3 realtime
-  spec. A batch holds at most 1,000 records and at most min(4 MiB, heap/512) of estimated size.
-- `chunkSizeBytes` is accepted and ignored.
+  spec. A batch is emitted when it reaches 1,000 records or min(4 MiB, heap/512) of estimated
+  size; the record that reaches the size cap is part of the batch.
+- `chunkSizeBytes` has no effect. If it is set, it must still be positive.
 - Disk: at most one copy of up to `localSpoolMaxBytes` per task process.
 
 ### 3.5 Shared code
@@ -234,7 +236,7 @@ S3 realtime test stays unchanged. The shared code has its own tests.
 | `encodingType` | No longer required. Mapped as in the S3 realtime spec 4.1; gzip is still detected automatically |
 | `decoding` | New: a `DecodingConfig` (the generic decoder spec, 4). Exactly one of `encodingType` and `decoding` must be set |
 | `maxFileBytes` | Now the record and document limit (3.4), not a cap on what is buffered |
-| `chunkSizeBytes` | Accepted and ignored (3.4) |
+| `chunkSizeBytes` | No effect (3.4). If set, it must still be positive, as before |
 | `localSpoolMaxBytes` | New, optional, positive; default 1 GiB (3.2) |
 
 The validator compiles the decoding configuration, so a bad one fails validation, not the first
@@ -290,8 +292,8 @@ old ones:
      fails.
    - gzip followed by extra bytes after its last member is a `CORRUPT_COMPRESSION` that ends the
      file, so it is a read failure. The file is read again on every run until it is rewritten, and a
-     run in which no other file is emitted fails (section 8). Before, the extra bytes were ignored
-     and the file was read once.
+     run in which no other file is read to its end fails (section 8). Before, the extra bytes were
+     ignored and the file was read once.
 
    Apart from CSV quoting, bad lines and records were already dead-lettered one by one, so "bad data
    loses only itself" is not a change. A gzip file that is cut short or damaged is a read failure
@@ -302,8 +304,8 @@ old ones:
    stack trace. A bad record over 128 KiB is listed in its file's summary instead of getting an entry
    with its bytes. Files now get summary entries with empty values (3.3).
 8. **Without a DLQ, a file whose records all fail is done.** Before, it was read again on every run
-   (`nothing_deserialized` is gone). It counts as emitted, so a run in which every file fails to
-   decode succeeds, where it failed before.
+   (`nothing_deserialized` is gone). It counts as read to its end, so a run in which every file
+   fails to decode succeeds, where it failed before.
 9. **Remote files are copied to local disk** before they are decoded (3.2), with up to 3 attempts.
 10. **`chunkSizeBytes` has no effect.** Batches are bounded as in 3.4.
 11. **`skippedFileCount`** no longer has the reason `nothing_deserialized`, and `file_too_large`
@@ -346,16 +348,17 @@ The first plan is the version of this design that was agreed before implementati
   run in PR 3.
 - **No startup sweep of leftover spool directories.** The plan swept them at startup. That is not
   done, because two processes sharing a working directory would delete each other's copies. A runner
-  that gives each task its own working directory and deletes it when the task exits removes them
-  anyway. Elsewhere, a killed run can leave one copy behind (8).
+  that gives each task its own working directory and deletes it when the task exits removes a
+  directory created there. A directory created under `java.io.tmpdir` (3.2) is not removed that way,
+  and a killed run can leave one copy behind there (8).
 - **Downstream failures and compression failures.** The plan first marked a file done after a
   downstream failure, with a summary entry per failing node, and treated only a cut-short compressed
   file as a read failure. During review, both changed: a downstream failure keeps the old handling
   (the file is read again), and every compression failure that ends a file is a read failure.
 - **Length check tests.** The plan tested the streamed input's length check with each backend's
   stream. The check wraps whatever stream the backend returns, so it is tested with a plain stream
-  and with the AWS SDK's `AbortableInputStream` (the S3 backend's kind), not with each backend's
-  stream class.
+  and with the AWS SDK's `AbortableInputStream`, which, like the S3 backend's stream, implements
+  `Abortable`. It is not tested with each backend's stream class.
 
 ## 7. Testing
 
@@ -396,12 +399,13 @@ The first plan is the version of this design that was agreed before implementati
     `maxRecordBytes` as `OVERSIZED`;
   - a JSON_ARRAY oversized element ending the file;
   - a read failure, a cut-short gzip, gzip followed by extra bytes, and, in PR 4, a cut-short bzip2
-    and snappy file. Each holds the watermark, drops the open batch, and is read again on the next
-    run, with its summaries written once and the whole counter set checked
+    and snappy file. Each holds the watermark, drops the open batch, writes no summary entries, and
+    is read again on the next run, with its record entries written again and the whole counter set
+    checked
     (`deserializeFailureCount` only for the record outcomes before the failure,
     `skippedFileCount{reason=read_error}` +1);
   - in PR 4, an avro block with a damaged codec summarized;
-  - the info line per file; no DLQ; the run failing when no file was emitted.
+  - the info line per file; no DLQ; the run failing when no file was read to its end.
 - **Downstream**, through a real `DagExecutor`: a node failing a record with a DLQ (the file is held
   and read again), the same without a DLQ (the file is done, and the runner counts the failure), and
   a node failing to initialize, with and without a DLQ (the file is held and the run fails).
@@ -418,8 +422,9 @@ The first plan is the version of this design that was agreed before implementati
   its records emitted again.
 - A parquet file that does not fit in `localSpoolMaxBytes` is not read and is marked done. To read
   it, raise the cap and upload the file again under a new name.
-- Files are assumed complete when listed, except for a compressed file whose decompression fails
-  (3.3). These files are marked done with what was read so far:
+- Files are assumed complete when listed. A compressed file whose decompression fails is a read
+  failure and is read again (3.3). The following files, though, end the way a complete file ends,
+  so they are marked done with what was read so far:
   - an uncompressed file still being written: a partial last record becomes a `MALFORMED` record
     entry, as before;
   - a compressed file cut exactly between gzip members, zstd or lz4 frames, or snappy chunks: it
@@ -430,11 +435,13 @@ The first plan is the version of this design that was agreed before implementati
   `fileNameRegex` should exclude files in progress.
 - A compressed file that never decodes (damaged, followed by extra bytes, or with a wrong
   compression setting) is read again on every run, and holds its bucket's watermark until it is
-  rewritten. The error log and `read_error` show it. When no other file of the run is emitted, the
-  run fails. If the runner retries a failed run, each attempt emits the batches decoded before the
-  failure again and writes its record entries again. The old code did the same for its read errors.
-- A run killed while copying can leave one copy of up to `localSpoolMaxBytes` in the working
-  directory or `java.io.tmpdir`, unless the runner deletes the task's working directory (6.1).
+  rewritten. The error log and `read_error` show it. When no other file of the run is read to its
+  end, the run fails. If the runner retries a failed run, each attempt emits the batches decoded
+  before the failure again and writes its record entries again. The old code did the same for its
+  read errors.
+- A run killed while copying can leave one copy of up to `localSpoolMaxBytes`. In the working
+  directory, a runner that deletes the task's working directory removes it. Under
+  `java.io.tmpdir`, nothing removes it (6.1).
 - A tool that replays a DLQ and deletes the DLQ files it has read also deletes the summary entries
   in them. Act on the summaries of files already done before such a replay.
 - A read or downstream failure that repeats on every run (a damaged gzip file, or a node that always
