@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -52,8 +51,22 @@ class FsFileDecoderTest {
 
   private final List<Entry> dlq = new ArrayList<>();
 
-  @Test
-  void aParquetFileOverTheSpoolCapIsTooLargeDeadLetteredAndLogged() {
+  static Stream<Arguments> tooLargeFiles() {
+    return Stream.of(
+        Arguments.of(
+            100L,
+            "is over localSpoolMaxBytes 4",
+            "file " + URN + " (listed size 100) does not fit in localSpoolMaxBytes 4"),
+        Arguments.of(
+            0L,
+            "grew past localSpoolMaxBytes 4 while being copied",
+            "file " + URN + " (listed size 0) grew past localSpoolMaxBytes 4 while being copied"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("tooLargeFiles")
+  void aParquetFileOverTheSpoolCapIsTooLargeDeadLetteredAndLogged(
+      long listedSize, String overCap, String detail) {
     FsFileDecoder decoder =
         new FsFileDecoder(
             new SourceDecoding(
@@ -77,7 +90,7 @@ class FsFileDecoderTest {
         access) {
       FsFileDecoder.Result result =
           decoder.decode(
-              new FileEntry(FileKey.of(URN), 100, Instant.EPOCH, "data.parquet"),
+              new FileEntry(FileKey.of(URN), listedSize, Instant.EPOCH, "data.parquet"),
               access,
               emitter());
 
@@ -86,11 +99,13 @@ class FsFileDecoderTest {
           List.of(
               "fs_source drop file urn="
                   + URN
-                  + " reason=file_too_large listedSizeBytes=100: a parquet file needs random access"
-                  + " and is over localSpoolMaxBytes 4, so it is not read. It is checkpointed as"
-                  + " done and will not be retried; raise localSpoolMaxBytes above its size, then"
-                  + " upload the corrected file under a new name; a name already read is not read"
-                  + " again"),
+                  + " reason=file_too_large listedSizeBytes="
+                  + listedSize
+                  + ": a parquet file needs random access and "
+                  + overCap
+                  + ", so it is not read. It is checkpointed as done and will not be retried; raise"
+                  + " localSpoolMaxBytes above its size, then upload the corrected file under a"
+                  + " new name; a name already read is not read again"),
           logs.events().stream()
               .filter(e -> e.getLevel() == Level.ERROR)
               .map(e -> e.getMessage().getFormattedMessage())
@@ -106,7 +121,7 @@ class FsFileDecoderTest {
                     "Action: raise localSpoolMaxBytes above the file's size, with that much free"
                         + " disk where the task runs; then upload the corrected file under a new"
                         + " name; a name already read is not read again",
-                    "file " + URN + " (listed size 100) does not fit in localSpoolMaxBytes 4"),
+                    detail),
                 "source")),
         dlq);
   }

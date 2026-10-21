@@ -135,7 +135,7 @@ final class FsFileDecoder {
             case Copied copied -> copied.input();
             case Streamed streamed -> streamed.input();
             case TooLarge tooLarge -> {
-              tooLarge(entry, emitter);
+              tooLarge(entry, tooLarge.grewPast(), emitter);
               yield null;
             }
           };
@@ -164,17 +164,21 @@ final class FsFileDecoder {
     }
   }
 
-  private void tooLarge(FileEntry entry, Emitter emitter) {
+  private void tooLarge(FileEntry entry, boolean grewPast, Emitter emitter) {
     String urn = entry.key().urn();
+    String overCap =
+        grewPast
+            ? "grew past localSpoolMaxBytes " + localSpoolMaxBytes + " while being copied"
+            : "is over localSpoolMaxBytes " + localSpoolMaxBytes;
     log.error(
         "fs_source drop file urn={} reason={} listedSizeBytes={}: a {} file needs random access"
-            + " and is over localSpoolMaxBytes {}, so it is not read. It is checkpointed as done and"
-            + " will not be retried; raise localSpoolMaxBytes above its size, {}",
+            + " and {}, so it is not read. It is checkpointed as done and will not be retried;"
+            + " raise localSpoolMaxBytes above its size, {}",
         urn,
         FsSourceCommand.SKIP_REASON_FILE_TOO_LARGE,
         entry.size(),
         format,
-        localSpoolMaxBytes,
+        overCap,
         retry);
     if (settings.dlqWriter() != null) {
       new UnitRun(settings, counters, new FileUnit(urn), emitter)
@@ -188,8 +192,10 @@ final class FsFileDecoder {
                   + urn
                   + " (listed size "
                   + entry.size()
-                  + ") does not fit in localSpoolMaxBytes "
-                  + localSpoolMaxBytes);
+                  + ") "
+                  + (grewPast
+                      ? overCap
+                      : "does not fit in localSpoolMaxBytes " + localSpoolMaxBytes));
     }
   }
 

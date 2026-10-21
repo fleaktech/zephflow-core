@@ -412,7 +412,7 @@ class FsFileAccessTest {
     bodies.add(() -> new ByteArrayInputStream(DATA));
 
     assertEquals(
-        List.of(new TooLarge(), new TooLarge()),
+        List.of(new TooLarge(false), new TooLarge(true)),
         List.of(
             access(4).open(entry(DATA.length), true),
             access(DATA.length - 1).open(entry(0), true)));

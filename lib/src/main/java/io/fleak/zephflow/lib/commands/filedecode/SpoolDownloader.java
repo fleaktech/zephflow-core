@@ -46,10 +46,6 @@ public final class SpoolDownloader {
   /**
    * @param filePrefix the start of each local copy's name
    */
-  public SpoolDownloader(Path spoolDir, String filePrefix) {
-    this(spoolDir, filePrefix, Files::newOutputStream);
-  }
-
   public SpoolDownloader(Path spoolDir, String filePrefix, OutputOpener outputOpener) {
     this.spoolDir = spoolDir;
     this.filePrefix = filePrefix;
