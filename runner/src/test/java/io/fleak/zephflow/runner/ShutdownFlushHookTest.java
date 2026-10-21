@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.runner;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -60,6 +62,54 @@ class ShutdownFlushHookTest {
     slowHook.stopAndFlush();
 
     verify(runner).terminate();
+  }
+
+  @Test
+  void sourceFailingToStop_isFlushedByTheHook() {
+    when(source.requestStop()).thenThrow(new IllegalStateException("closed"));
+
+    hook.stopAndFlush();
+
+    verify(runner).terminate();
+  }
+
+  @Test
+  void interruptedWait_isFlushedByTheHookAndKeepsTheInterrupt() {
+    when(source.requestStop()).thenReturn(true);
+    Thread.currentThread().interrupt();
+
+    hook.stopAndFlush();
+
+    assertTrue(Thread.interrupted());
+    verify(runner).terminate();
+  }
+
+  @Test
+  void install_registersTheHookAndFinishingRemovesIt() {
+    Runtime runtime = mock(Runtime.class);
+    ShutdownFlushHook installedHook =
+        new ShutdownFlushHook(source, runner, Duration.ofMillis(200), runtime);
+
+    installedHook.install();
+    installedHook.pipelineFinished();
+
+    verify(runtime).addShutdownHook(any(Thread.class));
+    verify(runtime).removeShutdownHook(any(Thread.class));
+  }
+
+  @Test
+  void pipelineFinishingDuringShutdown_letsTheRunningHookReturn() {
+    Runtime runtime = mock(Runtime.class);
+    when(runtime.removeShutdownHook(any(Thread.class)))
+        .thenThrow(new IllegalStateException("Shutdown in progress"));
+    ShutdownFlushHook runningHook =
+        new ShutdownFlushHook(source, runner, Duration.ofMillis(200), runtime);
+
+    runningHook.pipelineFinished();
+    runningHook.stopAndFlush();
+
+    verify(source, never()).requestStop();
+    verify(runner, never()).terminate();
   }
 
   @Test

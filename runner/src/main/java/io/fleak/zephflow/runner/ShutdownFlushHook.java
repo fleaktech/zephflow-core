@@ -38,25 +38,35 @@ final class ShutdownFlushHook {
   private final SourceCommand sourceCommand;
   private final NoSourceDagRunner noSourceDagRunner;
   private final Duration timeout;
+  private final Runtime runtime;
   private final CountDownLatch pipelineFinished = new CountDownLatch(1);
   private final Thread thread = new Thread(this::stopAndFlush, "zephflow-shutdown-flush");
 
   ShutdownFlushHook(
       SourceCommand sourceCommand, NoSourceDagRunner noSourceDagRunner, Duration timeout) {
+    this(sourceCommand, noSourceDagRunner, timeout, Runtime.getRuntime());
+  }
+
+  ShutdownFlushHook(
+      SourceCommand sourceCommand,
+      NoSourceDagRunner noSourceDagRunner,
+      Duration timeout,
+      Runtime runtime) {
     this.sourceCommand = sourceCommand;
     this.noSourceDagRunner = noSourceDagRunner;
     this.timeout = timeout;
+    this.runtime = runtime;
   }
 
   void install() {
-    Runtime.getRuntime().addShutdownHook(thread);
+    runtime.addShutdownHook(thread);
   }
 
   /** Called by the pipeline thread once it has finished and flushed, normally or not. */
   void pipelineFinished() {
     pipelineFinished.countDown();
     try {
-      Runtime.getRuntime().removeShutdownHook(thread);
+      runtime.removeShutdownHook(thread);
     } catch (IllegalStateException e) {
       // The JVM is already shutting down, so the hook is running and sees the latch.
     }
