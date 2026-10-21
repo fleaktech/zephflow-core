@@ -18,6 +18,11 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -110,23 +115,6 @@ class ActiveMqSourceConfigValidatorTest {
             IllegalArgumentException.class,
             () -> validator.validateConfig(config, "test-node", mockJobContext));
     assertTrue(ex.getMessage().contains("no destination is provided"));
-  }
-
-  @Test
-  void testMissingEncodingType() {
-    ActiveMqSourceDto.Config config =
-        ActiveMqSourceDto.Config.builder()
-            .brokerUrl("tcp://localhost:61616")
-            .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
-            .destination("test-queue")
-            .encodingType(null)
-            .build();
-
-    NullPointerException ex =
-        assertThrows(
-            NullPointerException.class,
-            () -> validator.validateConfig(config, "test-node", mockJobContext));
-    assertTrue(ex.getMessage().contains("no encoding type is provided"));
   }
 
   @Test
@@ -236,5 +224,63 @@ class ActiveMqSourceConfigValidatorTest {
             IllegalArgumentException.class,
             () -> validator.validateConfig(config, "test-node", mockJobContext));
     assertTrue(ex.getMessage().contains("Unsupported deserialization encoding type"));
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    ActiveMqSourceDto.Config config = decodingBase().build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    ActiveMqSourceDto.Config config =
+        decodingBase()
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    ActiveMqSourceDto.Config config =
+        decodingBase()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    ActiveMqSourceDto.Config config =
+        decodingBase()
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private String decodingRejection(ActiveMqSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", mockJobContext))
+        .getMessage();
+  }
+
+  private static ActiveMqSourceDto.Config.ConfigBuilder decodingBase() {
+    return ActiveMqSourceDto.Config.builder()
+        .brokerUrl("tcp://localhost:61616")
+        .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
+        .destination("test-queue");
   }
 }

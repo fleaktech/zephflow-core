@@ -29,8 +29,7 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
@@ -162,10 +161,14 @@ public class AzureEventHubSourceCommand extends SimpleSourceCommand<SerializedEv
 
   private RawDataConverter<SerializedEvent> createRawDataConverter(
       AzureEventHubSourceDto.Config config) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    return new BytesRawDataConverter(deserializer);
+    return new MessageDecodingConverter(
+        decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE);
+  }
+
+  /** The decoding of the messages; {@code encodingType} decompresses nothing, as before. */
+  static DecodingConfig decodingConfig(AzureEventHubSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), false);
   }
 
   private CommitStrategy createCommitStrategy(AzureEventHubSourceDto.Config config) {

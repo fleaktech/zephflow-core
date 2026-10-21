@@ -18,10 +18,17 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -30,11 +37,11 @@ class KinesisSourceConfigValidatorTest {
   static final JobContext KINESIS_SOURCE_TEST_JOB_CONTEXT =
       JobContext.builder().metricTags(TestUtils.JOB_CONTEXT.getMetricTags()).build();
 
+  private final KinesisSourceConfigValidator validator = new KinesisSourceConfigValidator();
+
   @ParameterizedTest
   @MethodSource("testData")
   void validateConfig(CommandConfig config, boolean error) {
-    KinesisSourceConfigValidator validator = new KinesisSourceConfigValidator();
-
     if (error) {
       var ex =
           assertThrows(
@@ -158,5 +165,77 @@ class KinesisSourceConfigValidatorTest {
                 .streamName("test")
                 .build(),
             true));
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    KinesisSourceDto.Config config = decodingBase().build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    KinesisSourceDto.Config config =
+        decodingBase()
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(
+        () -> validator.validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    KinesisSourceDto.Config config =
+        decodingBase()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    KinesisSourceDto.Config config =
+        decodingBase()
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private String decodingRejection(KinesisSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT))
+        .getMessage();
+  }
+
+  @Test
+  void compressionTypesAreRejected() {
+    KinesisSourceDto.Config config =
+        decodingBase()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .compressionTypes(List.of(CompressionType.GZIP))
+            .build();
+
+    assertEquals(
+        "compressionTypes is no longer supported; set decoding with the compression instead",
+        decodingRejection(config));
+  }
+
+  private static KinesisSourceDto.Config.ConfigBuilder decodingBase() {
+    return KinesisSourceDto.Config.builder()
+        .applicationName("test")
+        .regionStr("us-east-1")
+        .streamName("test");
   }
 }

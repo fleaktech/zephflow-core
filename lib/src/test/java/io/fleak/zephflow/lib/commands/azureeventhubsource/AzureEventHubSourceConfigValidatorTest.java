@@ -18,6 +18,11 @@ import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AzureEventHubSourceConfigValidatorTest {
@@ -115,12 +120,6 @@ class AzureEventHubSourceConfigValidatorTest {
   }
 
   @Test
-  void rejectsMissingEncodingType() {
-    var config = validConnectionStringConfig().encodingType(null).build();
-    assertThrows(Exception.class, () -> validate(config));
-  }
-
-  @Test
   void rejectsNonPositiveBufferSizes() {
     assertThrows(
         IllegalArgumentException.class,
@@ -140,5 +139,56 @@ class AzureEventHubSourceConfigValidatorTest {
                     .commitStrategy(AzureEventHubSourceDto.CommitStrategyType.BATCH)
                     .commitBatchSize(0)
                     .build()));
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    AzureEventHubSourceDto.Config config = validConnectionStringConfig().encodingType(null).build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    AzureEventHubSourceDto.Config config =
+        validConnectionStringConfig()
+            .encodingType(null)
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(() -> validate(config));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    AzureEventHubSourceDto.Config config =
+        validConnectionStringConfig()
+            .encodingType(null)
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    AzureEventHubSourceDto.Config config =
+        validConnectionStringConfig()
+            .encodingType(null)
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private String decodingRejection(AzureEventHubSourceDto.Config config) {
+    return assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage();
   }
 }

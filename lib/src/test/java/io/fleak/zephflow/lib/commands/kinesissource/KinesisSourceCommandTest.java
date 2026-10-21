@@ -23,7 +23,9 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -77,7 +79,9 @@ public class KinesisSourceCommandTest {
 
     var config =
         KinesisSourceDto.Config.builder()
-            .encodingType(EncodingType.TEXT)
+            .decoding(
+                new DecodingConfig(
+                    List.of(), new TextFormatConfig(null, new FramingConfig.Whole())))
             .streamName(STREAM_NAME)
             .regionStr(LOCALSTACK.getRegion())
             .applicationName(APPLICATION_NAME)
