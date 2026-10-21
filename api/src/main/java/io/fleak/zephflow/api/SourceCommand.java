@@ -29,6 +29,17 @@ public abstract class SourceCommand extends OperatorCommand {
 
   public abstract SourceType sourceType();
 
+  /**
+   * Asks a running {@link #execute} to stop taking input and return, which ends the pipeline with
+   * its end-of-input flush. Unlike {@link #terminate}, it releases nothing, so it is safe to call
+   * from another thread while {@code execute} is fetching.
+   *
+   * @return whether this source will stop; the default cannot be stopped this way
+   */
+  public boolean requestStop() {
+    return false;
+  }
+
   public enum SourceType {
     BATCH,
     STREAMING
