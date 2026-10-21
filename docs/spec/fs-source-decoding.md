@@ -14,8 +14,9 @@ Before this change, `FsPayloadReader` read a file in one of three ways, chosen b
 - **JSON_OBJECT, TEXT and XML** read the whole file into memory (up to `maxFileBytes`, default
   256 MiB) and parsed it at once. A large file could take several times its size in heap.
 - **JSON_OBJECT_LINE and STRING_LINE** were parsed in chunks of `chunkSizeBytes`. **CSV and
-  JSON_ARRAY** were streamed. In all four, a line or record over `maxFileBytes` made the source skip
-  the whole file and checkpoint it as done, so the records after it were never read.
+  JSON_ARRAY** were streamed. In all four, once a line or record was found to be over
+  `maxFileBytes` (4.1 item 1 says when the old code checked), the source skipped the whole file and
+  checkpointed it as done, so the records after it were never read.
 - **Formats:** only the seven legacy encodings and gzip. No parquet, avro, protobuf, yaml, multiline
   events, zstd or xz.
 
@@ -50,9 +51,10 @@ start of a chunk, not from the start of the file.
 
 ### 3.1 Per file
 
-A run lists, filters and selects files as before. It checks `terminate()` before each file, as
-before; a file already being read when the run is told to terminate is read to its end. The selected
-files are handled one at a time, in order:
+A run lists, filters and selects files as before. It checks whether it was told to terminate
+before each file, as before, and does not itself stop a file part way. `terminate()` also closes
+the lister, the backend reader, the checkpoint client and the DLQ writer, as before, so a file
+being read at that moment can fail. The selected files are handled one at a time, in order:
 
 1. The file's bytes are made available (3.2). A failure here is a read failure (3.3).
 2. The compiled `RecordDecoder` decodes the bytes, with the limits of 3.4.
@@ -65,8 +67,9 @@ files are handled one at a time, in order:
    deleted, and the file is checkpointed as done.
 
 A read failure or a downstream failure (3.3) ends the file early. The batch being collected is
-dropped, not emitted. No summary entries are written. The file is not checkpointed, so its bucket's
-watermark stays where it was, and the next run reads the file again from the start.
+dropped, not emitted. No summary entries are written. The file is not checkpointed, and its
+bucket's watermark cannot advance past the file's timestamp, so the next run reads the file again
+from the start.
 
 ### 3.2 Getting the bytes
 
@@ -84,8 +87,8 @@ realtime source (3.5):
   size is accepted, because the file changed after it was listed.
 - **Size cap.** The copy never grows past `localSpoolMaxBytes` (default 1 GiB). A file that does not
   fit is not kept on disk. That is a file listed over the cap, which is not copied at all, or a file
-  whose copy reaches the cap because the file grew or because GCS or Azure listed its size as 0, in
-  which case the partial copy is deleted.
+  whose copy would grow past the cap because the file grew or because GCS or Azure listed its size
+  as 0, in which case the partial copy is deleted. A file of exactly `localSpoolMaxBytes` fits.
 - **A file that does not fit** is decoded from a stream opened with `FileReader.open(key, 0)`, in the
   same bounded memory. The stream is wrapped so that ending before the listed size throws, because
   no backend stream checks this itself. If the stream breaks, the file cannot resume where it
@@ -94,8 +97,8 @@ realtime source (3.5):
   not fit is not read; it gets a `FILE_TOO_LARGE` entry (3.3) and is checkpointed as done.
 
 **Spool directory.** It works like the S3 realtime source's (its 3.2), with its own name prefix
-(`fs-spool-`). It is created under the JVM's working directory, or under `java.io.tmpdir` when the
-working directory is not writable. It is created on the first copy and deleted when `execute`
+(`fs-spool-`). It is created under the JVM's working directory, or under `java.io.tmpdir` when
+creating it there fails. It is created on the first copy and deleted when `execute`
 returns or throws. Files are handled one at a time, so it holds at most one copy. Leftover
 directories from a killed process are not removed at startup (6.1).
 
@@ -107,7 +110,9 @@ the differences below.
 **Two kinds of DLQ entries.** A **record entry** is written as soon as a bad record is read; its
 value is the record's bytes. A **summary entry** is written at the end of the file; there is one per
 file and kind of problem, and its value is empty. It lists where the problem occurred as record
-index ranges, adjacent ones merged: the first 100 ranges are listed and the rest are counted.
+index ranges, adjacent ones merged: the first 100 ranges are listed and the rest are counted. The
+one other entry is `FILE_TOO_LARGE`, written instead of reading a file that cannot be read (3.2); its
+value is empty too.
 
 | Case | FsSource |
 |---|---|
@@ -125,7 +130,8 @@ failures and outcomes that end the object become summary entries. FsSource ends 
 read and downstream failures. When a file ends early, batches already emitted and record entries
 already written stand; the next run emits and writes them again.
 
-DLQ replay skips empty values, so summary entries are never replayed as records.
+Summary entries and `FILE_TOO_LARGE` entries are not records. A tool that replays DLQ values as
+records has to skip empty values, so that these entries are never replayed as records.
 
 **`Action:` texts** are those of the S3 realtime spec, with these differences:
 
@@ -148,12 +154,12 @@ DLQ replay skips empty values, so summary entries are never replayed as records.
   say whether the file was listed over the cap or its copy grew past it.
 - A `CORRUPT_COMPRESSION` that does not end the file (an avro block's own codec): "a block's
   compressed data is damaged; rewrite the avro file", followed by the text above about a new name.
-- A read failure's log line says what to check: the backend's read permission, the network, and
-  free disk where the task runs. For a compression failure it also says to check whether the file
-  was still being written, the compression setting (`decoding.compression`, or gzip detected
-  automatically for `encodingType`), and whether the compressed data is damaged or followed by extra
-  bytes, in which case the file has to be rewritten. It says that the file is read again on every
-  run until then.
+- A read failure's log line says that the file is read again on every run until it is fixed, and
+  what to check. For a compression failure, that is whether the file was still being written, the
+  compression setting (`decoding.compression`, or gzip detected automatically for `encodingType`),
+  and whether the compressed data is damaged or followed by extra bytes, in which case the file has
+  to be rewritten. For any other read failure, it is the backend's read permission, the network, and
+  free disk where the task runs.
 
 **Info log.** Each file read is logged at info once, with the urn, the listed size, and how it was
 read: in place, from a local copy (with the copy's path and the bytes copied), or streamed (with
@@ -162,9 +168,10 @@ the reason).
 **Without a DLQ**, decoder failures are dropped and the file is not read again for them. Record
 failures are counted into the file's summaries instead of record entries, and each summary is logged
 once at error, per file and kind. This no-DLQ policy is FsSource's only: without a DLQ, the S3
-realtime source logs each entry it would have written at warn, as before. A `FILE_TOO_LARGE` file is logged at error with its urn, listed size and the cap,
-with or without a DLQ. The run's closing error, which counted files "over maxFileBytes", now counts
-files that do not fit in `localSpoolMaxBytes`.
+realtime source logs each entry it would have written at warn, as before. A `FILE_TOO_LARGE` file
+is logged at error with its urn, listed size and the cap, with or without a DLQ. The run's closing
+error, which counted files "over maxFileBytes", now counts files that do not fit in
+`localSpoolMaxBytes`.
 
 **A DLQ write that throws** is logged, and the file goes on (the S3 realtime spec 3.3).
 
@@ -191,25 +198,30 @@ files that do not fit in `localSpoolMaxBytes`.
 
 ### 3.5 Shared code
 
-The parts of `s3realtimesource` that do not depend on S3 move to the package
-`io.fleak.zephflow.lib.commands.filedecode`, and both sources use them:
+The parts of `s3realtimesource` that do not depend on S3 move to new classes in the package
+`io.fleak.zephflow.lib.commands.filedecode`, and both sources use them. Each item names the S3
+realtime class it comes from and the shared class it becomes:
 
-- the decoding inputs and the `encodingType` mapping (`S3Decoding` without `addS3Metadata`);
-- the heap-derived limits (`S3DecodeLimits`), with the `maxFileBytes` override;
-- the download loop of `S3ObjectDownloader`, over an opener of `InputStream`s. It covers the
+- the decoding inputs and the `encodingType` mapping: from `S3Decoding`, without `addS3Metadata`, to
+  `SourceDecoding`;
+- the heap-derived limits, with the `maxFileBytes` override: from `S3DecodeLimits` to
+  `HeapDecodeLimits`;
+- the download loop, over an opener of `InputStream`s: from `S3ObjectDownloader` to
+  `SpoolDownloader`. It covers the
   attempts, the partial copy, the rules for what is not retried, the length check (an exact length
   for S3, at least the listed size for FsSource), the size cap, and aborting a stream left early when
   the stream supports it (the AWS SDK's `Abortable`, which the FsSource S3 backend's stream is). The
   S3 `GetObject`, `NoSuchKey` and too-large handling stay in `s3realtimesource`. The streamed input
   of 3.2 aborts the same way when the file ends early;
-- the per-unit run: batching, outcome handling, summaries, record ranges, DLQ texts and writes
-  (`S3RealtimeRawDataConverter.ObjectRun` and its helpers). It is parameterized by the unit's name
-  and noun, the values and metadata of entries, the text about a new name, the limit setting named
-  in actions, the emitter, the stop signal, and the policies of 3.3;
-- `SpoolDirectory`, with a prefix parameter.
+- the per-unit run: batching, outcome handling, summaries, record ranges, DLQ texts and writes:
+  from `S3RealtimeRawDataConverter.ObjectRun` and its helpers to `UnitRun`, `RecordRanges` and
+  `DlqTexts`. It is parameterized by the unit's name and noun, the values and metadata of entries,
+  the text about a new name, the limit setting named in actions, the emitter, the stop signal, and
+  the policies of 3.3;
+- the spool directory, with a prefix parameter: from `SpoolDirectory` to `LocalSpool`.
 
-`S3ObjectDecoder`, `S3Decoding`, `S3ObjectRef` and `S3RegionalClientProvider` stay in
-`s3realtimesource`, with their public signatures, and delegate to the shared code. So do the
+The S3 realtime classes stay where they are. `S3ObjectDecoder`, `S3Decoding`, `S3ObjectRef` and
+`S3RegionalClientProvider` keep their public signatures and delegate to the shared code. So do the
 package-private members the S3 realtime tests use (`S3DecodeLimits`, `SpoolDirectory`,
 `S3ObjectDownloader`, and the converter's `MAX_RECORD_ENTRY_BYTES`, `estimate`, `causeName` and
 `IndexRanges`). They become thin delegates with their current signatures and the S3 prefix, so every
@@ -324,7 +336,9 @@ Small PRs into the integration branch `feature/fs-decoder`, which is then merged
 | 3 | FsSource on the shared run (3.1, 3.3, 3.4), and `FsPayloadReader` removed. The snapshot test's expected results change only for the cases of 4.1 |
 | 4 | `decoding`, `localSpoolMaxBytes` and the validator (4) |
 
-### 6.1 Deviations from the original plan
+### 6.1 Deviations from the first plan
+
+The first plan is the version of this design that was agreed before implementation started.
 
 - **PR split.** The plan had one PR for the read path and one for downstream and no-DLQ handling.
   The read path is split into byte access (PR 2) and the run (PR 3) to keep each PR small. There is
@@ -338,6 +352,10 @@ Small PRs into the integration branch `feature/fs-decoder`, which is then merged
   downstream failure, with a summary entry per failing node, and treated only a cut-short compressed
   file as a read failure. During review, both changed: a downstream failure keeps the old handling
   (the file is read again), and every compression failure that ends a file is a read failure.
+- **Length check tests.** The plan tested the streamed input's length check with each backend's
+  stream. The check wraps whatever stream the backend returns, so it is tested with a plain stream
+  and with the AWS SDK's `AbortableInputStream` (the S3 backend's kind), not with each backend's
+  stream class.
 
 ## 7. Testing
 
