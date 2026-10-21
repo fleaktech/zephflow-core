@@ -45,6 +45,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
+import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -55,6 +56,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.logging.log4j.Level;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -180,7 +182,21 @@ class MessageDecodingConverterTest {
   void malformedRecordFailsTheWholeMessage() {
     SerializedEvent message = message("{\"a\":1}\nnot json\n{\"a\":3}\n");
 
-    ConvertedResult<SerializedEvent> result = convert(JSON_LINES, message);
+    ConvertedResult<SerializedEvent> result;
+    List<String> errors;
+    try (BoundedLogCapture logs = new BoundedLogCapture(MessageDecodingConverter.class)) {
+      result = convert(JSON_LINES, message);
+      errors =
+          logs.events().stream()
+              .filter(e -> e.getLevel() == Level.ERROR)
+              .map(e -> e.getMessage().getFormattedMessage())
+              .toList();
+    }
+
+    assertEquals(
+        List.of(
+            "failed to deserialize event: MALFORMED json message: JsonParseException\n" + message),
+        errors);
 
     Throwable cause = result.error().getCause();
     assertEquals(
@@ -292,6 +308,26 @@ class MessageDecodingConverterTest {
                 + "\nand 1 more problem",
             message),
         Failure.of(result));
+  }
+
+  @Test
+  void openEndedSpanGivesOnlyTheIndex() {
+    Exception cause = new IllegalArgumentException("bad");
+    RecordDecoder decoder =
+        stub(
+            new DecodeResult(
+                List.of(),
+                List.of(
+                    new DecodeOutcome.Failed(
+                        ErrorKind.MALFORMED, null, 2, RawSpan.toEnd(5), cause, true))));
+    SerializedEvent message = message("x");
+
+    ConvertedResult<SerializedEvent> result =
+        new MessageDecodingConverter(
+                decoder, JSON_LINES.format(), MessageDecodingConverter.Unit.MESSAGE)
+            .convert(message, context);
+
+    assertEquals("recordIndex 2", Failure.of(result).dlqText().lines().toList().getLast());
   }
 
   @Test
