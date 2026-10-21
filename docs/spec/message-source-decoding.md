@@ -208,9 +208,8 @@ These behaviors change, with no switch to keep the old ones:
    - XML: a `DOCTYPE`, text after the root element, or a second root element;
    - Kafka: gzip followed by extra bytes after its end;
    - CSV: a header or row of more than 16,384 columns (legacy: accepted);
-   - JSON and XML: Jackson's and Woodstox's default limits are lifted, so a JSON string over 20
-     million characters, a JSON name over 50,000 characters, an XML attribute value over 524,288
-     characters, or an element with more than 1,000 attributes now decodes (legacy: failed);
+   - JSON: Jackson's default length limits are lifted, so a string over 20 million characters or a
+     name over 50,000 characters now decodes (legacy: failed);
    - a leading byte-order mark is removed in STRING_LINE, TEXT and CSV (legacy kept it in the first
      line, the text or the first header name); JSON_OBJECT_LINE with a byte-order mark now decodes.
 
