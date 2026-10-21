@@ -170,8 +170,9 @@ JSON_OBJECT_LINE message with an array line counts as one failure instead of sev
 ### 3.6 Shared code
 
 `MessageDecodingConverter` reuses `SourceDecoding` (the `encodingType` mapping and the
-`encodingType`/`decoding` check) and `DlqTexts.oversizedText`. It does not use `UnitRun`: a message
-is all or nothing and needs no batching, summaries or record entries.
+`encodingType`/`decoding` check), `DlqTexts.oversizedText`, and `UnitRun.causeName` for the
+exception class in first lines (the innermost cause's class). It does not use the rest of `UnitRun`:
+a message is all or nothing and needs no batching, summaries or record entries.
 
 ## 4. Configuration
 
