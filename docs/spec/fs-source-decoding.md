@@ -98,7 +98,8 @@ realtime source (3.5):
   no backend stream checks this itself. If the stream breaks, the file cannot resume where it
   stopped: it is a read failure, and the next run reads it again from the start.
 - **Parquet** needs random access, so it cannot be decoded from a stream. A parquet file that does
-  not fit is not read; it gets a `FILE_TOO_LARGE` entry (3.3) and is checkpointed as done.
+  not fit is not read. It is logged at error, gets a `FILE_TOO_LARGE` entry when a DLQ is
+  configured (3.3), and is checkpointed as done.
 
 **Spool directory.** It works like the S3 realtime source's (its 3.2), with its own name prefix
 (`fs-spool-`). It is created under the JVM's working directory, or under `java.io.tmpdir` when
@@ -111,7 +112,7 @@ directories from a killed process are not removed at startup (6.1).
 The decoder's outcomes are handled as in the S3 realtime spec 3.3, by the same shared code, with
 the differences below.
 
-**Two kinds of DLQ entries.** A **record entry** is written as soon as a bad record is read; its
+**Kinds of DLQ entries.** A **record entry** is written as soon as a bad record is read; its
 value is the record's bytes. A **summary entry** is written at the end of the file; there is one per
 file and kind of problem (for `OVERSIZED`, one per limit that was exceeded), and its value is
 empty. It lists where the problem occurred as record index ranges, adjacent ones merged: the first
@@ -173,9 +174,9 @@ the reason).
 failures are counted into the file's summaries instead of record entries, and each summary is logged
 once at error, per file and kind. This no-DLQ policy is FsSource's only: without a DLQ, the S3
 realtime source logs each entry it would have written at warn, as before. A `FILE_TOO_LARGE` file
-is logged at error with its urn, listed size and the cap, with or without a DLQ. The run's closing
-error, which counted files "over maxFileBytes", now counts files that do not fit in
-`localSpoolMaxBytes`.
+is logged at error with its urn, listed size and the cap, with or without a DLQ. The error line
+logged at the end of the run, which counted files "over maxFileBytes", now counts files that do
+not fit in `localSpoolMaxBytes`. Such files do not make the run fail.
 
 **A DLQ write that throws** is logged, and the file goes on (the S3 realtime spec 3.3).
 
@@ -187,7 +188,9 @@ error, which counted files "over maxFileBytes", now counts files that do not fit
 - `inputEventCount` and `deserializeFailureCount` are counted as in the S3 realtime source, except
   that read failures are counted only in `skippedFileCount`, as before, not in
   `deserializeFailureCount`.
-- `inputEventSizeCount` is counted from the records' byte spans, as in the S3 realtime source.
+- `inputEventSizeCount` is counted from the records' byte spans, as in the S3 realtime source. For a
+  file that ends early (3.1), it counts up to the end of the last emitted record, so the records of
+  the dropped batch are not counted.
 - `skippedFileCount` keeps its `skip_reason` tag, with the values `read_error`,
   `downstream_error` and `file_too_large`.
 - As before, a run fails when no file finished (3.1) and at least one file was skipped for a
@@ -222,7 +225,7 @@ realtime class it comes from and the shared class it becomes:
   for S3, at least the listed size for FsSource), the size cap, and aborting a stream left early when
   the stream supports it (the AWS SDK's `Abortable`, which the FsSource S3 backend's stream is). The
   S3 `GetObject`, `NoSuchKey` and too-large handling stay in `s3realtimesource`. The streamed input
-  of 3.2 aborts the same way when the file ends early;
+  of 3.2 aborts the same way when it is closed before its end;
 - the per-unit run: batching, outcome handling, summaries, record ranges, DLQ texts and writes:
   from `S3RealtimeRawDataConverter.ObjectRun` and its helpers to `UnitRun`, `RecordRanges` and
   `DlqTexts`. It is parameterized by the unit's name and noun, the values and metadata of entries,
@@ -230,9 +233,9 @@ realtime class it comes from and the shared class it becomes:
   the policies of 3.3;
 - the spool directory, with a prefix parameter: from `SpoolDirectory` to `LocalSpool`.
 
-The S3 realtime classes stay where they are. `S3ObjectDecoder`, `S3Decoding`, `S3ObjectRef` and
-`S3RegionalClientProvider` keep their public signatures and delegate to the shared code. So do the
-package-private members the S3 realtime tests use (`S3DecodeLimits`, `SpoolDirectory`,
+The S3 realtime classes stay where they are. `S3ObjectDecoder` and `S3Decoding` delegate to the
+shared code; they, `S3ObjectRef` and `S3RegionalClientProvider` keep their public signatures. So do
+the package-private members the S3 realtime tests use (`S3DecodeLimits`, `SpoolDirectory`,
 `S3ObjectDownloader`, and the converter's `MAX_RECORD_ENTRY_BYTES`, `estimate`, `causeName` and
 `IndexRanges`). They become thin delegates with their current signatures and the S3 prefix, so every
 S3 realtime test stays unchanged. The shared code has its own tests.
@@ -312,18 +315,19 @@ old ones:
    stack trace. A bad record over 128 KiB is listed in its file's summary instead of getting an entry
    with its bytes. Files now get summary entries with empty values (3.3).
 8. **Without a DLQ, a file whose records all fail is done.** Before, it was read again on every run
-   (`nothing_deserialized` is gone). It finishes (3.1), so a run in which every file fails to decode
-   succeeds, where it failed before.
+   (`nothing_deserialized` is gone). It finishes (3.1), so a run in which every file's records fail
+   to decode succeeds, where it failed before. A file whose decompression fails is still a read
+   failure (3.3).
 9. **Remote files are copied to local disk** before they are decoded (3.2), with up to 3 attempts.
 10. **`chunkSizeBytes` has no effect.** Batches are bounded as in 3.4.
 11. **`skippedFileCount`** no longer has the reason `nothing_deserialized`, and `file_too_large`
-    now means only a parquet file that does not fit in `localSpoolMaxBytes`.
+    now means only a parquet file on a remote backend that does not fit in `localSpoolMaxBytes`.
     **`deserializeFailureCount`** counts every outcome other than `Decoded` and a
     `CORRUPT_COMPRESSION` that ends the file (a read failure). So an oversized line or a CSV header
     failure adds to it; before, an oversized line was a `file_too_large` skip.
 12. **`inputEventSizeCount`** is the end of the last record's byte span (the stored size for formats
-    whose records have no spans, 0 for a file without records). Before, it was every decompressed
-    byte read.
+    whose records have no spans, 0 for a file without records). For a file that ends early (3.1),
+    it is the end of the last emitted record's span. Before, it was every decompressed byte read.
 
 ## 5. Compatibility
 
@@ -367,6 +371,9 @@ The first plan is the version of this design that was agreed before implementati
   stream. The check wraps whatever stream the backend returns, so it is tested with a plain stream
   and with the AWS SDK's `AbortableInputStream`, which, like the S3 backend's stream, implements
   `Abortable`. It is not tested with each backend's stream class.
+- **CSV summaries.** The plan checked the summary texts of CSV duplicate header names and of an
+  unclosed quote within `maxRecordBytes` in the source tests. These two cases are covered only by
+  the snapshot test (7), which checks the DLQ values and metadata, not the texts.
 
 ## 7. Testing
 
@@ -403,8 +410,7 @@ The first plan is the version of this design that was agreed before implementati
   - a small malformed JSON_OBJECT and XML file dead-lettered with its bytes, and one over 128 KiB
     summarized; in PR 4, a small bad yaml `document`, protobuf `single` and avro `datum`, each a
     record entry;
-  - CSV duplicate header names and an unclosed quote summarized, and an unclosed quote over
-    `maxRecordBytes` as `OVERSIZED`;
+  - a CSV unclosed quote over `maxRecordBytes` as `OVERSIZED`;
   - a JSON_ARRAY oversized element ending the file;
   - a read failure, a cut-short gzip, gzip followed by extra bytes, and, in PR 4, a cut-short bzip2
     and snappy file. Each holds the watermark, drops the open batch, writes no summary entries, and
@@ -414,9 +420,10 @@ The first plan is the version of this design that was agreed before implementati
     `skippedFileCount{skip_reason=read_error}` +1);
   - in PR 4, an avro block with a damaged codec summarized;
   - the info line per file; no DLQ; the run failing when no file finished.
-- **Downstream**, through a real `DagExecutor`: a node failing a record with a DLQ (the file is held
-  and read again), the same without a DLQ (the file is done, and the runner counts the failure), and
-  a node failing to initialize, with and without a DLQ (the file is held and the run fails).
+- **Downstream**, through a real `NoSourceDagRunner`, fed as `DagExecutor` feeds it: a node failing
+  a record with a DLQ (the file is held and read again), the same without a DLQ (the file is done,
+  and the runner counts the failure), and a node failing to initialize, with and without a DLQ (the
+  file is held and the run fails).
 - **S3 realtime:** its tests pass unchanged after PR 1.
 - **Configuration:** exactly one of `encodingType` and `decoding`; a bad `decoding` failing
   validation; `PARQUET` rejected; `localSpoolMaxBytes` positive; `chunkSizeBytes` accepted.
@@ -428,8 +435,8 @@ The first plan is the version of this design that was agreed before implementati
 - A file that does not fit in `localSpoolMaxBytes` is decoded from a stream on the backend. If the
   connection breaks, it is a read failure, and the whole file is read again on the next run, with
   its records emitted again.
-- A parquet file that does not fit in `localSpoolMaxBytes` is not read and is marked done. To read
-  it, raise the cap and upload the file again under a new name.
+- A parquet file on a remote backend that does not fit in `localSpoolMaxBytes` is not read and is
+  marked done. To read it, raise the cap and upload the file again under a new name.
 - Files are assumed complete when listed. A compressed file whose decompression fails is a read
   failure and is read again (3.3). The following files, though, end the way a complete file ends,
   so they are marked done with what was read so far:
@@ -443,8 +450,8 @@ The first plan is the version of this design that was agreed before implementati
   `fileNameRegex` should exclude files in progress.
 - A compressed file that never decodes (damaged, followed by extra bytes, or with a wrong
   compression setting) is read again on every run, and holds its bucket's watermark until it is
-  rewritten. The error log and `read_error` show it. When no other file of the run is read to its
-  end, the run fails. If the runner retries a failed run, each attempt emits the batches decoded
+  rewritten. The error log and `read_error` show it. When no other file of the run finishes (3.1),
+  the run fails. If the runner retries a failed run, each attempt emits the batches decoded
   before the failure again and writes its record entries again. The old code did the same for its
   read errors.
 - A run killed while copying can leave one copy of up to `localSpoolMaxBytes`. A copy in the
