@@ -384,8 +384,9 @@ public class KafkaSourceCommandTest {
                   + " says, and that its compression is set when the message is compressed, or fix"
                   + " the producer that wrote it; the DLQ value is the message as received, so it"
                   + " can be sent again",
-              "com.fasterxml.jackson.core.JsonParseException"),
-          List.of(lines.get(0), lines.get(1), lines.get(2).split(":")[0]));
+              "com.fasterxml.jackson.core.JsonParseException",
+              "bytes 0-8"),
+          List.of(lines.get(0), lines.get(1), lines.get(2).split(":")[0], lines.getLast()));
     } finally {
       executor.shutdownNow();
       //noinspection ResultOfMethodCallIgnored

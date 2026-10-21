@@ -25,6 +25,8 @@ import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.compression.GzipDetectingDecompressor;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayOutputStream;
@@ -38,6 +40,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -494,6 +497,24 @@ class MessageDecodingDifferentialTest {
     SerializedEvent message = new SerializedEvent(null, bytes, null);
     assertEquals(
         expected, new Observed(legacy(encodingType, message), decoded(encodingType, message)));
+  }
+
+  @Test
+  void decodingDecompressesOnlyWhatItsCompressionSays() {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            KafkaSourceCommand.decodingConfig(
+                KafkaSourceDto.Config.builder()
+                    .decoding(
+                        new DecodingConfig(
+                            List.of(), new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+                    .build()),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    ConvertedResult<SerializedEvent> result =
+        converter.convert(new SerializedEvent(null, gzip(JSON_LINES), null), context());
+
+    assertEquals("MALFORMED json message: JsonParseException", result.error().getMessage());
   }
 
   private static Arguments same(
