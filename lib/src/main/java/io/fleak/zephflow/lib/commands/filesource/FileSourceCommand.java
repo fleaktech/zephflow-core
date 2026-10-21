@@ -22,8 +22,7 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.io.File;
 import java.util.Map;
 import java.util.Optional;
@@ -80,10 +79,13 @@ public class FileSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   private RawDataConverter<SerializedEvent> createRawDataConverter(FileSourceDto.Config config) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    return new BytesRawDataConverter(deserializer);
+    return new MessageDecodingConverter(decodingConfig(config), MessageDecodingConverter.Unit.FILE);
+  }
+
+  /** The decoding of the file; {@code encodingType} decompresses nothing, as before. */
+  static DecodingConfig decodingConfig(FileSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), false);
   }
 
   @Override
