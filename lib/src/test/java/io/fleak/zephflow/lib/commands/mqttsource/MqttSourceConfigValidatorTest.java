@@ -18,6 +18,11 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -77,17 +82,6 @@ class MqttSourceConfigValidatorTest {
                 validator.validateConfig(
                     validBuilder().clientId("").build(), "test-node", mockJobContext));
     assertTrue(ex.getMessage().contains("no clientId is provided"));
-  }
-
-  @Test
-  void testMissingEncodingType() {
-    NullPointerException ex =
-        assertThrows(
-            NullPointerException.class,
-            () ->
-                validator.validateConfig(
-                    validBuilder().encodingType(null).build(), "test-node", mockJobContext));
-    assertTrue(ex.getMessage().contains("no encoding type is provided"));
   }
 
   @Test
@@ -166,5 +160,58 @@ class MqttSourceConfigValidatorTest {
                 validBuilder().useTls(true).brokerUrl("ssl://localhost:8883").build(),
                 "test-node",
                 mockJobContext));
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    MqttSourceDto.Config config = validBuilder().encodingType(null).build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    MqttSourceDto.Config config =
+        validBuilder()
+            .encodingType(null)
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    MqttSourceDto.Config config =
+        validBuilder()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    MqttSourceDto.Config config =
+        validBuilder()
+            .encodingType(null)
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private String decodingRejection(MqttSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", mockJobContext))
+        .getMessage();
   }
 }

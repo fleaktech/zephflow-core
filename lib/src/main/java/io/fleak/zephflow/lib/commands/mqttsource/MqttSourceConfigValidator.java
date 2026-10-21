@@ -17,7 +17,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import org.apache.commons.lang3.StringUtils;
 
 public class MqttSourceConfigValidator implements ConfigValidator {
@@ -38,8 +38,8 @@ public class MqttSourceConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getTopicFilter()), "no topicFilter is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getClientId()), "no clientId is provided");
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    // Compiles the decoding, so a bad one fails validation rather than the first message.
+    DecodingConfigCompiler.compile(MqttSourceCommand.decodingConfig(config));
 
     Preconditions.checkArgument(
         config.getQos() >= 0 && config.getQos() <= 2,

@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.activemqsource;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -38,6 +39,10 @@ public interface ActiveMqSourceDto {
     private String destination;
     @Builder.Default private DestinationType destinationType = DestinationType.QUEUE;
     private EncodingType encodingType;
+
+    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
+
     private String credentialId;
     private String clientId;
     private String subscriptionName;

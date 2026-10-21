@@ -22,8 +22,7 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.compression.DecompressorFactory;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -107,11 +106,15 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     return credentialsProvider;
   }
 
-  private RawDataConverter<SerializedEvent> createRawDataConverter(KinesisSourceDto.Config config) {
-    return new BytesRawDataConverter(
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer(),
-        DecompressorFactory.getDecompressor(config.getCompressionTypes()));
+  static RawDataConverter<SerializedEvent> createRawDataConverter(KinesisSourceDto.Config config) {
+    return new MessageDecodingConverter(
+        decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE);
+  }
+
+  /** The decoding of the messages; {@code encodingType} decompresses nothing, as before. */
+  static DecodingConfig decodingConfig(KinesisSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), false);
   }
 
   @Override
