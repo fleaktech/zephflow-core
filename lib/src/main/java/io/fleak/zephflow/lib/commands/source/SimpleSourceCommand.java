@@ -36,7 +36,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   private static final int SLEEP_MAX = 2000;
 
   private final AtomicBoolean finished = new AtomicBoolean();
-  // Set only by terminate(); finished is also set when the fetcher is exhausted.
+  // Set only by requestStop() and terminate(); finished is also set when the fetcher is exhausted.
   private final AtomicBoolean stopping = new AtomicBoolean();
 
   protected SimpleSourceCommand(
@@ -262,10 +262,17 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     }
   }
 
+  /** The fetch loop exits after the batch in hand; the thread running it releases resources. */
   @Override
-  public void terminate() throws IOException {
+  public boolean requestStop() {
     stopping.set(true);
     finished.set(true);
+    return true;
+  }
+
+  @Override
+  public void terminate() throws IOException {
+    requestStop();
     super.terminate();
   }
 
