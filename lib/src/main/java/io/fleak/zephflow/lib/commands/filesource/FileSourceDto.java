@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.filesource;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,5 +30,8 @@ public interface FileSourceDto {
   class Config implements CommandConfig {
     private String filePath;
     private EncodingType encodingType;
+
+    /** How the file are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
   }
 }

@@ -16,7 +16,14 @@ package io.fleak.zephflow.lib.commands.stdin;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class StdInSourceConfigValidatorTest {
@@ -42,5 +49,71 @@ class StdInSourceConfigValidatorTest {
 
       assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
     }
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    StdInSourceDto.Config config = StdInSourceDto.Config.builder().build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    StdInSourceDto.Config config =
+        StdInSourceDto.Config.builder()
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    StdInSourceDto.Config config =
+        StdInSourceDto.Config.builder()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    StdInSourceDto.Config config =
+        StdInSourceDto.Config.builder()
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private String decodingRejection(StdInSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null))
+        .getMessage();
+  }
+
+  @Test
+  void multilineDecodingIsRejected() {
+    StdInSourceDto.Config config =
+        StdInSourceDto.Config.builder()
+            .decoding(
+                new DecodingConfig(
+                    List.of(),
+                    new TextFormatConfig(null, new FramingConfig.Multiline("^\\S", null, null))))
+            .build();
+
+    assertEquals(
+        "stdin reads one message per line, so decoding cannot use multiline framing",
+        decodingRejection(config));
   }
 }

@@ -17,7 +17,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -33,7 +33,7 @@ public class FileSourceConfigValidator implements ConfigValidator {
     Preconditions.checkArgument(
         Files.isRegularFile(path), "file is not a regular file: %s", config.getFilePath());
 
-    Preconditions.checkNotNull(config.getEncodingType(), "encoding type is missing");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    // Compiles the decoding, so a bad one fails validation rather than at the file.
+    DecodingConfigCompiler.compile(FileSourceCommand.decodingConfig(config));
   }
 }
