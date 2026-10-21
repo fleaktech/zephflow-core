@@ -120,7 +120,7 @@ class KafkaSourceConfigValidatorTest {
   }
 
   @Test
-  void testNullEncodingType() {
+  void neitherEncodingTypeNorDecodingIsRejected() {
     KafkaSourceDto.Config config = baseConfig().build();
 
     assertEquals("exactly one of encodingType and decoding must be set", rejection(config));

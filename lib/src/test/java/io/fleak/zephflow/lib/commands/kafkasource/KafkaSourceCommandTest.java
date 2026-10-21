@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.kafkasource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -376,15 +375,17 @@ public class KafkaSourceCommandTest {
       ArgumentCaptor<SerializedEvent> value = ArgumentCaptor.forClass(SerializedEvent.class);
       ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
       verify(dlqWriter).writeToDlq(anyLong(), value.capture(), text.capture(), eq("my_node"));
-      assertArrayEquals(bad, value.getValue().value());
+      assertEquals(new SerializedEvent(null, bad, null).toString(), value.getValue().toString());
+      List<String> lines = text.getValue().lines().toList();
       assertEquals(
           List.of(
               "MALFORMED json message: JsonParseException",
               "Action: check that the message is json as the source's encodingType or decoding"
                   + " says, and that its compression is set when the message is compressed, or fix"
                   + " the producer that wrote it; the DLQ value is the message as received, so it"
-                  + " can be sent again"),
-          text.getValue().lines().limit(2).toList());
+                  + " can be sent again",
+              "com.fasterxml.jackson.core.JsonParseException"),
+          List.of(lines.get(0), lines.get(1), lines.get(2).split(":")[0]));
     } finally {
       executor.shutdownNow();
       //noinspection ResultOfMethodCallIgnored

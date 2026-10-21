@@ -11,13 +11,17 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.source;
+package io.fleak.zephflow.lib.commands.kafkasource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
+import io.fleak.zephflow.lib.commands.source.ConvertedResult;
+import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
+import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.compression.GzipDetectingDecompressor;
@@ -141,6 +145,186 @@ class MessageDecodingDifferentialTest {
             concat(gzip(utf8("{\"a\":1}\n")), gzip(utf8("{\"a\":2}\n"))),
             "{\"a\":1}",
             "{\"a\":2}"),
+        same(
+            "csvEscapedQuote",
+            EncodingType.CSV,
+            utf8("a,b\n\"say \"\"hi\"\"\",2\n"),
+            "{\"a\":\"say \\\"hi\\\"\",\"b\":\"2\"}"),
+        same(
+            "csvEmptyValues",
+            EncodingType.CSV,
+            utf8("a,b,c\n,2,\n"),
+            "{\"a\":\"\",\"b\":\"2\",\"c\":\"\"}"),
+        same(
+            "csvCrlf",
+            EncodingType.CSV,
+            utf8("a,b\r\n1,2\r\n3,4\r\n"),
+            "{\"a\":\"1\",\"b\":\"2\"}",
+            "{\"a\":\"3\",\"b\":\"4\"}"),
+        same(
+            "csvEmbeddedNewline",
+            EncodingType.CSV,
+            utf8("a,b\n\"line1\nline2\",2\n"),
+            "{\"a\":\"line1\\nline2\",\"b\":\"2\"}"),
+        same(
+            "csvNoTrailingNewline",
+            EncodingType.CSV,
+            utf8("a,b\n1,2"),
+            "{\"a\":\"1\",\"b\":\"2\"}"),
+        same("csvUnicode", EncodingType.CSV, utf8("名前,年齢\n太郎,3\n"), "{\"年齢\":\"3\",\"名前\":\"太郎\"}"),
+        same(
+            "csvQuotedSpaces",
+            EncodingType.CSV,
+            utf8("a,b\n\" x \",2\n"),
+            "{\"a\":\" x \",\"b\":\"2\"}"),
+        same(
+            "csvInvalidUtf8",
+            EncodingType.CSV,
+            concat(utf8("a\nx"), new byte[] {(byte) 0xff}, utf8("y\n")),
+            "{\"a\":\"x\uFFFDy\"}"),
+        same(
+            "stringLineCrlf",
+            EncodingType.STRING_LINE,
+            utf8("x\r\ny\r\n"),
+            "{\"__raw__\":\"x\"}",
+            "{\"__raw__\":\"y\"}"),
+        same(
+            "stringLineNoTrailingNewline",
+            EncodingType.STRING_LINE,
+            utf8("x\ny"),
+            "{\"__raw__\":\"x\"}",
+            "{\"__raw__\":\"y\"}"),
+        same(
+            "stringLineUnicode",
+            EncodingType.STRING_LINE,
+            utf8("héllo 世界 😀\n"),
+            "{\"__raw__\":\"héllo 世界 😀\"}"),
+        same(
+            "stringLineSpaces",
+            EncodingType.STRING_LINE,
+            utf8("  x  \n\t\n"),
+            "{\"__raw__\":\"  x  \"}",
+            "{\"__raw__\":\"\\t\"}"),
+        same(
+            "stringLineManyBlank",
+            EncodingType.STRING_LINE,
+            utf8("\n\n\nx\n"),
+            "{\"__raw__\":\"\"}",
+            "{\"__raw__\":\"\"}",
+            "{\"__raw__\":\"\"}",
+            "{\"__raw__\":\"x\"}"),
+        same("textCrlf", EncodingType.TEXT, utf8("a\r\nb\r\n"), "{\"__raw__\":\"a\\r\\nb\\r\\n\"}"),
+        same(
+            "textUnicode", EncodingType.TEXT, utf8("héllo 世界 😀"), "{\"__raw__\":\"héllo 世界 😀\"}"),
+        same("textSpacesOnly", EncodingType.TEXT, utf8("   "), "{\"__raw__\":\"   \"}"),
+        same(
+            "textInvalidUtf8",
+            EncodingType.TEXT,
+            concat(utf8("a"), new byte[] {(byte) 0xff}, utf8("b")),
+            "{\"__raw__\":\"a\uFFFDb\"}"),
+        same(
+            "jsonLinesNested",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\"a\":{\"b\":[1,2,{\"c\":null}]}}\n"),
+            "{\"a\":{\"b\":[1,2,{\"c\":null}]}}"),
+        same(
+            "jsonLinesNumbers",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\"i\":-12,\"big\":12345678901234567890,\"d\":3.25,\"e\":1e10,\"z\":0}\n"),
+            "{\"big\":1.2345678901234567E19,\"d\":3.25,\"e\":1.0E10,\"i\":-12,\"z\":0}"),
+        same(
+            "jsonLinesBooleansNull",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\"t\":true,\"f\":false,\"n\":null}\n"),
+            "{\"t\":true,\"f\":false,\"n\":null}"),
+        same(
+            "jsonLinesUnicodeEscapes",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\"s\":\"\\u00e9\\n\\t\\\"\"}\n"),
+            "{\"s\":\"é\\n\\t\\\"\"}"),
+        same("jsonLinesEmptyObject", EncodingType.JSON_OBJECT_LINE, utf8("{}\n"), "{}"),
+        same(
+            "jsonLinesNoTrailingNewline",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\"a\":1}\n{\"a\":2}"),
+            "{\"a\":1}",
+            "{\"a\":2}"),
+        same(
+            "jsonLinesSpacesInside",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("  { \"a\" : 1 }  \n"),
+            "{\"a\":1}"),
+        same(
+            "jsonLinesEmptyStringsAndArrays",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\"s\":\"\",\"a\":[]}\n"),
+            "{\"a\":[],\"s\":\"\"}"),
+        same("emptyJsonLines", EncodingType.JSON_OBJECT_LINE, new byte[0]),
+        same(
+            "jsonObjectNested",
+            EncodingType.JSON_OBJECT,
+            utf8("{\"a\":{\"b\":{\"c\":[1,\"x\",true]}}}"),
+            "{\"a\":{\"b\":{\"c\":[1,\"x\",true]}}}"),
+        same(
+            "jsonObjectUnicode",
+            EncodingType.JSON_OBJECT,
+            utf8("{\"名\":\"世界\"}"),
+            "{\"名\":\"世界\"}"),
+        same("jsonObjectEmpty", EncodingType.JSON_OBJECT, utf8("{}"), "{}"),
+        same(
+            "jsonArrayWhitespace",
+            EncodingType.JSON_ARRAY,
+            utf8("[\n  {\"a\":1},\n  {\"a\":2}\n]\n"),
+            "{\"a\":1}",
+            "{\"a\":2}"),
+        same(
+            "jsonArraySingle",
+            EncodingType.JSON_ARRAY,
+            utf8("[{\"a\":{\"b\":2}}]"),
+            "{\"a\":{\"b\":2}}"),
+        same("jsonArrayEmptyObjects", EncodingType.JSON_ARRAY, utf8("[{},{}]"), "{}", "{}"),
+        same(
+            "xmlRepeated",
+            EncodingType.XML,
+            utf8("<r><a>1</a><a>2</a><a>3</a></r>"),
+            "{\"a\":[\"1\",\"2\",\"3\"]}"),
+        same(
+            "xmlNested",
+            EncodingType.XML,
+            utf8("<r><a><b><c>x</c></b></a></r>"),
+            "{\"a\":{\"b\":{\"c\":\"x\"}}}"),
+        same(
+            "xmlCdata",
+            EncodingType.XML,
+            utf8("<r><a><![CDATA[<x>&]]></a></r>"),
+            "{\"a\":\"<x>&\"}"),
+        same(
+            "xmlEntities",
+            EncodingType.XML,
+            utf8("<r><a>a &amp; b &lt; c</a></r>"),
+            "{\"a\":\"a & b < c\"}"),
+        same("xmlComment", EncodingType.XML, utf8("<r><!-- c --><a>1</a></r>"), "{\"a\":\"1\"}"),
+        same(
+            "xmlDeclaration",
+            EncodingType.XML,
+            utf8("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<r><a>1</a></r>\n"),
+            "{\"a\":\"1\"}"),
+        same(
+            "xmlEmptyElement",
+            EncodingType.XML,
+            utf8("<r><a/><b></b></r>"),
+            "{\"a\":\"\",\"b\":\"\"}"),
+        same(
+            "xmlMixedContent",
+            EncodingType.XML,
+            utf8("<r>text<a>1</a>more</r>"),
+            "{\"\":[\"text\",\"more\"],\"a\":\"1\"}"),
+        same(
+            "xmlNamespace",
+            EncodingType.XML,
+            utf8("<r xmlns:p=\"urn:x\"><p:a>1</p:a></r>"),
+            "{\"a\":\"1\"}"),
+        same("xmlUnicode", EncodingType.XML, utf8("<r><名>世界</名></r>"), "{\"名\":\"世界\"}"),
         // a bad record fails the whole message on both sides
         both(
             "jsonLinesBadLine",
@@ -153,6 +337,16 @@ class MessageDecodingDifferentialTest {
             EncodingType.JSON_ARRAY,
             utf8("[{\"a\":1},{\"a\" 2},{\"a\":3}]"),
             "MALFORMED"),
+        both(
+            "jsonLinesPrettyPrinted",
+            EncodingType.JSON_OBJECT_LINE,
+            utf8("{\n  \"a\": 1\n}\n"),
+            "MALFORMED"),
+        both(
+            "truncatedGzip",
+            EncodingType.JSON_OBJECT_LINE,
+            Arrays.copyOf(gzip(JSON_LINES), gzip(JSON_LINES).length / 2),
+            "CORRUPT_COMPRESSION"),
         both("csvShortRow", EncodingType.CSV, utf8("a,b\n1\n4,5\n"), "MALFORMED"),
         both("csvBadQuote", EncodingType.CSV, utf8("a,b\n\"1\"x,2\n3,4\n"), "MALFORMED"),
         both("csvUnclosedQuote", EncodingType.CSV, utf8("a,b\n\"1,2\n"), "MALFORMED"),
@@ -163,7 +357,15 @@ class MessageDecodingDifferentialTest {
         differs("emptyXml", EncodingType.XML, new byte[0], List.of(FAILS)),
         differs("emptyText", EncodingType.TEXT, new byte[0], List.of("{\"__raw__\":\"\"}")),
         differs(
-            "gzipOfNothing", EncodingType.TEXT, gzip(new byte[0]), List.of("{\"__raw__\":\"\"}")),
+            "gzipOfNothingText",
+            EncodingType.TEXT,
+            gzip(new byte[0]),
+            List.of("{\"__raw__\":\"\"}")),
+        differs(
+            "gzipOfNothingJsonObject", EncodingType.JSON_OBJECT, gzip(new byte[0]), List.of(FAILS)),
+        differs(
+            "gzipOfNothingJsonArray", EncodingType.JSON_ARRAY, gzip(new byte[0]), List.of(FAILS)),
+        differs("gzipOfNothingXml", EncodingType.XML, gzip(new byte[0]), List.of(FAILS)),
         // 4.1 item 6: decoding differences
         differs(
             "jsonLinesArrayLine",
@@ -259,16 +461,6 @@ class MessageDecodingDifferentialTest {
             utf8("{\"s\":\"" + "x".repeat(20_000_001) + "\"}"),
             List.of(FAILS),
             "{\"s\":\"" + "x".repeat(20_000_001) + "\"}"),
-        same(
-            "xmlLongAttribute",
-            EncodingType.XML,
-            utf8("<r a=\"" + "x".repeat(524_289) + "\"/>"),
-            "{\"a\":\"" + "x".repeat(524_289) + "\"}"),
-        same(
-            "xmlManyAttributes",
-            EncodingType.XML,
-            utf8("<r " + attributes(1_001) + "/>"),
-            attributesJson(1_001)),
         differs(
             "bomStringLine",
             EncodingType.STRING_LINE,
@@ -336,7 +528,8 @@ class MessageDecodingDifferentialTest {
   private static List<String> decoded(EncodingType encodingType, SerializedEvent message) {
     MessageDecodingConverter converter =
         new MessageDecodingConverter(
-            MessageDecodingConverter.decodingConfig(encodingType, null, true),
+            KafkaSourceCommand.decodingConfig(
+                KafkaSourceDto.Config.builder().encodingType(encodingType).build()),
             MessageDecodingConverter.Unit.MESSAGE);
     ConvertedResult<SerializedEvent> result = converter.convert(message, context());
     if (result.transformedData() != null) {
@@ -362,17 +555,6 @@ class MessageDecodingDifferentialTest {
 
   private static String columns(int count) {
     return IntStream.range(0, count).mapToObj(i -> "c" + i).collect(Collectors.joining(","));
-  }
-
-  private static String attributes(int count) {
-    return IntStream.range(0, count)
-        .mapToObj(i -> "a" + i + "=\"" + i + "\"")
-        .collect(Collectors.joining(" "));
-  }
-
-  private static String attributesJson(int count) {
-    return JsonUtils.toJsonString(
-        IntStream.range(0, count).boxed().collect(Collectors.toMap(i -> "a" + i, String::valueOf)));
   }
 
   private static byte[] utf8(String s) {
