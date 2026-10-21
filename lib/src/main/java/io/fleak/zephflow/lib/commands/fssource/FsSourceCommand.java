@@ -461,9 +461,16 @@ public final class FsSourceCommand extends SourceCommand {
     return 1;
   }
 
+  /** Stops before the next file; the file being read is finished first. */
+  @Override
+  public boolean requestStop() {
+    terminated = true;
+    return true;
+  }
+
   @Override
   public void terminate() throws java.io.IOException {
-    terminated = true;
+    requestStop();
     super.terminate();
   }
 
