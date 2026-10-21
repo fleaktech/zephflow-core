@@ -147,7 +147,7 @@ public class GcsDlqWriter extends DlqWriter {
       return;
     }
 
-    String objectName = generateObjectKey(timestamp);
+    String objectName = generateObjectKey(timestamp, batch.size());
     try {
       uploadToGcsWithRetry(data, objectName);
       log.info("Uploaded {} records to gs://{}/{}", batch.size(), bucketName, objectName);
@@ -157,7 +157,7 @@ public class GcsDlqWriter extends DlqWriter {
   }
 
   @VisibleForTesting
-  String generateObjectKey(long timestamp) {
+  String generateObjectKey(long timestamp, int recordCount) {
     Instant instant = Instant.ofEpochMilli(timestamp);
     ZonedDateTime utcDateTime = instant.atZone(ZoneOffset.UTC);
 
@@ -170,7 +170,8 @@ public class GcsDlqWriter extends DlqWriter {
 
     String timePath =
         String.format(
-            "%s/dt=%s/hr=%s/%s-%d_%s.avro", pathSegment, date, hour, filePrefix, timestamp, uuid);
+            "%s/dt=%s/hr=%s/%s-%d_%s_n%d.avro",
+            pathSegment, date, hour, filePrefix, timestamp, uuid, recordCount);
     if (keyPrefix != null && !keyPrefix.isEmpty()) {
       return keyPrefix + "/" + timePath;
     }
