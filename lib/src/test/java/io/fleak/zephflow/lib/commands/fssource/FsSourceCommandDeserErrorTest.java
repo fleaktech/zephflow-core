@@ -118,27 +118,39 @@ class FsSourceCommandDeserErrorTest {
     assertEquals(1, counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get());
     assertEquals(3, counters.get(METRIC_NAME_INPUT_EVENT_COUNT).get());
 
-    assertEquals(1, deadLetters.size());
-    DeadLetter deadLetter = deadLetters.getFirst();
-    assertEquals(
-        "{\"device_id\":\"sensor-103\",\"value\":73.4",
-        new String(deadLetter.getValue().array(), StandardCharsets.UTF_8),
-        "the raw failing line should be quarantined");
-    assertEquals("node-1", deadLetter.getNodeId());
-    List<String> lines = deadLetter.getErrorMessage().lines().toList();
+    String urn = tempDir.resolve("evt_1.jsonl").toUri().toString();
     assertEquals(
         List.of(
-            "Action: fix this record where it is written, or the source's encodingType or decoding"
-                + " if every record fails like this; the value is the record's bytes",
-            "bytes 80-118"),
-        List.of(lines.get(1), lines.getLast().substring(lines.getLast().lastIndexOf(", ") + 2)));
-    assertTrue(lines.getFirst().startsWith("MALFORMED json record: "), lines.getFirst());
+            new Entry(
+                "{\"device_id\":\"sensor-103\",\"value\":73.4",
+                Map.of(METADATA_FS_SOURCE_URN, urn, METADATA_FS_SOURCE_RECORD_INDEX, "3"),
+                "MALFORMED json record: JsonEOFException",
+                "Action: fix this record where it is written, or the source's encodingType or"
+                    + " decoding if every record fails like this; the value is the record's bytes",
+                "file " + urn + ", recordIndex 3, bytes 80-118",
+                "node-1")),
+        deadLetters.stream().map(Entry::of).toList());
+  }
 
-    Map<String, String> metadata = new HashMap<>(deadLetter.getMetadata());
-    assertTrue(
-        metadata.get(METADATA_FS_SOURCE_URN).endsWith("evt_1.jsonl"),
-        "should record which file the bad record came from, got: " + metadata);
-    assertEquals("3", metadata.get(METADATA_FS_SOURCE_RECORD_INDEX), "should record the line");
+  record Entry(
+      String value,
+      Map<String, String> metadata,
+      String firstLine,
+      String action,
+      String lastLine,
+      String nodeId) {
+    static Entry of(DeadLetter deadLetter) {
+      List<String> lines = deadLetter.getErrorMessage().lines().toList();
+      Map<String, String> metadata = new HashMap<>();
+      deadLetter.getMetadata().forEach((k, v) -> metadata.put(k.toString(), v.toString()));
+      return new Entry(
+          new String(deadLetter.getValue().array(), StandardCharsets.UTF_8),
+          metadata,
+          lines.getFirst(),
+          lines.get(1),
+          lines.getLast(),
+          deadLetter.getNodeId());
+    }
   }
 
   @Test

@@ -103,8 +103,12 @@ final class FsFileAccess implements AutoCloseable {
   /** Streamed from the backend; an end before the listed size is an error. */
   record Streamed(ByteInput input) implements FileBytes {}
 
-  /** Needs random access and is over {@code localSpoolMaxBytes}, so it cannot be read. */
-  record TooLarge() implements FileBytes {}
+  /**
+   * Needs random access and is over {@code localSpoolMaxBytes}, so it cannot be read.
+   *
+   * @param grewPast whether it was listed within the cap and reached it while being copied
+   */
+  record TooLarge(boolean grewPast) implements FileBytes {}
 
   /**
    * @param randomAccess whether the format needs random access (parquet), so the file cannot be
@@ -117,7 +121,7 @@ final class FsFileAccess implements AutoCloseable {
       log.info("fs_source reading urn={} listedSizeBytes={} in place", urn, entry.size());
       return new InPlace(ByteInput.ofFile(Path.of(URI.create(urn))));
     }
-    String overCap = "listed over";
+    boolean grewPast = false;
     if (entry.size() <= localSpoolMaxBytes) {
       Download<Void> download =
           downloader()
@@ -135,16 +139,16 @@ final class FsFileAccess implements AutoCloseable {
             copied.bytes());
         return new Copied(ByteInput.ofFile(copied.file()), copied.file(), copied.bytes());
       }
-      overCap = "grew past";
+      grewPast = true;
     }
     if (randomAccess) {
-      return new TooLarge();
+      return new TooLarge(grewPast);
     }
     log.info(
         "fs_source reading urn={} listedSizeBytes={} streamed: it {} localSpoolMaxBytes {}",
         urn,
         entry.size(),
-        overCap,
+        grewPast ? "grew past" : "listed over",
         localSpoolMaxBytes);
     return new Streamed(() -> new LengthChecked(reader.open(entry.key(), 0), urn, entry.size()));
   }

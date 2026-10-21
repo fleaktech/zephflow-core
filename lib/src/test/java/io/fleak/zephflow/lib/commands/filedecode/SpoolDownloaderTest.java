@@ -67,7 +67,7 @@ class SpoolDownloaderTest {
 
   @BeforeEach
   void setUp() {
-    downloader = new SpoolDownloader(spoolDir, "unit-test-");
+    downloader = new SpoolDownloader(spoolDir, "unit-test-", Files::newOutputStream);
   }
 
   private Download<String> download() throws SourceReadException {
