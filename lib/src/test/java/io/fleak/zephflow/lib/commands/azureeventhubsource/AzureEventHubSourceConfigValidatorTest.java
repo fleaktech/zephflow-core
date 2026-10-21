@@ -166,7 +166,6 @@ class AzureEventHubSourceConfigValidatorTest {
   void encodingTypeAndDecodingTogetherAreRejected() {
     AzureEventHubSourceDto.Config config =
         validConnectionStringConfig()
-            .encodingType(null)
             .encodingType(EncodingType.JSON_OBJECT)
             .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
             .build();

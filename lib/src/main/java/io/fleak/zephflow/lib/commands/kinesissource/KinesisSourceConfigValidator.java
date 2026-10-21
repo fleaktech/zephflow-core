@@ -35,7 +35,7 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getRegionStr()), "no region name is provided");
     Preconditions.checkArgument(
         CollectionUtils.isEmpty(config.getCompressionTypes()),
-        "compressionTypes is no longer supported; set decoding with the compression instead");
+        "compressionTypes is no longer supported; set the compression in decoding instead");
     // Compiles the decoding, so a bad one fails validation rather than the first message.
     DecodingConfigCompiler.compile(KinesisSourceCommand.decodingConfig(config));
     Preconditions.checkArgument(

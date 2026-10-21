@@ -106,7 +106,7 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     return credentialsProvider;
   }
 
-  private RawDataConverter<SerializedEvent> createRawDataConverter(KinesisSourceDto.Config config) {
+  static RawDataConverter<SerializedEvent> createRawDataConverter(KinesisSourceDto.Config config) {
     return new MessageDecodingConverter(
         decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE);
   }

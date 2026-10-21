@@ -134,6 +134,15 @@ public class KinesisSourceCommandTest {
     log.info("Got {} records", records.size());
 
     assertEquals(n, records.size());
+    Map<String, Object> first =
+        records.stream()
+            .map(RecordFleakData::unwrap)
+            .filter(r -> "record-0".equals(r.get("__raw__")))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        Set.of("__raw__", "kinesis_partition_key", "kinesis_sequence_number", "kinesis_hash_key"),
+        first.keySet());
   }
 
   @BeforeAll

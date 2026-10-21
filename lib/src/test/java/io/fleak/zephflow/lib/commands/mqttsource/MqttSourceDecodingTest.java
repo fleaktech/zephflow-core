@@ -13,10 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.mqttsource;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -31,6 +33,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPOutputStream;
@@ -77,14 +80,21 @@ class MqttSourceDecodingTest {
                 .build());
     SerializedEvent message = new SerializedEvent(null, gzip("{\"a\":1}"), null);
 
+    ConvertedResult<SerializedEvent> result = context.converter().convert(message, context);
+
     assertEquals(
-        "MALFORMED json message: JsonParseException",
-        context.converter().convert(message, context).error().getMessage());
+        Arrays.asList(null, message, "MALFORMED json message: JsonParseException"),
+        Arrays.asList(
+            result.transformedData(), result.sourceRecord(), result.error().getMessage()));
   }
 
   @SuppressWarnings("unchecked")
-  private static SourceExecutionContext<SerializedEvent> context(MqttSourceDto.Config config)
+  private static SourceExecutionContext<SerializedEvent> context(MqttSourceDto.Config built)
       throws Exception {
+    MqttSourceDto.Config config =
+        new JsonConfigParser<>(MqttSourceDto.Config.class)
+            .parseConfig(OBJECT_MAPPER.convertValue(built, new TypeReference<>() {}));
+    new MqttSourceConfigValidator().validateConfig(config, "node", TestUtils.JOB_CONTEXT);
     MqttClientProvider provider = mock(MqttClientProvider.class);
     when(provider.createClient(any())).thenReturn(mock(MqttClient.class));
     when(provider.buildConnectionOptions(any(), any())).thenReturn(new MqttConnectionOptions());

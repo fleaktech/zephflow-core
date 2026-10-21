@@ -37,11 +37,11 @@ class KinesisSourceConfigValidatorTest {
   static final JobContext KINESIS_SOURCE_TEST_JOB_CONTEXT =
       JobContext.builder().metricTags(TestUtils.JOB_CONTEXT.getMetricTags()).build();
 
-  private final KinesisSourceConfigValidator validator = new KinesisSourceConfigValidator();
-
   @ParameterizedTest
   @MethodSource("testData")
   void validateConfig(CommandConfig config, boolean error) {
+    KinesisSourceConfigValidator validator = new KinesisSourceConfigValidator();
+
     if (error) {
       var ex =
           assertThrows(
@@ -185,7 +185,9 @@ class KinesisSourceConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(
-        () -> validator.validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT));
+        () ->
+            new KinesisSourceConfigValidator()
+                .validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT));
   }
 
   @Test
@@ -215,8 +217,21 @@ class KinesisSourceConfigValidatorTest {
   private String decodingRejection(KinesisSourceDto.Config config) {
     return assertThrows(
             IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT))
+            () ->
+                new KinesisSourceConfigValidator()
+                    .validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT))
         .getMessage();
+  }
+
+  @Test
+  void emptyCompressionTypesAreAccepted() {
+    KinesisSourceDto.Config config =
+        decodingBase().encodingType(EncodingType.JSON_OBJECT).compressionTypes(List.of()).build();
+
+    assertDoesNotThrow(
+        () ->
+            new KinesisSourceConfigValidator()
+                .validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT));
   }
 
   @Test
@@ -228,7 +243,7 @@ class KinesisSourceConfigValidatorTest {
             .build();
 
     assertEquals(
-        "compressionTypes is no longer supported; set decoding with the compression instead",
+        "compressionTypes is no longer supported; set the compression in decoding instead",
         decodingRejection(config));
   }
 
