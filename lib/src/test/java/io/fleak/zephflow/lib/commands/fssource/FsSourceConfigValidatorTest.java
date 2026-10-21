@@ -73,7 +73,7 @@ class FsSourceConfigValidatorTest {
   }
 
   @Test
-  void rejectsMissingEncodingType() {
+  void rejectsNeitherEncodingTypeNorDecoding() {
     FsSourceDto.Config config = validConfig();
     config.setEncodingType(null);
     assertThrows(

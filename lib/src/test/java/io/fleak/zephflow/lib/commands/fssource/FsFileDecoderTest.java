@@ -88,8 +88,9 @@ class FsFileDecoderTest {
                   + URN
                   + " reason=file_too_large listedSizeBytes=100: a parquet file needs random access"
                   + " and is over localSpoolMaxBytes 4, so it is not read. It is checkpointed as"
-                  + " done and will not be retried; raise localSpoolMaxBytes above its size and"
-                  + " upload it under a new name"),
+                  + " done and will not be retried; raise localSpoolMaxBytes above its size, then"
+                  + " upload the corrected file under a new name; a name already read is not read"
+                  + " again"),
           logs.events().stream()
               .filter(e -> e.getLevel() == Level.ERROR)
               .map(e -> e.getMessage().getFormattedMessage())

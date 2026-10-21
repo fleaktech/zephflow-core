@@ -117,8 +117,9 @@ replayed as records. The `Action:` texts are the S3 realtime spec's, except:
   `fileNameRegex` (with a `ts` no older than the files already read, if the regex has one); a name
   already read is not read again", or without a `fileNameRegex`: "then upload the corrected file
   under a new name; a name already read is not read again", or with an `exactObjectKey`: "then
-  upload the corrected file under a new key (whose file name matches fileNameRegex, if one is set)
-  and set exactObjectKey to it; a key already read is not read again";
+  upload the corrected file under a new key and set exactObjectKey to it; a key already read is not
+  read again", where "a new key" becomes "a new key whose file name matches fileNameRegex" when a
+  `fileNameRegex` is set too;
 - when `maxFileBytes` is set, the `maxRecordBytes` and `maxDocumentBytes` actions say to raise
   `maxFileBytes` (and the task's heap to match) instead of only the heap; for parquet, the
   `maxDocumentBytes` action says to write smaller row groups (fewer columns if the footer is too
@@ -384,3 +385,7 @@ Small PRs into the integration branch `feature/fs-decoder`; the user merges it i
 - Several replicas on one worker each use up to `localSpoolMaxBytes` of its disk.
 - The memory limits of the S3 realtime spec 9 (tree documents near the limit, the DLQ writer's
   buffer, DLQ files over 10 MB skipped by self-healing) apply here too.
+- dynamicapi's translator turns an `exactObjectKey` into a root of the key itself and a quoted
+  `fileNameRegex`, so such pipelines get the `fileNameRegex` rename text, which they cannot follow
+  (a new name is never listed); they have to point the key at the new file. Keeping
+  `exactObjectKey` through the translator is a dynamicapi follow-up.

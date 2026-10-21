@@ -24,6 +24,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakGauge;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FileEntry;
 import io.fleak.zephflow.lib.commands.fssource.api.FileKey;
@@ -59,6 +60,9 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.message.Message;
+import org.apache.parquet.example.data.simple.SimpleGroupFactory;
+import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.MessageTypeParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -226,9 +230,12 @@ class FsSourceRemoteBackendTest {
     run(localSpoolMaxBytes, Map.of("encodingType", "JSON_OBJECT_LINE"));
   }
 
-  private void run(long localSpoolMaxBytes, Map<String, Object> format) throws Exception {
+  private void run(Long localSpoolMaxBytes, Map<String, Object> format) throws Exception {
     if (command == null) {
       Map<String, Object> config = new HashMap<>(format);
+      if (localSpoolMaxBytes != null) {
+        config.put("localSpoolMaxBytes", localSpoolMaxBytes);
+      }
       config.put("backend", "gs");
       config.put("root", "gs://b/");
       config.put("fileNameRegex", "f_(?<ts>\\d+)\\..*");
@@ -236,8 +243,6 @@ class FsSourceRemoteBackendTest {
       command.parseAndValidateArg(config);
       command.initialize(new RecordingMetricClientProvider());
     }
-    ((FsSourceExecutionContext) command.getExecutionContext()).localSpoolMaxBytes =
-        localSpoolMaxBytes;
     command.execute(
         "user",
         new SourceEventAcceptor() {
@@ -259,7 +264,7 @@ class FsSourceRemoteBackendTest {
     for (int run = 0; run < 2; run++) {
       counters.clear();
       try (BoundedLogCapture logs = new BoundedLogCapture(FsSourceCommand.class)) {
-        run(16, parquet);
+        run(16L, parquet);
 
         assertEquals(
             run == 0
@@ -278,6 +283,57 @@ class FsSourceRemoteBackendTest {
     }
     assertEquals(List.of(), opened);
     assertEquals(List.of(), batches);
+  }
+
+  @Test
+  void aParquetFileUnderTheCapIsCopiedAndDecoded() throws Exception {
+    MessageType schema = MessageTypeParser.parseMessageType("message m { required int64 n; }");
+    SimpleGroupFactory rows = new SimpleGroupFactory(schema);
+    byte[] parquet =
+        TestParquet.write(
+            schema, List.of(rows.newGroup().append("n", 1L), rows.newGroup().append("n", 2L)));
+    files.put("f_1.parquet", () -> new ByteArrayInputStream(parquet));
+    sizes.put("f_1.parquet", parquet.length);
+    List<RecordFleakData> records = new ArrayList<>();
+
+    command = new FsSourceCommand("source", JobContext.builder().build());
+    command.parseAndValidateArg(
+        Map.of(
+            "backend",
+            "gs",
+            "root",
+            "gs://b/",
+            "localSpoolMaxBytes",
+            (long) parquet.length,
+            "decoding",
+            Map.of("format", Map.of("type", "parquet"))));
+    command.initialize(new RecordingMetricClientProvider());
+    command.execute(
+        "user",
+        new SourceEventAcceptor() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            records.addAll(batch);
+          }
+
+          @Override
+          public void terminate() {}
+        });
+
+    assertEquals(
+        List.of(FleakData.wrap(Map.of("n", 1L)), FleakData.wrap(Map.of("n", 2L))), records);
+    assertEquals(List.of(1, 1), List.of(spoolsAtOpen.size(), spoolsAtOpen.getFirst()));
+    assertEquals(Set.of(), newSpools());
+  }
+
+  @Test
+  void localSpoolMaxBytesDefaultsToOneGib() throws Exception {
+    file("f_1.jsonl", lines(1, 1));
+
+    run(null, Map.of("encodingType", "JSON_OBJECT_LINE"));
+
+    assertEquals(
+        1L << 30, ((FsSourceExecutionContext) command.getExecutionContext()).localSpoolMaxBytes);
   }
 
   private void file(String name, String content) {

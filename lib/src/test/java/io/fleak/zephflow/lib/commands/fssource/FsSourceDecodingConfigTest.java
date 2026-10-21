@@ -13,7 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.fssource;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METADATA_FS_SOURCE_RECORD_INDEX;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METADATA_FS_SOURCE_URN;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_DESER_ERR_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_SIZE_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_FILE_SKIPPED_COUNT;
@@ -34,6 +36,7 @@ import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -57,13 +60,9 @@ import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
 import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.logging.log4j.Level;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
-import org.apache.parquet.hadoop.ParquetWriter;
-import org.apache.parquet.hadoop.example.ExampleParquetWriter;
-import org.apache.parquet.io.OutputFile;
-import org.apache.parquet.io.PositionOutputStream;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.MessageTypeParser;
 import org.junit.jupiter.api.AfterEach;
@@ -90,7 +89,8 @@ class FsSourceDecodingConfigTest {
       Map<String, String> metadata,
       String firstLine,
       String action,
-      String lastLine) {}
+      String lastLine,
+      String nodeId) {}
 
   @TempDir Path root;
   private final List<Entry> dlq = new ArrayList<>();
@@ -189,7 +189,10 @@ class FsSourceDecodingConfigTest {
                 new String(bytes, StandardCharsets.ISO_8859_1),
                 Map.of(METADATA_FS_SOURCE_URN, urn("bad.bin")),
                 "MALFORMED " + format + " record:",
-                "file " + urn("bad.bin") + ", bytes 0-" + bytes.length)),
+                "Action: fix this record where it is written, or the source's encodingType or"
+                    + " decoding if every record fails like this; the value is the record's bytes",
+                "file " + urn("bad.bin") + ", bytes 0-" + bytes.length,
+                "source")),
         dlq.stream()
             .map(
                 e ->
@@ -197,7 +200,9 @@ class FsSourceDecodingConfigTest {
                         e.value(),
                         e.metadata(),
                         e.firstLine().substring(0, e.firstLine().indexOf(':') + 1),
-                        e.lastLine()))
+                        e.action(),
+                        e.lastLine(),
+                        e.nodeId()))
             .toList());
   }
 
@@ -221,7 +226,8 @@ class FsSourceDecodingConfigTest {
                 Map.of(METADATA_FS_SOURCE_URN, urn("a.avro")),
                 "CORRUPT_COMPRESSION avro file: DataFormatException",
                 "Action: a block's compressed data is damaged; rewrite the avro file; " + RENAME,
-                "file " + urn("a.avro") + "; 1 outcome; recordIndex 2")),
+                "file " + urn("a.avro") + "; 1 outcome; recordIndex 2",
+                "source")),
         dlq);
   }
 
@@ -248,7 +254,7 @@ class FsSourceDecodingConfigTest {
 
   static Stream<Arguments> cutShortCodecs() {
     return Stream.of(
-        Arguments.of("bzip2", (Compressor) BZip2CompressorOutputStream::new),
+        Arguments.of("bzip2", (Compressor) out -> new BZip2CompressorOutputStream(out, 1)),
         Arguments.of("snappy", (Compressor) FramedSnappyCompressorOutputStream::new));
   }
 
@@ -259,15 +265,18 @@ class FsSourceDecodingConfigTest {
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("cutShortCodecs")
-  void aCutShortFileIsAReadFailureAndReadAgain(String codec, Compressor compressor)
-      throws Exception {
-    StringBuilder lines = new StringBuilder();
-    for (int i = 1; i <= 50_000; i++) {
-      lines.append("{\"i\":").append(i).append("}\n");
+  void aCutShortFileHoldsItsBatchesAndRecordEntriesAndIsReadAgain(
+      String codec, Compressor compressor) throws Exception {
+    List<String> lines = new ArrayList<>();
+    for (int i = 1; i <= 40_000; i++) {
+      lines.add(
+          i == 3
+              ? "{bad\n"
+              : i == 5 ? "{\"x\":\"" + "y".repeat(200) + "\"}\n" : "{\"i\":" + i + "}\n");
     }
     ByteArrayOutputStream compressed = new ByteArrayOutputStream();
     try (OutputStream out = compressor.wrap(compressed)) {
-      out.write(lines.toString().getBytes(StandardCharsets.UTF_8));
+      out.write(String.join("", lines).getBytes(StandardCharsets.UTF_8));
     }
     byte[] all = compressed.toByteArray();
     file("a.jsonl." + codec, Arrays.copyOf(all, all.length / 2));
@@ -277,19 +286,52 @@ class FsSourceDecodingConfigTest {
     for (int run = 0; run < 2; run++) {
       records.clear();
       counters.clear();
-      assertThrows(IllegalStateException.class, () -> run(decoding, Map.of()));
-      // Only whole batches go out: the open batch is dropped at the cut.
-      int emitted = records.size();
-      assertEquals(0, emitted % 1000, "emitted: " + emitted);
-      Map<String, Long> expected = new TreeMap<>();
-      expected.put(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT + "{skip_reason=read_error}", 1L);
-      if (emitted > 0) {
-        expected.put(METRIC_NAME_INPUT_EVENT_COUNT, (long) emitted);
-        expected.put(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, linesLength(emitted) - 1);
+      dlq.clear();
+      try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class)) {
+        assertThrows(
+            IllegalStateException.class, () -> run(decoding, Map.of("maxFileBytes", 100L)));
+
+        assertEquals(
+            List.of(
+                "fs_source skip file urn="
+                    + urn("a.jsonl." + codec)
+                    + " due to a read failure; it is read again on every run until it is fixed."
+                    + " Check whether the file was still being written when it was listed, the"
+                    + " compression setting (decoding.compression, or gzip detected automatically"
+                    + " for encodingType), and whether its compressed data is damaged or has bytes"
+                    + " after its end, in which case rewrite the file"),
+            logs.events().stream()
+                .filter(e -> e.getLevel() == Level.ERROR)
+                .map(e -> e.getMessage().getFormattedMessage())
+                .toList());
       }
-      assertEquals(expected, counters);
+      int emitted = records.size();
+      assertTrue(emitted >= 1000 && emitted % 1000 == 0, "whole batches only: " + emitted);
+      // the emitted records are the good lines through line emitted + 2
+      long size = String.join("", lines.subList(0, emitted + 2)).length() - 1;
+      assertEquals(
+          new TreeMap<>(
+              Map.of(
+                  METRIC_NAME_INPUT_EVENT_COUNT,
+                  (long) emitted,
+                  METRIC_NAME_INPUT_EVENT_SIZE_COUNT,
+                  size,
+                  METRIC_NAME_INPUT_DESER_ERR_COUNT,
+                  2L,
+                  METRIC_NAME_INPUT_FILE_SKIPPED_COUNT + "{skip_reason=read_error}",
+                  1L)),
+          counters);
+      assertEquals(
+          List.of(
+              List.of(
+                  "{bad",
+                  Map.of(
+                      METADATA_FS_SOURCE_URN,
+                      urn("a.jsonl." + codec),
+                      METADATA_FS_SOURCE_RECORD_INDEX,
+                      "3"))),
+          dlq.stream().map(e -> List.<Object>of(e.value(), e.metadata())).toList());
     }
-    assertEquals(List.of(), dlq);
   }
 
   private void run(String decodingJson, Map<String, Object> extra) throws Exception {
@@ -319,58 +361,7 @@ class FsSourceDecodingConfigTest {
 
   private static void writeParquet(Path file, MessageType schema, List<Group> groups)
       throws IOException {
-    try (OutputStream out = Files.newOutputStream(file);
-        ParquetWriter<Group> writer =
-            ExampleParquetWriter.builder(new StreamOutputFile(out))
-                .withType(schema)
-                .withConf(new Configuration(false))
-                .build()) {
-      for (Group group : groups) {
-        writer.write(group);
-      }
-    }
-  }
-
-  /** A parquet output over a stream. */
-  private record StreamOutputFile(OutputStream out) implements OutputFile {
-    @Override
-    public PositionOutputStream create(long blockSizeHint) {
-      return new PositionOutputStream() {
-        private long pos;
-
-        @Override
-        public long getPos() {
-          return pos;
-        }
-
-        @Override
-        public void write(int b) throws IOException {
-          out.write(b);
-          pos++;
-        }
-
-        @Override
-        public void write(byte[] b, int off, int len) throws IOException {
-          out.write(b, off, len);
-          pos += len;
-        }
-      };
-    }
-
-    @Override
-    public PositionOutputStream createOrOverwrite(long blockSizeHint) {
-      return create(blockSizeHint);
-    }
-
-    @Override
-    public boolean supportsBlockSize() {
-      return false;
-    }
-
-    @Override
-    public long defaultBlockSize() {
-      return 0;
-    }
+    Files.write(file, TestParquet.write(schema, groups));
   }
 
   @SafeVarargs
@@ -394,15 +385,6 @@ class FsSourceDecodingConfigTest {
     GenericRecord record = new GenericData.Record(SMALL);
     record.put("v", value);
     return record;
-  }
-
-  /** The length of the lines {"i":1} to {"i":count}. */
-  private static long linesLength(int count) {
-    long length = 0;
-    for (int i = 1; i <= count; i++) {
-      length += ("{\"i\":" + i + "}\n").length();
-    }
-    return length;
   }
 
   private static RecordFleakData json(String json) {
@@ -429,7 +411,8 @@ class FsSourceDecodingConfigTest {
               metadata,
               lines.getFirst(),
               lines.get(1),
-              lines.getLast()));
+              lines.getLast(),
+              deadLetter.getNodeId()));
     }
 
     @Override

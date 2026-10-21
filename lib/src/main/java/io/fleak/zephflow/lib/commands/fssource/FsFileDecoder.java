@@ -169,13 +169,13 @@ final class FsFileDecoder {
     log.error(
         "fs_source drop file urn={} reason={} listedSizeBytes={}: a {} file needs random access"
             + " and is over localSpoolMaxBytes {}, so it is not read. It is checkpointed as done and"
-            + " will not be retried; raise localSpoolMaxBytes above its size and upload it under a"
-            + " new name",
+            + " will not be retried; raise localSpoolMaxBytes above its size, {}",
         urn,
         FsSourceCommand.SKIP_REASON_FILE_TOO_LARGE,
         entry.size(),
         format,
-        localSpoolMaxBytes);
+        localSpoolMaxBytes,
+        retry);
     if (settings.dlqWriter() != null) {
       new UnitRun(settings, counters, new FileUnit(urn), emitter)
           .writeEntry(
