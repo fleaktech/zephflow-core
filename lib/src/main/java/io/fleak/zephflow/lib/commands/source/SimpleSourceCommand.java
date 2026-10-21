@@ -214,6 +214,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     long lastCommitTime = System.currentTimeMillis();
 
     for (ConvertedResult<T> convertedResult : convertedResults) {
+      if (convertedResult.error() instanceof MessageDecodeException decodeFailure) {
+        deadLetterDecodeFailure(
+            convertedResult.sourceRecord(), decodeFailure, dlqWriter, rawDataEncoder);
+        continue;
+      }
       try {
         if (convertedResult.transformedData() == null) {
           throw new NodeExecutionException(
@@ -259,6 +264,32 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       } catch (Exception e) {
         log.error("failed to commit final batch", e);
       }
+    }
+  }
+
+  /**
+   * Writes a message that failed to decode to the DLQ with its own text. A failed write is logged
+   * and the source goes on.
+   */
+  private void deadLetterDecodeFailure(
+      T sourceRecord,
+      MessageDecodeException failure,
+      DlqWriter dlqWriter,
+      RawDataEncoder<T> rawDataEncoder) {
+    if (dlqWriter == null) {
+      return;
+    }
+    try {
+      dlqWriter.writeToDlq(
+          System.currentTimeMillis(),
+          rawDataEncoder.serialize(sourceRecord),
+          failure.getDlqText(),
+          nodeId);
+    } catch (Exception e) {
+      log.error(
+          "failed to write a message that failed to decode to the DLQ: {}",
+          failure.getMessage(),
+          e);
     }
   }
 
