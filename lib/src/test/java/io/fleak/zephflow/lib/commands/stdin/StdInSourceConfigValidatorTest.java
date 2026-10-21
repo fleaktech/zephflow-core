@@ -63,9 +63,7 @@ class StdInSourceConfigValidatorTest {
     StdInSourceDto.Config config =
         StdInSourceDto.Config.builder()
             .decoding(
-                new DecodingConfig(
-                    List.of(DecompressionCodec.ZSTD),
-                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+                new DecodingConfig(List.of(), new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));

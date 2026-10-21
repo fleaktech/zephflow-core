@@ -31,7 +31,7 @@ public interface FileSourceDto {
     private String filePath;
     private EncodingType encodingType;
 
-    /** How the file are decoded; exactly one of this and {@code encodingType}. */
+    /** How the file is decoded; exactly one of this and {@code encodingType}. */
     private DecodingConfig decoding;
   }
 }

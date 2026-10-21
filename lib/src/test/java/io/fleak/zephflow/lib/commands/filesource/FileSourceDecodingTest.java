@@ -71,27 +71,48 @@ class FileSourceDecodingTest {
 
   @Test
   void encodingTypeDecodesAGzipFileAsItIs() throws IOException {
-    Path file = write(gzip("{\"a\":1}"));
+    byte[] gzipped = gzip("{\"a\":1}");
 
-    List<RecordFleakData> records =
-        run(
-            TestUtils.JOB_CONTEXT,
-            FileSourceDto.Config.builder()
-                .filePath(file.toString())
-                .encodingType(EncodingType.JSON_OBJECT)
-                .build());
+    DeadLettered result = runWithDlq(gzipped);
 
-    assertEquals(List.of(), records);
+    assertEquals(
+        new DeadLettered(List.of(), new SerializedEvent(null, gzipped, null).toString()),
+        new DeadLettered(result.records(), result.value()));
+    assertEquals("MALFORMED json file: JsonParseException", result.lines().getFirst());
   }
 
   @Test
   void aBadFileIsDeadLetteredWithTheFileTexts() throws IOException {
     byte[] bad = "not json".getBytes(StandardCharsets.UTF_8);
-    Path file = write(bad);
+
+    DeadLettered result = runWithDlq(bad);
+
+    assertEquals(new SerializedEvent(null, bad, null).toString(), result.value());
+    List<String> lines = result.lines();
+    assertEquals(
+        List.of(
+            "MALFORMED json file: JsonParseException",
+            "Action: check that the file is json as the source's encodingType or decoding says,"
+                + " and that its compression is set when the file is compressed; fix the file and"
+                + " run the job again",
+            "com.fasterxml.jackson.core.JsonParseException",
+            "bytes 0-8"),
+        List.of(lines.get(0), lines.get(1), lines.get(2).split(":")[0], lines.getLast()));
+  }
+
+  /** What a JSON_OBJECT file gave: its records, and its one DLQ entry's value and text lines. */
+  private record DeadLettered(List<RecordFleakData> records, String value, List<String> lines) {
+    DeadLettered(List<RecordFleakData> records, String value) {
+      this(records, value, List.of());
+    }
+  }
+
+  private DeadLettered runWithDlq(byte[] content) throws IOException {
+    Path file = write(content);
     JobContext jobContext = TestUtils.buildJobContext(new HashMap<>());
     jobContext.setDlqConfig(JobContext.S3DlqConfig.builder().build());
     DlqWriter dlqWriter = mock(DlqWriter.class);
-
+    List<RecordFleakData> records;
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
           .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
@@ -99,27 +120,18 @@ class FileSourceDecodingTest {
       dlqFactory
           .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))
           .thenReturn(mock(DlqWriter.class));
-      run(
-          jobContext,
-          FileSourceDto.Config.builder()
-              .filePath(file.toString())
-              .encodingType(EncodingType.JSON_OBJECT)
-              .build());
+      records =
+          run(
+              jobContext,
+              FileSourceDto.Config.builder()
+                  .filePath(file.toString())
+                  .encodingType(EncodingType.JSON_OBJECT)
+                  .build());
     }
-
     ArgumentCaptor<SerializedEvent> value = ArgumentCaptor.forClass(SerializedEvent.class);
     ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
     verify(dlqWriter).writeToDlq(anyLong(), value.capture(), text.capture(), eq("node"));
-    assertEquals(new SerializedEvent(null, bad, null).toString(), value.getValue().toString());
-    List<String> lines = text.getValue().lines().toList();
-    assertEquals(
-        List.of(
-            "MALFORMED json file: JsonParseException",
-            "Action: check that the file is json as the source's encodingType or decoding says,"
-                + " and that its compression is set when the file is compressed; fix the file and"
-                + " run the job again",
-            "bytes 0-8"),
-        List.of(lines.get(0), lines.get(1), lines.getLast()));
+    return new DeadLettered(records, value.getValue().toString(), text.getValue().lines().toList());
   }
 
   private List<RecordFleakData> run(JobContext jobContext, FileSourceDto.Config config) {

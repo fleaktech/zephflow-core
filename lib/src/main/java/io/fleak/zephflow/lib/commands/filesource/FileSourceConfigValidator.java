@@ -33,7 +33,7 @@ public class FileSourceConfigValidator implements ConfigValidator {
     Preconditions.checkArgument(
         Files.isRegularFile(path), "file is not a regular file: %s", config.getFilePath());
 
-    // Compiles the decoding, so a bad one fails validation rather than at the file.
+    // Compiles the decoding, so a bad one fails validation rather than when the file is read.
     DecodingConfigCompiler.compile(FileSourceCommand.decodingConfig(config));
   }
 }
