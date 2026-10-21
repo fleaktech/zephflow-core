@@ -379,8 +379,9 @@ class FsSourceSnapshotTest {
   }
 
   /**
-   * One run's records (more than 100 as their count, first and last three), batch sizes, DLQ
-   * entries (value and metadata), failure, counters, and whether a checkpoint marked the file done.
+   * One run's records (more than 100 as their count, the first and last three and a SHA-256 of all
+   * of them), batch sizes, DLQ entries (value and metadata), failure, counters, and whether a
+   * checkpoint marked {@code fileUrn} done.
    */
   private Map<String, Object> run(FsSourceCommand command, String fileUrn) {
     deadLetters.clear();

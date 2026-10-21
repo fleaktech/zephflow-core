@@ -4,14 +4,13 @@
   "counters" : {
     "input_deser_err_count" : 1,
     "input_event_count" : 2,
-    "input_event_size" : 140025
+    "input_event_size" : 140024
   },
   "dlq" : [ {
     "metadata" : {
-      "__md_fs_source_record_index" : "2",
       "__md_fs_source_urn" : "<root>/data.jsonl"
     },
-    "value" : "{\"bad\":\"xxxxxxxxxxxxxxxxxxxxxxxx... (140008 characters, sha256 6ac75011a959356c4493f7b2c35cf3f020fd2c6bd77b8bee7eae28f14efcc459)"
+    "value" : ""
   } ],
   "failed" : null,
   "records" : [ {

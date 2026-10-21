@@ -1,18 +1,11 @@
 {
-  "batchSizes" : [ 3 ],
-  "checkpointedAsDone" : true,
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : false,
   "counters" : {
-    "input_event_count" : 3,
-    "input_event_size" : 24
+    "input_file_skipped_count{skip_reason=read_error}" : 1
   },
   "dlq" : [ ],
-  "failed" : null,
-  "records" : [ {
-    "a" : 1
-  }, {
-    "a" : 2
-  }, {
-    "a" : 3
-  } ],
-  "secondRunHadOutput" : false
+  "failed" : "IllegalStateException",
+  "records" : [ ],
+  "secondRunHadOutput" : true
 }

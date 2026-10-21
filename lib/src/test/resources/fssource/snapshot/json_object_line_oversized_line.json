@@ -1,11 +1,22 @@
 {
-  "batchSizes" : [ ],
+  "batchSizes" : [ 2 ],
   "checkpointedAsDone" : true,
   "counters" : {
-    "input_file_skipped_count{skip_reason=file_too_large}" : 1
+    "input_deser_err_count" : 1,
+    "input_event_count" : 2,
+    "input_event_size" : 20027
   },
-  "dlq" : [ ],
+  "dlq" : [ {
+    "metadata" : {
+      "__md_fs_source_urn" : "<root>/data.jsonl"
+    },
+    "value" : ""
+  } ],
   "failed" : null,
-  "records" : [ ],
+  "records" : [ {
+    "a" : 1
+  }, {
+    "a" : 3
+  } ],
   "secondRunHadOutput" : false
 }

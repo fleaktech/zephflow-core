@@ -4,7 +4,7 @@
   "counters" : {
     "input_deser_err_count" : 1,
     "input_event_count" : 2,
-    "input_event_size" : 22
+    "input_event_size" : 21
   },
   "dlq" : [ {
     "metadata" : {

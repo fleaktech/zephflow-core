@@ -3,7 +3,7 @@
   "checkpointedAsDone" : true,
   "counters" : {
     "input_event_count" : 3,
-    "input_event_size" : 24
+    "input_event_size" : 23
   },
   "dlq" : [ ],
   "failed" : null,

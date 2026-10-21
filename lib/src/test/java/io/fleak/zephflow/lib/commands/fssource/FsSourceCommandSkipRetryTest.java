@@ -187,7 +187,7 @@ class FsSourceCommandSkipRetryTest {
   }
 
   @Test
-  void anOversizedFileIsNotRetriedOnLaterRuns(@TempDir Path dir) throws Exception {
+  void anOversizedDocumentIsNotRetriedOnLaterRuns(@TempDir Path dir) throws Exception {
     Files.writeString(dir.resolve("evt_1.json"), oversizedJsonObject("a"));
     Files.writeString(dir.resolve("evt_2.json"), "{\"v\":\"b\"}");
     Map<String, Object> smallCap = Map.of("maxFileBytes", 64L);
@@ -205,7 +205,7 @@ class FsSourceCommandSkipRetryTest {
   }
 
   @Test
-  void anOversizedFileDoesNotHoldTheWatermark(@TempDir Path dir) throws Exception {
+  void anOversizedDocumentDoesNotHoldTheWatermark(@TempDir Path dir) throws Exception {
     // The watermark is per bucket, so the newer file must share the oversized file's bucket.
     Files.writeString(dir.resolve("evt_1.log"), oversizedJsonObject("a"));
     String newerFileName = sameBucketFileName(dir, "evt_1.log");
@@ -228,7 +228,7 @@ class FsSourceCommandSkipRetryTest {
   }
 
   @Test
-  void aRunWhoseOnlyFilesAreOversizedSucceeds(@TempDir Path dir) throws Exception {
+  void aRunWhoseOnlyDocumentsAreOversizedSucceeds(@TempDir Path dir) throws Exception {
     Files.writeString(dir.resolve("evt_1.json"), oversizedJsonObject("a"));
 
     assertEquals(
@@ -237,10 +237,7 @@ class FsSourceCommandSkipRetryTest {
         "the oversized file is resolved, so there is nothing left for a retry to do");
   }
 
-  /**
-   * A JSON object comfortably over a 64-byte cap. JSON_OBJECT is a single document, so unlike the
-   * streamed formats it is still read whole and capped.
-   */
+  /** A JSON object document comfortably over a 64-byte maxFileBytes: an OVERSIZED summary. */
   private static String oversizedJsonObject(String value) {
     return "{\"v\":\"" + value + "\",\"padding\":\"" + "x".repeat(100) + "\"}";
   }

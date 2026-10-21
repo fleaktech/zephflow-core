@@ -18,6 +18,9 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.HeapDecodeLimits;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
+import io.fleak.zephflow.lib.commands.filedecode.UnitRun.Counters;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
 import io.fleak.zephflow.lib.commands.fssource.backend.gcs.GcsBackendConfig;
@@ -31,14 +34,10 @@ import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
 import io.fleak.zephflow.lib.commands.fssource.util.PendingFile;
 import io.fleak.zephflow.lib.commands.fssource.util.PendingFileSelector;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
+import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter.Emitter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializationOutcome;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +45,6 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 
 @Slf4j
 public final class FsSourceCommand extends SourceCommand {
@@ -54,9 +52,6 @@ public final class FsSourceCommand extends SourceCommand {
   static final String DEFAULT_CHECKPOINT_SCOPE = "local";
   static final String SKIP_REASON_READ_ERROR = "read_error";
   static final String SKIP_REASON_DOWNSTREAM_ERROR = "downstream_error";
-  static final String SKIP_REASON_NOTHING_DESERIALIZED = "nothing_deserialized";
-  static final long DEFAULT_MAX_FILE_BYTES = 256L * 1024 * 1024;
-  static final int DEFAULT_CHUNK_SIZE_BYTES = 16 * 1024 * 1024;
   static final int DEFAULT_MAX_FILES_PER_RUN = 10_000;
   static final String SKIP_REASON_FILE_TOO_LARGE = "file_too_large";
 
@@ -89,13 +84,6 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.backendConfig = backendConfig;
     executionContext.lister = executionContext.backend.createLister(backendConfig);
     executionContext.reader = executionContext.backend.createReader(backendConfig);
-    executionContext.payloadReader =
-        new FsPayloadReader(
-            executionContext.reader,
-            config.getMaxFileBytes() == null ? DEFAULT_MAX_FILE_BYTES : config.getMaxFileBytes(),
-            config.getChunkSizeBytes() == null
-                ? DEFAULT_CHUNK_SIZE_BYTES
-                : config.getChunkSizeBytes());
     executionContext.checkpointClient = buildCheckpointClient(jobContext);
     executionContext.checkpointScope = checkpointScope(jobContext);
     executionContext.replicaIndex = parseIntProperty(jobContext, JobContext.REPLICA_INDEX, 0);
@@ -111,6 +99,8 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.skippedFileCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT, metricTags);
     executionContext.dlqWriter = buildDlqWriter(jobContext);
+    executionContext.localSpoolMaxBytes = FsFileAccess.DEFAULT_LOCAL_SPOOL_MAX_BYTES;
+    executionContext.heapBytes = HeapDecodeLimits.nominalHeapBytes();
     return executionContext;
   }
 
@@ -286,10 +276,6 @@ public final class FsSourceCommand extends SourceCommand {
 
     Pattern fileNamePattern =
         config.getFileNameRegex() == null ? null : Pattern.compile(config.getFileNameRegex());
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-
     ListRequest listRequest =
         new ListRequest(config.getRoot(), fileNamePattern, config.getExactObjectKey());
     PendingFileSelector selector =
@@ -341,44 +327,82 @@ public final class FsSourceCommand extends SourceCommand {
     int skippedFileCount = 0;
     int abandonedFileCount = 0;
 
-    for (PendingFile pending : pendingFiles) {
-      if (terminated) break;
-      FileEntry fileEntry = pending.entry();
-      int bucket = bucketOf(pending);
+    FsFileDecoder fileDecoder =
+        new FsFileDecoder(
+            new SourceDecoding(config.getEncodingType(), null, null),
+            config.getMaxFileBytes(),
+            config.getFileNameRegex() != null,
+            config.getExactObjectKey() != null,
+            executionContext.heapBytes,
+            executionContext.localSpoolMaxBytes,
+            executionContext.dlqWriter,
+            nodeId,
+            new Counters(
+                executionContext.inputEventCounter,
+                executionContext.dataSizeCounter,
+                executionContext.deserializeFailureCounter));
+    Emitter emitter =
+        new Emitter() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            eventAcceptor.accept(batch);
+          }
 
-      String skipReason = readAndEmit(executionContext, deserializer, eventAcceptor, fileEntry);
-      if (SKIP_REASON_FILE_TOO_LARGE.equals(skipReason)) {
-        // Unlike the other skips, a retry reads the same bytes against the same cap and fails the
-        // same way. Holding the watermark for it would re-read it every run and pin the bucket
-        // forever, so it is checkpointed as done: the file is dropped, not retried.
-        countSkip(executionContext, skipReason);
-        abandonedFileCount++;
-      } else if (skipReason != null) {
-        ceilingByBucket.merge(bucket, pending.timestamp(), FsSourceCommand::holdWatermark);
-        skippedFileCount += countSkip(executionContext, skipReason);
-        continue;
-      } else {
-        emittedFileCount++;
+          // A file is read to its end once started, as before; terminate() is checked between
+          // files.
+          @Override
+          public boolean stopped() {
+            return false;
+          }
+        };
+    try (FsFileAccess access =
+        new FsFileAccess(
+            executionContext.reader,
+            "file".equals(config.getBackend()),
+            executionContext.localSpoolMaxBytes)) {
+      for (PendingFile pending : pendingFiles) {
+        if (terminated) break;
+        FileEntry fileEntry = pending.entry();
+        int bucket = bucketOf(pending);
+
+        FsFileDecoder.Result result = fileDecoder.decode(fileEntry, access, emitter);
+        switch (result) {
+          case TOO_LARGE -> {
+            // A retry would find the same file over the same cap, so it is done, not retried.
+            countSkip(executionContext, SKIP_REASON_FILE_TOO_LARGE);
+            abandonedFileCount++;
+          }
+          case READ_ERROR, DOWNSTREAM_ERROR -> {
+            ceilingByBucket.merge(bucket, pending.timestamp(), FsSourceCommand::holdWatermark);
+            skippedFileCount +=
+                countSkip(
+                    executionContext,
+                    result == FsFileDecoder.Result.READ_ERROR
+                        ? SKIP_REASON_READ_ERROR
+                        : SKIP_REASON_DOWNSTREAM_ERROR);
+            continue;
+          }
+          case DONE -> emittedFileCount++;
+        }
+
+        // Checkpointing is what keeps a retry from re-emitting the records already emitted.
+        FsCheckpoint updated =
+            checkpointByBucket
+                .get(bucket)
+                .withEmitted(
+                    fileEntry.key().urn(),
+                    pending.timestamp(),
+                    ceilingByBucket.getOrDefault(bucket, Instant.MAX));
+        checkpointByBucket.put(bucket, updated);
+        FsCheckpointStore.save(
+            executionContext.checkpointClient, sourceIdByBucket.get(bucket), updated);
       }
-
-      // Records that did parse were emitted, and malformed ones were quarantined, so the file is
-      // done. Checkpointing is what keeps a retry from re-emitting the records already emitted.
-      FsCheckpoint updated =
-          checkpointByBucket
-              .get(bucket)
-              .withEmitted(
-                  fileEntry.key().urn(),
-                  pending.timestamp(),
-                  ceilingByBucket.getOrDefault(bucket, Instant.MAX));
-      checkpointByBucket.put(bucket, updated);
-      FsCheckpointStore.save(
-          executionContext.checkpointClient, sourceIdByBucket.get(bucket), updated);
     }
 
     if (abandonedFileCount > 0) {
       log.error(
-          "fs_source run summary: scope={} replica={}/{} dropped {} file(s) over maxFileBytes;"
-              + " they will not be retried. See the preceding {} errors",
+          "fs_source run summary: scope={} replica={}/{} dropped {} file(s) over"
+              + " localSpoolMaxBytes; they will not be retried. See the preceding {} errors",
           executionContext.checkpointScope,
           executionContext.replicaIndex,
           executionContext.replicaCount,
@@ -406,243 +430,14 @@ public final class FsSourceCommand extends SourceCommand {
     }
     if (emittedFileCount == 0 && skippedFileCount > 0) {
       // Reporting success here would tell the scheduler the batch is done when nothing was read.
-      // Dropped oversized files don't count: they are done, and a retry would find nothing to do.
+      // Files over localSpoolMaxBytes do not count: they are done, and a retry would find nothing
+      // to do.
       throw new IllegalStateException(
           "fs_source read no files: all "
               + skippedFileCount
               + " candidate file(s) were skipped; see the preceding errors");
     }
     eventAcceptor.terminate();
-  }
-
-  /**
-   * Reads one file and emits its records.
-   *
-   * @return null when the file is fully handled, or the skip reason when it is not
-   */
-  private String readAndEmit(
-      FsSourceExecutionContext executionContext,
-      FleakDeserializer<?> deserializer,
-      SourceEventAcceptor eventAcceptor,
-      FileEntry fileEntry) {
-    String urn = fileEntry.key().urn();
-    try {
-      if (deserializer.supportsStreamedPayloads()) {
-        return emitStreamed(executionContext, deserializer, eventAcceptor, fileEntry);
-      }
-      return deserializer.supportsChunkedPayloads()
-          ? emitChunked(executionContext, deserializer, eventAcceptor, fileEntry)
-          : emitWholePayload(executionContext, deserializer, eventAcceptor, fileEntry);
-    } catch (FsPayloadReader.PayloadTooLargeException payloadTooLargeException) {
-      // Size is the single most common reason a file is skipped, and the one an operator can act
-      // on directly, so name the reason and the listed object size rather than only the exception.
-      log.error(
-          "fs_source drop file urn={} reason={} listedSizeBytes={}: {}. It is checkpointed as"
-              + " done and will not be retried; any records already emitted from it stand",
-          urn,
-          SKIP_REASON_FILE_TOO_LARGE,
-          fileEntry.size(),
-          payloadTooLargeException.getMessage());
-      return SKIP_REASON_FILE_TOO_LARGE;
-    } catch (DownstreamFailure downstreamFailure) {
-      log.error(
-          "fs_source skip file urn={} due to downstream error", urn, downstreamFailure.getCause());
-      return SKIP_REASON_DOWNSTREAM_ERROR;
-    } catch (Exception exception) {
-      log.error("fs_source skip file urn={} due to read error", urn, exception);
-      return SKIP_REASON_READ_ERROR;
-    }
-  }
-
-  /** Whole-document formats: one capped read, one parse, one emit. */
-  private String emitWholePayload(
-      FsSourceExecutionContext executionContext,
-      FleakDeserializer<?> deserializer,
-      SourceEventAcceptor eventAcceptor,
-      FileEntry fileEntry)
-      throws Exception {
-    String urn = fileEntry.key().urn();
-    byte[] bytes = executionContext.payloadReader.readWhole(fileEntry.key());
-    executionContext.dataSizeCounter.increase(bytes.length, Map.of());
-
-    DeserializationOutcome outcome =
-        deserializer.deserializeWithErrors(new SerializedEvent(null, bytes, Map.of()));
-    boolean quarantined = reportDeserializationErrors(executionContext, urn, outcome);
-    emit(executionContext, eventAcceptor, outcome);
-
-    if (outcome.records().isEmpty() && !quarantined) {
-      log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
-      return SKIP_REASON_NOTHING_DESERIALIZED;
-    }
-    return null;
-  }
-
-  /** Line-delimited formats: parse and emit one newline-aligned chunk at a time. */
-  private String emitChunked(
-      FsSourceExecutionContext executionContext,
-      FleakDeserializer<?> deserializer,
-      SourceEventAcceptor eventAcceptor,
-      FileEntry fileEntry)
-      throws Exception {
-    String urn = fileEntry.key().urn();
-    // Arrays because the lambda needs to mutate them; the consumer is called on this thread only.
-    long[] recordCount = {0};
-    boolean[] unrecordedFailures = {false};
-
-    executionContext.payloadReader.forEachChunk(
-        fileEntry.key(),
-        chunk -> {
-          executionContext.dataSizeCounter.increase(chunk.length, Map.of());
-          DeserializationOutcome outcome =
-              deserializer.deserializeWithErrors(new SerializedEvent(null, chunk, Map.of()));
-          // Unconditional: it returns true (nothing to record) when the chunk had no failures.
-          if (!reportDeserializationErrors(executionContext, urn, outcome)) {
-            unrecordedFailures[0] = true;
-          }
-          recordCount[0] += outcome.records().size();
-          emit(executionContext, eventAcceptor, outcome);
-        });
-
-    if (recordCount[0] == 0 && unrecordedFailures[0]) {
-      log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
-      return SKIP_REASON_NOTHING_DESERIALIZED;
-    }
-    return null;
-  }
-
-  /**
-   * Record-sequence formats that are not line-delimited (json array, csv): the parser reads records
-   * straight from the stream, and they are emitted in batches of about {@code chunkSizeBytes}, so
-   * neither the file nor the parsed records are ever held whole.
-   */
-  private String emitStreamed(
-      FsSourceExecutionContext executionContext,
-      FleakDeserializer<?> deserializer,
-      SourceEventAcceptor eventAcceptor,
-      FileEntry fileEntry)
-      throws Exception {
-    String urn = fileEntry.key().urn();
-    int batchSizeBytes = executionContext.payloadReader.chunkSizeBytes();
-    // Arrays because the lambdas need to mutate them; everything here runs on this thread.
-    long[] recordCount = {0};
-    boolean[] unrecordedFailures = {false};
-    long[] flushedThroughBytes = {0};
-    List<RecordFleakData> records = new ArrayList<>();
-    List<DeserializationOutcome.RecordError> errors = new ArrayList<>();
-
-    executionContext.payloadReader.stream(
-        fileEntry.key(),
-        input -> {
-          Runnable flush =
-              () -> {
-                executionContext.dataSizeCounter.increase(
-                    input.bytesRead() - flushedThroughBytes[0], Map.of());
-                flushedThroughBytes[0] = input.bytesRead();
-                DeserializationOutcome outcome =
-                    new DeserializationOutcome(List.copyOf(records), List.copyOf(errors));
-                records.clear();
-                errors.clear();
-                if (!reportDeserializationErrors(executionContext, urn, outcome)) {
-                  unrecordedFailures[0] = true;
-                }
-                recordCount[0] += outcome.records().size();
-                emit(executionContext, eventAcceptor, outcome);
-              };
-          Runnable flushWhenFull =
-              () -> {
-                if (input.bytesRead() - flushedThroughBytes[0] >= batchSizeBytes) {
-                  flush.run();
-                }
-              };
-          try {
-            deserializer.deserializeStream(
-                input,
-                record -> {
-                  input.recordBoundary();
-                  records.add(record);
-                  flushWhenFull.run();
-                },
-                error -> {
-                  input.recordBoundary();
-                  errors.add(error);
-                  flushWhenFull.run();
-                });
-          } catch (FsPayloadReader.PayloadTooLargeException payloadTooLargeException) {
-            // The file is dropped rather than retried, so the records parsed before the oversized
-            // one must still go out, or they are lost along with it.
-            flush.run();
-            throw payloadTooLargeException;
-          }
-          flush.run();
-        });
-
-    if (recordCount[0] == 0 && unrecordedFailures[0]) {
-      log.error("fs_source skip file urn={}: nothing could be deserialized", urn);
-      return SKIP_REASON_NOTHING_DESERIALIZED;
-    }
-    return null;
-  }
-
-  /**
-   * Emits one batch, tagging a downstream failure so the caller can tell it from a read failure.
-   */
-  private static void emit(
-      FsSourceExecutionContext executionContext,
-      SourceEventAcceptor eventAcceptor,
-      DeserializationOutcome outcome) {
-    if (outcome.records().isEmpty()) {
-      return;
-    }
-    executionContext.inputEventCounter.increase(outcome.records().size(), Map.of());
-    try {
-      eventAcceptor.accept(outcome.records());
-    } catch (Exception exception) {
-      throw new DownstreamFailure(exception);
-    }
-  }
-
-  /** A failure from the downstream DAG rather than from reading or parsing the file. */
-  private static class DownstreamFailure extends RuntimeException {
-    DownstreamFailure(Exception cause) {
-      super(cause);
-    }
-  }
-
-  /**
-   * Counts and logs deserialization failures, and writes the offending raw records to the dlq when
-   * one is configured.
-   *
-   * @return whether every failure is now recorded somewhere durable (trivially true when there were
-   *     no failures)
-   */
-  private boolean reportDeserializationErrors(
-      FsSourceExecutionContext executionContext, String urn, DeserializationOutcome outcome) {
-    if (!outcome.hasErrors()) {
-      return true;
-    }
-    executionContext.deserializeFailureCounter.increase(outcome.errors().size(), Map.of());
-    log.error(
-        "fs_source urn={}: {} record(s) failed to deserialize, {} emitted. first failure: {}",
-        urn,
-        outcome.errors().size(),
-        outcome.records().size(),
-        outcome.errors().getFirst().error().toString());
-    if (executionContext.dlqWriter == null) {
-      return false;
-    }
-    for (DeserializationOutcome.RecordError recordError : outcome.errors()) {
-      Map<String, String> metadata = new java.util.HashMap<>();
-      metadata.put(METADATA_FS_SOURCE_URN, urn);
-      if (recordError.recordIndex() > 0) {
-        metadata.put(METADATA_FS_SOURCE_RECORD_INDEX, String.valueOf(recordError.recordIndex()));
-      }
-      executionContext.dlqWriter.writeToDlq(
-          System.currentTimeMillis(),
-          new SerializedEvent(null, recordError.rawRecord(), metadata),
-          ExceptionUtils.getStackTrace(recordError.error()),
-          nodeId);
-    }
-    return true;
   }
 
   /**

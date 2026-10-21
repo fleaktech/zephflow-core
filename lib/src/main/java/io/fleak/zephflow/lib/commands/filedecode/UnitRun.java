@@ -108,9 +108,10 @@ public final class UnitRun {
 
   /**
    * Reading the unit failed; nothing more was emitted or written (an {@code endEarly} policy). The
-   * input bytes counted are those through the last record emitted.
+   * input bytes counted are those through the last record emitted. {@code compression} is true when
+   * the unit's compression ended it (a terminal {@code CORRUPT_COMPRESSION}).
    */
-  public record ReadFailed(Exception error) implements End {}
+  public record ReadFailed(Exception error, boolean compression) implements End {}
 
   /** The downstream failed a batch; nothing more was emitted or written ({@code endEarly}). */
   public record DownstreamFailed(Exception error) implements End {}
@@ -244,7 +245,7 @@ public final class UnitRun {
         if (settings.policy().endEarly()
             && failed.terminal()
             && failed.kind() == ErrorKind.CORRUPT_COMPRESSION) {
-          endedEarly = new ReadFailed(failed.error());
+          endedEarly = new ReadFailed(failed.error(), true);
           return false;
         }
         counters.decodeFailures().increase(Map.of());
@@ -288,7 +289,7 @@ public final class UnitRun {
    */
   public void readFailed(Exception error) {
     if (endedEarly == null) {
-      endedEarly = new ReadFailed(error);
+      endedEarly = new ReadFailed(error, false);
     }
   }
 

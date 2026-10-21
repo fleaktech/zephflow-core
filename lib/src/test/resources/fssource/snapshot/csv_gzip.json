@@ -1,9 +1,9 @@
 {
-  "batchSizes" : [ 3000 ],
+  "batchSizes" : [ 1000, 1000, 1000 ],
   "checkpointedAsDone" : true,
   "counters" : {
     "input_event_count" : 3000,
-    "input_event_size" : 35642
+    "input_event_size" : 35641
   },
   "dlq" : [ ],
   "failed" : null,
