@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -22,9 +24,12 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.core.LogEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -60,18 +65,35 @@ class SimpleSourceCommandDecodeFailureTest {
     run(decodeFailure(), dlqWriter, List.of(bad, good));
 
     verify(dlqWriter).writeToDlq(anyLong(), same(bad), eq(TEXT), eq(NODE_ID));
+    verify(dlqWriter).writeToDlq(anyLong(), any(), anyString(), anyString());
     verify(acceptor).accept(List.of(record));
     verify(committer).commit();
   }
 
   @Test
+  void fetchInWhichEveryMessageFailsIsNotCommitted() throws Exception {
+    run(decodeFailure(), dlqWriter, List.of(bad, bad));
+
+    verify(dlqWriter, times(2)).writeToDlq(anyLong(), same(bad), eq(TEXT), eq(NODE_ID));
+    verify(committer, never()).commit();
+  }
+
+  @Test
   void failedWriteOfDecodeFailureIsLoggedAndTheSourceGoesOn() throws Exception {
-    doThrow(new IllegalStateException("dlq down"))
-        .when(dlqWriter)
-        .writeToDlq(anyLong(), same(bad), anyString(), anyString());
+    IllegalStateException writeError = new IllegalStateException("dlq down");
+    doThrow(writeError).when(dlqWriter).writeToDlq(anyLong(), same(bad), anyString(), anyString());
 
-    run(decodeFailure(), dlqWriter, List.of(bad, good));
+    List<LogEvent> errors;
+    try (BoundedLogCapture logs = new BoundedLogCapture(SimpleSourceCommand.class)) {
+      run(decodeFailure(), dlqWriter, List.of(bad, good));
+      errors = logs.events().stream().filter(e -> e.getLevel() == Level.ERROR).toList();
+    }
 
+    assertEquals(
+        List.of(
+            "failed to write a message that failed to decode to the DLQ: MALFORMED json message: X"),
+        errors.stream().map(e -> e.getMessage().getFormattedMessage()).toList());
+    assertSame(writeError, errors.getFirst().getThrown());
     verify(acceptor).accept(List.of(record));
     verify(committer).commit();
     verify(acceptor).terminate();

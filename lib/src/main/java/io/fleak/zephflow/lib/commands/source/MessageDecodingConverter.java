@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.commands.source;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
-import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.filedecode.DlqTexts;
@@ -32,7 +31,6 @@ import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -87,24 +85,30 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
       SerializedEvent sourceRecord, SourceExecutionContext<?> context) {
     byte[] value = sourceRecord.value();
     long size = value == null ? 0 : value.length;
+    if (value == null) {
+      return succeed(List.of(), size, sourceRecord, context);
+    }
+    List<RecordFleakData> records = null;
     MessageDecodeException failure;
     try {
-      if (value == null) {
-        return succeed(List.of(), size, sourceRecord, context);
-      }
       DecodeResult result = decoder.decodeAll(value, DecodeLimits.UNLIMITED);
       if (result.problems().isEmpty()) {
-        return succeed(withMetadata(result.records(), sourceRecord), size, sourceRecord, context);
+        records = withMetadata(result.records(), sourceRecord);
+        failure = null;
+      } else {
+        failure = problemFailure(result.problems());
       }
-      failure = problemFailure(result.problems());
     } catch (Exception e) {
       failure =
           failure(
               "READ_FAILURE " + format + " " + noun(unit) + ": " + UnitRun.causeName(e),
               readFailureAction(),
-              ExceptionUtils.getStackTrace(e),
+              stackTrace(e),
               "",
               e);
+    }
+    if (failure == null) {
+      return succeed(records, size, sourceRecord, context);
     }
     context.dataSizeCounter().increase(size, Map.of());
     context.deserializeFailureCounter().increase(Map.of());
@@ -131,12 +135,10 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   private static List<RecordFleakData> withMetadata(
       List<RecordFleakData> records, SerializedEvent sourceRecord) {
     Map<String, String> metadata = SerializedEvent.metadataWithKey(sourceRecord);
-    if (metadata.isEmpty()) {
-      return records;
+    for (RecordFleakData record : records) {
+      metadata.forEach((k, v) -> record.getPayload().put(k, new StringPrimitiveFleakData(v)));
     }
-    Map<String, FleakData> fields = new HashMap<>();
-    metadata.forEach((k, v) -> fields.put(k, new StringPrimitiveFleakData(v)));
-    return records.stream().map(r -> r.copyAndMerge(fields)).toList();
+    return records;
   }
 
   private MessageDecodeException problemFailure(List<DecodeOutcome> problems) {
@@ -153,7 +155,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
                   + ": "
                   + UnitRun.causeName(failed.error()),
               failureAction(failed.kind()),
-              ExceptionUtils.getStackTrace(failed.error()),
+              stackTrace(failed.error()),
               location,
               failed.error());
       case DecodeOutcome.Oversized oversized -> {
@@ -241,6 +243,10 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
               + " encodingType or decoding, "
               + retry(unit);
     };
+  }
+
+  private static String stackTrace(Throwable error) {
+    return ExceptionUtils.getStackTrace(error).stripTrailing();
   }
 
   private static String noun(Unit unit) {

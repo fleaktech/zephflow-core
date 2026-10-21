@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
@@ -34,10 +36,14 @@ import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -46,10 +52,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class MessageDecodingConverterTest {
 
@@ -182,7 +192,7 @@ class MessageDecodingConverterTest {
                 + " the producer that wrote it; "
                 + RESEND
                 + "\n"
-                + ExceptionUtils.getStackTrace(cause)
+                + trace(cause)
                 + "\nrecordIndex 2, bytes 8-16",
             message),
         Failure.of(result));
@@ -210,7 +220,7 @@ class MessageDecodingConverterTest {
                 + " the producer wrote damaged compressed data, or bytes after its end; "
                 + RESEND
                 + "\n"
-                + ExceptionUtils.getStackTrace(cause),
+                + trace(cause),
             message),
         Failure.of(result));
   }
@@ -245,7 +255,7 @@ class MessageDecodingConverterTest {
                 + " the producer that wrote it; "
                 + RESEND
                 + "\n"
-                + ExceptionUtils.getStackTrace(cause)
+                + trace(cause)
                 + "\nrecordIndex 3, bytes 10-25 (and 2 more problems)",
             message),
         Failure.of(result));
@@ -278,7 +288,7 @@ class MessageDecodingConverterTest {
                 + " the producer wrote damaged compressed data, or bytes after its end; "
                 + RESEND
                 + "\n"
-                + ExceptionUtils.getStackTrace(cause)
+                + trace(cause)
                 + "\nand 1 more problem",
             message),
         Failure.of(result));
@@ -307,44 +317,112 @@ class MessageDecodingConverterTest {
     verify(failures).increase(Map.of());
   }
 
-  @Test
-  void oversizedXzMemory() {
+  static Stream<Arguments> oversizedKinds() {
     long mib = 1024 * 1024;
-    RecordDecoder decoder =
-        stub(
-            new DecodeResult(
-                List.of(),
-                List.of(
-                    new DecodeOutcome.Oversized(
-                        1,
-                        1,
-                        null,
-                        LimitKind.MAX_CODEC_MEMORY_BYTES,
-                        128 * mib,
-                        200 * mib,
-                        new byte[0],
-                        true))));
+    FormatConfig json = JSON_OBJECT.format();
+    FormatConfig avro = new AvroFormatConfig(AvroFormatConfig.Container.OCF, null);
+    FormatConfig protobuf = new ProtobufFormatConfig("d", "m", ProtobufFormatConfig.Framing.SINGLE);
+    return Stream.of(
+        Arguments.of(
+            json,
+            LimitKind.MAX_CODEC_MEMORY_BYTES,
+            128 * mib,
+            200 * mib,
+            "OVERSIZED json message: xz memory\n"
+                + "Action: recompress the message with a smaller xz dictionary (the presets -0 to"
+                + " -9 need at most 65 MiB); no setting raises this limit; "
+                + RESEND
+                + "\nxz needs 209715200 bytes of memory, over its limit of 134217728"),
+        Arguments.of(
+            json,
+            LimitKind.MAX_CODEC_MEMORY_BYTES,
+            64 * mib,
+            200 * mib,
+            "OVERSIZED json message: xz memory\n"
+                + "Action: give the task more memory (xz may use half the heap, up to 128 MiB), or"
+                + " recompress the message with a smaller xz dictionary (the presets -0 to -9 need"
+                + " at most 65 MiB); "
+                + RESEND
+                + "\nxz needs 209715200 bytes of memory, over its limit of 67108864"),
+        Arguments.of(
+            avro,
+            LimitKind.AVRO_XZ_MEMORY,
+            128 * mib,
+            200 * mib,
+            "OVERSIZED avro message: avro xz memory\n"
+                + "Action: rewrite the avro file with a lower xz level for its blocks (levels 0 to"
+                + " 9 need at most 65 MiB); no setting raises this limit; "
+                + RESEND
+                + "\nan avro block's xz data needs 209715200 bytes of memory, over its limit of"
+                + " 134217728"),
+        Arguments.of(
+            json,
+            LimitKind.ZSTD_WINDOW,
+            128 * mib,
+            0,
+            "OVERSIZED json message: zstd window\n"
+                + "Action: compress the zstd data (the message, or an avro file's zstandard blocks)"
+                + " without long mode, or with a window of 128 MiB or less (--long=27); no setting"
+                + " raises this limit; "
+                + RESEND
+                + "\nzstd data needs a window over 134217728 bytes"),
+        Arguments.of(
+            json,
+            LimitKind.NATIVE_MEMORY,
+            0,
+            0,
+            "OVERSIZED json message: zstd native memory\n"
+                + "Action: the worker ran out of memory outside the Java heap: give the worker more"
+                + " memory or run fewer tasks on it; if it was momentary, "
+                + RESEND
+                + "\nzstd could not allocate native memory"),
+        Arguments.of(
+            new ParquetFormatConfig(),
+            LimitKind.HEAP_SHARE,
+            100,
+            200,
+            "OVERSIZED parquet message: parquet heap share\n"
+                + "Action: give the task more memory, or write the file with smaller row groups or"
+                + " rows (fewer row groups or columns if the footer is too large); "
+                + RESEND
+                + "\nparquet needs 200 bytes, over its share of the heap, 100"),
+        Arguments.of(
+            protobuf,
+            LimitKind.FORMAT_MAXIMUM,
+            100,
+            200,
+            "OVERSIZED protobuf message: format maximum\n"
+                + "Action: write the file in smaller pieces (avro: smaller blocks; protobuf:"
+                + " smaller messages; parquet: a smaller footer); no setting raises this limit; "
+                + RESEND
+                + "\na protobuf message reached 200 bytes, over the 100 bytes the decoder can hold"
+                + " in one piece"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("oversizedKinds")
+  void oversizedText(FormatConfig format, LimitKind limit, long value, long size, String text) {
     SerializedEvent message = message("x");
 
     ConvertedResult<SerializedEvent> result =
         new MessageDecodingConverter(
-                decoder, JSON_OBJECT.format(), MessageDecodingConverter.Unit.MESSAGE)
+                stub(oversized(limit, value, size)), format, MessageDecodingConverter.Unit.MESSAGE)
             .convert(message, context);
 
-    assertEquals(
-        new Failure(
-            null,
-            "OVERSIZED json message: xz memory\n"
-                + "Action: recompress the message with a smaller xz dictionary (the presets -0 to -9"
-                + " need at most 65 MiB); no setting raises this limit; "
-                + RESEND
-                + "\nxz needs "
-                + 200 * mib
-                + " bytes of memory, over its limit of "
-                + 128 * mib
-                + "\nrecordIndex 1",
-            message),
-        Failure.of(result));
+    assertEquals(new Failure(null, text + "\nrecordIndex 1", message), Failure.of(result));
+  }
+
+  @Test
+  void decodesWithoutLimits() {
+    RecordDecoder decoder = mock();
+    when(decoder.decodeAll(any(), any())).thenReturn(new DecodeResult(List.of(), List.of()));
+    SerializedEvent message = message("x");
+
+    new MessageDecodingConverter(
+            decoder, JSON_OBJECT.format(), MessageDecodingConverter.Unit.MESSAGE)
+        .convert(message, context);
+
+    verify(decoder).decodeAll(same(message.value()), eq(DecodeLimits.UNLIMITED));
   }
 
   @Test
@@ -367,7 +445,7 @@ class MessageDecodingConverterTest {
                 + " every message fails like this, check the source's encodingType or decoding; "
                 + RESEND
                 + "\n"
-                + ExceptionUtils.getStackTrace(cause),
+                + trace(cause),
             message),
         Failure.of(result));
     verify(dataSize).increase(1, Map.of());
@@ -387,7 +465,7 @@ class MessageDecodingConverterTest {
                 + "Action: check that the file is json as the source's encodingType or decoding"
                 + " says, and that its compression is set when the file is compressed; fix the"
                 + " file and run the job again\n"
-                + ExceptionUtils.getStackTrace(cause)
+                + trace(cause)
                 + "\nrecordIndex 1",
             message),
         Failure.of(
@@ -401,12 +479,29 @@ class MessageDecodingConverterTest {
                 + "Action: check the source's compression setting against the file; otherwise the"
                 + " file holds damaged compressed data, or bytes after its end; fix the file and"
                 + " run the job again\n"
-                + ExceptionUtils.getStackTrace(cause)
+                + trace(cause)
                 + "\nrecordIndex 1",
             message),
         Failure.of(
             new MessageDecodingConverter(
                     stub(failed(ErrorKind.CORRUPT_COMPRESSION, cause)), JSON_OBJECT.format(), file)
+                .convert(message, context)));
+
+    assertEquals(
+        new Failure(
+            null,
+            "OVERSIZED json file: zstd window\n"
+                + "Action: compress the zstd data (the file, or an avro file's zstandard blocks)"
+                + " without long mode, or with a window of 128 MiB or less (--long=27); no setting"
+                + " raises this limit; fix the file and run the job again\n"
+                + "zstd data needs a window over 134217728 bytes\n"
+                + "recordIndex 1",
+            message),
+        Failure.of(
+            new MessageDecodingConverter(
+                    stub(oversized(LimitKind.ZSTD_WINDOW, 128 * 1024 * 1024, 0)),
+                    JSON_OBJECT.format(),
+                    file)
                 .convert(message, context)));
 
     RuntimeException thrown = new RuntimeException("boom");
@@ -421,7 +516,7 @@ class MessageDecodingConverterTest {
             "READ_FAILURE json file: RuntimeException\n"
                 + "Action: the source could not process the file (the error says why); check the"
                 + " source's encodingType or decoding, fix the file and run the job again\n"
-                + ExceptionUtils.getStackTrace(thrown),
+                + trace(thrown),
             message),
         Failure.of(readFailure));
   }
@@ -503,6 +598,16 @@ class MessageDecodingConverterTest {
   private static DecodeResult failed(ErrorKind kind, Exception cause) {
     return new DecodeResult(
         List.of(), List.of(new DecodeOutcome.Failed(kind, null, 1, null, cause, false)));
+  }
+
+  private static DecodeResult oversized(LimitKind limit, long value, long size) {
+    return new DecodeResult(
+        List.of(),
+        List.of(new DecodeOutcome.Oversized(1, 1, null, limit, value, size, new byte[0], true)));
+  }
+
+  private static String trace(Throwable error) {
+    return ExceptionUtils.getStackTrace(error).stripTrailing();
   }
 
   private static RecordDecoder stub(DecodeResult result) {
