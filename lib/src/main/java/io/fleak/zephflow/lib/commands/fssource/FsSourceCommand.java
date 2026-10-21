@@ -19,7 +19,6 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.filedecode.HeapDecodeLimits;
-import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.filedecode.UnitRun.Counters;
 import io.fleak.zephflow.lib.commands.fssource.api.*;
 import io.fleak.zephflow.lib.commands.fssource.backend.azblob.AzureBackendConfig;
@@ -99,7 +98,10 @@ public final class FsSourceCommand extends SourceCommand {
     executionContext.skippedFileCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT, metricTags);
     executionContext.dlqWriter = buildDlqWriter(jobContext);
-    executionContext.localSpoolMaxBytes = FsFileAccess.DEFAULT_LOCAL_SPOOL_MAX_BYTES;
+    executionContext.localSpoolMaxBytes =
+        config.getLocalSpoolMaxBytes() == null
+            ? FsFileAccess.DEFAULT_LOCAL_SPOOL_MAX_BYTES
+            : config.getLocalSpoolMaxBytes();
     executionContext.heapBytes = HeapDecodeLimits.nominalHeapBytes();
     return executionContext;
   }
@@ -329,7 +331,7 @@ public final class FsSourceCommand extends SourceCommand {
 
     FsFileDecoder fileDecoder =
         new FsFileDecoder(
-            new SourceDecoding(config.getEncodingType(), null, null),
+            FsSourceConfigValidator.decoding(config),
             config.getMaxFileBytes(),
             config.getFileNameRegex() != null,
             config.getExactObjectKey() != null,

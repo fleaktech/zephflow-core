@@ -24,6 +24,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakGauge;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.fssource.api.FileEntry;
 import io.fleak.zephflow.lib.commands.fssource.api.FileKey;
@@ -44,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,6 +60,9 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.message.Message;
+import org.apache.parquet.example.data.simple.SimpleGroupFactory;
+import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.MessageTypeParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,25 +88,29 @@ class FsSourceRemoteBackendTest {
   private final List<Integer> batches = new ArrayList<>();
   private final Map<String, Long> counters = new TreeMap<>();
   private FsSourceCommand command;
-  private FsBackend registeredBefore;
+  private final Map<String, FsBackend> registeredBefore = new HashMap<>();
 
   @BeforeEach
-  void registerFakeBackend() throws IOException {
-    try {
-      registeredBefore = FsBackendRegistry.get("gs");
-    } catch (IllegalArgumentException notRegistered) {
-      registeredBefore = null;
+  void registerFakeBackends() throws IOException {
+    for (String scheme : List.of("gs", "s3")) {
+      try {
+        registeredBefore.put(scheme, FsBackendRegistry.get(scheme));
+      } catch (IllegalArgumentException notRegistered) {
+        registeredBefore.remove(scheme);
+      }
+      FsBackendRegistry.unregister(scheme);
+      FsBackendRegistry.register(new FakeBackend(scheme));
     }
-    FsBackendRegistry.unregister("gs");
-    FsBackendRegistry.register(new FakeBackend());
     spoolsBefore = spools();
   }
 
   @AfterEach
-  void restoreBackend() {
-    FsBackendRegistry.unregister("gs");
-    if (registeredBefore != null) {
-      FsBackendRegistry.register(registeredBefore);
+  void restoreBackends() {
+    for (String scheme : List.of("gs", "s3")) {
+      FsBackendRegistry.unregister(scheme);
+      if (registeredBefore.containsKey(scheme)) {
+        FsBackendRegistry.register(registeredBefore.get(scheme));
+      }
     }
   }
 
@@ -222,18 +231,22 @@ class FsSourceRemoteBackendTest {
   }
 
   private void run(long localSpoolMaxBytes) throws Exception {
+    run(localSpoolMaxBytes, Map.of("encodingType", "JSON_OBJECT_LINE"));
+  }
+
+  private void run(Long localSpoolMaxBytes, Map<String, Object> format) throws Exception {
     if (command == null) {
+      Map<String, Object> config = new HashMap<>(format);
+      if (localSpoolMaxBytes != null) {
+        config.put("localSpoolMaxBytes", localSpoolMaxBytes);
+      }
+      config.put("backend", "gs");
+      config.put("root", "gs://b/");
+      config.put("fileNameRegex", "f_(?<ts>\\d+)\\..*");
       command = new FsSourceCommand("source", JobContext.builder().build());
-      command.parseAndValidateArg(
-          Map.of(
-              "backend", "gs",
-              "root", "gs://b/",
-              "fileNameRegex", "f_(?<ts>\\d+)\\.jsonl",
-              "encodingType", "JSON_OBJECT_LINE"));
+      command.parseAndValidateArg(config);
       command.initialize(new RecordingMetricClientProvider());
     }
-    ((FsSourceExecutionContext) command.getExecutionContext()).localSpoolMaxBytes =
-        localSpoolMaxBytes;
     command.execute(
         "user",
         new SourceEventAcceptor() {
@@ -245,6 +258,121 @@ class FsSourceRemoteBackendTest {
           @Override
           public void terminate() {}
         });
+  }
+
+  @Test
+  void aParquetFileOverTheCapIsDroppedOnceAndTheRunSucceeds() throws Exception {
+    file("f_1.parquet", "PAR1".repeat(10));
+    Map<String, Object> parquet = Map.of("decoding", Map.of("format", Map.of("type", "parquet")));
+
+    for (int run = 0; run < 2; run++) {
+      counters.clear();
+      try (BoundedLogCapture logs = new BoundedLogCapture(FsSourceCommand.class)) {
+        run(16L, parquet);
+
+        assertEquals(
+            run == 0
+                ? List.of(
+                    "fs_source run summary: scope=local replica=0/1 dropped 1 file(s) over"
+                        + " localSpoolMaxBytes; they will not be retried. See the preceding"
+                        + " file_too_large errors")
+                : List.of(),
+            errors(logs));
+      }
+      assertEquals(
+          run == 0
+              ? Map.of(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT + "{skip_reason=file_too_large}", 1L)
+              : Map.of(),
+          counters);
+    }
+    assertEquals(List.of(), opened);
+    assertEquals(List.of(), batches);
+  }
+
+  @Test
+  void aParquetFileUnderTheCapIsCopiedAndDecoded() throws Exception {
+    MessageType schema = MessageTypeParser.parseMessageType("message m { required int64 n; }");
+    SimpleGroupFactory rows = new SimpleGroupFactory(schema);
+    byte[] parquet =
+        TestParquet.write(
+            schema, List.of(rows.newGroup().append("n", 1L), rows.newGroup().append("n", 2L)));
+    files.put("f_1.parquet", () -> new ByteArrayInputStream(parquet));
+    sizes.put("f_1.parquet", parquet.length);
+    List<RecordFleakData> records = new ArrayList<>();
+
+    command = new FsSourceCommand("source", JobContext.builder().build());
+    command.parseAndValidateArg(
+        Map.of(
+            "backend",
+            "gs",
+            "root",
+            "gs://b/",
+            "localSpoolMaxBytes",
+            (long) parquet.length,
+            "decoding",
+            Map.of("format", Map.of("type", "parquet"))));
+    command.initialize(new RecordingMetricClientProvider());
+    command.execute(
+        "user",
+        new SourceEventAcceptor() {
+          @Override
+          public void accept(List<RecordFleakData> batch) {
+            records.addAll(batch);
+          }
+
+          @Override
+          public void terminate() {}
+        });
+
+    assertEquals(
+        List.of(FleakData.wrap(Map.of("n", 1L)), FleakData.wrap(Map.of("n", 2L))), records);
+    assertEquals(List.of(1, 1), List.of(spoolsAtOpen.size(), spoolsAtOpen.getFirst()));
+    assertEquals(Set.of(), newSpools());
+  }
+
+  @Test
+  void withExactObjectKeyTheTooLargeLogNamesTheKeyAndTheConfiguredCap() throws Exception {
+    file("f_1.parquet", "PAR1".repeat(10));
+    command = new FsSourceCommand("source", JobContext.builder().build());
+    command.parseAndValidateArg(
+        Map.of(
+            "backend", "s3",
+            "root", "s3://b/",
+            "exactObjectKey", "f_1.parquet",
+            "localSpoolMaxBytes", 16L,
+            "decoding", Map.of("format", Map.of("type", "parquet"))));
+    command.initialize(new RecordingMetricClientProvider());
+
+    try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class)) {
+      command.execute(
+          "user",
+          new SourceEventAcceptor() {
+            @Override
+            public void accept(List<RecordFleakData> batch) {}
+
+            @Override
+            public void terminate() {}
+          });
+
+      assertEquals(
+          List.of(
+              "fs_source drop file urn=s3://b/f_1.parquet reason=file_too_large listedSizeBytes=40:"
+                  + " a parquet file needs random access and is over localSpoolMaxBytes 16, so it"
+                  + " is not read. It is checkpointed as done and will not be retried; raise"
+                  + " localSpoolMaxBytes above its size, then upload the corrected file under a"
+                  + " new key and set exactObjectKey to it; a key already read is not read again"),
+          errors(logs));
+    }
+  }
+
+  @Test
+  void localSpoolMaxBytesDefaultsToOneGib() throws Exception {
+    file("f_1.jsonl", lines(1, 1));
+
+    run(null, Map.of("encodingType", "JSON_OBJECT_LINE"));
+
+    assertEquals(
+        1L << 30, ((FsSourceExecutionContext) command.getExecutionContext()).localSpoolMaxBytes);
   }
 
   private void file(String name, String content) {
@@ -316,10 +444,19 @@ class FsSourceRemoteBackendTest {
     }
   }
 
+  /** Lists the test's files as {@code <scheme>://b/<name>} and opens them from memory. */
   private final class FakeBackend implements FsBackend {
+    private final String scheme;
+    private final String prefix;
+
+    FakeBackend(String scheme) {
+      this.scheme = scheme;
+      this.prefix = scheme + "://b/";
+    }
+
     @Override
     public String scheme() {
-      return "gs";
+      return scheme;
     }
 
     @Override
@@ -332,12 +469,12 @@ class FsSourceRemoteBackendTest {
 
         @Override
         public FileEntry stat(FileKey key) {
-          return entry(key.urn().substring("gs://b/".length()));
+          return entry(key.urn().substring(prefix.length()));
         }
 
         private FileEntry entry(String name) {
           return new FileEntry(
-              new FileKey("gs", "gs://b/" + name), sizes.get(name), Instant.EPOCH, name);
+              new FileKey(scheme, prefix + name), sizes.get(name), Instant.EPOCH, name);
         }
       };
     }
@@ -352,7 +489,7 @@ class FsSourceRemoteBackendTest {
           throw new UncheckedIOException(e);
         }
         spoolFilesAtOpen.add(spoolFiles());
-        return files.get(key.urn().substring("gs://b/".length())).get();
+        return files.get(key.urn().substring(prefix.length())).get();
       };
     }
 

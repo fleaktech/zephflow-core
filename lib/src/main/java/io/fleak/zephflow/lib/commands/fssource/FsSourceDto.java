@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,7 +35,16 @@ public interface FsSourceDto {
     private String root;
     private String fileNameRegex;
     private String exactObjectKey;
+
+    /**
+     * Encoding of the files, translated to a decoding configuration (gzip detected automatically).
+     * Exactly one of this and {@code decoding} is set.
+     */
     private EncodingType encodingType;
+
+    /** How the files are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
+
     private Map<String, Object> backendConfig;
 
     /**
@@ -48,5 +58,11 @@ public interface FsSourceDto {
 
     /** Cap on how many files one run processes. Null uses the default. */
     private Integer maxFilesPerRun;
+
+    /**
+     * The largest remote file copied to local disk before it is decoded; a larger one is streamed
+     * from the backend, or not read if its format needs random access. Null is 1 GiB.
+     */
+    private Long localSpoolMaxBytes;
   }
 }

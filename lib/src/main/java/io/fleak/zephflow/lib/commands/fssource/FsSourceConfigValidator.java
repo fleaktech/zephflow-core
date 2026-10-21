@@ -16,7 +16,8 @@ package io.fleak.zephflow.lib.commands.fssource;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -45,10 +46,13 @@ public final class FsSourceConfigValidator implements ConfigValidator {
     validatePositiveSize("maxFileBytes", fsSourceConfig.getMaxFileBytes());
     validatePositiveSize("chunkSizeBytes", longValueOf(fsSourceConfig.getChunkSizeBytes()));
     validatePositiveSize("maxFilesPerRun", longValueOf(fsSourceConfig.getMaxFilesPerRun()));
-    if (fsSourceConfig.getEncodingType() == null) {
-      throw new IllegalArgumentException("encodingType is required");
-    }
-    DeserializerFactory.validateEncodingType(fsSourceConfig.getEncodingType());
+    validatePositiveSize("localSpoolMaxBytes", fsSourceConfig.getLocalSpoolMaxBytes());
+    // Compiles the decoding, so a bad one fails validation rather than the first file.
+    DecodingConfigCompiler.compile(decoding(fsSourceConfig).decodingConfig());
+  }
+
+  static SourceDecoding decoding(FsSourceDto.Config config) {
+    return new SourceDecoding(config.getEncodingType(), null, config.getDecoding());
   }
 
   private static Long longValueOf(Integer value) {

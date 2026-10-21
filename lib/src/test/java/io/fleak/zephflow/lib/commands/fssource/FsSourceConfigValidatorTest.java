@@ -17,6 +17,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class FsSourceConfigValidatorTest {
@@ -69,7 +73,7 @@ class FsSourceConfigValidatorTest {
   }
 
   @Test
-  void rejectsMissingEncodingType() {
+  void rejectsNeitherEncodingTypeNorDecoding() {
     FsSourceDto.Config config = validConfig();
     config.setEncodingType(null);
     assertThrows(
@@ -163,5 +167,65 @@ class FsSourceConfigValidatorTest {
         () ->
             new FsSourceConfigValidator()
                 .validateConfig(config, "n", JobContext.builder().build()));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    FsSourceDto.Config config = validConfig();
+    config.setEncodingType(null);
+    config.setDecoding(parquet());
+
+    new FsSourceConfigValidator().validateConfig(config, "n", JobContext.builder().build());
+  }
+
+  @Test
+  void exactlyOneOfEncodingTypeAndDecodingIsAllowed() {
+    FsSourceDto.Config both = validConfig();
+    both.setDecoding(parquet());
+    FsSourceDto.Config neither = validConfig();
+    neither.setEncodingType(null);
+
+    assertEquals(
+        List.of(
+            "exactly one of encodingType and decoding must be set",
+            "exactly one of encodingType and decoding must be set"),
+        List.of(rejection(both), rejection(neither)));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    FsSourceDto.Config config = validConfig();
+    config.setEncodingType(null);
+    config.setDecoding(
+        new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()));
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        rejection(config));
+  }
+
+  @Test
+  void localSpoolMaxBytesMustBePositiveAndChunkSizeBytesIsStillAccepted() {
+    FsSourceDto.Config zero = validConfig();
+    zero.setLocalSpoolMaxBytes(0L);
+    FsSourceDto.Config chunked = validConfig();
+    chunked.setChunkSizeBytes(4096);
+    chunked.setLocalSpoolMaxBytes(1L << 20);
+
+    new FsSourceConfigValidator().validateConfig(chunked, "n", JobContext.builder().build());
+    assertEquals("localSpoolMaxBytes must be greater than 0, got 0", rejection(zero));
+  }
+
+  private static DecodingConfig parquet() {
+    return new DecodingConfig(List.of(), new ParquetFormatConfig());
+  }
+
+  private static String rejection(FsSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new FsSourceConfigValidator()
+                    .validateConfig(config, "n", JobContext.builder().build()))
+        .getMessage();
   }
 }

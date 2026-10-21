@@ -92,8 +92,9 @@ final class FsFileDecoder {
     this.format = SourceDecoding.formatName(config.format());
     this.retry =
         exactObjectKey
-            ? "then upload the corrected file under a new key and set exactObjectKey to it; a key"
-                + " already read is not read again"
+            ? "then upload the corrected file under a new key"
+                + (fileNameRegex ? " whose file name matches fileNameRegex" : "")
+                + " and set exactObjectKey to it; a key already read is not read again"
             : fileNameRegex
                 ? "then upload the corrected file under a new name that matches fileNameRegex (with a"
                     + " ts no older than the files already read, if the regex has one); a name already"
@@ -168,13 +169,13 @@ final class FsFileDecoder {
     log.error(
         "fs_source drop file urn={} reason={} listedSizeBytes={}: a {} file needs random access"
             + " and is over localSpoolMaxBytes {}, so it is not read. It is checkpointed as done and"
-            + " will not be retried; raise localSpoolMaxBytes above its size and upload it under a"
-            + " new name",
+            + " will not be retried; raise localSpoolMaxBytes above its size, {}",
         urn,
         FsSourceCommand.SKIP_REASON_FILE_TOO_LARGE,
         entry.size(),
         format,
-        localSpoolMaxBytes);
+        localSpoolMaxBytes,
+        retry);
     if (settings.dlqWriter() != null) {
       new UnitRun(settings, counters, new FileUnit(urn), emitter)
           .writeEntry(
