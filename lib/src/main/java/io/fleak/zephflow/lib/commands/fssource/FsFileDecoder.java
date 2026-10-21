@@ -92,8 +92,9 @@ final class FsFileDecoder {
     this.format = SourceDecoding.formatName(config.format());
     this.retry =
         exactObjectKey
-            ? "then upload the corrected file under a new key and set exactObjectKey to it; a key"
-                + " already read is not read again"
+            ? "then upload the corrected file under a new key"
+                + (fileNameRegex ? " whose file name matches fileNameRegex" : "")
+                + " and set exactObjectKey to it; a key already read is not read again"
             : fileNameRegex
                 ? "then upload the corrected file under a new name that matches fileNameRegex (with a"
                     + " ts no older than the files already read, if the regex has one); a name already"

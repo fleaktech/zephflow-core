@@ -117,8 +117,8 @@ replayed as records. The `Action:` texts are the S3 realtime spec's, except:
   `fileNameRegex` (with a `ts` no older than the files already read, if the regex has one); a name
   already read is not read again", or without a `fileNameRegex`: "then upload the corrected file
   under a new name; a name already read is not read again", or with an `exactObjectKey`: "then
-  upload the corrected file under a new key and set exactObjectKey to it; a key already read is not
-  read again";
+  upload the corrected file under a new key (whose file name matches fileNameRegex, if one is set)
+  and set exactObjectKey to it; a key already read is not read again";
 - when `maxFileBytes` is set, the `maxRecordBytes` and `maxDocumentBytes` actions say to raise
   `maxFileBytes` (and the task's heap to match) instead of only the heap; for parquet, the
   `maxDocumentBytes` action says to write smaller row groups (fewer columns if the footer is too

@@ -44,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -222,14 +223,17 @@ class FsSourceRemoteBackendTest {
   }
 
   private void run(long localSpoolMaxBytes) throws Exception {
+    run(localSpoolMaxBytes, Map.of("encodingType", "JSON_OBJECT_LINE"));
+  }
+
+  private void run(long localSpoolMaxBytes, Map<String, Object> format) throws Exception {
     if (command == null) {
+      Map<String, Object> config = new HashMap<>(format);
+      config.put("backend", "gs");
+      config.put("root", "gs://b/");
+      config.put("fileNameRegex", "f_(?<ts>\\d+)\\..*");
       command = new FsSourceCommand("source", JobContext.builder().build());
-      command.parseAndValidateArg(
-          Map.of(
-              "backend", "gs",
-              "root", "gs://b/",
-              "fileNameRegex", "f_(?<ts>\\d+)\\.jsonl",
-              "encodingType", "JSON_OBJECT_LINE"));
+      command.parseAndValidateArg(config);
       command.initialize(new RecordingMetricClientProvider());
     }
     ((FsSourceExecutionContext) command.getExecutionContext()).localSpoolMaxBytes =
@@ -245,6 +249,35 @@ class FsSourceRemoteBackendTest {
           @Override
           public void terminate() {}
         });
+  }
+
+  @Test
+  void aParquetFileOverTheCapIsDroppedOnceAndTheRunSucceeds() throws Exception {
+    file("f_1.parquet", "PAR1".repeat(10));
+    Map<String, Object> parquet = Map.of("decoding", Map.of("format", Map.of("type", "parquet")));
+
+    for (int run = 0; run < 2; run++) {
+      counters.clear();
+      try (BoundedLogCapture logs = new BoundedLogCapture(FsSourceCommand.class)) {
+        run(16, parquet);
+
+        assertEquals(
+            run == 0
+                ? List.of(
+                    "fs_source run summary: scope=local replica=0/1 dropped 1 file(s) over"
+                        + " localSpoolMaxBytes; they will not be retried. See the preceding"
+                        + " file_too_large errors")
+                : List.of(),
+            errors(logs));
+      }
+      assertEquals(
+          run == 0
+              ? Map.of(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT + "{skip_reason=file_too_large}", 1L)
+              : Map.of(),
+          counters);
+    }
+    assertEquals(List.of(), opened);
+    assertEquals(List.of(), batches);
   }
 
   private void file(String name, String content) {

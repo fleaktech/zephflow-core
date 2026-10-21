@@ -35,8 +35,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /** A file whose format needs random access and that does not fit in the spool. */
 class FsFileDecoderTest {
@@ -104,6 +108,68 @@ class FsFileDecoderTest {
                     "file " + URN + " (listed size 100) does not fit in localSpoolMaxBytes 4"),
                 "source")),
         dlq);
+  }
+
+  static Stream<Arguments> renameTexts() {
+    return Stream.of(
+        Arguments.of(
+            false,
+            false,
+            "then upload the corrected file under a new name; a name already read is not read"
+                + " again"),
+        Arguments.of(
+            true,
+            false,
+            "then upload the corrected file under a new name that matches fileNameRegex (with a ts"
+                + " no older than the files already read, if the regex has one); a name already"
+                + " read is not read again"),
+        Arguments.of(
+            false,
+            true,
+            "then upload the corrected file under a new key and set exactObjectKey to it; a key"
+                + " already read is not read again"),
+        Arguments.of(
+            true,
+            true,
+            "then upload the corrected file under a new key whose file name matches"
+                + " fileNameRegex and set exactObjectKey to it; a key already read is not read"
+                + " again"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("renameTexts")
+  void theRenameTextFollowsHowFilesAreSelected(
+      boolean fileNameRegex, boolean exactObjectKey, String rename) {
+    FsFileDecoder decoder =
+        new FsFileDecoder(
+            new SourceDecoding(
+                null, null, new DecodingConfig(List.of(), new ParquetFormatConfig())),
+            null,
+            fileNameRegex,
+            exactObjectKey,
+            64L * 1024 * 1024,
+            CAP,
+            new CapturingDlqWriter(),
+            "source",
+            new Counters(noOp(), noOp(), noOp()));
+
+    try (FsFileAccess access =
+        new FsFileAccess(
+            (key, offset) -> {
+              throw new AssertionError("not opened");
+            },
+            false,
+            CAP)) {
+      decoder.decode(
+          new FileEntry(FileKey.of(URN), 100, Instant.EPOCH, "data.parquet"), access, emitter());
+    }
+
+    assertEquals(
+        List.of(
+            "Action: raise localSpoolMaxBytes above the file's size, with that much free disk"
+                + " where the task runs; "
+                + rename),
+        dlq.stream().map(e -> e.lines().get(1)).toList());
   }
 
   private static Emitter emitter() {
