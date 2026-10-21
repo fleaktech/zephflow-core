@@ -113,10 +113,10 @@ recordIndex 2, bytes 10-25 (and 1 more problem)
 
 | Kind | First line | Action |
 |---|---|---|
-| `Failed` `MALFORMED` | `MALFORMED <format> message: <exception class>` | Check that the message is `<format>` as the source's `encodingType` or `decoding` says, and that its compression is set when the message is compressed, or fix the producer that wrote it |
-| `Failed` `CORRUPT_COMPRESSION` | `CORRUPT_COMPRESSION <format> message: <exception class>` | Check the source's compression setting against the message; otherwise the producer wrote damaged compressed data, or bytes after its end |
+| `Failed` `MALFORMED` | `MALFORMED <format> message: <exception class>` | check that the message is `<format>` as the source's `encodingType` or `decoding` says, and that its compression is set when the message is compressed, or fix the producer that wrote it |
+| `Failed` `CORRUPT_COMPRESSION` | `CORRUPT_COMPRESSION <format> message: <exception class>` | check the source's compression setting against the message; otherwise the producer wrote damaged compressed data, or bytes after its end |
 | `Oversized` | `OVERSIZED <format> message: <limit>` | `DlqTexts.oversizedText`, unit `message` |
-| the converter throws | `READ_FAILURE <format> message: <exception class>` | The source could not process the message (the error says why); if every message fails like this, check the source's `encodingType` or `decoding` |
+| the converter throws | `READ_FAILURE <format> message: <exception class>` | the source could not process the message (the error says why); if every message fails like this, check the source's `encodingType` or `decoding` |
 
 The decoder turns a format's own exceptions into `Failed` outcomes, and in-memory bytes cannot fail
 to read, so `READ_FAILURE` is only for an unexpected exception inside the converter.
@@ -127,10 +127,10 @@ FileSource reads a whole file as one message, so its texts name the file:
 
 | Kind | First line | Action |
 |---|---|---|
-| `Failed` `MALFORMED` | `MALFORMED <format> file: <exception class>` | Check that the file is `<format>` as the source's `encodingType` or `decoding` says, and that its compression is set when the file is compressed; fix the file and run the job again |
-| `Failed` `CORRUPT_COMPRESSION` | `CORRUPT_COMPRESSION <format> file: <exception class>` | Check the source's compression setting against the file; otherwise the file holds damaged compressed data, or bytes after its end; fix the file and run the job again |
+| `Failed` `MALFORMED` | `MALFORMED <format> file: <exception class>` | check that the file is `<format>` as the source's `encodingType` or `decoding` says, and that its compression is set when the file is compressed; fix the file and run the job again |
+| `Failed` `CORRUPT_COMPRESSION` | `CORRUPT_COMPRESSION <format> file: <exception class>` | check the source's compression setting against the file; otherwise the file holds damaged compressed data, or bytes after its end; fix the file and run the job again |
 | `Oversized` | `OVERSIZED <format> file: <limit>` | `DlqTexts.oversizedText`, unit `file` |
-| the converter throws | `READ_FAILURE <format> file: <exception class>` | The source could not process the file (the error says why); check the source's `encodingType` or `decoding`, fix the file and run the job again |
+| the converter throws | `READ_FAILURE <format> file: <exception class>` | the source could not process the file (the error says why); check the source's `encodingType` or `decoding`, fix the file and run the job again |
 
 The `MALFORMED`, `CORRUPT_COMPRESSION` and `READ_FAILURE` actions are the converter's own;
 `DlqTexts`'s file and object wording does not fit a message, and its existing texts do not change.
@@ -277,7 +277,10 @@ PR 4, with approval.
 - A message that holds several records is all or nothing: one bad record sends the whole message
   to the DLQ, and its good records are not emitted.
 - No size limit: a very large message with a format that expands (for example a decompression bomb)
-  can use much more memory than its size. Only xz and parquet are capped.
+  can use much more memory than its size. Only xz and parquet are capped. A message that runs the
+  heap out, or whose decompressed bytes pass 2 GiB, ends the source; since it was not committed, it
+  is delivered again after a restart and ends the source again, as a gzip message does on Kafka
+  today.
 - The DLQ details name the record and bytes inside the message, not where the message came from
   (topic, partition, offset), since the sources do not capture that.
 - StdIn reads text lines only: no multiline, binary formats or compression. An ActiveMQ
@@ -291,4 +294,5 @@ PR 4, with approval.
   log line, as today.
 - `DlqTexts.oversizedText` speaks of files in some actions even for a message: the format maximum
   ("write the file in smaller pieces"), avro xz memory ("rewrite the avro file") and parquet heap
-  share ("write the file with smaller row groups").
+  share ("write the file with smaller row groups"). For FileSource, the native memory action ends
+  with "fix the file and run the job again" although the file is fine.
