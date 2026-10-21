@@ -88,25 +88,29 @@ class FsSourceRemoteBackendTest {
   private final List<Integer> batches = new ArrayList<>();
   private final Map<String, Long> counters = new TreeMap<>();
   private FsSourceCommand command;
-  private FsBackend registeredBefore;
+  private final Map<String, FsBackend> registeredBefore = new HashMap<>();
 
   @BeforeEach
-  void registerFakeBackend() throws IOException {
-    try {
-      registeredBefore = FsBackendRegistry.get("gs");
-    } catch (IllegalArgumentException notRegistered) {
-      registeredBefore = null;
+  void registerFakeBackends() throws IOException {
+    for (String scheme : List.of("gs", "s3")) {
+      try {
+        registeredBefore.put(scheme, FsBackendRegistry.get(scheme));
+      } catch (IllegalArgumentException notRegistered) {
+        registeredBefore.remove(scheme);
+      }
+      FsBackendRegistry.unregister(scheme);
+      FsBackendRegistry.register(new FakeBackend(scheme));
     }
-    FsBackendRegistry.unregister("gs");
-    FsBackendRegistry.register(new FakeBackend());
     spoolsBefore = spools();
   }
 
   @AfterEach
-  void restoreBackend() {
-    FsBackendRegistry.unregister("gs");
-    if (registeredBefore != null) {
-      FsBackendRegistry.register(registeredBefore);
+  void restoreBackends() {
+    for (String scheme : List.of("gs", "s3")) {
+      FsBackendRegistry.unregister(scheme);
+      if (registeredBefore.containsKey(scheme)) {
+        FsBackendRegistry.register(registeredBefore.get(scheme));
+      }
     }
   }
 
@@ -327,6 +331,41 @@ class FsSourceRemoteBackendTest {
   }
 
   @Test
+  void withExactObjectKeyTheTooLargeLogNamesTheKeyAndTheConfiguredCap() throws Exception {
+    file("f_1.parquet", "PAR1".repeat(10));
+    command = new FsSourceCommand("source", JobContext.builder().build());
+    command.parseAndValidateArg(
+        Map.of(
+            "backend", "s3",
+            "root", "s3://b/",
+            "exactObjectKey", "f_1.parquet",
+            "localSpoolMaxBytes", 16L,
+            "decoding", Map.of("format", Map.of("type", "parquet"))));
+    command.initialize(new RecordingMetricClientProvider());
+
+    try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class)) {
+      command.execute(
+          "user",
+          new SourceEventAcceptor() {
+            @Override
+            public void accept(List<RecordFleakData> batch) {}
+
+            @Override
+            public void terminate() {}
+          });
+
+      assertEquals(
+          List.of(
+              "fs_source drop file urn=s3://b/f_1.parquet reason=file_too_large listedSizeBytes=40:"
+                  + " a parquet file needs random access and is over localSpoolMaxBytes 16, so it"
+                  + " is not read. It is checkpointed as done and will not be retried; raise"
+                  + " localSpoolMaxBytes above its size, then upload the corrected file under a"
+                  + " new key and set exactObjectKey to it; a key already read is not read again"),
+          errors(logs));
+    }
+  }
+
+  @Test
   void localSpoolMaxBytesDefaultsToOneGib() throws Exception {
     file("f_1.jsonl", lines(1, 1));
 
@@ -405,10 +444,19 @@ class FsSourceRemoteBackendTest {
     }
   }
 
+  /** Lists the test's files as {@code <scheme>://b/<name>} and opens them from memory. */
   private final class FakeBackend implements FsBackend {
+    private final String scheme;
+    private final String prefix;
+
+    FakeBackend(String scheme) {
+      this.scheme = scheme;
+      this.prefix = scheme + "://b/";
+    }
+
     @Override
     public String scheme() {
-      return "gs";
+      return scheme;
     }
 
     @Override
@@ -421,12 +469,12 @@ class FsSourceRemoteBackendTest {
 
         @Override
         public FileEntry stat(FileKey key) {
-          return entry(key.urn().substring("gs://b/".length()));
+          return entry(key.urn().substring(prefix.length()));
         }
 
         private FileEntry entry(String name) {
           return new FileEntry(
-              new FileKey("gs", "gs://b/" + name), sizes.get(name), Instant.EPOCH, name);
+              new FileKey(scheme, prefix + name), sizes.get(name), Instant.EPOCH, name);
         }
       };
     }
@@ -441,7 +489,7 @@ class FsSourceRemoteBackendTest {
           throw new UncheckedIOException(e);
         }
         spoolFilesAtOpen.add(spoolFiles());
-        return files.get(key.urn().substring("gs://b/".length())).get();
+        return files.get(key.urn().substring(prefix.length())).get();
       };
     }
 

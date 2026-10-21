@@ -386,6 +386,6 @@ Small PRs into the integration branch `feature/fs-decoder`; the user merges it i
 - The memory limits of the S3 realtime spec 9 (tree documents near the limit, the DLQ writer's
   buffer, DLQ files over 10 MB skipped by self-healing) apply here too.
 - dynamicapi's translator turns an `exactObjectKey` into a root of the key itself and a quoted
-  `fileNameRegex`, so such pipelines get the `fileNameRegex` rename text, which they cannot follow
-  (a new name is never listed); they have to point the key at the new file. Keeping
-  `exactObjectKey` through the translator is a dynamicapi follow-up.
+  `fileNameRegex`; core normalizes such a root to a folder prefix (`<key>/`), so these pipelines
+  list no files and read nothing (since core 0.4.4, not caused by this change). Keeping
+  `exactObjectKey` through the translator is a dynamicapi fix with its own ticket.
