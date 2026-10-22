@@ -19,8 +19,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -28,7 +34,12 @@ import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommand;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
@@ -53,6 +64,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
@@ -297,6 +309,88 @@ public class KafkaSourceCommandTest {
       } finally {
         kafkaSinkCommand.terminate();
       }
+    }
+  }
+
+  // A source configured with decoding alone: good messages decode, a tombstone gives nothing, and a
+  // bad message reaches the DLQ with its own text while the source goes on.
+  @Test
+  public void testDecodingDeadLettersABadMessage() throws Exception {
+    String topic = "decoding_topic";
+    adminClient
+        .createTopics(Collections.singleton(new NewTopic(topic, 1, (short) 1)))
+        .all()
+        .get(30, TimeUnit.SECONDS);
+    byte[] bad = "not json".getBytes(StandardCharsets.UTF_8);
+    producer.send(new ProducerRecord<>(topic, null, "{\"id\":1}".getBytes(StandardCharsets.UTF_8)));
+    producer.send(new ProducerRecord<>(topic, "k".getBytes(StandardCharsets.UTF_8), null));
+    producer.send(new ProducerRecord<>(topic, null, bad));
+    producer.send(new ProducerRecord<>(topic, null, "{\"id\":2}".getBytes(StandardCharsets.UTF_8)));
+    producer.flush();
+
+    JobContext jobContext = TestUtils.buildJobContext(new HashMap<>());
+    jobContext.setDlqConfig(JobContext.S3DlqConfig.builder().build());
+    KafkaSourceCommand command =
+        new KafkaSourceCommandFactory().createCommand("my_node", jobContext);
+    KafkaSourceDto.Config config =
+        KafkaSourceDto.Config.builder()
+            .broker(KAFKA_CONTAINER.getBootstrapServers())
+            .topic(topic)
+            .decoding(
+                new DecodingConfig(List.of(), new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT)))
+            .groupId("test-group-" + System.currentTimeMillis())
+            .properties(Map.of("auto.offset.reset", "earliest"))
+            .build();
+    command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
+    DlqWriter dlqWriter = mock(DlqWriter.class);
+    try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
+      dlqFactory
+          .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
+          .thenReturn(dlqWriter);
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    }
+
+    TestSourceEventAcceptor acceptor = new TestSourceEventAcceptor();
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      executor.submit(
+          () -> {
+            try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
+              dlqFactory
+                  .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))
+                  .thenReturn(mock(DlqWriter.class));
+              command.execute("test_user", acceptor);
+            }
+            return null;
+          });
+      long deadline = System.currentTimeMillis() + 30_000;
+      while (acceptor.getReceivedEvents().size() < 2 && System.currentTimeMillis() < deadline) {
+        Thread.sleep(200);
+      }
+      command.requestStop();
+
+      assertEquals(
+          List.of(1L, 2L),
+          acceptor.getReceivedEvents().stream().map(event -> event.unwrap().get("id")).toList());
+      ArgumentCaptor<SerializedEvent> value = ArgumentCaptor.forClass(SerializedEvent.class);
+      ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+      verify(dlqWriter).writeToDlq(anyLong(), value.capture(), text.capture(), eq("my_node"));
+      assertEquals(new SerializedEvent(null, bad, null).toString(), value.getValue().toString());
+      List<String> lines = text.getValue().lines().toList();
+      assertEquals(
+          List.of(
+              "MALFORMED json message: JsonParseException",
+              "Action: check that the message is json as the source's encodingType or decoding"
+                  + " says, and that its compression is set when the message is compressed, or fix"
+                  + " the producer that wrote it; the DLQ value is the message as received, so it"
+                  + " can be sent again",
+              "com.fasterxml.jackson.core.JsonParseException",
+              "bytes 0-8"),
+          List.of(lines.get(0), lines.get(1), lines.get(2).split(":")[0], lines.getLast()));
+    } finally {
+      executor.shutdownNow();
+      //noinspection ResultOfMethodCallIgnored
+      executor.awaitTermination(5, TimeUnit.SECONDS);
     }
   }
 

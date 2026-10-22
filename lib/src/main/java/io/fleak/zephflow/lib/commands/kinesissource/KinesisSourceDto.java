@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.net.URI;
 import java.util.Date;
 import java.util.List;
@@ -33,9 +34,14 @@ public interface KinesisSourceDto {
     @NonNull private String regionStr;
     @NonNull private String streamName;
     @NonNull private String applicationName;
-    @NonNull private EncodingType encodingType;
+    private EncodingType encodingType;
 
+    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
+
+    /** Rejected when not empty: compression is set through {@code decoding}. */
     private List<CompressionType> compressionTypes;
+
     private InitialPositionInStream initialPosition;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSSZ")

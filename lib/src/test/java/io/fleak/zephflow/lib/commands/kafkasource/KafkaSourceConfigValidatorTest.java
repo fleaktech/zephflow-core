@@ -18,7 +18,12 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -115,20 +120,61 @@ class KafkaSourceConfigValidatorTest {
   }
 
   @Test
-  void testNullEncodingType() {
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    KafkaSourceDto.Config config = baseConfig().build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", rejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
     KafkaSourceDto.Config config =
-        KafkaSourceDto.Config.builder()
-            .broker("localhost:9092")
-            .topic("test-topic")
-            .groupId("test-group")
-            .encodingType(null)
+        baseConfig()
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
             .build();
 
-    NullPointerException exception =
-        assertThrows(
-            NullPointerException.class,
-            () -> validator.validateConfig(config, "test-node", mockJobContext));
-    assertTrue(exception.getMessage().contains("no encoding type is provided"));
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    KafkaSourceDto.Config config =
+        baseConfig()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", rejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    KafkaSourceDto.Config config =
+        baseConfig()
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        rejection(config));
+  }
+
+  private static KafkaSourceDto.Config.ConfigBuilder baseConfig() {
+    return KafkaSourceDto.Config.builder()
+        .broker("localhost:9092")
+        .topic("test-topic")
+        .groupId("test-group");
+  }
+
+  private String rejection(KafkaSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", mockJobContext))
+        .getMessage();
   }
 
   @Test
