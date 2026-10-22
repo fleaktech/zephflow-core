@@ -127,6 +127,7 @@ tasks.named('spotlessJava') {
 tasks.named('test') {
   // Ordinary unit tests exclude golden; golden runs as its own task (see goldenTest below).
   useJUnitPlatform { excludeTags 'golden', 'lowMemory' }
+  maxParallelForks = (project.findProperty('testForks') ?: Math.max(1, Runtime.runtime.availableProcessors().intdiv(2))) as int
   testLogging.showStandardStreams = true
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
@@ -168,10 +169,23 @@ tasks.register('lowMemoryTest', Test) {
   testClassesDirs = sourceSets.test.output.classesDirs
   classpath = sourceSets.test.runtimeClasspath
   useJUnitPlatform { includeTags 'lowMemory' }
+  // Tags are only visible inside a forked JVM; without a class-name filter forkEvery = 1 starts one
+  // JVM per test class in the module. lowMemory classes must be named *LowMemory*.
+  include '**/*LowMemory*'
   maxHeapSize = '64m'
   // Each class gets its own JVM, so what one class leaves on the small heap cannot fail another.
   forkEvery = 1
   testLogging { exceptionFormat 'full'; events 'failed' }
+  def testSources = fileTree('src/test/java') { include '**/*.java' }
+  inputs.files(testSources)
+  doFirst {
+    def misnamed = testSources.files.findAll {
+      !it.name.contains('LowMemory') && it.text.contains('@Tag("lowMemory")')
+    }
+    if (misnamed) {
+      throw new GradleException("@Tag(\"lowMemory\") classes must be named *LowMemory*: ${misnamed*.name}")
+    }
+  }
 }
 
 tasks.named('check') { dependsOn 'goldenTest', 'lowMemoryTest' }
