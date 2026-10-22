@@ -23,9 +23,7 @@ import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.compression.GzipDetectingDecompressor;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.*;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -111,12 +109,18 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
   }
 
   private RawDataConverter<SerializedEvent> createRawDataConverter(KafkaSourceDto.Config config) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    // Payloads are gunzipped when they carry the gzip magic bytes (e.g. OTLP from a collector), so
-    // compressed and plain messages on the same topic both deserialize without a setting.
-    return new BytesRawDataConverter(deserializer, new GzipDetectingDecompressor());
+    return new MessageDecodingConverter(
+        decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE);
+  }
+
+  /**
+   * The decoding of the messages. With {@code encodingType}, payloads are gunzipped when they carry
+   * the gzip magic bytes (e.g. OTLP from a collector), so compressed and plain messages on the same
+   * topic both decode without a setting.
+   */
+  static DecodingConfig decodingConfig(KafkaSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), true);
   }
 
   private static void initializeKafkaConsumer(

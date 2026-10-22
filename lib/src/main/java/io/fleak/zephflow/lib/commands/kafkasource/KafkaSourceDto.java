@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.kafkasource;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -32,7 +33,16 @@ public interface KafkaSourceDto {
     private String broker;
     private String topic;
     private String groupId;
+
+    /**
+     * Encoding of the messages, translated to a decoding configuration; a message that starts with
+     * the gzip magic bytes is gunzipped. Exactly one of this and {@code decoding} is set.
+     */
     private EncodingType encodingType;
+
+    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
+
     private Map<String, String> properties;
 
     // Commit strategy configuration
