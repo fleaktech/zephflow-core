@@ -113,9 +113,12 @@ public record DagExecutor(
             metricClientProvider,
             counters,
             jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
+    ShutdownFlushHook shutdownFlushHook =
+        new ShutdownFlushHook(sourceCommand, noSourceDagRunner, ShutdownFlushHook.DEFAULT_TIMEOUT);
     try {
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
+      shutdownFlushHook.install();
 
       // Streaming path is long-lived, so time-triggered windows get a background flush thread.
       // No-op unless the DAG actually contains a windowed node.
@@ -144,8 +147,12 @@ public record DagExecutor(
             }
           });
     } finally {
-      sourceCommand.terminate();
-      noSourceDagRunner.terminate();
+      try {
+        sourceCommand.terminate();
+        noSourceDagRunner.terminate();
+      } finally {
+        shutdownFlushHook.pipelineFinished();
+      }
     }
   }
 

@@ -38,4 +38,6 @@ public abstract class S3Commiter<T> implements Closeable {
    * @throws Exception any exception while commiting to s3
    */
   public abstract long commit(List<T> events) throws Exception;
+
+  public void validate(T event) throws Exception {}
 }

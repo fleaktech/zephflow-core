@@ -13,22 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
-import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import java.util.List;
 
 /**
  * The inputs that decide how an S3 object's bytes are decoded: either the legacy {@code
@@ -51,16 +39,7 @@ public record S3Decoding(
 
   /** The format's type name, as {@code decoding} spells it ({@code json}, {@code csv}, ...). */
   public String formatName() {
-    return switch (decodingConfig().format()) {
-      case AvroFormatConfig f -> "avro";
-      case CsvFormatConfig f -> "csv";
-      case JsonFormatConfig f -> "json";
-      case ParquetFormatConfig f -> "parquet";
-      case ProtobufFormatConfig f -> "protobuf";
-      case TextFormatConfig f -> "text";
-      case XmlFormatConfig f -> "xml";
-      case YamlFormatConfig f -> "yaml";
-    };
+    return sourceDecoding().formatName();
   }
 
   /**
@@ -71,32 +50,10 @@ public record S3Decoding(
    *     PARQUET}
    */
   public DecodingConfig decodingConfig() {
-    if ((encodingType == null) == (decoding == null)) {
-      throw new IllegalArgumentException("exactly one of encodingType and decoding must be set");
-    }
-    if (decoding != null) {
-      if (compressionType != null) {
-        throw new IllegalArgumentException(
-            "compressionType is only allowed with encodingType; decoding carries its own compression");
-      }
-      return decoding;
-    }
-    DeserializerFactory.validateEncodingType(encodingType);
-    DecompressionCodec codec =
-        compressionType == CompressionType.GZIP ? DecompressionCodec.GZIP : DecompressionCodec.AUTO;
-    return new DecodingConfig(List.of(codec), format(encodingType));
+    return sourceDecoding().decodingConfig();
   }
 
-  private static FormatConfig format(EncodingType encodingType) {
-    return switch (encodingType) {
-      case JSON_OBJECT -> new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT);
-      case JSON_ARRAY -> new JsonFormatConfig(JsonFormatConfig.Mode.ARRAY);
-      case JSON_OBJECT_LINE -> new JsonFormatConfig(JsonFormatConfig.Mode.LINES);
-      case STRING_LINE -> new TextFormatConfig(null, new FramingConfig.Line(false));
-      case TEXT -> new TextFormatConfig(null, new FramingConfig.Whole());
-      case CSV -> new CsvFormatConfig(null, null, null, null, null, null, null, true, null);
-      case XML -> new XmlFormatConfig(XmlFormatConfig.Mode.DOCUMENT, null);
-      case PARQUET -> throw new IllegalArgumentException("PARQUET is rejected; use decoding");
-    };
+  private SourceDecoding sourceDecoding() {
+    return new SourceDecoding(encodingType, compressionType, decoding);
   }
 }

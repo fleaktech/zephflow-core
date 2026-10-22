@@ -59,6 +59,9 @@ public interface DeserializerFactory<T> {
       case PARQUET ->
           throw new UnsupportedOperationException(
               "PARQUET is a sink-only format (not supported for deserialization)");
+      case KV ->
+          throw new UnsupportedOperationException(
+              "KV is a sink-only format (not supported for deserialization)");
     };
   }
 }

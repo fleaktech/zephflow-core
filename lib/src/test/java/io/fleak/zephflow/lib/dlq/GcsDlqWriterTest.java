@@ -141,6 +141,7 @@ public class GcsDlqWriterTest {
 
     List<String> objectNames = listGcsObjects();
     assertEquals(1, objectNames.size(), "Expected one object in GCS after batch size reached.");
+    assertTrue(objectNames.get(0).endsWith("_n5.avro"), objectNames.get(0));
   }
 
   @Test
@@ -154,6 +155,7 @@ public class GcsDlqWriterTest {
 
     List<String> objectNames = listGcsObjects();
     assertEquals(1, objectNames.size(), "Expected one object in GCS after flush interval.");
+    assertTrue(objectNames.get(0).endsWith("_n2.avro"), objectNames.get(0));
   }
 
   @Test
@@ -170,7 +172,7 @@ public class GcsDlqWriterTest {
     String objectName = objectNames.get(0);
     String regex =
         TEST_KEY_PREFIX
-            + "/dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+\\.avro";
+            + "/dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(
         objectName.matches(regex), "Object key does not match expected format: " + objectName);
   }
@@ -188,7 +190,7 @@ public class GcsDlqWriterTest {
 
     String objectName = objectNames.get(0);
     String regex =
-        "dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+\\.avro";
+        "dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(
         objectName.matches(regex), "Object key does not match expected format: " + objectName);
   }
@@ -207,7 +209,7 @@ public class GcsDlqWriterTest {
     String objectName = objectNames.get(0);
     String regex =
         TEST_KEY_PREFIX
-            + "/raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+\\.avro";
+            + "/raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(
         objectName.matches(regex), "Object key does not match expected format: " + objectName);
   }
@@ -225,7 +227,7 @@ public class GcsDlqWriterTest {
 
     String objectName = objectNames.get(0);
     String regex =
-        "raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+\\.avro";
+        "raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(
         objectName.matches(regex), "Object key does not match expected format: " + objectName);
   }
@@ -242,6 +244,7 @@ public class GcsDlqWriterTest {
 
     List<String> objectNames = listGcsObjects();
     assertEquals(1, objectNames.size(), "Expected one object in GCS after batch size reached.");
+    assertTrue(objectNames.get(0).endsWith("_n3.avro"), objectNames.get(0));
 
     List<SerializedEvent> readDeadLetters = readDeadLettersFromGcs(objectNames.get(0));
 

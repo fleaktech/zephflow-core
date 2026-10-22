@@ -1,0 +1,16 @@
+{
+  "batchSizes" : [ 1 ],
+  "checkpointedAsDone" : true,
+  "counters" : {
+    "input_event_count" : 1,
+    "input_event_size" : 17
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ {
+    "a" : {
+      "b" : [ 1, 2 ]
+    }
+  } ],
+  "secondRunHadOutput" : false
+}

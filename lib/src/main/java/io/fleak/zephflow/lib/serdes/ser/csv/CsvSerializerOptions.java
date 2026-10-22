@@ -13,15 +13,12 @@
  */
 package io.fleak.zephflow.lib.serdes.ser.csv;
 
+import io.fleak.zephflow.lib.serdes.ser.FieldNames;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 public record CsvSerializerOptions(List<String> columns, boolean includeHeader) {
-
-  private static final Pattern FORMAT_CHARS = Pattern.compile("\\p{Cf}");
-  private static final Pattern EDGE_WHITESPACE = Pattern.compile("^[\\s\\p{Z}]+|[\\s\\p{Z}]+$");
 
   public static final CsvSerializerOptions DEFAULT = new CsvSerializerOptions(null, true);
 
@@ -29,7 +26,7 @@ public record CsvSerializerOptions(List<String> columns, boolean includeHeader) 
     if (columns != null) {
       Set<String> names = new LinkedHashSet<>();
       for (String column : columns) {
-        String name = column == null ? "" : normalize(column);
+        String name = FieldNames.normalize(column);
         if (name.isEmpty()) {
           throw new IllegalArgumentException("CSV column names must not be blank");
         }
@@ -47,11 +44,6 @@ public record CsvSerializerOptions(List<String> columns, boolean includeHeader) 
 
   public boolean hasPinnedColumns() {
     return hasColumns(columns);
-  }
-
-  private static String normalize(String column) {
-    String visible = FORMAT_CHARS.matcher(column).replaceAll("");
-    return EDGE_WHITESPACE.matcher(visible).replaceAll("");
   }
 
   private static boolean hasColumns(List<String> columns) {

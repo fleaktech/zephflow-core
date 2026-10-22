@@ -1,0 +1,11 @@
+{
+  "batchSizes" : [ ],
+  "checkpointedAsDone" : true,
+  "counters" : {
+    "input_deser_err_count" : 2
+  },
+  "dlq" : [ ],
+  "failed" : null,
+  "records" : [ ],
+  "secondRunHadOutput" : false
+}

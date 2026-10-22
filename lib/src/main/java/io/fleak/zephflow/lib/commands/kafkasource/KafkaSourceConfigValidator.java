@@ -17,7 +17,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import org.apache.commons.lang3.StringUtils;
 
 /** Created by bolei on 9/24/24 */
@@ -31,8 +31,8 @@ public class KafkaSourceConfigValidator implements ConfigValidator {
     Preconditions.checkArgument(StringUtils.isNotBlank(config.getTopic()), "no topic is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getGroupId()), "no consumer group Id is provided");
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    // Compiles the decoding, so a bad one fails validation rather than the first message.
+    DecodingConfigCompiler.compile(KafkaSourceCommand.decodingConfig(config));
 
     // Validate commit strategy configuration
     if (config.getCommitStrategy() != null

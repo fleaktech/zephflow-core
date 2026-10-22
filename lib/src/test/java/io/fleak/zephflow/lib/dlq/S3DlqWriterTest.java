@@ -115,6 +115,7 @@ public class S3DlqWriterTest {
     // Verify that the objects are in S3 (MinIO)
     List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after batch size reached.");
+    assertTrue(objectKeys.get(0).endsWith("_n5.avro"), objectKeys.get(0));
   }
 
   @Test
@@ -129,6 +130,7 @@ public class S3DlqWriterTest {
 
     List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after flush interval.");
+    assertTrue(objectKeys.get(0).endsWith("_n2.avro"), objectKeys.get(0));
   }
 
   @Test
@@ -145,7 +147,7 @@ public class S3DlqWriterTest {
     String objectKey = objectKeys.get(0);
     String regex =
         TEST_KEY_PREFIX
-            + "/dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+\\.avro";
+            + "/dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
   }
 
@@ -162,7 +164,7 @@ public class S3DlqWriterTest {
 
     String objectKey = objectKeys.get(0);
     String regex =
-        "dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+\\.avro";
+        "dead-letters/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/deadletter-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
   }
 
@@ -180,7 +182,7 @@ public class S3DlqWriterTest {
     String objectKey = objectKeys.get(0);
     String regex =
         TEST_KEY_PREFIX
-            + "/raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+\\.avro";
+            + "/raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
   }
 
@@ -197,7 +199,7 @@ public class S3DlqWriterTest {
 
     String objectKey = objectKeys.get(0);
     String regex =
-        "raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+\\.avro";
+        "raw-data-samples/dt=\\d{4}-\\d{2}-\\d{2}/hr=\\d{2}/sample-\\d+_[0-9a-f\\-]+_n1\\.avro";
     assertTrue(objectKey.matches(regex), "Object key does not match expected format: " + objectKey);
   }
 
@@ -213,6 +215,7 @@ public class S3DlqWriterTest {
 
     List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
     assertEquals(1, objectKeys.size(), "Expected one object in S3 after batch size reached.");
+    assertTrue(objectKeys.get(0).endsWith("_n3.avro"), objectKeys.get(0));
 
     List<SerializedEvent> readDeadLetters =
         readDeadLettersFromS3(dlqWriter.s3Client, objectKeys.get(0));

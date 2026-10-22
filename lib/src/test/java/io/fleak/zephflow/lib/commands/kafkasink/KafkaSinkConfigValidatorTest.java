@@ -310,4 +310,20 @@ class KafkaSinkConfigValidatorTest {
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", TestUtils.JOB_CONTEXT));
   }
+
+  @Test
+  void validateConfig_kvEncoding() {
+    KafkaSinkDto.Config config =
+        KafkaSinkDto.Config.builder()
+            .broker("localhost:9092")
+            .topic("test-topic")
+            .encodingType(EncodingType.KV.name())
+            .kvFields(List.of("src_ip", "action"))
+            .build();
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
+
+    config.setKvPairDelimiter("=");
+    assertThrows(
+        IllegalArgumentException.class, () -> validator.validateConfig(config, "test-node", null));
+  }
 }

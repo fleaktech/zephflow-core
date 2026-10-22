@@ -57,13 +57,13 @@ class FsSourceCommandDeserErrorTest {
     FsBackendRegistry.unregister("file");
   }
 
-  /** Two well-formed array lines, one truncated line, one more well-formed line. */
+  /** Two well-formed lines, one truncated line, one more well-formed line. */
   private static final String PAYLOAD =
       """
-      [{"device_id":"sensor-119","value":69.4},{"device_id":"sensor-111","value":64.9}]
-      [{"device_id":"sensor-102","value":62.7}]
-      [{"device_id":"sensor-103","value":73.4},
-      [{"device_id":"sensor-104","value":64.4}]
+      {"device_id":"sensor-119","value":69.4}
+      {"device_id":"sensor-102","value":62.7}
+      {"device_id":"sensor-103","value":73.4
+      {"device_id":"sensor-104","value":64.4}
       """;
 
   private List<RecordFleakData> run(Path tempDir, boolean withDlq) throws Exception {
@@ -105,7 +105,7 @@ class FsSourceCommandDeserErrorTest {
     List<RecordFleakData> emitted = run(tempDir, true);
 
     assertEquals(
-        List.of("sensor-119", "sensor-111", "sensor-102", "sensor-104"),
+        List.of("sensor-119", "sensor-102", "sensor-104"),
         emitted.stream().map(r -> r.unwrap().get("device_id")).toList());
   }
 
@@ -116,24 +116,41 @@ class FsSourceCommandDeserErrorTest {
     run(tempDir, true);
 
     assertEquals(1, counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get());
-    assertEquals(4, counters.get(METRIC_NAME_INPUT_EVENT_COUNT).get());
+    assertEquals(3, counters.get(METRIC_NAME_INPUT_EVENT_COUNT).get());
 
-    assertEquals(1, deadLetters.size());
-    DeadLetter deadLetter = deadLetters.getFirst();
+    String urn = tempDir.resolve("evt_1.jsonl").toUri().toString();
     assertEquals(
-        "[{\"device_id\":\"sensor-103\",\"value\":73.4},",
-        new String(deadLetter.getValue().array(), StandardCharsets.UTF_8),
-        "the raw failing line should be quarantined");
-    assertEquals("node-1", deadLetter.getNodeId());
-    assertTrue(
-        deadLetter.getErrorMessage().contains("failed to parse json object line"),
-        "error message should explain the failure, got: " + deadLetter.getErrorMessage());
+        List.of(
+            new Entry(
+                "{\"device_id\":\"sensor-103\",\"value\":73.4",
+                Map.of(METADATA_FS_SOURCE_URN, urn, METADATA_FS_SOURCE_RECORD_INDEX, "3"),
+                "MALFORMED json record: JsonEOFException",
+                "Action: fix this record where it is written, or the source's encodingType or"
+                    + " decoding if every record fails like this; the value is the record's bytes",
+                "file " + urn + ", recordIndex 3, bytes 80-118",
+                "node-1")),
+        deadLetters.stream().map(Entry::of).toList());
+  }
 
-    Map<String, String> metadata = new HashMap<>(deadLetter.getMetadata());
-    assertTrue(
-        metadata.get(METADATA_FS_SOURCE_URN).endsWith("evt_1.jsonl"),
-        "should record which file the bad record came from, got: " + metadata);
-    assertEquals("3", metadata.get(METADATA_FS_SOURCE_RECORD_INDEX), "should record the line");
+  record Entry(
+      String value,
+      Map<String, String> metadata,
+      String firstLine,
+      String action,
+      String lastLine,
+      String nodeId) {
+    static Entry of(DeadLetter deadLetter) {
+      List<String> lines = deadLetter.getErrorMessage().lines().toList();
+      Map<String, String> metadata = new HashMap<>();
+      deadLetter.getMetadata().forEach((k, v) -> metadata.put(k.toString(), v.toString()));
+      return new Entry(
+          new String(deadLetter.getValue().array(), StandardCharsets.UTF_8),
+          metadata,
+          lines.getFirst(),
+          lines.get(1),
+          lines.getLast(),
+          deadLetter.getNodeId());
+    }
   }
 
   @Test
@@ -157,7 +174,7 @@ class FsSourceCommandDeserErrorTest {
 
     List<RecordFleakData> firstRun = new ArrayList<>();
     command.execute("user", acceptorInto(firstRun));
-    assertEquals(4, firstRun.size());
+    assertEquals(3, firstRun.size());
 
     List<RecordFleakData> secondRun = new ArrayList<>();
     command.execute("user", acceptorInto(secondRun));
@@ -165,7 +182,7 @@ class FsSourceCommandDeserErrorTest {
   }
 
   @Test
-  void whollyUnparseableFileWithNoDlq_isRetriedRatherThanCheckpointed(@TempDir Path tempDir)
+  void whollyUnparseableFileWithNoDlq_isDoneAndTheRunSucceeds(@TempDir Path tempDir)
       throws Exception {
     Files.writeString(tempDir.resolve("evt_1.jsonl"), "not json at all\n");
 
@@ -178,21 +195,11 @@ class FsSourceCommandDeserErrorTest {
             "encodingType", "JSON_OBJECT_LINE"));
     command.initialize(new RecordingMetricClientProvider());
 
-    // The lone candidate file resolves nothing, so the run must fail loudly instead of reporting
-    // an empty success.
-    assertThrows(
-        IllegalStateException.class,
-        () -> command.execute("user", acceptorInto(new ArrayList<>())));
-    assertEquals(1, counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get());
+    // Without a DLQ, decode failures are counted, logged and dropped; the file is done.
+    command.execute("user", acceptorInto(new ArrayList<>()));
+    command.execute("user", acceptorInto(new ArrayList<>()));
 
-    assertThrows(
-        IllegalStateException.class,
-        () -> command.execute("user", acceptorInto(new ArrayList<>())),
-        "with nowhere to quarantine it, the file should be retried rather than silently dropped");
-    assertEquals(
-        2,
-        counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get(),
-        "the retry must actually re-read the file, not just re-fail on a stale checkpoint");
+    assertEquals(1, counters.get(METRIC_NAME_INPUT_DESER_ERR_COUNT).get());
   }
 
   private static SourceEventAcceptor acceptorInto(List<RecordFleakData> sink) {

@@ -1,0 +1,234 @@
+/**
+ * Copyright 2025 Fleak Tech Inc.
+ *
+ * <p>Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy of the License at
+ *
+ * <p>http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * <p>Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.fleak.zephflow.lib.commands.fssource;
+
+import static io.fleak.zephflow.lib.utils.MiscUtils.METADATA_FS_SOURCE_URN;
+import static org.junit.jupiter.api.Assertions.*;
+
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
+import io.fleak.zephflow.lib.commands.filedecode.UnitRun.Counters;
+import io.fleak.zephflow.lib.commands.fssource.api.FileEntry;
+import io.fleak.zephflow.lib.commands.fssource.api.FileKey;
+import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter.Emitter;
+import io.fleak.zephflow.lib.deadletter.DeadLetter;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import io.fleak.zephflow.lib.utils.BoundedLogCapture;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+import org.apache.logging.log4j.Level;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+/** A file whose format needs random access and that does not fit in the spool. */
+class FsFileDecoderTest {
+
+  private static final String URN = "gs://b/data.parquet";
+  private static final long CAP = 4;
+
+  record Entry(String value, Map<String, String> metadata, List<String> lines, String nodeId) {}
+
+  private final List<Entry> dlq = new ArrayList<>();
+
+  static Stream<Arguments> tooLargeFiles() {
+    return Stream.of(
+        Arguments.of(
+            100L,
+            "is over localSpoolMaxBytes 4",
+            "file " + URN + " (listed size 100) does not fit in localSpoolMaxBytes 4"),
+        Arguments.of(
+            0L,
+            "grew past localSpoolMaxBytes 4 while being copied",
+            "file " + URN + " (listed size 0) grew past localSpoolMaxBytes 4 while being copied"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("tooLargeFiles")
+  void aParquetFileOverTheSpoolCapIsTooLargeDeadLetteredAndLogged(
+      long listedSize, String overCap, String detail) {
+    FsFileDecoder decoder =
+        new FsFileDecoder(
+            new SourceDecoding(
+                null, null, new DecodingConfig(List.of(), new ParquetFormatConfig())),
+            null,
+            false,
+            false,
+            64L * 1024 * 1024,
+            CAP,
+            new CapturingDlqWriter(),
+            "source",
+            new Counters(noOp(), noOp(), noOp()));
+    FsFileAccess access =
+        new FsFileAccess(
+            (key, offset) ->
+                new ByteArrayInputStream("PAR1".repeat(25).getBytes(StandardCharsets.UTF_8)),
+            false,
+            CAP);
+
+    try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class);
+        access) {
+      FsFileDecoder.Result result =
+          decoder.decode(
+              new FileEntry(FileKey.of(URN), listedSize, Instant.EPOCH, "data.parquet"),
+              access,
+              emitter());
+
+      assertEquals(FsFileDecoder.Result.TOO_LARGE, result);
+      assertEquals(
+          List.of(
+              "fs_source drop file urn="
+                  + URN
+                  + " reason=file_too_large listedSizeBytes="
+                  + listedSize
+                  + ": a parquet file needs random access and "
+                  + overCap
+                  + ", so it is not read. It is checkpointed as done and will not be retried; raise"
+                  + " localSpoolMaxBytes above its size, then upload the corrected file under a"
+                  + " new name; a name already read is not read again"),
+          logs.events().stream()
+              .filter(e -> e.getLevel() == Level.ERROR)
+              .map(e -> e.getMessage().getFormattedMessage())
+              .toList());
+    }
+    assertEquals(
+        List.of(
+            new Entry(
+                "",
+                Map.of(METADATA_FS_SOURCE_URN, URN),
+                List.of(
+                    "FILE_TOO_LARGE parquet file",
+                    "Action: raise localSpoolMaxBytes above the file's size, with that much free"
+                        + " disk where the task runs; then upload the corrected file under a new"
+                        + " name; a name already read is not read again",
+                    detail),
+                "source")),
+        dlq);
+  }
+
+  static Stream<Arguments> renameTexts() {
+    return Stream.of(
+        Arguments.of(
+            false,
+            false,
+            "then upload the corrected file under a new name; a name already read is not read"
+                + " again"),
+        Arguments.of(
+            true,
+            false,
+            "then upload the corrected file under a new name that matches fileNameRegex (with a ts"
+                + " no older than the files already read, if the regex has one); a name already"
+                + " read is not read again"),
+        Arguments.of(
+            false,
+            true,
+            "then upload the corrected file under a new key and set exactObjectKey to it; a key"
+                + " already read is not read again"),
+        Arguments.of(
+            true,
+            true,
+            "then upload the corrected file under a new key whose file name matches"
+                + " fileNameRegex and set exactObjectKey to it; a key already read is not read"
+                + " again"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("renameTexts")
+  void theRenameTextFollowsHowFilesAreSelected(
+      boolean fileNameRegex, boolean exactObjectKey, String rename) {
+    FsFileDecoder decoder =
+        new FsFileDecoder(
+            new SourceDecoding(
+                null, null, new DecodingConfig(List.of(), new ParquetFormatConfig())),
+            null,
+            fileNameRegex,
+            exactObjectKey,
+            64L * 1024 * 1024,
+            CAP,
+            new CapturingDlqWriter(),
+            "source",
+            new Counters(noOp(), noOp(), noOp()));
+
+    try (FsFileAccess access =
+        new FsFileAccess(
+            (key, offset) -> {
+              throw new AssertionError("not opened");
+            },
+            false,
+            CAP)) {
+      decoder.decode(
+          new FileEntry(FileKey.of(URN), 100, Instant.EPOCH, "data.parquet"), access, emitter());
+    }
+
+    assertEquals(
+        List.of(
+            "Action: raise localSpoolMaxBytes above the file's size, with that much free disk"
+                + " where the task runs; "
+                + rename),
+        dlq.stream().map(e -> e.lines().get(1)).toList());
+  }
+
+  private static Emitter emitter() {
+    return new Emitter() {
+      @Override
+      public void accept(List<RecordFleakData> batch) {
+        throw new AssertionError("nothing is emitted");
+      }
+
+      @Override
+      public boolean stopped() {
+        return false;
+      }
+    };
+  }
+
+  private static FleakCounter noOp() {
+    return new FleakCounter() {
+      @Override
+      public void increase(Map<String, String> additionalTags) {}
+
+      @Override
+      public void increase(long n, Map<String, String> additionalTags) {}
+    };
+  }
+
+  private class CapturingDlqWriter extends DlqWriter {
+    @Override
+    protected void doWrite(DeadLetter deadLetter) {
+      Map<String, String> metadata = new HashMap<>();
+      deadLetter.getMetadata().forEach((k, v) -> metadata.put(k.toString(), v.toString()));
+      dlq.add(
+          new Entry(
+              StandardCharsets.UTF_8.decode(deadLetter.getValue().duplicate()).toString(),
+              metadata,
+              deadLetter.getErrorMessage().lines().toList(),
+              deadLetter.getNodeId()));
+    }
+
+    @Override
+    public void open() {}
+
+    @Override
+    public void close() {}
+  }
+}
