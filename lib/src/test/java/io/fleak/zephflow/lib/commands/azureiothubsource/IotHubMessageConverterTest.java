@@ -131,6 +131,18 @@ class IotHubMessageConverterTest {
             event(key, "{\"temp\":72}", null),
             List.of(record(Map.of("temp", 72)))),
         Arguments.of(
+            "bodyFieldsUnderMetadataAndEnvelope",
+            EncodingType.JSON_OBJECT,
+            event(null, "{\"deviceId\":\"body\",\"_iothub\":\"body\",\"temp\":72}", METADATA),
+            List.of(
+                record(
+                    Map.of(
+                        "temp", 72,
+                        "deviceId", "sensor-01",
+                        "enqueuedTime", "2026-07-16T10:00:00Z",
+                        "prop.schema", "v2",
+                        "_iothub", ENVELOPE)))),
+        Arguments.of(
             "severalJsonLines",
             EncodingType.JSON_OBJECT_LINE,
             event(null, "{\"temp\":1}\n{\"temp\":2}\n", METADATA),
@@ -163,6 +175,14 @@ class IotHubMessageConverterTest {
         new Observed(
             legacy(encodingType, event).transformedData(),
             decoded(encodingType, event).transformedData()));
+  }
+
+  @Test
+  void aMessageWithNoBodyGivesNoRecords() {
+    SerializedEvent event = new SerializedEvent(null, null, new HashMap<>(METADATA));
+
+    assertEquals(
+        ConvertedResult.success(List.of(), event), decoded(EncodingType.JSON_OBJECT, event));
   }
 
   @Test

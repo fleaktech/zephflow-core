@@ -37,8 +37,11 @@ public class IotHubMessageConverter implements RawDataConverter<SerializedEvent>
   public ConvertedResult<SerializedEvent> convert(
       SerializedEvent sourceRecord, SourceExecutionContext<?> context) {
     ConvertedResult<SerializedEvent> result = decoding.convert(sourceRecord, context);
+    if (result.error() != null) {
+      return result;
+    }
     FleakData envelope = IotHubRawDataConverter.buildEnvelope(sourceRecord.metadata());
-    if (result.error() != null || envelope == null) {
+    if (envelope == null) {
       return result;
     }
     return ConvertedResult.success(

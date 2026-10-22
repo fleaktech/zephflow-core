@@ -40,6 +40,7 @@ import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -52,6 +53,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -64,16 +66,16 @@ class AzureIotHubSourceDecodingTest {
   private static final Instant ENQUEUED = Instant.parse("2026-07-16T10:00:00Z");
 
   @Test
-  void decodingAloneDecodesMessages() throws Exception {
+  void decodingAloneDecodesMessagesWithItsCompression() throws Exception {
     SourceExecutionContext<SerializedEvent> context =
         context(
             config()
                 .decoding(
                     new DecodingConfig(
-                        List.of(), new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+                        List.of(DecompressionCodec.GZIP),
+                        new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
                 .build());
-    SerializedEvent message =
-        new SerializedEvent(null, "{\"a\":1}\n{\"a\":2}".getBytes(StandardCharsets.UTF_8), null);
+    SerializedEvent message = new SerializedEvent(null, gzip("{\"a\":1}\n{\"a\":2}"), null);
 
     assertEquals(
         ConvertedResult.success(List.of(record(1), record(2)), message),
@@ -95,6 +97,7 @@ class AzureIotHubSourceDecodingTest {
   }
 
   @Test
+  @Timeout(60)
   void aBadMessageIsDeadLetteredAsReceived() throws Exception {
     JobContext jobContext = TestUtils.buildJobContext(new HashMap<>());
     jobContext.setDlqConfig(JobContext.S3DlqConfig.builder().build());
