@@ -46,6 +46,7 @@ import io.fleak.zephflow.lib.gcp.PubSubClientFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayOutputStream;
@@ -85,6 +86,23 @@ class PubSubSourceDecodingTest {
 
     assertEquals(
         ConvertedResult.success(List.of(record(1), record(2)), message),
+        context.converter().convert(message, context));
+  }
+
+  @Test
+  void decodingDecompressesWithItsCompression() throws Exception {
+    SourceExecutionContext<PubSubReceivedMessage> context =
+        context(
+            config()
+                .decoding(
+                    new DecodingConfig(
+                        List.of(DecompressionCodec.GZIP),
+                        new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT)))
+                .build());
+    PubSubReceivedMessage message = new PubSubReceivedMessage(gzip("{\"a\":1}"), "m-1", "a-1");
+
+    assertEquals(
+        ConvertedResult.success(List.of(record(1)), message),
         context.converter().convert(message, context));
   }
 

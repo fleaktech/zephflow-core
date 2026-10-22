@@ -118,8 +118,8 @@ the old ones:
 4. **Decoding differences:** as in the message-source spec 4.1 item 6, without the Kafka gzip
    case.
 5. **Error log line:** the DLQ first line is added, the wording changes as in 3.3, and the line
-   is logged by `MessageDecodingConverter`'s logger instead of `SqsRawDataConverter`'s,
-   `PubSubRawDataConverter`'s or `IotHubRawDataConverter`'s. A log alert that matches the old
+   and the debug `got message` lines are logged by `MessageDecodingConverter`'s logger instead of
+   `SqsRawDataConverter`'s, `PubSubRawDataConverter`'s or `IotHubRawDataConverter`'s. A log alert that matches the old
    logger or the words "IoT Hub event" must be changed. IoT Hub's debug `got message` lines show
    the records before the `_iothub` envelope is merged.
 6. **Validation message:** a config with neither field fails with "exactly one of encodingType and

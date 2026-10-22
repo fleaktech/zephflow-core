@@ -186,7 +186,7 @@ class SqsSourceConfigValidatorTest {
             .regionStr("us-east-1")
             .decoding(
                 new DecodingConfig(
-                    List.of(DecompressionCodec.ZSTD),
+                    List.of(DecompressionCodec.AUTO),
                     new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
             .build();
 
