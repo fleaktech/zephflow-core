@@ -18,7 +18,7 @@ import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubConfigValidation;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import org.apache.commons.lang3.StringUtils;
 
 /** Validates {@link AzureIotHubSourceDto.Config}. */
@@ -55,8 +55,7 @@ public class AzureIotHubSourceConfigValidator implements ConfigValidator {
         !(hasStorageConnectionString && hasStorageEndpoint),
         "provide only one of checkpointStorageConnectionString or checkpointStorageEndpoint, not both");
 
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    DecodingConfigCompiler.compile(AzureIotHubSourceCommand.decodingConfig(config));
 
     Preconditions.checkArgument(
         config.getMaxBufferedEvents() > 0,
