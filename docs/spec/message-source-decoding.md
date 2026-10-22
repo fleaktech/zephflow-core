@@ -194,9 +194,11 @@ These behaviors change, with no switch to keep the old ones:
    Before, it ended the source.
 3. **Kinesis `compressionTypes`** is rejected at validation. A config that had it must set
    `decoding` with the same compression. Without it, Kinesis decompresses nothing, as before.
-4. **A Kafka tombstone** (a message with no value) gives no records. Before, it ended the source.
+4. **A message with no value** (a Kafka tombstone, or an event with no body) gives no records.
+   Before, it ended the source.
 5. **Empty value:** JSON_OBJECT, JSON_ARRAY and XML gave a failure; now no records. TEXT gave one
-   record `{"__raw__":""}`; now none. On Kafka the same holds for a value that is a gzip of nothing.
+   record `{"__raw__":""}`; now none. CSV gave a failure for a value of only whitespace; now no
+   records. On Kafka the same holds for a value that is a gzip of nothing.
 6. **Decoding differences** from the S3 realtime source, per message (all make the whole message
    fail, unless noted):
    - a JSON_OBJECT_LINE line holding an array (legacy: one record per element);
@@ -210,6 +212,7 @@ These behaviors change, with no switch to keep the old ones:
    - CSV: a header or row of more than 16,384 columns (legacy: accepted);
    - JSON: Jackson's default length limits are lifted, so a string over 20 million characters or a
      name over 50,000 characters now decodes (legacy: failed);
+   - XML: an element with more than 1,021 attributes now decodes (legacy: failed);
    - a leading byte-order mark is removed in STRING_LINE, TEXT and CSV (legacy kept it in the first
      line, the text or the first header name); JSON_OBJECT_LINE with a byte-order mark now decodes.
 

@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kafkasource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
@@ -35,7 +36,9 @@ import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -63,7 +66,7 @@ class MessageDecodingDifferentialTest {
    * What each side gives: the records as JSON, or {@code FAILS} when the message failed (followed,
    * for the new side, by the kind on its DLQ text's first line).
    */
-  record Observed(List<String> legacy, List<String> decoded) {}
+  record Observed(List<?> legacy, List<?> decoded) {}
 
   static Stream<Arguments> cases() {
     return Stream.of(
@@ -425,6 +428,7 @@ class MessageDecodingDifferentialTest {
             utf8("a,\n1,2\n"),
             List.of(FAILS),
             "{\"a\":\"1\",\"_c1\":\"2\"}"),
+        differs("csvWhitespaceOnly", EncodingType.CSV, utf8("  \n"), List.of(FAILS)),
         differs(
             "csvTooManyColumns",
             EncodingType.CSV,
@@ -500,6 +504,20 @@ class MessageDecodingDifferentialTest {
     SerializedEvent message = new SerializedEvent(null, bytes, null);
     assertEquals(
         expected, new Observed(legacy(encodingType, message), decoded(encodingType, message)));
+  }
+
+  @Test
+  void xmlWithOver1021AttributesNowDecodes() {
+    SerializedEvent message =
+        new SerializedEvent(null, utf8("<r><a " + attributes(1022) + "/></r>"), null);
+
+    assertEquals(
+        new Observed(List.of(FAILS), List.of(Map.of("a", attributeMap(1022)))),
+        new Observed(
+            legacy(EncodingType.XML, message),
+            decoded(EncodingType.XML, message).stream()
+                .map(r -> JsonUtils.fromJsonString(r, new TypeReference<Map<String, Object>>() {}))
+                .toList()));
   }
 
   @Test
@@ -583,6 +601,18 @@ class MessageDecodingDifferentialTest {
         mock(FleakCounter.class),
         mock(FleakCounter.class),
         null);
+  }
+
+  private static String attributes(int count) {
+    return IntStream.range(0, count)
+        .mapToObj(i -> "x" + i + "=\"1\"")
+        .collect(Collectors.joining(" "));
+  }
+
+  private static Map<String, String> attributeMap(int count) {
+    Map<String, String> attributes = new HashMap<>();
+    IntStream.range(0, count).forEach(i -> attributes.put("x" + i, "1"));
+    return attributes;
   }
 
   private static String columns(int count) {
