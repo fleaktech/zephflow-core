@@ -89,7 +89,7 @@ public class IotHubRawDataConverter implements RawDataConverter<SerializedEvent>
     }
   }
 
-  private static FleakData buildEnvelope(Map<String, String> metadata) {
+  static FleakData buildEnvelope(Map<String, String> metadata) {
     if (metadata == null || metadata.isEmpty()) {
       return null;
     }
