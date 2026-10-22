@@ -18,7 +18,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -160,5 +165,67 @@ class SqsSourceConfigValidatorTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    assertEquals(
+        "exactly one of encodingType and decoding must be set",
+        decodingRejection(
+            SqsSourceDto.Config.builder()
+                .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
+                .regionStr("us-east-1")
+                .build()));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    SqsSourceDto.Config config =
+        SqsSourceDto.Config.builder()
+            .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
+            .regionStr("us-east-1")
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(
+        () -> new SqsSourceConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    SqsSourceDto.Config config =
+        SqsSourceDto.Config.builder()
+            .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
+            .regionStr("us-east-1")
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    SqsSourceDto.Config config =
+        SqsSourceDto.Config.builder()
+            .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
+            .regionStr("us-east-1")
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private static String decodingRejection(SqsSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> new SqsSourceConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+        .getMessage();
   }
 }

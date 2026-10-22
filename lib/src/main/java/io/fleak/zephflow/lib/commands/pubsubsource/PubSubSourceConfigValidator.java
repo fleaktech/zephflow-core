@@ -20,7 +20,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import org.apache.commons.lang3.StringUtils;
 
 public class PubSubSourceConfigValidator implements ConfigValidator {
@@ -29,8 +29,7 @@ public class PubSubSourceConfigValidator implements ConfigValidator {
     PubSubSourceDto.Config config = (PubSubSourceDto.Config) commandConfig;
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getSubscription()), "no subscription is provided");
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    DecodingConfigCompiler.compile(PubSubSourceCommand.decodingConfig(config));
 
     if (config.getMaxMessages() != null) {
       Preconditions.checkArgument(

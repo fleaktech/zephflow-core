@@ -19,7 +19,12 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -131,5 +136,66 @@ class PubSubSourceConfigValidatorTest {
             .ackDeadlineExtensionSeconds(0)
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void neitherEncodingTypeNorDecodingIsRejected() {
+    assertEquals(
+        "exactly one of encodingType and decoding must be set",
+        decodingRejection(
+            PubSubSourceDto.Config.builder().projectId("p").subscription("my-sub").build()));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    PubSubSourceDto.Config config =
+        PubSubSourceDto.Config.builder()
+            .projectId("p")
+            .subscription("my-sub")
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(
+        () -> new PubSubSourceConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    PubSubSourceDto.Config config =
+        PubSubSourceDto.Config.builder()
+            .projectId("p")
+            .subscription("my-sub")
+            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    PubSubSourceDto.Config config =
+        PubSubSourceDto.Config.builder()
+            .projectId("p")
+            .subscription("my-sub")
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
+  }
+
+  private static String decodingRejection(PubSubSourceDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new PubSubSourceConfigValidator()
+                    .validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+        .getMessage();
   }
 }

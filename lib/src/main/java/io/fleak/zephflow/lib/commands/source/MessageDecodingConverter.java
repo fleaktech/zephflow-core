@@ -33,6 +33,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
@@ -83,6 +84,14 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   @Override
   public ConvertedResult<SerializedEvent> convert(
       SerializedEvent sourceRecord, SourceExecutionContext<?> context) {
+    return convert(sourceRecord, context, sourceRecord::toString);
+  }
+
+  /** As {@link #convert}, with {@code description} logged after the first line of a failure. */
+  ConvertedResult<SerializedEvent> convert(
+      SerializedEvent sourceRecord,
+      SourceExecutionContext<?> context,
+      Supplier<String> description) {
     byte[] value = sourceRecord.value();
     long size = value == null ? 0 : value.length;
     if (value == null) {
@@ -112,7 +121,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     }
     context.dataSizeCounter().increase(size, Map.of());
     context.deserializeFailureCounter().increase(Map.of());
-    log.error("failed to deserialize event: {}\n{}", failure.getMessage(), sourceRecord);
+    log.error("failed to deserialize event: {}\n{}", failure.getMessage(), description.get());
     return ConvertedResult.failure(failure, sourceRecord);
   }
 

@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.sqssource;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.*;
 
 public interface SqsSourceDto {
@@ -32,7 +33,11 @@ public interface SqsSourceDto {
   class Config implements CommandConfig {
     @NonNull private String queueUrl;
     @NonNull private String regionStr;
-    @NonNull private EncodingType encodingType;
+    private EncodingType encodingType;
+
+    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    private DecodingConfig decoding;
+
     private String credentialId;
     @Builder.Default private Integer maxNumberOfMessages = DEFAULT_MAX_NUMBER_OF_MESSAGES;
     @Builder.Default private Integer waitTimeSeconds = DEFAULT_WAIT_TIME_SECONDS;
