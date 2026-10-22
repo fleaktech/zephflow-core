@@ -23,8 +23,7 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -54,7 +53,7 @@ public class SqsSourceCommand extends SimpleSourceCommand<SqsReceivedMessage> {
 
     Fetcher<SqsReceivedMessage> fetcher = createSqsFetcher(config, jobContext);
     RawDataEncoder<SqsReceivedMessage> encoder = new SqsRawDataEncoder();
-    RawDataConverter<SqsReceivedMessage> converter = createRawDataConverter(config);
+    RawDataConverter<SqsReceivedMessage> converter = createRawDataConverter(config, encoder);
 
     Map<String, String> metricTags =
         basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
@@ -113,11 +112,18 @@ public class SqsSourceCommand extends SimpleSourceCommand<SqsReceivedMessage> {
         sqsClient, config.getQueueUrl(), maxMessages, waitTime, visibilityTimeout);
   }
 
-  private RawDataConverter<SqsReceivedMessage> createRawDataConverter(SqsSourceDto.Config config) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    return new SqsRawDataConverter(deserializer);
+  private static RawDataConverter<SqsReceivedMessage> createRawDataConverter(
+      SqsSourceDto.Config config, RawDataEncoder<SqsReceivedMessage> encoder) {
+    return new MappedMessageConverter<>(
+        new MessageDecodingConverter(decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE),
+        encoder::serialize,
+        message -> "SQS messageId: " + message.messageId());
+  }
+
+  /** The decoding of the messages; {@code encodingType} decompresses nothing, as before. */
+  static DecodingConfig decodingConfig(SqsSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), false);
   }
 
   @Override
