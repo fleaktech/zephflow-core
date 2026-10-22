@@ -97,7 +97,7 @@ class AzureIotHubSourceDecodingTest {
   }
 
   @Test
-  @Timeout(60)
+  @Timeout(value = 60, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   void aBadMessageIsDeadLetteredAsReceived() throws Exception {
     JobContext jobContext = TestUtils.buildJobContext(new HashMap<>());
     jobContext.setDlqConfig(JobContext.S3DlqConfig.builder().build());
