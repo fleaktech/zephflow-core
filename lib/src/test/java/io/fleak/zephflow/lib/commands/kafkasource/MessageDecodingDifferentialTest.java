@@ -40,6 +40,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -542,8 +545,16 @@ class MessageDecodingDifferentialTest {
         new BytesRawDataConverter(
             DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer(),
             new GzipDetectingDecompressor());
-    ConvertedResult<SerializedEvent> result = converter.convert(message, context());
-    return result.transformedData() == null ? List.of(FAILS) : json(result.transformedData());
+    // the legacy converter logs a failed message in full; the 20 MB cases would flood the output
+    Logger logger = (Logger) LogManager.getLogger(BytesRawDataConverter.class);
+    Level level = logger.getLevel();
+    logger.setLevel(Level.OFF);
+    try {
+      ConvertedResult<SerializedEvent> result = converter.convert(message, context());
+      return result.transformedData() == null ? List.of(FAILS) : json(result.transformedData());
+    } finally {
+      logger.setLevel(level);
+    }
   }
 
   private static List<String> decoded(EncodingType encodingType, SerializedEvent message) {
