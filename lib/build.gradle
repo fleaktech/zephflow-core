@@ -171,9 +171,10 @@ tasks.register('lowMemoryTest', Test) {
   classpath = sourceSets.test.runtimeClasspath
   useJUnitPlatform()
   // Selected by class name, not tag: tags are only visible inside a forked JVM, so with
-  // forkEvery = 1 a tag filter would start one JVM per test class in the module.
+  // forkEvery = 1 a tag filter would start one JVM per test class in the module. The same pattern
+  // is excluded from `test`, so every class runs in exactly one of the two tasks; the *LowMemory*
+  // name is reserved for heap-bound tests.
   include '**/*LowMemory*'
-  exclude '**/*$*'
   maxHeapSize = '64m'
   // Each class gets its own JVM, so what one class leaves on the small heap cannot fail another.
   forkEvery = 1
