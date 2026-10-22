@@ -422,7 +422,10 @@ class FsSourceRemoteBackendTest {
     return created;
   }
 
-  /** The spool directories under the working directory, where FsSource creates its spool. */
+  /**
+   * The spool directories under the working directory, where FsSource creates its spool. lib tests
+   * run in parallel JVMs sharing that directory, so no other lib test may spool there.
+   */
   private static Set<Path> spools() throws IOException {
     try (Stream<Path> dirs = Files.list(Path.of(System.getProperty("user.dir")))) {
       return dirs.filter(d -> d.getFileName().toString().startsWith("fs-spool-"))

@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.LocalSpool;
 import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.filedecode.UnitRun.Counters;
 import io.fleak.zephflow.lib.commands.fssource.api.FileEntry;
@@ -30,6 +31,8 @@ import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -50,6 +54,8 @@ class FsFileDecoderTest {
   record Entry(String value, Map<String, String> metadata, List<String> lines, String nodeId) {}
 
   private final List<Entry> dlq = new ArrayList<>();
+
+  @TempDir Path workingDir;
 
   static Stream<Arguments> tooLargeFiles() {
     return Stream.of(
@@ -84,7 +90,9 @@ class FsFileDecoderTest {
             (key, offset) ->
                 new ByteArrayInputStream("PAR1".repeat(25).getBytes(StandardCharsets.UTF_8)),
             false,
-            CAP);
+            CAP,
+            () -> LocalSpool.create("fs-spool-", workingDir, workingDir),
+            Files::newOutputStream);
 
     try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class);
         access) {

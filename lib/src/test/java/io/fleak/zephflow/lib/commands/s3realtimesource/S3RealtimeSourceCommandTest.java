@@ -35,7 +35,6 @@ import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,7 +42,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -374,23 +372,16 @@ class S3RealtimeSourceCommandTest {
   void theSpoolDirectoryIsCreatedOnInitializeAndDeletedOnTerminate() throws Exception {
     AwsClientFactory factory = mock(AwsClientFactory.class);
     when(factory.createSqsClient(any(), any())).thenReturn(mock(SqsClient.class));
-    List<Path> before = spoolDirectories();
 
     S3RealtimeSourceCommand command =
         initialize(TestUtils.buildJobContext(new HashMap<>()), config(), factory);
-    List<Path> created = new ArrayList<>(spoolDirectories());
-    created.removeAll(before);
-    assertEquals(1, created.size(), "one spool directory under the working directory");
+    Path spool = command.getSpoolDirectory().getPath();
+    assertEquals(Path.of(System.getProperty("user.dir")), spool.getParent());
+    assertTrue(Files.isDirectory(spool));
 
     command.terminate();
     command.terminate();
-    assertFalse(Files.exists(created.getFirst()));
-  }
-
-  private static List<Path> spoolDirectories() throws IOException {
-    try (Stream<Path> entries = Files.list(Path.of(System.getProperty("user.dir")))) {
-      return entries.filter(p -> p.getFileName().toString().startsWith("s3rt-spool-")).toList();
-    }
+    assertFalse(Files.exists(spool));
   }
 
   private static Map<String, Object> config() {
