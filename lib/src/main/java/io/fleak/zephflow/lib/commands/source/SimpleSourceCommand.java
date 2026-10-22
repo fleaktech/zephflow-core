@@ -134,8 +134,8 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
    * when {@code emit} returns, or when it throws and the record is dead-lettered (or there is no
    * DLQ); then it is acknowledged and committed, before the next one starts. After a stop, the
    * current record is neither acknowledged nor committed and the rest are left for redelivery. A
-   * failed DLQ write ends the source, as on the other path. This path commits after every record,
-   * whatever the fetcher's commit strategy.
+   * failed DLQ write ends the source, as a downstream failure's does on the other path. This path
+   * commits after every record, whatever the fetcher's commit strategy.
    */
   private void emitEach(
       List<T> fetchedData,
