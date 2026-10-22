@@ -28,12 +28,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import lombok.AccessLevel;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.services.sqs.SqsClient;
 
 public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage> {
 
   private final AwsClientFactory awsClientFactory;
+
+  @Getter(AccessLevel.PACKAGE)
   private SpoolDirectory spoolDirectory;
 
   public S3RealtimeSourceCommand(

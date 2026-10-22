@@ -125,9 +125,10 @@ tasks.named('spotlessJava') {
 }
 
 tasks.named('test') {
-  // Ordinary unit tests exclude golden; golden runs as its own task (see goldenTest below).
-  useJUnitPlatform { excludeTags 'golden', 'lowMemory' }
-  maxParallelForks = (project.findProperty('testForks') ?: Math.max(1, Runtime.runtime.availableProcessors().intdiv(2))) as int
+  // Ordinary unit tests exclude golden and *LowMemory*; each runs as its own task (see below).
+  useJUnitPlatform { excludeTags 'golden' }
+  exclude '**/*LowMemory*'
+  maxParallelForks = Math.max(1, Runtime.runtime.availableProcessors().intdiv(2))
   testLogging.showStandardStreams = true
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
@@ -168,19 +169,19 @@ tasks.register('lowMemoryTest', Test) {
   group = 'verification'
   testClassesDirs = sourceSets.test.output.classesDirs
   classpath = sourceSets.test.runtimeClasspath
-  useJUnitPlatform { includeTags 'lowMemory' }
-  // Tags are only visible inside a forked JVM; without a class-name filter forkEvery = 1 starts one
-  // JVM per test class in the module. lowMemory classes must be named *LowMemory*.
+  useJUnitPlatform()
+  // Selected by class name, not tag: tags are only visible inside a forked JVM, so with
+  // forkEvery = 1 a tag filter would start one JVM per test class in the module.
   include '**/*LowMemory*'
+  exclude '**/*$*'
   maxHeapSize = '64m'
   // Each class gets its own JVM, so what one class leaves on the small heap cannot fail another.
   forkEvery = 1
   testLogging { exceptionFormat 'full'; events 'failed' }
   def testSources = fileTree('src/test/java') { include '**/*.java' }
-  inputs.files(testSources)
   doFirst {
     def misnamed = testSources.files.findAll {
-      !it.name.contains('LowMemory') && it.text.contains('@Tag("lowMemory")')
+      !it.name.contains('LowMemory') && it.text =~ /(?m)^\s*@Tag\(\s*(value\s*=\s*)?"lowMemory"\s*\)/
     }
     if (misnamed) {
       throw new GradleException("@Tag(\"lowMemory\") classes must be named *LowMemory*: ${misnamed*.name}")
