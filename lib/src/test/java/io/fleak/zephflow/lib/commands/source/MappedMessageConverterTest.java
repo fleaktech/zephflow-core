@@ -14,7 +14,10 @@
 package io.fleak.zephflow.lib.commands.source;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -79,6 +82,21 @@ class MappedMessageConverterTest {
             result.error().getClass(),
             result.error().getMessage(),
             errors));
+  }
+
+  @Test
+  void failurePassesTheSameExceptionThrough() {
+    Message message = new Message("x", "m-3");
+    SerializedEvent event = new SerializedEvent(null, new byte[] {1}, null);
+    MessageDecodeException error = new MessageDecodeException("text", null);
+    MessageDecodingConverter decoding = mock();
+    when(decoding.convert(same(event), any(), any()))
+        .thenReturn(ConvertedResult.failure(error, event));
+
+    assertEquals(
+        ConvertedResult.failure(error, message),
+        new MappedMessageConverter<Message>(decoding, m -> event, Message::id)
+            .convert(message, context()));
   }
 
   private static MappedMessageConverter<Message> converter(Function<Message, String> description) {

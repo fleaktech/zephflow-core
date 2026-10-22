@@ -30,6 +30,7 @@ import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
+import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -37,6 +38,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +47,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPOutputStream;
+import org.apache.logging.log4j.Level;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -122,6 +125,7 @@ class SqsSourceDecodingTest {
             config().decoding(JSON_OBJECT).build(), new TypeReference<>() {}));
     DlqWriter dlqWriter = mock();
     SourceEventAcceptor acceptor = mock();
+    List<String> errors;
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
           .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
@@ -130,8 +134,21 @@ class SqsSourceDecodingTest {
           .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))
           .thenReturn(mock(DlqWriter.class));
       command.initialize(new MetricClientProvider.NoopMetricClientProvider());
-      command.execute("user", acceptor);
+      try (BoundedLogCapture logs = new BoundedLogCapture(MessageDecodingConverter.class)) {
+        command.execute("user", acceptor);
+        errors =
+            logs.events().stream()
+                .filter(e -> e.getLevel() == Level.ERROR)
+                .map(e -> e.getMessage().getFormattedMessage())
+                .toList();
+      }
     }
+
+    assertEquals(
+        List.of(
+            "failed to deserialize event: MALFORMED json message: JsonParseException\n"
+                + "SQS messageId: m-1"),
+        errors);
 
     ArgumentCaptor<SerializedEvent> value = ArgumentCaptor.forClass(SerializedEvent.class);
     ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
