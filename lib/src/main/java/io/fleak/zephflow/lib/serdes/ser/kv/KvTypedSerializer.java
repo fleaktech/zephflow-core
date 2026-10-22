@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.serdes.ser.kv;
 
 import io.fleak.zephflow.lib.serdes.ser.MultipleEventsTypedSerializer;
-import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Comparator;
@@ -94,10 +93,7 @@ public class KvTypedSerializer extends MultipleEventsTypedSerializer<Map<String,
   }
 
   private String formatValue(Object value) {
-    String text =
-        value instanceof Map<?, ?> || value instanceof Collection<?>
-            ? JsonUtils.toJsonString(value)
-            : String.valueOf(value);
+    String text = String.valueOf(value);
     return SAFE_VALUE.matcher(text).matches() ? text : quote(text);
   }
 

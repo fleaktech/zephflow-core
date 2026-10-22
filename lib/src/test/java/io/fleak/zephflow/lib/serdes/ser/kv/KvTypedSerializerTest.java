@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
 import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -105,13 +106,12 @@ class KvTypedSerializerTest {
   }
 
   @Test
-  void nestedValuesAreQuotedJson() {
+  void nestedValuesAreWrittenAsTextLikeCsv() {
     Map<String, Object> nested = new LinkedHashMap<>();
     nested.put("os", "win");
     Map<String, Object> e = event("device", nested, "tags", Arrays.asList("a", "b"));
     assertEquals(
-        "device=\"{\\\"os\\\":\\\"win\\\"}\" tags=\"[\\\"a\\\",\\\"b\\\"]\"",
-        serialize(KvSerializerOptions.DEFAULT, List.of(e)));
+        "device=\"{os=win}\" tags=\"[a, b]\"", serialize(KvSerializerOptions.DEFAULT, List.of(e)));
   }
 
   @Test
@@ -312,8 +312,7 @@ class KvTypedSerializerTest {
     inner.put("a", null);
     Map<String, Object> e = event("m", new LinkedHashMap<>(), "l", List.of(), "n", inner);
     assertEquals(
-        "l=\"[]\" m=\"{}\" n=\"{\\\"a\\\":null}\"",
-        serialize(KvSerializerOptions.DEFAULT, List.of(e)));
+        "l=\"[]\" m=\"{}\" n=\"{a=null}\"", serialize(KvSerializerOptions.DEFAULT, List.of(e)));
   }
 
   @Test
@@ -427,5 +426,59 @@ class KvTypedSerializerTest {
     assertEquals(
         "a_b=1 a_b_2=2",
         serialize(KvSerializerOptions.DEFAULT, List.of(event("a b", 1, "a_b", 2))));
+  }
+
+  private static String csvText(RecordFleakData record, String field) throws Exception {
+    String line =
+        new String(
+                SerializerFactory.createSerializerFactory(
+                        EncodingType.CSV, new CsvSerializerOptions(List.of(field), false))
+                    .createSerializer()
+                    .serialize(List.of(record))
+                    .value(),
+                StandardCharsets.UTF_8)
+            .strip();
+    return line.startsWith("\"")
+        ? line.substring(1, line.length() - 1).replace("\"\"", "\"")
+        : line;
+  }
+
+  @Test
+  void nestedValuesMatchTheCsvSerializerText() throws Exception {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("os", "win");
+    map.put("tags", List.of("a", "b"));
+    Map<String, Object> numbers = new LinkedHashMap<>();
+    numbers.put("port", 443);
+    numbers.put("ratio", 1.5);
+    numbers.put("big", 1.0e10);
+    numbers.put("ok", true);
+    Map<String, Object> person = new LinkedHashMap<>();
+    person.put("n", "John");
+    List<Object> shapes =
+        List.of(map, numbers, List.of(person, person), List.of(1, 2), new LinkedHashMap<>());
+    for (Object shape : shapes) {
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(event("v", shape));
+      String kv =
+          new String(
+              SerializerFactory.createSerializerFactory(
+                      EncodingType.KV, null, new KvSerializerOptions(List.of("v"), null, false))
+                  .createSerializer()
+                  .serialize(List.of(record))
+                  .value(),
+              StandardCharsets.UTF_8);
+      assertEquals("v=\"" + csvText(record, "v") + "\"", kv, "shape " + shape);
+    }
+  }
+
+  @Test
+  void nestedValuesFromEngineRecordsAreWrittenAsText() throws Exception {
+    Map<String, Object> nested = new LinkedHashMap<>();
+    nested.put("os", "win");
+    String line =
+        serializeRecords(
+            new KvSerializerOptions(List.of("device", "tags"), null, false),
+            List.of(event("device", nested, "tags", List.of("a", "b"))));
+    assertEquals("device=\"{os=win}\" tags=\"[a, b]\"", line);
   }
 }
