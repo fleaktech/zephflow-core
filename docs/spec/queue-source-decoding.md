@@ -33,7 +33,7 @@ fetches, acknowledges and commits does not change.
   failures: as in the message-source spec (2, non-goals).
 - Message metadata that the sources do not capture today: SQS and Pub/Sub message ids and
   attributes, SQS receive counts.
-- Elasticsearch and the S3 file reader, which decode documents and files, not messages.
+- Elasticsearch, which decodes documents, not messages.
 
 ## 3. Design
 

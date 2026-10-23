@@ -35,8 +35,7 @@ change.
 - Downstream failures: they keep today's handling (3.3).
 - Message metadata that sources do not capture today (Kafka topic, partition, offset, headers;
   MQTT topic).
-- SQS, Pub/Sub, IoT Hub, Elasticsearch, syslog UDP and the S3 file reader, which have their own
-  converters.
+- SQS, Pub/Sub, IoT Hub, Elasticsearch and syslog UDP, which have their own converters.
 - Removing `BytesRawDataConverter` or `GzipDetectingDecompressor`: code outside this repository
   builds on them, so they stay.
 
