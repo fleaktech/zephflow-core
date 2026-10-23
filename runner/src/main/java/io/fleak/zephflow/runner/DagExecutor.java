@@ -112,7 +112,8 @@ public record DagExecutor(
             subDagWithoutSource,
             metricClientProvider,
             counters,
-            jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
+            jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null,
+            NoSourceDagRunner.branchParallelism(jobConfig.getDagDefinition().getJobContext()));
     ShutdownFlushHook shutdownFlushHook =
         new ShutdownFlushHook(sourceCommand, noSourceDagRunner, ShutdownFlushHook.DEFAULT_TIMEOUT);
     try {

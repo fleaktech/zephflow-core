@@ -42,6 +42,12 @@ public class JobContext implements Serializable {
   public static final String REPLICA_COUNT = "REPLICA_COUNT";
   public static final String STORE_FORWARD_DIR = "STORE_FORWARD_DIR";
 
+  /**
+   * How many independent branches after a fan-out may run at once. Branches whose downstream nodes
+   * overlap always run one after another. 1 (the default) runs the whole DAG on the caller thread.
+   */
+  public static final String BRANCH_PARALLELISM = "BRANCH_PARALLELISM";
+
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();
 
