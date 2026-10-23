@@ -6,7 +6,7 @@ an `s3://bucket/key` path in the record's `pathField`, and emits the object's li
 `encodingType`. This change makes it decode each line with the generic decoder
 (`docs/spec/generic-decoder.md`). It keeps the configuration, the failures outside line decoding,
 and the records of ordinary lines; the lines of a UTF-8 object that give a different result are
-all listed in 4.1.
+listed in 4.1 (CSV lines by rule).
 
 ## 1. Why
 
@@ -19,7 +19,9 @@ onto the generic decoder is a step toward removing them. It gains no new formats
 - `emission: DESERIALIZE` decodes each line through the generic decoder.
 - The node's own code no longer uses `serdes.des` or the legacy decompressors.
 - A line that fails to decode fails the input record with a clear, actionable error message.
-- Every difference in records or failures for UTF-8 objects is listed, with its reason (4.1).
+- Every difference in records or failures for UTF-8 objects is listed, with its reason (4.1). CSV
+  lines, which can change only whether the input record fails, are listed by the parsers' rules,
+  with measured examples.
 
 **Non-goals**
 - A `decoding` field, new formats or compressions, whole-object decoding.
@@ -83,7 +85,8 @@ s3://bucket/key line 3, recordIndex 1, bytes 0-8
   `READ_FAILURE`. `<format>` and `<exception class>` are as in the message sources
   (`SourceDecoding.formatName`, `UnitRun.causeName`).
 - **Action:** as above, with the node's `encodingType` value, for every kind.
-- **Cause:** the first line of the innermost cause's message.
+- **Cause:** the first line of the innermost cause's message, or that cause's simple class name
+  when its message is missing or its first line is blank.
 - **Location:** the path as it appears in the input record and `line N`, then `, ` and what the
   decoder knows, exactly as the message sources write it: `recordIndex N` when it is 1 or more,
   `bytes a-b` when the span's length is 0 or more, and `(and k more problems)` when the line had
@@ -118,15 +121,28 @@ validator is unchanged.
    | JSON_OBJECT, JSON_ARRAY, XML | an empty line | fails | no records | The generic decoder gives no record for an empty input; the legacy parsers failed on it. |
    | JSON_OBJECT_LINE, JSON_OBJECT, JSON_ARRAY | a string longer than 20,000,000 characters or a field name longer than 50,000 characters | fails | decodes | The legacy deserializers kept Jackson's default size limits; the generic decoder lifts them. |
    | XML | an element with more than 1,021 attributes | fails | decodes | The legacy XML parser kept Woodstox's default attribute limit; the generic decoder lifts it. |
+   | XML | an attribute value far over 524,288 characters, e.g. 900,000 (800,000 still decodes) | fails | decodes | The legacy XML parser kept Woodstox's default attribute-size limit, which Woodstox checks only as its buffer grows; the generic decoder lifts it. |
    | XML | text after the root element, a second root element, or a `DOCTYPE` | one record | fails | The generic XML format reads exactly one document and refuses DTDs. |
-   | CSV | a row with two cells that are equal once surrounding spaces and tabs and a leading byte-order mark are removed, e.g. `1,1` or ` a,a ` | no records | fails (duplicate header name) | Each line is its own CSV document, so its only row is a header, and the generic CSV format refuses duplicate header names. A file whose lines repeat a value now fails instead of giving no records. |
-   | CSV | a line with a cell that, once its surrounding whitespace (`Character.isWhitespace`) is removed, is empty or holds only characters up to U+0020, e.g. `a,,b`, `a, ,b`, `,a`, `a,b,`, `""`, `a,\u0001,b`, `a,\u3000\u0001` or a line of only spaces, tabs, NULs or U+2028 | fails | no records | The legacy CSV parser removed surrounding whitespace from a cell and refused a header name that `String.trim` leaves empty; the generic one trims only spaces and tabs and accepts an empty header name. |
-   | CSV | a row with more than 16,384 cells | no records | fails | The generic CSV format limits a row to 16,384 columns. |
+   | CSV | a line the two CSV parsers read by different rules (see **CSV lines** below) | fails, or no records | no records, or fails | The legacy CSV parser and the generic CSV format read a header row differently. |
 
-   Every line of a CSV object gives no records today, as now (each line is a header only), so the
-   CSV rows change only whether the input record fails. A line that matches two CSV rows, such as `1,1,`, or
-   whose empty cell's generated name (`_c<i>`) equals another cell, such as `,_c0`, fails on both
-   paths.
+   **CSV lines.** Every line of a CSV object gives no records, today and now: each line is its own
+   CSV document, and its only row is the header. So a CSV line changes only whether the input record
+   fails. The legacy parser (commons-csv `CSVFormat.DEFAULT`, header from the first row,
+   `ignoreSurroundingSpaces`) and the generic CSV format (header from the first row,
+   `ignoreSurroundingSpaces`) read that header by different rules:
+
+   | Rule | Legacy parser | Generic CSV format | Examples, today \u2192 now |
+   |---|---|---|---|
+   | Whitespace around a cell | removes every `Character.isWhitespace` character around an unquoted cell | removes only spaces and tabs; other whitespace stays in the cell | `a,\u3000\u0001`: fails \u2192 no records (the legacy parser removes U+3000, and U+0001 is then an empty name) |
+   | Quotes | a quote after leading whitespace opens a quoted cell; any whitespace may follow the closing quote | a quote opens a quoted cell only at the cell's start or after spaces and tabs; only spaces and tabs may follow the closing quote | `\u3000"a"x`, `a,\u000C"b`: fails \u2192 no records; `"a"\u3000`, `"a"\u001C,b`: no records \u2192 fails |
+   | Empty header name | refused when `String.trim` leaves the name empty (it removes characters up to U+0020), quoted or not | accepted, and the column is named `_c<i>` | `a,,b`, `a, ,b`, `,a`, `a,b,`, `""`, `" "`, `a,\u0001,b`, and a line of only spaces, tabs, NULs, U+000B or U+2028: fails \u2192 no records |
+   | Duplicate header names | allowed | refused, generated `_c<i>` names included | `1,1`, ` a,a `, `"a" ,a`, `\ufeffa,a` (the generic decoder removes the mark): no records \u2192 fails |
+   | Width | no limit | at most 16,384 columns | 16,385 cells: no records \u2192 fails |
+
+   A line that breaks rules of both parsers fails on both paths, such as `1,1,` and `,_c0`. A quoted
+   cell keeps its content on both paths, so `"\u3000"` and `" a",a` give no records on both. The
+   rules summarize the two parsers; the examples were measured on both paths and are pinned by the
+   differential test. Other CSV lines are not listed one by one.
 
    The node's UTF-8 reader keeps a byte-order mark as U+FEFF wherever it is, so the rows on the mark
    apply to any line, not only the first. That reader replaces invalid UTF-8 with U+FFFD, as
@@ -155,8 +171,8 @@ mock) to return an `S3Client` mock that serves the object's bytes, plain or gzip
   per-line legacy path (the `DeserializerFactory` deserializer on each `readLine` result, as the
   legacy node did) and through the node, the records compared whole as their `unwrap()` maps
   (`RecordFleakData.equals` compares numbers with a tolerance and ignores their type). Cases:
-  several lines, blank lines, a byte-order mark on the first and on a later line, and every row
-  of 4.1 item 2, each pinned as an expected difference.
+  several lines, blank lines, a byte-order mark on the first and on a later line, every row of
+  4.1 item 2 and every CSV example, each pinned as an expected difference or as the same result.
 - **Error message:** a bad line after a blank line (`line 3`) gives an `ErrorOutput` whose message is
   compared whole, and so does a failing CSV line (a location that ends at `line N`); the error
   counter goes up by one, no record is emitted, and the WARN log line

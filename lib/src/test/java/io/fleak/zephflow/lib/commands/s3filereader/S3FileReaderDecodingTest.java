@@ -63,6 +63,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.http.AbortableInputStream;
@@ -200,11 +202,31 @@ class S3FileReaderDecodingTest {
                 IntStream.range(0, 1022)
                     .boxed()
                     .collect(Collectors.toMap(i -> "a" + i, i -> "1")))),
+        same(
+            EncodingType.XML,
+            "<r a=\"" + "v".repeat(800_000) + "\"/>",
+            records(Map.of("a", "v".repeat(800_000)))),
+        diff(
+            EncodingType.XML,
+            "<r a=\"" + "v".repeat(900_000) + "\"/>",
+            FAILS,
+            records(Map.of("a", "v".repeat(900_000)))),
         // XML documents
         diff(EncodingType.XML, "<r>1</r>x", records(Map.of("", "1")), FAILS),
         diff(EncodingType.XML, "<r/><s/>", records(Map.of()), FAILS),
         diff(EncodingType.XML, "<!DOCTYPE r><r>1</r>", records(Map.of("", "1")), FAILS),
         // CSV
+        same(EncodingType.CSV, "a,b\n\nc,d", records()),
+        same(EncodingType.CSV, "\"　\"", records()),
+        same(EncodingType.CSV, "\" a\",a", records()),
+        same(EncodingType.CSV, "\"a\"x", FAILS),
+        diff(EncodingType.CSV, "　\"a\"x", FAILS, records()),
+        diff(EncodingType.CSV, "a,\u000C\"b", FAILS, records()),
+        diff(EncodingType.CSV, "\"a\"　", records(), FAILS),
+        diff(EncodingType.CSV, "\"a\"\u001C,b", records(), FAILS),
+        diff(EncodingType.CSV, "\" \"", FAILS, records()),
+        diff(EncodingType.CSV, "\t", FAILS, records()),
+        diff(EncodingType.CSV, "\"a\" ,a", records(), FAILS),
         diff(EncodingType.CSV, "1,1", records(), FAILS),
         diff(EncodingType.CSV, " a,a ", records(), FAILS),
         diff(EncodingType.CSV, "a,a\t", records(), FAILS),
@@ -262,7 +284,7 @@ class S3FileReaderDecodingTest {
         s3://bucket/key line 3, recordIndex 1, bytes 0-8""";
 
     ScalarCommand.ProcessResult result;
-    List<LogEvent> warnings;
+    List<Logged> logged;
     try (BoundedLogCapture logs = new BoundedLogCapture(S3FileReaderCommand.class)) {
       result =
           run(
@@ -270,15 +292,26 @@ class S3FileReaderDecodingTest {
               "{\"a\":1}\n\nnot json".getBytes(StandardCharsets.UTF_8),
               PATH,
               metrics);
-      warnings = logs.events().stream().filter(e -> e.getLevel() == Level.WARN).toList();
+      logged =
+          logs.events().stream()
+              .filter(e -> e.getLevel().isMoreSpecificThan(Level.WARN))
+              .map(Logged::of)
+              .toList();
     }
 
     assertEquals(List.of(), result.getOutput());
     assertEquals(List.of(new ErrorOutput(input(PATH), message)), result.getFailureEvents());
     verify(errorCounter).increase(anyMap());
-    assertEquals(1, warnings.size());
-    assertEquals(message, warnings.getFirst().getMessage().getFormattedMessage());
-    assertEquals(JsonParseException.class, warnings.getFirst().getThrown().getClass());
+    assertEquals(List.of(new Logged(Level.WARN, message, JsonParseException.class)), logged);
+  }
+
+  private record Logged(Level level, String message, Class<?> thrown) {
+    static Logged of(LogEvent event) {
+      return new Logged(
+          event.getLevel(),
+          event.getMessage().getFormattedMessage(),
+          event.getThrown() == null ? null : event.getThrown().getClass());
+    }
   }
 
   @Test
@@ -326,10 +359,12 @@ class S3FileReaderDecodingTest {
         result.getFailureEvents());
   }
 
-  @Test
-  void causeWithoutMessageIsNamedByItsClass() throws Exception {
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"", " \nsecond line"})
+  void causeWithoutMessageIsNamedByItsClass(String causeMessage) throws Exception {
     RecordDecoder decoder = mock();
-    when(decoder.decodeAll(any(), any())).thenThrow(new IllegalStateException());
+    when(decoder.decodeAll(any(), any())).thenThrow(new IllegalStateException(causeMessage));
     ScalarCommand.ProcessResult result;
     try (MockedStatic<DecodingConfigCompiler> compiler = mockStatic(DecodingConfigCompiler.class)) {
       compiler.when(() -> DecodingConfigCompiler.compile(any())).thenReturn(decoder);

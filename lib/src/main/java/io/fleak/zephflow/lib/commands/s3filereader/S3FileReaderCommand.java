@@ -212,10 +212,9 @@ public class S3FileReaderCommand extends ScalarCommand {
       int lineNumber) {
     String format = SourceDecoding.formatName(decodingConfig(encodingType).format());
     Throwable root = ExceptionUtils.getThrowableList(error).getLast();
-    String detail =
-        root.getMessage() == null
-            ? root.getClass().getSimpleName()
-            : root.getMessage().lines().findFirst().orElse("");
+    String firstLine =
+        root.getMessage() == null ? "" : root.getMessage().lines().findFirst().orElse("");
+    String detail = firstLine.isBlank() ? root.getClass().getSimpleName() : firstLine;
     String message =
         kind
             + " "
