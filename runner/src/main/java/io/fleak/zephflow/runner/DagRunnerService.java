@@ -130,12 +130,6 @@ public class DagRunnerService {
     DagRunCounters counters =
         DagRunCounters.createPipelineCounters(
             metricClientProvider, dagDefinition.getJobContext().getMetricTags());
-    return new NoSourceDagRunner(
-        incomingEdges,
-        compiledDag,
-        metricClientProvider,
-        counters,
-        false,
-        NoSourceDagRunner.branchParallelism(dagDefinition.getJobContext()));
+    return new NoSourceDagRunner(incomingEdges, compiledDag, metricClientProvider, counters, false);
   }
 }

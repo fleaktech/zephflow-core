@@ -43,8 +43,11 @@ public class JobContext implements Serializable {
   public static final String STORE_FORWARD_DIR = "STORE_FORWARD_DIR";
 
   /**
-   * How many independent branches after a fan-out may run at once. Branches whose downstream nodes
-   * overlap always run one after another. 1 (the default) runs the whole DAG on the caller thread.
+   * How many independent branches after a fan-out of a streaming pipeline may run at once. Branches
+   * whose downstream nodes overlap always run one after another. 1 (the default) runs the whole DAG
+   * on the source thread. Worth raising only when several sinks block on each write: every run then
+   * waits for its slowest branch instead of the sum of all branches, at the cost of a thread
+   * handoff per fan-out per run.
    */
   public static final String BRANCH_PARALLELISM = "BRANCH_PARALLELISM";
 

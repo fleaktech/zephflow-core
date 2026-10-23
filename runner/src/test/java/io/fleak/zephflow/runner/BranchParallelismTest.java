@@ -217,11 +217,11 @@ class BranchParallelismTest {
 
     NoSourceDagRunner runner =
         runner(fanOut("failing", "slow"), nodes, List.of(), mock(DagRunCounters.class), true, 4);
-    NodeExecutionException e =
+    NodeExecutionException exception =
         assertThrows(
             NodeExecutionException.class, () -> runner.run(events, CALLING_USER, RUN_CONFIG));
 
-    assertEquals("failing", e.getNodeId());
+    assertEquals("failing", exception.getNodeId());
     assertTrue(slowFinished.get(), "run() returned before the sibling branch finished");
   }
 
@@ -253,10 +253,10 @@ class BranchParallelismTest {
   void pipelineCountersAreOnlyTouchedByTheCallerThread() {
     DagRunCounters counters = mock(DagRunCounters.class);
     Set<String> counterThreads = ConcurrentHashMap.newKeySet();
-    doAnswer(inv -> counterThreads.add(Thread.currentThread().getName()))
+    doAnswer(invocation -> counterThreads.add(Thread.currentThread().getName()))
         .when(counters)
         .increaseOutputEventCounter(anyLong(), anyMap());
-    doAnswer(inv -> counterThreads.add(Thread.currentThread().getName()))
+    doAnswer(invocation -> counterThreads.add(Thread.currentThread().getName()))
         .when(counters)
         .increaseErrorEventCounter(anyLong(), anyMap());
     Map<String, OperatorCommand> nodes = new LinkedHashMap<>();
@@ -344,10 +344,13 @@ class BranchParallelismTest {
             false,
             4);
 
-    for (int i = 0; i < 300; i++) {
+    for (int runIndex = 0; runIndex < 300; runIndex++) {
       DagResult result = runner.run(events, CALLING_USER, RUN_CONFIG);
       assertEquals(Set.copyOf(sinks), result.sinkResultMap.keySet());
-      result.sinkResultMap.values().forEach(r -> assertEquals(2, r.getSuccessCount()));
+      result
+          .sinkResultMap
+          .values()
+          .forEach(sinkResult -> assertEquals(2, sinkResult.getSuccessCount()));
       assertEquals(Set.copyOf(sinks), result.outputEvents.keySet());
     }
   }
@@ -404,13 +407,13 @@ class BranchParallelismTest {
     when(sink.getExecutionContext()).thenReturn(mock(ExecutionContext.class));
     when(sink.writeToSink(anyList(), anyString(), any()))
         .thenAnswer(
-            inv -> {
+            invocation -> {
               recordThread(id);
-              List<RecordFleakData> batch = inv.getArgument(0);
+              List<RecordFleakData> batch = invocation.getArgument(0);
               int success = body.write(batch);
               List<ErrorOutput> errors = new ArrayList<>();
-              for (int i = success; i < batch.size(); i++) {
-                errors.add(new ErrorOutput(batch.get(i), "rejected by " + id));
+              for (int eventIndex = success; eventIndex < batch.size(); eventIndex++) {
+                errors.add(new ErrorOutput(batch.get(eventIndex), "rejected by " + id));
               }
               return new ScalarSinkCommand.SinkResult(batch.size(), success, errors);
             });
@@ -423,21 +426,21 @@ class BranchParallelismTest {
     when(command.getExecutionContext()).thenReturn(mock(ExecutionContext.class));
     when(command.process(anyList(), anyString(), any()))
         .thenAnswer(
-            inv -> {
+            invocation -> {
               recordThread(id);
-              return new ScalarCommand.ProcessResult(inv.getArgument(0), List.of());
+              return new ScalarCommand.ProcessResult(invocation.getArgument(0), List.of());
             });
     return command;
   }
 
   private void recordThread(String nodeId) {
     threadsByNode
-        .computeIfAbsent(nodeId, k -> Collections.synchronizedList(new ArrayList<>()))
+        .computeIfAbsent(nodeId, newNodeId -> Collections.synchronizedList(new ArrayList<>()))
         .add(Thread.currentThread().getName());
   }
 
   private static List<Edge> fanOut(String... targets) {
-    return Arrays.stream(targets).map(t -> edge(SOURCE, t)).toList();
+    return Arrays.stream(targets).map(target -> edge(SOURCE, target)).toList();
   }
 
   private static Edge edge(String from, String to) {

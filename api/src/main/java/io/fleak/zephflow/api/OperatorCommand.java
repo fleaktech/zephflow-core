@@ -23,12 +23,12 @@ import java.util.Map;
 /**
  * Created by bolei on 7/26/24
  *
- * <p><b>Concurrency:</b> the DAG runner never invokes one command instance from two threads at the
- * same time, so commands need not be thread-safe. It may, however, invoke the same instance from
- * different threads on different calls: with branch parallelism ({@link
- * JobContext#BRANCH_PARALLELISM}) the independent branches after a fan-out run on pool threads.
- * Commands must therefore not pin resources to the thread that created them (e.g. thread-confined
- * connections or {@link ThreadLocal} state that must survive between calls).
+ * <p><b>Threads:</b> with branch parallelism ({@link JobContext#BRANCH_PARALLELISM}) the streaming
+ * runner runs the independent branches after a fan-out on pool threads, so successive calls on one
+ * command instance may come from different threads. It never calls one instance from two branches
+ * at once: branches that reach a common node run one after another. Commands must therefore not pin
+ * resources to the thread that created them (e.g. thread-confined connections or {@link
+ * ThreadLocal} state that must survive between calls).
  */
 public abstract class OperatorCommand implements Serializable {
 
