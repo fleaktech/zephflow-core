@@ -100,8 +100,6 @@ class S3FileReaderDecodingTest {
   static Stream<Arguments> cases() {
     String longString = "x".repeat(20_000_001);
     String longName = "k".repeat(50_001);
-    String attributes =
-        IntStream.range(0, 1022).mapToObj(i -> "a" + i + "=\"1\"").collect(Collectors.joining(" "));
     String cells =
         IntStream.range(0, 16_385).mapToObj(i -> "c" + i).collect(Collectors.joining(","));
     return Stream.of(
@@ -194,14 +192,8 @@ class S3FileReaderDecodingTest {
             "[{\"" + longName + "\":1}]",
             FAILS,
             records(Map.of(longName, 1L))),
-        diff(
-            EncodingType.XML,
-            "<r " + attributes + "/>",
-            FAILS,
-            records(
-                IntStream.range(0, 1022)
-                    .boxed()
-                    .collect(Collectors.toMap(i -> "a" + i, i -> "1")))),
+        same(EncodingType.XML, attributes(1021), records(attributeRecord(1021))),
+        diff(EncodingType.XML, attributes(1022), FAILS, records(attributeRecord(1022))),
         same(
             EncodingType.XML,
             "<r a=\"" + "v".repeat(800_000) + "\"/>",
@@ -211,22 +203,37 @@ class S3FileReaderDecodingTest {
             "<r a=\"" + "v".repeat(900_000) + "\"/>",
             FAILS,
             records(Map.of("a", "v".repeat(900_000)))),
+        same(
+            EncodingType.XML,
+            "<r a=\"" + "v".repeat(350_000) + "\" b=\"" + "v".repeat(350_000) + "\"/>",
+            records(Map.of("a", "v".repeat(350_000), "b", "v".repeat(350_000)))),
+        diff(
+            EncodingType.XML,
+            "<r a=\"" + "v".repeat(450_000) + "\" b=\"" + "v".repeat(450_000) + "\"/>",
+            FAILS,
+            records(Map.of("a", "v".repeat(450_000), "b", "v".repeat(450_000)))),
         // XML documents
+        same(EncodingType.XML, "<r>1</r><!-- c -->", records(Map.of("", "1"))),
+        same(EncodingType.XML, "<r>1</r><?pi x?>", records(Map.of("", "1"))),
+        diff(EncodingType.XML, "<r>1</r></x>", records(Map.of("", "1")), FAILS),
+        diff(EncodingType.XML, "<r>1</r><![CDATA[x]]>", records(Map.of("", "1")), FAILS),
+        diff(EncodingType.XML, "<r>1</r><!-- x", records(Map.of("", "1")), FAILS),
         diff(EncodingType.XML, "<r>1</r>x", records(Map.of("", "1")), FAILS),
         diff(EncodingType.XML, "<r/><s/>", records(Map.of()), FAILS),
         diff(EncodingType.XML, "<!DOCTYPE r><r>1</r>", records(Map.of("", "1")), FAILS),
         // CSV
         same(EncodingType.CSV, "a,b\n\nc,d", records()),
-        same(EncodingType.CSV, "\"　\"", records()),
+        same(EncodingType.CSV, "\"\u3000\"", records()),
         same(EncodingType.CSV, "\" a\",a", records()),
         same(EncodingType.CSV, "\"a\"x", FAILS),
-        diff(EncodingType.CSV, "　\"a\"x", FAILS, records()),
+        diff(EncodingType.CSV, "\u3000\"a\"x", FAILS, records()),
         diff(EncodingType.CSV, "a,\u000C\"b", FAILS, records()),
-        diff(EncodingType.CSV, "\"a\"　", records(), FAILS),
+        diff(EncodingType.CSV, "\"a\"\u3000", records(), FAILS),
         diff(EncodingType.CSV, "\"a\"\u001C,b", records(), FAILS),
         diff(EncodingType.CSV, "\" \"", FAILS, records()),
         diff(EncodingType.CSV, "\t", FAILS, records()),
         diff(EncodingType.CSV, "\"a\" ,a", records(), FAILS),
+        diff(EncodingType.CSV, "\uFEFF\"a\"x", records(), FAILS),
         diff(EncodingType.CSV, "1,1", records(), FAILS),
         diff(EncodingType.CSV, " a,a ", records(), FAILS),
         diff(EncodingType.CSV, "a,a\t", records(), FAILS),
@@ -246,6 +253,16 @@ class S3FileReaderDecodingTest {
         diff(EncodingType.CSV, "\u0000", FAILS, records()),
         diff(EncodingType.CSV, "\u2028", FAILS, records()),
         diff(EncodingType.CSV, cells, records(), FAILS));
+  }
+
+  private static String attributes(int count) {
+    return IntStream.range(0, count)
+        .mapToObj(i -> "a" + i + "=\"1\"")
+        .collect(Collectors.joining(" ", "<r ", "/>"));
+  }
+
+  private static Map<String, String> attributeRecord(int count) {
+    return IntStream.range(0, count).boxed().collect(Collectors.toMap(i -> "a" + i, i -> "1"));
   }
 
   private static Arguments same(EncodingType encodingType, String object, Outcome outcome) {

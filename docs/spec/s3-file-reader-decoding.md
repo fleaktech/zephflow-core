@@ -6,7 +6,7 @@ an `s3://bucket/key` path in the record's `pathField`, and emits the object's li
 `encodingType`. This change makes it decode each line with the generic decoder
 (`docs/spec/generic-decoder.md`). It keeps the configuration, the failures outside line decoding,
 and the records of ordinary lines; the lines of a UTF-8 object that give a different result are
-listed in 4.1 (CSV lines by rule).
+listed in 4.1 (XML and CSV lines by rule).
 
 ## 1. Why
 
@@ -19,9 +19,8 @@ onto the generic decoder is a step toward removing them. It gains no new formats
 - `emission: DESERIALIZE` decodes each line through the generic decoder.
 - The node's own code no longer uses `serdes.des` or the legacy decompressors.
 - A line that fails to decode fails the input record with a clear, actionable error message.
-- Every difference in records or failures for UTF-8 objects is listed, with its reason (4.1). CSV
-  lines, which can change only whether the input record fails, are listed by the parsers' rules,
-  with measured examples.
+- Every difference in records or failures for UTF-8 objects is listed, with its reason (4.1). XML
+  and CSV lines are listed by the two parsers' rules, with measured examples.
 
 **Non-goals**
 - A `decoding` field, new formats or compressions, whole-object decoding.
@@ -120,10 +119,23 @@ validator is unchanged.
    | STRING_LINE, TEXT | a line starting with a byte-order mark | the mark kept in `__raw__` | the mark removed; with STRING_LINE a mark alone gives no records, with TEXT `{"__raw__": ""}` | Same as above. |
    | JSON_OBJECT, JSON_ARRAY, XML | an empty line | fails | no records | The generic decoder gives no record for an empty input; the legacy parsers failed on it. |
    | JSON_OBJECT_LINE, JSON_OBJECT, JSON_ARRAY | a string longer than 20,000,000 characters or a field name longer than 50,000 characters | fails | decodes | The legacy deserializers kept Jackson's default size limits; the generic decoder lifts them. |
-   | XML | an element with more than 1,021 attributes | fails | decodes | The legacy XML parser kept Woodstox's default attribute limit; the generic decoder lifts it. |
-   | XML | an attribute value far over 524,288 characters, e.g. 900,000 (800,000 still decodes) | fails | decodes | The legacy XML parser kept Woodstox's default attribute-size limit, which Woodstox checks only as its buffer grows; the generic decoder lifts it. |
-   | XML | text after the root element, a second root element, or a `DOCTYPE` | one record | fails | The generic XML format reads exactly one document and refuses DTDs. |
+   | XML | a line the two XML parsers read by different rules (see **XML lines** below) | one record, or fails | fails, or one record | The legacy XML parser and the generic XML format read a line differently. |
    | CSV | a line the two CSV parsers read by different rules (see **CSV lines** below) | fails, or no records | no records, or fails | The legacy CSV parser and the generic CSV format read a header row differently. |
+
+   **XML lines.** The legacy parser (Jackson's `XmlMapper` with its defaults, over Woodstox) and the
+   generic XML format (one document per input) read a line by different rules:
+
+   | Rule | Legacy parser | Generic XML format | Examples, today → now |
+   |---|---|---|---|
+   | After the root element | reads up to the end of the root element and ignores the rest of the line | reads the whole line as one well-formed document: after the root element only whitespace, comments and processing instructions may follow | `<r>1</r>x`, `<r/><s/>`, `<r>1</r></x>`, `<r>1</r><![CDATA[x]]>`, `<r>1</r><!-- x`: one record → fails |
+   | DTDs | accepts a `DOCTYPE` | refuses DTDs | `<!DOCTYPE r><r>1</r>`: one record → fails |
+   | Attribute count | Woodstox's default limit: an element with more than 1,021 attributes fails | no limit | 1,022 attributes: fails → one record |
+   | Attribute size | Woodstox's default limit of 524,288 characters, applied to the attribute values of one element together and checked only as its buffer grows, so a line fails once they are well over the limit | no limit | one value of 900,000 characters, or two of 450,000: fails → one record |
+
+   The same on both paths: `<r>1</r><!-- c -->`, `<r>1</r><?pi x?>`, 1,021 attributes, one value of
+   800,000 characters, two of 350,000. The rules summarize the two parsers; the examples were
+   measured on both paths and are pinned by the differential test. Other XML lines are not listed
+   one by one.
 
    **CSV lines.** Every line of a CSV object gives no records, today and now: each line is its own
    CSV document, and its only row is the header. So a CSV line changes only whether the input record
@@ -131,13 +143,14 @@ validator is unchanged.
    `ignoreSurroundingSpaces`) and the generic CSV format (header from the first row,
    `ignoreSurroundingSpaces`) read that header by different rules:
 
-   | Rule | Legacy parser | Generic CSV format | Examples, today \u2192 now |
+   | Rule | Legacy parser | Generic CSV format | Examples, today → now |
    |---|---|---|---|
-   | Whitespace around a cell | removes every `Character.isWhitespace` character around an unquoted cell | removes only spaces and tabs; other whitespace stays in the cell | `a,\u3000\u0001`: fails \u2192 no records (the legacy parser removes U+3000, and U+0001 is then an empty name) |
-   | Quotes | a quote after leading whitespace opens a quoted cell; any whitespace may follow the closing quote | a quote opens a quoted cell only at the cell's start or after spaces and tabs; only spaces and tabs may follow the closing quote | `\u3000"a"x`, `a,\u000C"b`: fails \u2192 no records; `"a"\u3000`, `"a"\u001C,b`: no records \u2192 fails |
-   | Empty header name | refused when `String.trim` leaves the name empty (it removes characters up to U+0020), quoted or not | accepted, and the column is named `_c<i>` | `a,,b`, `a, ,b`, `,a`, `a,b,`, `""`, `" "`, `a,\u0001,b`, and a line of only spaces, tabs, NULs, U+000B or U+2028: fails \u2192 no records |
-   | Duplicate header names | allowed | refused, generated `_c<i>` names included | `1,1`, ` a,a `, `"a" ,a`, `\ufeffa,a` (the generic decoder removes the mark): no records \u2192 fails |
-   | Width | no limit | at most 16,384 columns | 16,385 cells: no records \u2192 fails |
+   | Whitespace around a cell | removes every `Character.isWhitespace` character around an unquoted cell | removes only spaces and tabs; other whitespace stays in the cell | `a,\u3000\u0001`: fails → no records (the legacy parser removes U+3000, and U+0001 is then an empty name) |
+   | Quotes | a quote after leading whitespace opens a quoted cell; any whitespace may follow the closing quote | a quote opens a quoted cell only at the cell's start or after spaces and tabs; only spaces and tabs may follow the closing quote | `\u3000"a"x`, `a,\u000C"b`: fails → no records; `"a"\u3000`, `"a"\u001C,b`: no records → fails |
+   | Empty header name | refused when `String.trim` leaves the name empty (it removes characters up to U+0020), quoted or not | accepted, and the column is named `_c<i>` | `a,,b`, `a, ,b`, `,a`, `a,b,`, `""`, `" "`, `a,\u0001,b`, and a line of only spaces, tabs, NULs, U+000B or U+2028: fails → no records |
+   | Duplicate header names | allowed | refused, generated `_c<i>` names included | `1,1`, ` a,a `, `"a" ,a`: no records → fails |
+   | Byte-order mark | keeps U+FEFF at the start of the line as part of the first cell | removes it | `\uFEFFa,a`, `\uFEFF"a"x`: no records → fails |
+   | Width | no limit | at most 16,384 columns | 16,385 cells: no records → fails |
 
    A line that breaks rules of both parsers fails on both paths, such as `1,1,` and `,_c0`. A quoted
    cell keeps its content on both paths, so `"\u3000"` and `" a",a` give no records on both. The
@@ -172,7 +185,8 @@ mock) to return an `S3Client` mock that serves the object's bytes, plain or gzip
   legacy node did) and through the node, the records compared whole as their `unwrap()` maps
   (`RecordFleakData.equals` compares numbers with a tolerance and ignores their type). Cases:
   several lines, blank lines, a byte-order mark on the first and on a later line, every row of
-  4.1 item 2 and every CSV example, each pinned as an expected difference or as the same result.
+  4.1 item 2 and every XML and CSV example, each pinned as an expected difference or as the same
+  result.
 - **Error message:** a bad line after a blank line (`line 3`) gives an `ErrorOutput` whose message is
   compared whole, and so does a failing CSV line (a location that ends at `line N`); the error
   counter goes up by one, no record is emitted, and the WARN log line
