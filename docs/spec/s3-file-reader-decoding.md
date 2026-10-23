@@ -128,7 +128,7 @@ validator is unchanged.
    | Rule | Legacy parser | Generic XML format | Examples, today → now |
    |---|---|---|---|
    | After the root element | reads up to the end of the root element and ignores the rest of the line | reads the whole line as one well-formed document: after the root element only whitespace, comments and processing instructions may follow | `<r>1</r>x`, `<r/><s/>`, `<r>1</r></x>`, `<r>1</r><![CDATA[x]]>`, `<r>1</r><!-- x`: one record → fails |
-   | DTDs | accepts a `DOCTYPE` | refuses DTDs | `<!DOCTYPE r><r>1</r>`: one record → fails |
+   | DTDs | accepts a well-formed `DOCTYPE` but ignores its declarations, so a line that uses an entity declared there fails | refuses DTDs | `<!DOCTYPE r><r>1</r>`: one record → fails; `<!DOCTYPE r [<!ENTITY e "x">]><r>&e;</r>` fails on both |
    | Attribute count | Woodstox's default limit: an element with more than 1,021 attributes fails | no limit | 1,022 attributes: fails → one record |
    | Attribute size | Woodstox's default limit of 524,288 characters, applied to the attribute values of one element together and checked only as its buffer grows, so a line fails once they are well over the limit | no limit | one value of 900,000 characters, or two of 450,000: fails → one record |
 

@@ -221,6 +221,7 @@ class S3FileReaderDecodingTest {
         diff(EncodingType.XML, "<r>1</r>x", records(Map.of("", "1")), FAILS),
         diff(EncodingType.XML, "<r/><s/>", records(Map.of()), FAILS),
         diff(EncodingType.XML, "<!DOCTYPE r><r>1</r>", records(Map.of("", "1")), FAILS),
+        same(EncodingType.XML, "<!DOCTYPE r [<!ENTITY e \"x\">]><r>&e;</r>", FAILS),
         // CSV
         same(EncodingType.CSV, "a,b\n\nc,d", records()),
         same(EncodingType.CSV, "\"\u3000\"", records()),
