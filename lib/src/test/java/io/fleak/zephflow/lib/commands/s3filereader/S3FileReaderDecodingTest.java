@@ -24,6 +24,7 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.core.JsonParseException;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
@@ -134,20 +135,24 @@ class S3FileReaderDecodingTest {
         diff(EncodingType.JSON_OBJECT_LINE, "\u000B", records(), FAILS),
         diff(EncodingType.JSON_OBJECT_LINE, "\f", records(), FAILS),
         diff(EncodingType.JSON_OBJECT_LINE, "\u001C", records(), FAILS),
-        diff(EncodingType.JSON_OBJECT_LINE, " ", records(), FAILS),
-        diff(EncodingType.JSON_OBJECT_LINE, "　", records(), FAILS),
-        diff(EncodingType.JSON_OBJECT_LINE, "﻿{\"a\":1}", FAILS, records(Map.of("a", 1L))),
+        diff(EncodingType.JSON_OBJECT_LINE, "\u2028", records(), FAILS),
+        diff(EncodingType.JSON_OBJECT_LINE, "\u3000", records(), FAILS),
+        diff(EncodingType.JSON_OBJECT_LINE, "\uFEFF{\"a\":1}", FAILS, records(Map.of("a", 1L))),
         diff(
             EncodingType.JSON_OBJECT_LINE,
-            "{\"a\":1}\n﻿{\"b\":2}",
+            "{\"a\":1}\n\uFEFF{\"b\":2}",
             FAILS,
             records(Map.of("a", 1L), Map.of("b", 2L))),
-        diff(EncodingType.JSON_OBJECT_LINE, "﻿", FAILS, records()),
+        diff(EncodingType.JSON_OBJECT_LINE, "\uFEFF", FAILS, records()),
         // byte-order mark, text formats
-        diff(EncodingType.STRING_LINE, "﻿ab", records(raw("﻿ab")), records(raw("ab"))),
-        diff(EncodingType.STRING_LINE, "a\n﻿", records(raw("a"), raw("﻿")), records(raw("a"))),
-        diff(EncodingType.TEXT, "﻿ab", records(raw("﻿ab")), records(raw("ab"))),
-        diff(EncodingType.TEXT, "﻿", records(raw("﻿")), records(raw(""))),
+        diff(EncodingType.STRING_LINE, "\uFEFFab", records(raw("\uFEFFab")), records(raw("ab"))),
+        diff(
+            EncodingType.STRING_LINE,
+            "a\n\uFEFF",
+            records(raw("a"), raw("\uFEFF")),
+            records(raw("a"))),
+        diff(EncodingType.TEXT, "\uFEFFab", records(raw("\uFEFFab")), records(raw("ab"))),
+        diff(EncodingType.TEXT, "\uFEFF", records(raw("\uFEFF")), records(raw(""))),
         // empty line
         diff(
             EncodingType.JSON_OBJECT,
@@ -163,10 +168,25 @@ class S3FileReaderDecodingTest {
             FAILS,
             records(Map.of("a", longString))),
         diff(
+            EncodingType.JSON_OBJECT_LINE,
+            "{\"" + longName + "\":1}",
+            FAILS,
+            records(Map.of(longName, 1L))),
+        diff(
+            EncodingType.JSON_OBJECT,
+            "{\"a\":\"" + longString + "\"}",
+            FAILS,
+            records(Map.of("a", longString))),
+        diff(
             EncodingType.JSON_OBJECT,
             "{\"" + longName + "\":1}",
             FAILS,
             records(Map.of(longName, 1L))),
+        diff(
+            EncodingType.JSON_ARRAY,
+            "[{\"a\":\"" + longString + "\"}]",
+            FAILS,
+            records(Map.of("a", longString))),
         diff(
             EncodingType.JSON_ARRAY,
             "[{\"" + longName + "\":1}]",
@@ -188,17 +208,21 @@ class S3FileReaderDecodingTest {
         diff(EncodingType.CSV, "1,1", records(), FAILS),
         diff(EncodingType.CSV, " a,a ", records(), FAILS),
         diff(EncodingType.CSV, "a,a\t", records(), FAILS),
-        diff(EncodingType.CSV, "﻿a,a", records(), FAILS),
+        diff(EncodingType.CSV, "\uFEFFa,a", records(), FAILS),
         diff(EncodingType.CSV, "a,,b", FAILS, records()),
         diff(EncodingType.CSV, "a, ,b", FAILS, records()),
         diff(EncodingType.CSV, "a,\u0001,b", FAILS, records()),
+        diff(EncodingType.CSV, "a,\u3000\u0001", FAILS, records()),
+        diff(EncodingType.CSV, "a,\u2028\u0001\u2028", FAILS, records()),
+        same(EncodingType.CSV, "\u0085", records()),
+        same(EncodingType.CSV, "a,\u007F", records()),
         diff(EncodingType.CSV, ",a", FAILS, records()),
         diff(EncodingType.CSV, "a,b,", FAILS, records()),
         diff(EncodingType.CSV, "\"\"", FAILS, records()),
         diff(EncodingType.CSV, " ", FAILS, records()),
         diff(EncodingType.CSV, "\u000B", FAILS, records()),
         diff(EncodingType.CSV, "\u0000", FAILS, records()),
-        diff(EncodingType.CSV, " ", FAILS, records()),
+        diff(EncodingType.CSV, "\u2028", FAILS, records()),
         diff(EncodingType.CSV, cells, records(), FAILS));
   }
 
@@ -254,9 +278,7 @@ class S3FileReaderDecodingTest {
     verify(errorCounter).increase(anyMap());
     assertEquals(1, warnings.size());
     assertEquals(message, warnings.getFirst().getMessage().getFormattedMessage());
-    assertEquals(
-        "com.fasterxml.jackson.core.JsonParseException",
-        warnings.getFirst().getThrown().getClass().getName());
+    assertEquals(JsonParseException.class, warnings.getFirst().getThrown().getClass());
   }
 
   @Test
@@ -300,6 +322,31 @@ class S3FileReaderDecodingTest {
                 JSON_OBJECT_LINE expects, or fix the object; the input record failed and no record \
                 of this object was emitted
                 disk gone
+                s3://bucket/key line 1""")),
+        result.getFailureEvents());
+  }
+
+  @Test
+  void causeWithoutMessageIsNamedByItsClass() throws Exception {
+    RecordDecoder decoder = mock();
+    when(decoder.decodeAll(any(), any())).thenThrow(new IllegalStateException());
+    ScalarCommand.ProcessResult result;
+    try (MockedStatic<DecodingConfigCompiler> compiler = mockStatic(DecodingConfigCompiler.class)) {
+      compiler.when(() -> DecodingConfigCompiler.compile(any())).thenReturn(decoder);
+      result =
+          run(config(EncodingType.JSON_OBJECT_LINE), "{}".getBytes(StandardCharsets.UTF_8), PATH);
+    }
+
+    assertEquals(
+        List.of(
+            new ErrorOutput(
+                input(PATH),
+                """
+                READ_FAILURE json line: IllegalStateException
+                Action: check that each line of the object is what the node's encodingType \
+                JSON_OBJECT_LINE expects, or fix the object; the input record failed and no record \
+                of this object was emitted
+                IllegalStateException
                 s3://bucket/key line 1""")),
         result.getFailureEvents());
   }

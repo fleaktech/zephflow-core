@@ -194,7 +194,8 @@ public class S3FileReaderCommand extends ScalarCommand {
       default ->
           lineFailure(
               "READ_FAILURE",
-              new IllegalStateException("unexpected decode outcome: " + first),
+              new IllegalStateException(
+                  "unexpected " + first.getClass().getSimpleName() + " outcome"),
               location,
               encodingType,
               path,
@@ -211,7 +212,10 @@ public class S3FileReaderCommand extends ScalarCommand {
       int lineNumber) {
     String format = SourceDecoding.formatName(decodingConfig(encodingType).format());
     Throwable root = ExceptionUtils.getThrowableList(error).getLast();
-    String detail = String.valueOf(root.getMessage()).lines().findFirst().orElse("");
+    String detail =
+        root.getMessage() == null
+            ? root.getClass().getSimpleName()
+            : root.getMessage().lines().findFirst().orElse("");
     String message =
         kind
             + " "
