@@ -50,15 +50,11 @@ class BranchParallelismTest {
   private final MetricClientProvider metricProvider = mock(MetricClientProvider.class);
   private final List<RecordFleakData> events = List.of(event("e1"), event("e2"));
 
-  // node id -> thread names the node ran on
   private final Map<String, List<String>> threadsByNode = new ConcurrentHashMap<>();
 
-  /** A sink body; returns the success count. */
   private interface SinkBody {
     int write(List<RecordFleakData> events) throws Exception;
   }
-
-  // ---------- grouping ----------
 
   @Test
   void groupBranches_independentSinksGetOneGroupEach() {
@@ -72,7 +68,6 @@ class BranchParallelismTest {
 
   @Test
   void groupBranches_branchesReachingACommonNodeShareAGroup() {
-    // a -> x -> shared, b -> shared, c independent; the overlap is two levels below a
     Dag<String> dag =
         dag(
             List.of("a", "x", "b", "c", "shared"),
@@ -86,7 +81,6 @@ class BranchParallelismTest {
 
   @Test
   void groupBranches_groupsMergedThroughAThirdBranch() {
-    // a and c share nothing, but b overlaps both, so all three run together in edge order
     Dag<String> dag =
         dag(
             List.of("a", "b", "c", "s1", "s2"),
@@ -95,8 +89,6 @@ class BranchParallelismTest {
 
     assertEquals(List.of(out), NoSourceDagRunner.groupBranches(out, dag));
   }
-
-  // ---------- execution ----------
 
   @Test
   void independentSinksRunConcurrently() {
@@ -143,8 +135,6 @@ class BranchParallelismTest {
 
   @Test
   void convergentBranchesRunSequentiallyAndSharedSinkIsNeverConcurrent() {
-    // Partial convergence: eval and enrichment both feed s1, so they share a group at the source;
-    // at enrichment, s1 and s2 are disjoint and may run in parallel.
     AtomicInteger active = new AtomicInteger();
     AtomicInteger maxActive = new AtomicInteger();
     Map<String, OperatorCommand> nodes = new LinkedHashMap<>();
@@ -365,12 +355,6 @@ class BranchParallelismTest {
     assertEquals(1, NoSourceDagRunner.branchParallelism(jobContext("many")));
   }
 
-  // ---------- helpers ----------
-
-  /**
-   * source -> p1 -> {s1, s2 (fails one record)}, source -> p2 -> s3, source -> s4. Nodes p1 and p2
-   * are pass-throughs; every step records output and errors.
-   */
   private DagResult runMixedDag(int parallelism) {
     threadsByNode.clear();
     Map<String, OperatorCommand> nodes = new LinkedHashMap<>();

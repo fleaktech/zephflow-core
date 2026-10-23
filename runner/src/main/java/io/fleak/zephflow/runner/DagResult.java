@@ -90,11 +90,6 @@ public class DagResult {
     return firstFailure != null;
   }
 
-  /**
-   * Adds the result of a branch that ran in parallel, once it has finished. Everything is merged
-   * additively, so what this result already holds from before the fan-out is kept, and its first
-   * failure stays first.
-   */
   void merge(DagResult branch) {
     branch.outputEvents.forEach(
         (nodeId, events) ->

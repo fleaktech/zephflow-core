@@ -62,17 +62,7 @@ import org.slf4j.MDC;
  * Created by bolei on 3/4/25
  *
  * <p>Synchronous DFS over the source-less DAG: each {@link #run} walks the graph on the caller's
- * thread and returns only once every branch has finished.
- *
- * <p>With a branch parallelism above 1 ({@link JobContext#BRANCH_PARALLELISM}), the branches after
- * a fan-out are split into groups whose downstream node sets are disjoint, and the groups run in
- * parallel on a shared pool; a slow sink then holds up a run for its own time instead of adding it
- * to its siblings'. The source still waits for the slowest branch before it fetches or commits
- * again. Branches that can reach a common node (a diamond, a shared sink) share a group and run one
- * after another, so no command is ever invoked by two threads at once. Each group records into its
- * own {@link DagResult} and buffers its counter increments; the caller merges both in group order
- * once every group has finished, so the result does not depend on timing. Fan-outs inside a group
- * that is already running in parallel run sequentially, and bounded runs never go parallel.
+ * thread; with {@link JobContext#BRANCH_PARALLELISM} above 1, independent branches run in parallel.
  *
  * <p>Two independent, related mechanisms guard keyed reduction commands:
  *
@@ -101,9 +91,7 @@ public class NoSourceDagRunner {
   private static final long DEFAULT_FLUSH_TICK_MS = 1000L;
   private static final DagRunConfig FLUSH_RUN_CONFIG = new DagRunConfig(false, false);
 
-  // Shared by every runner in the JVM. Cached rather than fixed-size: branch tasks mostly block on
-  // sink I/O, and a fixed pool would let one pipeline's slow sinks queue up another's branches.
-  // Each fan-out uses at most branchParallelism - 1 pool threads, since one group runs inline.
+  // cached, not fixed: branch tasks mostly block on sink I/O
   private static final AtomicInteger BRANCH_THREAD_COUNT = new AtomicInteger();
   private static final ExecutorService BRANCH_POOL =
       Executors.newCachedThreadPool(
@@ -130,8 +118,6 @@ public class NoSourceDagRunner {
   private final boolean hasKeyedStatefulNodes;
   private final ReentrantLock pipelineLock = new ReentrantLock();
   private final int branchParallelism;
-  // fan-out node id -> its outgoing edges split into groups that may run in parallel; only nodes
-  // with more than one group are present, and the map is empty unless branchParallelism > 1
   private final Map<String, List<List<Edge>>> branchGroups;
   private final AtomicBoolean terminated = new AtomicBoolean(false);
 
@@ -223,10 +209,6 @@ public class NoSourceDagRunner {
     }
   }
 
-  /**
-   * Reads {@link JobContext#BRANCH_PARALLELISM}. Missing, unparseable or below 1 means 1: the whole
-   * DAG runs on the caller thread.
-   */
   static int branchParallelism(JobContext jobContext) {
     Object value =
         jobContext == null || jobContext.getOtherProperties() == null
@@ -241,7 +223,6 @@ public class NoSourceDagRunner {
         return parallelism;
       }
     } catch (NumberFormatException ignored) {
-      // fall through to the warning
     }
     log.warn("invalid {}={}; running branches sequentially", JobContext.BRANCH_PARALLELISM, value);
     return 1;
@@ -270,18 +251,12 @@ public class NoSourceDagRunner {
     return Map.copyOf(groupsByFanOutNodeId);
   }
 
-  /**
-   * Splits a fan-out's edges into groups that never reach a common node: two edges share a group
-   * when the full sets of nodes reachable from them intersect. Groups keep the order of their first
-   * edge, and edges keep their order within a group.
-   */
   static List<List<Edge>> groupBranches(List<Edge> outgoingEdges, Dag<?> dag) {
     int edgeCount = outgoingEdges.size();
     List<Set<String>> reachableNodeIdsByEdge = new ArrayList<>();
     for (Edge edge : outgoingEdges) {
       reachableNodeIdsByEdge.add(reachableNodeIds(edge.getTo(), dag));
     }
-    // union-find over edge indexes: overlapping edges end up under the same group root
     int[] parentEdgeIndex = new int[edgeCount];
     for (int edgeIndex = 0; edgeIndex < edgeCount; edgeIndex++) {
       parentEdgeIndex[edgeIndex] = edgeIndex;
@@ -312,7 +287,6 @@ public class NoSourceDagRunner {
     return edgeIndex;
   }
 
-  /** The node itself and every node downstream of it. */
   private static Set<String> reachableNodeIds(String startNodeId, Dag<?> dag) {
     Set<String> reachedNodeIds = new HashSet<>();
     Deque<String> nodeIdsToVisit = new ArrayDeque<>(List.of(startNodeId));
@@ -632,13 +606,6 @@ public class NoSourceDagRunner {
     }
   }
 
-  /**
-   * Runs the groups of a fan-out in parallel: up to {@code branchParallelism} lanes, the first on
-   * the caller thread and the rest on the shared pool, each running its groups one after another.
-   * Waits for every lane even when one fails, since returning early would let the source commit
-   * past a sink that is still writing; then merges the groups' results and counters in group order
-   * and rethrows the first unexpected exception.
-   */
   private void routeInParallel(
       String currentNodeId,
       List<RecordFleakData> events,
@@ -659,21 +626,18 @@ public class NoSourceDagRunner {
                 () ->
                     runLaneOnPoolThread(currentNodeId, events, laneBranchRuns, callerMdcContext)));
       } catch (RejectedExecutionException | OutOfMemoryError submitFailure) {
-        // no thread for this lane (e.g. the JVM cannot start one): run it here, so every group
-        // still finishes before run() returns
         log.warn("could not start a parallel branch lane; running it inline", submitFailure);
         runLane(currentNodeId, events, laneBranchRuns);
       }
     }
     runLane(currentNodeId, events, branchRunsForLane(branchRuns, 0, laneCount));
 
+    // wait for every lane even after a failure, or the source commits too early
     Throwable firstFailure = null;
     for (Future<?> submittedLane : submittedLanes) {
       try {
         Uninterruptibles.getUninterruptibly(submittedLane);
       } catch (ExecutionException executionException) {
-        // runLane records branch failures on their BranchRun, so this is a failure of the lane
-        // task itself; keep waiting for the remaining lanes before rethrowing it
         firstFailure = addFailure(firstFailure, executionException.getCause());
       }
     }
@@ -695,7 +659,6 @@ public class NoSourceDagRunner {
     return firstFailure;
   }
 
-  /** Lane {@code laneIndex} takes every {@code laneCount}-th group, starting at its own index. */
   private static List<BranchRun> branchRunsForLane(
       List<BranchRun> branchRuns, int laneIndex, int laneCount) {
     List<BranchRun> laneBranchRuns = new ArrayList<>();
@@ -1269,13 +1232,10 @@ public class NoSourceDagRunner {
     NoSourceDagRunner.DagRunConfig runConfig;
     BoundedExecution bounded;
     String bindingId;
-    // set inside a parallel branch: nested fan-outs then run sequentially, and pipeline counter
-    // increments are buffered for the caller thread
     boolean inParallelBranch;
     CounterDeltas counterDeltas;
   }
 
-  /** One group of a parallel fan-out, with its own result, buffered counters and failure. */
   private static final class BranchRun {
     final List<Edge> edges;
     final CounterDeltas counterDeltas = new CounterDeltas();
@@ -1297,11 +1257,6 @@ public class NoSourceDagRunner {
     }
   }
 
-  /**
-   * Pipeline counter increments made inside a parallel branch. The branch records them through
-   * {@link #recorder}, and the caller thread applies them to the real counters after the join, so
-   * the counter implementations never see the branches concurrently.
-   */
   private static final class CounterDeltas {
     private final List<Consumer<DagRunCounters>> increments = new ArrayList<>();
     final DagRunCounters recorder =
