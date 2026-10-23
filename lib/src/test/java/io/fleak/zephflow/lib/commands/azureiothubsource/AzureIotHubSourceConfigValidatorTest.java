@@ -18,6 +18,11 @@ import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AzureIotHubSourceConfigValidatorTest {
@@ -90,9 +95,48 @@ class AzureIotHubSourceConfigValidatorTest {
   }
 
   @Test
-  void rejectsMissingEncodingType() {
+  void neitherEncodingTypeNorDecodingIsRejected() {
     var config = validConnectionStringConfig().encodingType(null).build();
-    assertThrows(Exception.class, () -> validate(config));
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void decodingReplacesEncodingType() {
+    var config =
+        validConnectionStringConfig()
+            .encodingType(null)
+            .decoding(
+                new DecodingConfig(
+                    List.of(DecompressionCodec.ZSTD),
+                    new JsonFormatConfig(JsonFormatConfig.Mode.LINES)))
+            .build();
+
+    assertDoesNotThrow(() -> validate(config));
+  }
+
+  @Test
+  void encodingTypeAndDecodingTogetherAreRejected() {
+    var config =
+        validConnectionStringConfig()
+            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+  }
+
+  @Test
+  void aDecodingTheCompilerRejectsFailsValidation() {
+    var config =
+        validConnectionStringConfig()
+            .encodingType(null)
+            .decoding(
+                new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
+            .build();
+
+    assertEquals(
+        "parquet cannot be combined with compression; its pages carry their own",
+        decodingRejection(config));
   }
 
   @Test
@@ -100,5 +144,9 @@ class AzureIotHubSourceConfigValidatorTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> validate(validConnectionStringConfig().maxBufferedEvents(0).build()));
+  }
+
+  private String decodingRejection(AzureIotHubSourceDto.Config config) {
+    return assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage();
   }
 }

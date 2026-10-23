@@ -20,7 +20,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import org.apache.commons.lang3.StringUtils;
 
 public class SqsSourceConfigValidator implements ConfigValidator {
@@ -31,8 +31,7 @@ public class SqsSourceConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getQueueUrl()), "no queue URL is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getRegionStr()), "no region is provided");
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
+    DecodingConfigCompiler.compile(SqsSourceCommand.decodingConfig(config));
 
     if (config.getMaxNumberOfMessages() != null) {
       Preconditions.checkArgument(

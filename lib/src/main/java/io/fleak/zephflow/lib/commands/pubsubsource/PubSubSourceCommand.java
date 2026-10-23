@@ -24,8 +24,7 @@ import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.gcp.PubSubClientFactory;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -54,7 +53,7 @@ public class PubSubSourceCommand extends SimpleSourceCommand<PubSubReceivedMessa
 
     Fetcher<PubSubReceivedMessage> fetcher = createFetcher(config, jobContext);
     RawDataEncoder<PubSubReceivedMessage> encoder = new PubSubRawDataEncoder();
-    RawDataConverter<PubSubReceivedMessage> converter = createConverter(config);
+    RawDataConverter<PubSubReceivedMessage> converter = createConverter(config, encoder);
 
     Map<String, String> metricTags =
         basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
@@ -122,11 +121,18 @@ public class PubSubSourceCommand extends SimpleSourceCommand<PubSubReceivedMessa
         stub, subscriptionPath, maxMessages, returnImmediately, ackExtension);
   }
 
-  private RawDataConverter<PubSubReceivedMessage> createConverter(PubSubSourceDto.Config config) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    return new PubSubRawDataConverter(deserializer);
+  private static RawDataConverter<PubSubReceivedMessage> createConverter(
+      PubSubSourceDto.Config config, RawDataEncoder<PubSubReceivedMessage> encoder) {
+    return new MappedMessageConverter<>(
+        new MessageDecodingConverter(decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE),
+        encoder::serialize,
+        message -> "Pub/Sub messageId: " + message.messageId());
+  }
+
+  /** The decoding of the messages; {@code encodingType} decompresses nothing, as before. */
+  static DecodingConfig decodingConfig(PubSubSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), false);
   }
 
   @Override

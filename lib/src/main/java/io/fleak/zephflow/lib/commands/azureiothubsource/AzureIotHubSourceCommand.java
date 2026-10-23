@@ -30,8 +30,7 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
@@ -165,12 +164,17 @@ public class AzureIotHubSourceCommand extends SimpleSourceCommand<SerializedEven
         config.getClientSecret());
   }
 
-  private RawDataConverter<SerializedEvent> createRawDataConverter(
+  private static RawDataConverter<SerializedEvent> createRawDataConverter(
       AzureIotHubSourceDto.Config config) {
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    return new IotHubRawDataConverter(deserializer);
+    return new IotHubMessageConverter(
+        new MessageDecodingConverter(
+            decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE));
+  }
+
+  /** The decoding of the message bodies; {@code encodingType} decompresses nothing, as before. */
+  static DecodingConfig decodingConfig(AzureIotHubSourceDto.Config config) {
+    return MessageDecodingConverter.decodingConfig(
+        config.getEncodingType(), config.getDecoding(), false);
   }
 
   private CommitStrategy createCommitStrategy(AzureIotHubSourceDto.Config config) {
