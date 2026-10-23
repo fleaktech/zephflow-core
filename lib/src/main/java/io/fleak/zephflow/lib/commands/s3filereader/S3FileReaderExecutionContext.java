@@ -15,7 +15,7 @@ package io.fleak.zephflow.lib.commands.s3filereader;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.commands.DefaultExecutionContext;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import java.io.IOException;
 import lombok.EqualsAndHashCode;
 import lombok.Value;
@@ -26,7 +26,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 public class S3FileReaderExecutionContext extends DefaultExecutionContext {
   S3FileReaderDto.Config config;
   S3Client s3Client;
-  FleakDeserializer<?> deserializer;
+  RecordDecoder decoder;
 
   public S3FileReaderExecutionContext(
       FleakCounter inputMessageCounter,
@@ -34,11 +34,11 @@ public class S3FileReaderExecutionContext extends DefaultExecutionContext {
       FleakCounter errorCounter,
       S3FileReaderDto.Config config,
       S3Client s3Client,
-      FleakDeserializer<?> deserializer) {
+      RecordDecoder decoder) {
     super(inputMessageCounter, outputMessageCounter, errorCounter);
     this.config = config;
     this.s3Client = s3Client;
-    this.deserializer = deserializer;
+    this.decoder = decoder;
   }
 
   @Override

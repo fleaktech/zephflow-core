@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3filereader;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_S3_FILE_READER;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_RAW;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_ERROR_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_OUTPUT_EVENT_COUNT;
@@ -26,12 +27,19 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
+import io.fleak.zephflow.lib.commands.filedecode.UnitRun;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3BackendConfig;
+import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
+import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
+import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
+import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -41,6 +49,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
@@ -52,6 +62,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
  * Suitable for the small (~tens of KB gzipped) objects this is designed for; streaming/chunked
  * emission is intentionally out of scope.
  */
+@Slf4j
 public class S3FileReaderCommand extends ScalarCommand {
 
   protected S3FileReaderCommand(
@@ -94,15 +105,13 @@ public class S3FileReaderCommand extends ScalarCommand {
             config.getRegion(), accessKeyId, secretAccessKey, config.getS3EndpointOverride());
     S3Client s3Client = S3Backend.client(backendConfig);
 
-    FleakDeserializer<?> deserializer = null;
+    RecordDecoder decoder = null;
     if (config.getEmission() == S3FileReaderDto.Emission.DESERIALIZE) {
-      deserializer =
-          DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-              .createDeserializer();
+      decoder = DecodingConfigCompiler.compile(decodingConfig(config.getEncodingType()));
     }
 
     return new S3FileReaderExecutionContext(
-        inputMessageCounter, outputMessageCounter, errorCounter, config, s3Client, deserializer);
+        inputMessageCounter, outputMessageCounter, errorCounter, config, s3Client, decoder);
   }
 
   @Override
@@ -134,14 +143,14 @@ public class S3FileReaderCommand extends ScalarCommand {
           BufferedReader br =
               new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
         String line;
+        int lineNumber = 0;
         while ((line = br.readLine()) != null) {
+          lineNumber++;
           if (config.getEmission() == S3FileReaderDto.Emission.LINE) {
             output.add((RecordFleakData) FleakData.wrap(Map.of("line", line, "file", pathStr)));
           } else {
             output.addAll(
-                ctx.getDeserializer()
-                    .deserialize(
-                        new SerializedEvent(null, line.getBytes(StandardCharsets.UTF_8), null)));
+                decodeLine(ctx.getDecoder(), config.getEncodingType(), line, pathStr, lineNumber));
           }
         }
       }
@@ -151,6 +160,76 @@ public class S3FileReaderCommand extends ScalarCommand {
       ctx.getErrorCounter().increase(tags);
       throw e;
     }
+  }
+
+  /** PARQUET and KV keep the message the legacy deserializer factory threw. */
+  private static DecodingConfig decodingConfig(EncodingType encodingType) {
+    if (encodingType == EncodingType.PARQUET || encodingType == EncodingType.KV) {
+      throw new UnsupportedOperationException(
+          encodingType + " is a sink-only format (not supported for deserialization)");
+    }
+    return MessageDecodingConverter.decodingConfig(encodingType, null, false);
+  }
+
+  private static List<RecordFleakData> decodeLine(
+      RecordDecoder decoder, EncodingType encodingType, String line, String path, int lineNumber) {
+    if (encodingType == EncodingType.TEXT && line.isEmpty()) {
+      return List.of((RecordFleakData) FleakData.wrap(Map.of(FIELD_NAME_RAW, "")));
+    }
+    DecodeResult result;
+    try {
+      result = decoder.decodeAll(line.getBytes(StandardCharsets.UTF_8), DecodeLimits.UNLIMITED);
+    } catch (RuntimeException e) {
+      throw lineFailure("READ_FAILURE", e, "", encodingType, path, lineNumber);
+    }
+    if (result.problems().isEmpty()) {
+      return result.records();
+    }
+    DecodeOutcome first = result.problems().getFirst();
+    String location = MessageDecodingConverter.location(first, result.problems().size() - 1);
+    throw switch (first) {
+      case DecodeOutcome.Failed failed ->
+          lineFailure(
+              failed.kind().name(), failed.error(), location, encodingType, path, lineNumber);
+      default ->
+          lineFailure(
+              "READ_FAILURE",
+              new IllegalStateException("unexpected decode outcome: " + first),
+              location,
+              encodingType,
+              path,
+              lineNumber);
+    };
+  }
+
+  private static IllegalArgumentException lineFailure(
+      String kind,
+      Exception error,
+      String location,
+      EncodingType encodingType,
+      String path,
+      int lineNumber) {
+    String format = SourceDecoding.formatName(decodingConfig(encodingType).format());
+    Throwable root = ExceptionUtils.getThrowableList(error).getLast();
+    String detail = String.valueOf(root.getMessage()).lines().findFirst().orElse("");
+    String message =
+        kind
+            + " "
+            + format
+            + " line: "
+            + UnitRun.causeName(error)
+            + "\nAction: check that each line of the object is what the node's encodingType "
+            + encodingType
+            + " expects, or fix the object; the input record failed and no record of this object"
+            + " was emitted\n"
+            + detail
+            + "\n"
+            + path
+            + " line "
+            + lineNumber
+            + (location.isEmpty() ? "" : ", " + location);
+    log.warn(message, error);
+    return new IllegalArgumentException(message, error);
   }
 
   static S3Path parseS3Path(String pathStr, boolean urlDecodeKey) {

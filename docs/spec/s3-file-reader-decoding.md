@@ -120,12 +120,14 @@ validator is unchanged.
    | XML | an element with more than 1,021 attributes | fails | decodes | The legacy XML parser kept Woodstox's default attribute limit; the generic decoder lifts it. |
    | XML | text after the root element, a second root element, or a `DOCTYPE` | one record | fails | The generic XML format reads exactly one document and refuses DTDs. |
    | CSV | a row with two cells that are equal once surrounding spaces and tabs and a leading byte-order mark are removed, e.g. `1,1` or ` a,a ` | no records | fails (duplicate header name) | Each line is its own CSV document, so its only row is a header, and the generic CSV format refuses duplicate header names. A file whose lines repeat a value now fails instead of giving no records. |
-   | CSV | a row with a cell that is empty or holds only whitespace or control characters, e.g. `a,,b`, `a, ,b`, `,a`, `a,b,` or `""` | fails | no records | The legacy CSV parser trimmed whitespace and control characters from a cell and refused an empty header name; the generic one trims only spaces and tabs and accepts an empty header name. |
+   | CSV | a row with a cell that is empty once surrounding whitespace is removed, or that holds only characters up to U+0020, e.g. `a,,b`, `a, ,b`, `a,\u0001,b`, `,a`, `a,b,` or `""` | fails | no records | The legacy CSV parser dropped surrounding whitespace from a cell and refused a header name that is empty once characters up to U+0020 are trimmed; the generic one trims only spaces and tabs and accepts an empty header name. |
    | CSV | only whitespace or control characters, e.g. space, tab, vertical tab, form feed, NUL or U+2028 | fails | no records | The legacy CSV parser trimmed the cell to an empty header name and refused it; the generic one reads an empty header. |
    | CSV | a row with more than 16,384 cells | no records | fails | The generic CSV format limits a row to 16,384 columns. |
 
    Every line of a CSV object gives no records today, as now (each line is a header only), so the
-   CSV rows change only whether the input record fails.
+   CSV rows change only whether the input record fails. A line that matches two CSV rows, such as `1,1,`, or
+   whose empty cell's generated name (`_c<i>`) equals another cell, such as `,_c0`, fails on both
+   paths.
 
    The node's UTF-8 reader keeps a byte-order mark as U+FEFF wherever it is, so the rows on the mark
    apply to any line, not only the first. That reader replaces invalid UTF-8 with U+FFFD, as

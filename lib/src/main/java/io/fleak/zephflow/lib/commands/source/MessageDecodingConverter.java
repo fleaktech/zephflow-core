@@ -191,7 +191,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   }
 
   /** "recordIndex 2, bytes 10-25 (and 1 more problem)", from what is known. */
-  private static String location(DecodeOutcome outcome, int others) {
+  public static String location(DecodeOutcome outcome, int others) {
     StringBuilder text = new StringBuilder();
     if (outcome.recordIndex() >= 1) {
       text.append("recordIndex ").append(outcome.recordIndex());
