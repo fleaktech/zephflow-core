@@ -93,7 +93,7 @@ public class DagResult {
   void merge(DagResult branch) {
     branch.outputEvents.forEach(
         (nodeId, events) ->
-            outputEvents.computeIfAbsent(nodeId, k -> new ArrayList<>()).addAll(events));
+            outputEvents.computeIfAbsent(nodeId, newNodeId -> new ArrayList<>()).addAll(events));
     mergeByStep(branch.outputByStep, outputByStep);
     mergeByStep(branch.errorByStep, errorByStep);
     branch.sinkResultMap.forEach(
@@ -113,10 +113,13 @@ public class DagResult {
       Map<String, Map<String, List<T>>> from, Map<String, Map<String, List<T>>> into) {
     from.forEach(
         (nodeId, byUpstream) -> {
-          Map<String, List<T>> target = into.computeIfAbsent(nodeId, k -> new LinkedHashMap<>());
+          Map<String, List<T>> target =
+              into.computeIfAbsent(nodeId, newNodeId -> new LinkedHashMap<>());
           byUpstream.forEach(
               (upstreamId, data) ->
-                  target.computeIfAbsent(upstreamId, k -> new ArrayList<>()).addAll(data));
+                  target
+                      .computeIfAbsent(upstreamId, newUpstreamId -> new ArrayList<>())
+                      .addAll(data));
         });
   }
 

@@ -38,6 +38,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 
 class BranchParallelismTest {
@@ -59,11 +61,16 @@ class BranchParallelismTest {
   @Test
   void groupBranches_independentSinksGetOneGroupEach() {
     Dag<String> dag = dag(List.of("a", "b", "c"), List.of());
-    List<Edge> out = List.of(edge(SOURCE, "a"), edge(SOURCE, "b"), edge(SOURCE, "c"));
+    List<Edge> outgoingEdges = List.of(edge(SOURCE, "a"), edge(SOURCE, "b"), edge(SOURCE, "c"));
 
-    List<List<Edge>> groups = NoSourceDagRunner.groupBranches(out, dag);
+    List<List<Edge>> groups = NoSourceDagRunner.groupBranches(outgoingEdges, dag);
 
-    assertEquals(List.of(List.of(out.get(0)), List.of(out.get(1)), List.of(out.get(2))), groups);
+    assertEquals(
+        List.of(
+            List.of(outgoingEdges.get(0)),
+            List.of(outgoingEdges.get(1)),
+            List.of(outgoingEdges.get(2))),
+        groups);
   }
 
   @Test
@@ -72,11 +79,13 @@ class BranchParallelismTest {
         dag(
             List.of("a", "x", "b", "c", "shared"),
             List.of(edge("a", "x"), edge("x", "shared"), edge("b", "shared")));
-    List<Edge> out = List.of(edge(SOURCE, "a"), edge(SOURCE, "c"), edge(SOURCE, "b"));
+    List<Edge> outgoingEdges = List.of(edge(SOURCE, "a"), edge(SOURCE, "c"), edge(SOURCE, "b"));
 
-    List<List<Edge>> groups = NoSourceDagRunner.groupBranches(out, dag);
+    List<List<Edge>> groups = NoSourceDagRunner.groupBranches(outgoingEdges, dag);
 
-    assertEquals(List.of(List.of(out.get(0), out.get(2)), List.of(out.get(1))), groups);
+    assertEquals(
+        List.of(List.of(outgoingEdges.get(0), outgoingEdges.get(2)), List.of(outgoingEdges.get(1))),
+        groups);
   }
 
   @Test
@@ -85,9 +94,9 @@ class BranchParallelismTest {
         dag(
             List.of("a", "b", "c", "s1", "s2"),
             List.of(edge("a", "s1"), edge("b", "s1"), edge("b", "s2"), edge("c", "s2")));
-    List<Edge> out = List.of(edge(SOURCE, "a"), edge(SOURCE, "c"), edge(SOURCE, "b"));
+    List<Edge> outgoingEdges = List.of(edge(SOURCE, "a"), edge(SOURCE, "c"), edge(SOURCE, "b"));
 
-    assertEquals(List.of(out), NoSourceDagRunner.groupBranches(out, dag));
+    assertEquals(List.of(outgoingEdges), NoSourceDagRunner.groupBranches(outgoingEdges, dag));
   }
 
   @Test
@@ -122,6 +131,33 @@ class BranchParallelismTest {
     assertEquals(sequential.outputByStep, parallel.outputByStep);
     assertEquals(sequential.errorByStep, parallel.errorByStep);
     assertEquals(sequential.firstFailure, parallel.firstFailure);
+    assertEquals(sinkCounts(sequential), sinkCounts(parallel));
+  }
+
+  @Test
+  void dlqReportsTheSameFailureAsASequentialRun() {
+    for (int parallelism : List.of(1, 4)) {
+      Map<String, OperatorCommand> nodes = new LinkedHashMap<>();
+      nodes.put("a", passThrough("a"));
+      nodes.put("b", failingSink("b"));
+      nodes.put("c", passThrough("c"));
+      nodes.put("z", sink("z", List::size));
+      nodes.put("cf", failingSink("cf"));
+      NoSourceDagRunner runner =
+          runner(
+              fanOut("a", "b", "c"),
+              nodes,
+              List.of(edge("a", "z"), edge("c", "z"), edge("c", "cf")),
+              mock(DagRunCounters.class),
+              true,
+              parallelism);
+
+      NodeExecutionException exception =
+          assertThrows(
+              NodeExecutionException.class, () -> runner.run(events, CALLING_USER, RUN_CONFIG));
+
+      assertEquals("b", exception.getNodeId(), "parallelism " + parallelism);
+    }
   }
 
   @Test
@@ -184,8 +220,9 @@ class BranchParallelismTest {
     assertEquals(threadsByNode.get("a"), threadsByNode.get("a2"));
   }
 
-  @Test
-  void failedBranchWaitsForSlowSiblingAndStillReachesTheDlq() {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void failedBranchWaitsForSlowSiblingAndStillReachesTheDlq(boolean failingBranchRunsInline) {
     AtomicBoolean slowFinished = new AtomicBoolean();
     Map<String, OperatorCommand> nodes = new LinkedHashMap<>();
     nodes.put(
@@ -206,7 +243,13 @@ class BranchParallelismTest {
             }));
 
     NoSourceDagRunner runner =
-        runner(fanOut("failing", "slow"), nodes, List.of(), mock(DagRunCounters.class), true, 4);
+        runner(
+            failingBranchRunsInline ? fanOut("failing", "slow") : fanOut("slow", "failing"),
+            nodes,
+            List.of(),
+            mock(DagRunCounters.class),
+            true,
+            4);
     NodeExecutionException exception =
         assertThrows(
             NodeExecutionException.class, () -> runner.run(events, CALLING_USER, RUN_CONFIG));
@@ -402,6 +445,23 @@ class BranchParallelismTest {
               return new ScalarSinkCommand.SinkResult(batch.size(), success, errors);
             });
     return sink;
+  }
+
+  private ScalarSinkCommand failingSink(String id) {
+    return sink(
+        id,
+        batch -> {
+          throw new RuntimeException(id + " failed");
+        });
+  }
+
+  private static Map<String, List<Integer>> sinkCounts(DagResult result) {
+    Map<String, List<Integer>> countsBySinkId = new HashMap<>();
+    result.sinkResultMap.forEach(
+        (sinkId, sinkResult) ->
+            countsBySinkId.put(
+                sinkId, List.of(sinkResult.getInputCount(), sinkResult.getSuccessCount())));
+    return countsBySinkId;
   }
 
   private ScalarCommand passThrough(String id) {

@@ -577,7 +577,7 @@ public class NoSourceDagRunner {
     if (groups == null) {
       routeSequentially(currentNodeId, events, outgoingEdges, runContext);
     } else {
-      routeInParallel(currentNodeId, events, groups, runContext);
+      routeInParallel(currentNodeId, events, outgoingEdges, groups, runContext);
     }
   }
 
@@ -609,11 +609,13 @@ public class NoSourceDagRunner {
   private void routeInParallel(
       String currentNodeId,
       List<RecordFleakData> events,
+      List<Edge> outgoingEdges,
       List<List<Edge>> groups,
       RunContext runContext) {
     List<BranchRun> branchRuns = new ArrayList<>();
     for (List<Edge> group : groups) {
-      branchRuns.add(new BranchRun(group, runContext));
+      List<Integer> edgeIndexes = group.stream().map(outgoingEdges::indexOf).toList();
+      branchRuns.add(new BranchRun(group, edgeIndexes, runContext));
     }
     int laneCount = Math.min(branchRuns.size(), branchParallelism);
     Map<String, String> callerMdcContext = MDC.getCopyOfContextMap();
@@ -641,7 +643,12 @@ public class NoSourceDagRunner {
         firstFailure = addFailure(firstFailure, executionException.getCause());
       }
     }
-    for (BranchRun branchRun : branchRuns) {
+    // merge in the order a sequential run would have hit the failures, so the same one goes first
+    List<BranchRun> branchRunsInFailureOrder =
+        branchRuns.stream()
+            .sorted(Comparator.comparingInt(branchRun -> branchRun.firstFailureEdgeIndex))
+            .toList();
+    for (BranchRun branchRun : branchRunsInFailureOrder) {
       runContext.dagResult.merge(branchRun.context.dagResult);
       branchRun.counterDeltas.applyTo(countersFor(runContext));
       if (branchRun.failure != null) {
@@ -685,10 +692,19 @@ public class NoSourceDagRunner {
   private void runLane(
       String currentNodeId, List<RecordFleakData> events, List<BranchRun> laneBranchRuns) {
     for (BranchRun branchRun : laneBranchRuns) {
-      try {
-        routeSequentially(currentNodeId, events, branchRun.edges, branchRun.context);
-      } catch (Throwable failure) {
-        branchRun.failure = failure;
+      for (int edgePosition = 0; edgePosition < branchRun.edges.size(); edgePosition++) {
+        int edgeIndex = branchRun.edgeIndexes.get(edgePosition);
+        try {
+          routeSequentially(
+              currentNodeId, events, List.of(branchRun.edges.get(edgePosition)), branchRun.context);
+        } catch (Throwable failure) {
+          branchRun.failure = failure;
+          branchRun.recordFailureAt(edgeIndex);
+          break;
+        }
+        if (branchRun.context.dagResult.hasFailure()) {
+          branchRun.recordFailureAt(edgeIndex);
+        }
       }
     }
   }
@@ -1238,12 +1254,15 @@ public class NoSourceDagRunner {
 
   private static final class BranchRun {
     final List<Edge> edges;
+    final List<Integer> edgeIndexes;
     final CounterDeltas counterDeltas = new CounterDeltas();
     final RunContext context;
     Throwable failure;
+    int firstFailureEdgeIndex = Integer.MAX_VALUE;
 
-    BranchRun(List<Edge> edges, RunContext parent) {
+    BranchRun(List<Edge> edges, List<Integer> edgeIndexes, RunContext parent) {
       this.edges = edges;
+      this.edgeIndexes = edgeIndexes;
       this.context =
           RunContext.builder()
               .callingUser(parent.callingUser)
@@ -1254,6 +1273,10 @@ public class NoSourceDagRunner {
               .inParallelBranch(true)
               .counterDeltas(counterDeltas)
               .build();
+    }
+
+    void recordFailureAt(int edgeIndex) {
+      firstFailureEdgeIndex = Math.min(firstFailureEdgeIndex, edgeIndex);
     }
   }
 
