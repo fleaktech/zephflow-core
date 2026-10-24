@@ -18,8 +18,10 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.Uninterruptibles;
 import io.fleak.zephflow.api.EndOfInputFlushable;
 import io.fleak.zephflow.api.ExecutionContext;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.KeyedStatefulCommand;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.ScalarCommand;
@@ -29,6 +31,7 @@ import io.fleak.zephflow.api.execution.*;
 import io.fleak.zephflow.api.execution.ExecutionObserver.Invocation;
 import io.fleak.zephflow.api.execution.ExecutionObserver.Phase;
 import io.fleak.zephflow.api.execution.ExecutionObserver.Side;
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
@@ -36,12 +39,18 @@ import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -52,8 +61,8 @@ import org.slf4j.MDC;
 /**
  * Created by bolei on 3/4/25
  *
- * <p>Single-threaded, synchronous DFS over the source-less DAG: each {@link #run} walks the graph
- * on the caller's thread.
+ * <p>Synchronous DFS over the source-less DAG: each {@link #run} walks the graph on the caller's
+ * thread; with {@link JobContext#BRANCH_PARALLELISM} above 1, independent branches run in parallel.
  *
  * <p>Two independent, related mechanisms guard keyed reduction commands:
  *
@@ -82,6 +91,18 @@ public class NoSourceDagRunner {
   private static final long DEFAULT_FLUSH_TICK_MS = 1000L;
   private static final DagRunConfig FLUSH_RUN_CONFIG = new DagRunConfig(false, false);
 
+  // cached, not fixed: branch tasks mostly block on sink I/O
+  private static final AtomicInteger BRANCH_THREAD_COUNT = new AtomicInteger();
+  private static final ExecutorService BRANCH_POOL =
+      Executors.newCachedThreadPool(
+          runnable -> {
+            Thread thread =
+                new Thread(
+                    runnable, "zephflow-dag-branch-" + BRANCH_THREAD_COUNT.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+          });
+
   @NonNull private final List<Edge> edgesFromSource;
   private final Dag<OperatorCommand> compiledDagWithoutSource;
   private final MetricClientProvider metricClientProvider;
@@ -96,6 +117,8 @@ public class NoSourceDagRunner {
   private final Map<String, String> endOfInputUpstreams;
   private final boolean hasKeyedStatefulNodes;
   private final ReentrantLock pipelineLock = new ReentrantLock();
+  private final int branchParallelism;
+  private final Map<String, List<List<Edge>>> branchGroups;
   private final AtomicBoolean terminated = new AtomicBoolean(false);
 
   private volatile ScheduledExecutorService flushScheduler;
@@ -108,7 +131,24 @@ public class NoSourceDagRunner {
       MetricClientProvider metricClientProvider,
       DagRunCounters counters,
       boolean useDlq) {
-    this(edgesFromSource, compiledDagWithoutSource, metricClientProvider, counters, useDlq, null);
+    this(edgesFromSource, compiledDagWithoutSource, metricClientProvider, counters, useDlq, 1);
+  }
+
+  NoSourceDagRunner(
+      List<Edge> edgesFromSource,
+      Dag<OperatorCommand> compiledDagWithoutSource,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters,
+      boolean useDlq,
+      int branchParallelism) {
+    this(
+        edgesFromSource,
+        compiledDagWithoutSource,
+        metricClientProvider,
+        counters,
+        useDlq,
+        null,
+        branchParallelism);
   }
 
   NoSourceDagRunner(
@@ -118,6 +158,24 @@ public class NoSourceDagRunner {
       DagRunCounters counters,
       boolean useDlq,
       BoundedDefinition boundedDefinition) {
+    this(
+        edgesFromSource,
+        compiledDagWithoutSource,
+        metricClientProvider,
+        counters,
+        useDlq,
+        boundedDefinition,
+        1);
+  }
+
+  private NoSourceDagRunner(
+      List<Edge> edgesFromSource,
+      Dag<OperatorCommand> compiledDagWithoutSource,
+      MetricClientProvider metricClientProvider,
+      DagRunCounters counters,
+      boolean useDlq,
+      BoundedDefinition boundedDefinition,
+      int branchParallelism) {
     this.edgesFromSource = edgesFromSource;
     this.compiledDagWithoutSource = compiledDagWithoutSource;
     this.metricClientProvider = metricClientProvider;
@@ -140,6 +198,105 @@ public class NoSourceDagRunner {
     for (Node<OperatorCommand> node : endOfInputNodes) {
       endOfInputUpstreams.put(node.getId(), firstUpstream(node.getId()));
     }
+    this.branchParallelism = Math.max(1, branchParallelism);
+    this.branchGroups =
+        this.branchParallelism > 1 && boundedDefinition == null ? computeBranchGroups() : Map.of();
+    if (!branchGroups.isEmpty()) {
+      log.info(
+          "branch parallelism {}: parallel branches after fan-out nodes {}",
+          this.branchParallelism,
+          branchGroups.keySet());
+    }
+  }
+
+  static int branchParallelism(JobContext jobContext) {
+    Object value =
+        jobContext == null || jobContext.getOtherProperties() == null
+            ? null
+            : jobContext.getOtherProperties().get(JobContext.BRANCH_PARALLELISM);
+    if (value == null) {
+      return 1;
+    }
+    try {
+      int parallelism = Integer.parseInt(value.toString().trim());
+      if (parallelism >= 1) {
+        return parallelism;
+      }
+    } catch (NumberFormatException ignored) {
+    }
+    log.warn("invalid {}={}; running branches sequentially", JobContext.BRANCH_PARALLELISM, value);
+    return 1;
+  }
+
+  private Map<String, List<List<Edge>>> computeBranchGroups() {
+    Map<String, List<Edge>> outgoingEdgesByNodeId = new LinkedHashMap<>();
+    for (Edge edge : edgesFromSource) {
+      outgoingEdgesByNodeId.computeIfAbsent(edge.getFrom(), nodeId -> new ArrayList<>()).add(edge);
+    }
+    for (Node<OperatorCommand> node : compiledDagWithoutSource.getNodes()) {
+      outgoingEdgesByNodeId.put(
+          node.getId(), compiledDagWithoutSource.downstreamEdges(node.getId()));
+    }
+    Map<String, List<List<Edge>>> groupsByFanOutNodeId = new HashMap<>();
+    outgoingEdgesByNodeId.forEach(
+        (nodeId, outgoingEdges) -> {
+          if (outgoingEdges.size() < 2) {
+            return;
+          }
+          List<List<Edge>> groups = groupBranches(outgoingEdges, compiledDagWithoutSource);
+          if (groups.size() > 1) {
+            groupsByFanOutNodeId.put(nodeId, groups);
+          }
+        });
+    return Map.copyOf(groupsByFanOutNodeId);
+  }
+
+  static List<List<Edge>> groupBranches(List<Edge> outgoingEdges, Dag<?> dag) {
+    int edgeCount = outgoingEdges.size();
+    List<Set<String>> reachableNodeIdsByEdge = new ArrayList<>();
+    for (Edge edge : outgoingEdges) {
+      reachableNodeIdsByEdge.add(reachableNodeIds(edge.getTo(), dag));
+    }
+    int[] parentEdgeIndex = new int[edgeCount];
+    for (int edgeIndex = 0; edgeIndex < edgeCount; edgeIndex++) {
+      parentEdgeIndex[edgeIndex] = edgeIndex;
+    }
+    for (int edgeIndex = 0; edgeIndex < edgeCount; edgeIndex++) {
+      for (int otherEdgeIndex = edgeIndex + 1; otherEdgeIndex < edgeCount; otherEdgeIndex++) {
+        if (!Collections.disjoint(
+            reachableNodeIdsByEdge.get(edgeIndex), reachableNodeIdsByEdge.get(otherEdgeIndex))) {
+          parentEdgeIndex[findGroupRoot(parentEdgeIndex, otherEdgeIndex)] =
+              findGroupRoot(parentEdgeIndex, edgeIndex);
+        }
+      }
+    }
+    Map<Integer, List<Edge>> edgesByGroupRoot = new LinkedHashMap<>();
+    for (int edgeIndex = 0; edgeIndex < edgeCount; edgeIndex++) {
+      edgesByGroupRoot
+          .computeIfAbsent(
+              findGroupRoot(parentEdgeIndex, edgeIndex), groupRoot -> new ArrayList<>())
+          .add(outgoingEdges.get(edgeIndex));
+    }
+    return List.copyOf(edgesByGroupRoot.values());
+  }
+
+  private static int findGroupRoot(int[] parentEdgeIndex, int edgeIndex) {
+    while (parentEdgeIndex[edgeIndex] != edgeIndex) {
+      edgeIndex = parentEdgeIndex[edgeIndex];
+    }
+    return edgeIndex;
+  }
+
+  private static Set<String> reachableNodeIds(String startNodeId, Dag<?> dag) {
+    Set<String> reachedNodeIds = new HashSet<>();
+    Deque<String> nodeIdsToVisit = new ArrayDeque<>(List.of(startNodeId));
+    while (!nodeIdsToVisit.isEmpty()) {
+      String nodeId = nodeIdsToVisit.pop();
+      if (reachedNodeIds.add(nodeId)) {
+        dag.downstreamEdges(nodeId).forEach(edge -> nodeIdsToVisit.push(edge.getTo()));
+      }
+    }
+    return reachedNodeIds;
   }
 
   public DagResult run(
@@ -410,9 +567,25 @@ public class NoSourceDagRunner {
       Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
       tags.put(METRIC_TAG_NODE_ID, currentNodeId);
       tags.put(METRIC_TAG_COMMAND_NAME, commandName);
-      counters.increaseOutputEventCounter(events.size(), tags);
+      countersFor(runContext).increaseOutputEventCounter(events.size(), tags);
       return;
     }
+    List<List<Edge>> groups =
+        runContext.bounded != null || runContext.inParallelBranch
+            ? null
+            : branchGroups.get(currentNodeId);
+    if (groups == null) {
+      routeSequentially(currentNodeId, events, outgoingEdges, runContext);
+    } else {
+      routeInParallel(currentNodeId, events, outgoingEdges, groups, runContext);
+    }
+  }
+
+  private void routeSequentially(
+      String currentNodeId,
+      List<RecordFleakData> events,
+      List<Edge> outgoingEdges,
+      RunContext runContext) {
     for (var e : outgoingEdges) {
       if (runContext.bounded != null) runContext.bounded.checkpoint();
       // Failure isolation: a node failure aborts only its own subtree; sibling branches still run.
@@ -427,10 +600,117 @@ public class NoSourceDagRunner {
         Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
         tags.put(METRIC_TAG_NODE_ID, nee.getNodeId());
         tags.put(METRIC_TAG_COMMAND_NAME, nee.getCommandName());
-        counters.increaseErrorEventCounter(events.size(), tags);
+        countersFor(runContext).increaseErrorEventCounter(events.size(), tags);
         log.debug("node {} failed; isolating branch", nee.getNodeId(), nee);
       }
     }
+  }
+
+  private void routeInParallel(
+      String currentNodeId,
+      List<RecordFleakData> events,
+      List<Edge> outgoingEdges,
+      List<List<Edge>> groups,
+      RunContext runContext) {
+    List<BranchRun> branchRuns = new ArrayList<>();
+    for (List<Edge> group : groups) {
+      List<Integer> edgeIndexes = group.stream().map(outgoingEdges::indexOf).toList();
+      branchRuns.add(new BranchRun(group, edgeIndexes, runContext));
+    }
+    int laneCount = Math.min(branchRuns.size(), branchParallelism);
+    Map<String, String> callerMdcContext = MDC.getCopyOfContextMap();
+    List<Future<?>> submittedLanes = new ArrayList<>();
+    for (int laneIndex = 1; laneIndex < laneCount; laneIndex++) {
+      List<BranchRun> laneBranchRuns = branchRunsForLane(branchRuns, laneIndex, laneCount);
+      try {
+        submittedLanes.add(
+            BRANCH_POOL.submit(
+                () ->
+                    runLaneOnPoolThread(currentNodeId, events, laneBranchRuns, callerMdcContext)));
+      } catch (RejectedExecutionException | OutOfMemoryError submitFailure) {
+        log.warn("could not start a parallel branch lane; running it inline", submitFailure);
+        runLane(currentNodeId, events, laneBranchRuns);
+      }
+    }
+    runLane(currentNodeId, events, branchRunsForLane(branchRuns, 0, laneCount));
+
+    // wait for every lane even after a failure, or the source commits too early
+    Throwable firstFailure = null;
+    for (Future<?> submittedLane : submittedLanes) {
+      try {
+        Uninterruptibles.getUninterruptibly(submittedLane);
+      } catch (ExecutionException executionException) {
+        firstFailure = addFailure(firstFailure, executionException.getCause());
+      }
+    }
+    // merge in the order a sequential run would have hit the failures, so the same one goes first
+    List<BranchRun> branchRunsInFailureOrder =
+        branchRuns.stream()
+            .sorted(Comparator.comparingInt(branchRun -> branchRun.firstFailureEdgeIndex))
+            .toList();
+    for (BranchRun branchRun : branchRunsInFailureOrder) {
+      runContext.dagResult.merge(branchRun.context.dagResult);
+      branchRun.counterDeltas.applyTo(countersFor(runContext));
+      if (branchRun.failure != null) {
+        firstFailure = addFailure(firstFailure, branchRun.failure);
+      }
+    }
+    if (firstFailure instanceof RuntimeException runtimeException) throw runtimeException;
+    if (firstFailure instanceof Error error) throw error;
+    if (firstFailure != null) throw new IllegalStateException(firstFailure);
+  }
+
+  private static Throwable addFailure(Throwable firstFailure, Throwable failure) {
+    if (firstFailure == null) return failure;
+    firstFailure.addSuppressed(failure);
+    return firstFailure;
+  }
+
+  private static List<BranchRun> branchRunsForLane(
+      List<BranchRun> branchRuns, int laneIndex, int laneCount) {
+    List<BranchRun> laneBranchRuns = new ArrayList<>();
+    for (int groupIndex = laneIndex; groupIndex < branchRuns.size(); groupIndex += laneCount) {
+      laneBranchRuns.add(branchRuns.get(groupIndex));
+    }
+    return laneBranchRuns;
+  }
+
+  private void runLaneOnPoolThread(
+      String currentNodeId,
+      List<RecordFleakData> events,
+      List<BranchRun> laneBranchRuns,
+      Map<String, String> callerMdcContext) {
+    if (callerMdcContext == null) MDC.clear();
+    else MDC.setContextMap(callerMdcContext);
+    try {
+      runLane(currentNodeId, events, laneBranchRuns);
+    } finally {
+      MDC.clear();
+    }
+  }
+
+  private void runLane(
+      String currentNodeId, List<RecordFleakData> events, List<BranchRun> laneBranchRuns) {
+    for (BranchRun branchRun : laneBranchRuns) {
+      for (int edgePosition = 0; edgePosition < branchRun.edges.size(); edgePosition++) {
+        int edgeIndex = branchRun.edgeIndexes.get(edgePosition);
+        try {
+          routeSequentially(
+              currentNodeId, events, List.of(branchRun.edges.get(edgePosition)), branchRun.context);
+        } catch (Throwable failure) {
+          branchRun.failure = failure;
+          branchRun.recordFailureAt(edgeIndex);
+          break;
+        }
+        if (branchRun.context.dagResult.hasFailure()) {
+          branchRun.recordFailureAt(edgeIndex);
+        }
+      }
+    }
+  }
+
+  private DagRunCounters countersFor(RunContext runContext) {
+    return runContext.counterDeltas != null ? runContext.counterDeltas.recorder : counters;
   }
 
   void processEvent(
@@ -462,7 +742,7 @@ public class NoSourceDagRunner {
             runContext.runConfig,
             result.getOutput(),
             result.getFailureEvents(),
-            counters);
+            countersFor(runContext));
 
         routeToDownstream(
             currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
@@ -481,11 +761,11 @@ public class NoSourceDagRunner {
             runContext.runConfig,
             List.of(sinkOutputEvent),
             result.getFailureEvents(),
-            counters);
+            countersFor(runContext));
         Map<String, String> tags = new HashMap<>(runContext.callingUserTag);
         tags.put(METRIC_TAG_NODE_ID, currentNodeId);
         tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
-        counters.increaseOutputEventCounter(result.getSuccessCount(), tags);
+        countersFor(runContext).increaseOutputEventCounter(result.getSuccessCount(), tags);
 
         if (runContext.dagResult.sinkResultMap.containsKey(currentNodeId)) {
           result.merge(runContext.dagResult.sinkResultMap.get(currentNodeId));
@@ -968,5 +1248,71 @@ public class NoSourceDagRunner {
     NoSourceDagRunner.DagRunConfig runConfig;
     BoundedExecution bounded;
     String bindingId;
+    boolean inParallelBranch;
+    CounterDeltas counterDeltas;
+  }
+
+  private static final class BranchRun {
+    final List<Edge> edges;
+    final List<Integer> edgeIndexes;
+    final CounterDeltas counterDeltas = new CounterDeltas();
+    final RunContext context;
+    Throwable failure;
+    int firstFailureEdgeIndex = Integer.MAX_VALUE;
+
+    BranchRun(List<Edge> edges, List<Integer> edgeIndexes, RunContext parent) {
+      this.edges = edges;
+      this.edgeIndexes = edgeIndexes;
+      this.context =
+          RunContext.builder()
+              .callingUser(parent.callingUser)
+              .callingUserTag(parent.callingUserTag)
+              .metricClientProvider(parent.metricClientProvider)
+              .runConfig(parent.runConfig)
+              .dagResult(new DagResult())
+              .inParallelBranch(true)
+              .counterDeltas(counterDeltas)
+              .build();
+    }
+
+    void recordFailureAt(int edgeIndex) {
+      firstFailureEdgeIndex = Math.min(firstFailureEdgeIndex, edgeIndex);
+    }
+  }
+
+  private static final class CounterDeltas {
+    private final List<Consumer<DagRunCounters>> increments = new ArrayList<>();
+    final DagRunCounters recorder =
+        new DagRunCounters(
+            recording(DagRunCounters::increaseInputEventCounter),
+            recording(DagRunCounters::increaseInputByteSizeCounter),
+            recording(DagRunCounters::increaseTotalDataSizeCounter),
+            recording(DagRunCounters::increaseOutputEventCounter),
+            recording(DagRunCounters::increaseErrorEventCounter),
+            recording(DagRunCounters::increaseNumRequestCounter),
+            new MetricClientProvider.NoopMetricClientProvider.NoopStopWatch());
+
+    private FleakCounter recording(CounterIncrement targetIncrement) {
+      return new FleakCounter() {
+        @Override
+        public void increase(Map<String, String> additionalTags) {
+          increase(1L, additionalTags);
+        }
+
+        @Override
+        public void increase(long amount, Map<String, String> additionalTags) {
+          increments.add(
+              pipelineCounters -> targetIncrement.apply(pipelineCounters, amount, additionalTags));
+        }
+      };
+    }
+
+    void applyTo(DagRunCounters pipelineCounters) {
+      increments.forEach(increment -> increment.accept(pipelineCounters));
+    }
+
+    private interface CounterIncrement {
+      void apply(DagRunCounters pipelineCounters, long amount, Map<String, String> tags);
+    }
   }
 }

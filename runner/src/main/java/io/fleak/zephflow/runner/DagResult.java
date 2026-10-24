@@ -90,6 +90,39 @@ public class DagResult {
     return firstFailure != null;
   }
 
+  void merge(DagResult branch) {
+    branch.outputEvents.forEach(
+        (nodeId, events) ->
+            outputEvents.computeIfAbsent(nodeId, newNodeId -> new ArrayList<>()).addAll(events));
+    mergeByStep(branch.outputByStep, outputByStep);
+    mergeByStep(branch.errorByStep, errorByStep);
+    branch.sinkResultMap.forEach(
+        (nodeId, result) -> {
+          ScalarSinkCommand.SinkResult earlier = sinkResultMap.get(nodeId);
+          if (earlier != null) {
+            result.merge(earlier);
+          }
+          sinkResultMap.put(nodeId, result);
+        });
+    if (firstFailure == null) {
+      firstFailure = branch.firstFailure;
+    }
+  }
+
+  private static <T> void mergeByStep(
+      Map<String, Map<String, List<T>>> from, Map<String, Map<String, List<T>>> into) {
+    from.forEach(
+        (nodeId, byUpstream) -> {
+          Map<String, List<T>> target =
+              into.computeIfAbsent(nodeId, newNodeId -> new LinkedHashMap<>());
+          byUpstream.forEach(
+              (upstreamId, data) ->
+                  target
+                      .computeIfAbsent(upstreamId, newUpstreamId -> new ArrayList<>())
+                      .addAll(data));
+        });
+  }
+
   record NodeFailure(String nodeId, String commandName, String errorMessage) {}
 
   private <T> void recordDebugInfo(

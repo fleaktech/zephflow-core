@@ -41,6 +41,7 @@ public class JobContext implements Serializable {
   public static final String REPLICA_INDEX = "REPLICA_INDEX";
   public static final String REPLICA_COUNT = "REPLICA_COUNT";
   public static final String STORE_FORWARD_DIR = "STORE_FORWARD_DIR";
+  public static final String BRANCH_PARALLELISM = "BRANCH_PARALLELISM";
 
   private @Builder.Default Map<String, Serializable> otherProperties = new HashMap<>();
   private @Builder.Default Map<String, String> metricTags = new HashMap<>();

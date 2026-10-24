@@ -31,9 +31,10 @@ import java.util.List;
  * command instance (see the runner's pipeline lock), so implementations do not need internal
  * synchronization between the two. Note however that {@code flush} runs on a background flush
  * thread, and its output is routed downstream on that same thread — so sink and intermediate
- * commands placed downstream of a windowed node may be invoked from either the source thread or the
- * flush thread (never concurrently). Such downstream commands must not pin resources to their
- * creating thread (e.g. thread-confined connections or {@link ThreadLocal} buffers).
+ * commands placed downstream of a windowed node may be invoked from the source thread, the flush
+ * thread or a branch pool thread (never concurrently). Such downstream commands must not pin
+ * resources to their creating thread (e.g. thread-confined connections or {@link ThreadLocal}
+ * buffers).
  *
  * <p><b>No in-place mutation:</b> the {@link RecordFleakData} records returned here flow downstream
  * exactly like {@code process} output and must obey the same contract — do not mutate shared input
