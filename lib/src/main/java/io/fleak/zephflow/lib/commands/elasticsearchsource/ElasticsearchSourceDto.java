@@ -39,6 +39,7 @@ public interface ElasticsearchSourceDto {
 
     @Builder.Default private int batchSize = DEFAULT_BATCH_SIZE;
 
-    @NonNull private EncodingType encodingType;
+    /** Ignored: every hit's {@code _source} becomes the record. Kept so existing configs parse. */
+    private EncodingType encodingType;
   }
 }

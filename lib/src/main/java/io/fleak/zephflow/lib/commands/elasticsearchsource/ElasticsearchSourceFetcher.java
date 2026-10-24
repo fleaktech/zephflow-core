@@ -15,7 +15,14 @@ package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.NoCommitStrategy;
@@ -32,6 +39,11 @@ import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
 public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument> {
+
+  private static final ObjectReader VALUE_READER =
+      OBJECT_MAPPER
+          .readerFor(JsonNode.class)
+          .without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
   private final String host;
   private final String index;
@@ -144,7 +156,8 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
 
   @SuppressWarnings("unchecked")
   private List<ElasticsearchDocument> parseScrollResponse(String body) throws IOException {
-    JsonNode root = OBJECT_MAPPER.readTree(body);
+    ParsedResponse response = readResponse(body);
+    JsonNode root = response.root();
 
     JsonNode scrollIdNode = root.get("_scroll_id");
     if (scrollIdNode != null) {
@@ -167,11 +180,75 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
           sourceNode.isObject()
               ? OBJECT_MAPPER.convertValue(sourceNode, Map.class)
               : new LinkedHashMap<>();
-      docs.add(new ElasticsearchDocument(id, docIndex, source));
+      docs.add(
+          new ElasticsearchDocument(
+              id, docIndex, source, response.sourceSizes().getOrDefault(hit, 0L)));
     }
 
     log.debug("Fetched {} documents from Elasticsearch scroll", docs.size());
     return docs;
+  }
+
+  record ParsedResponse(JsonNode root, Map<JsonNode, Long> sourceSizes) {}
+
+  private enum Level {
+    ROOT,
+    HITS,
+    HIT
+  }
+
+  /**
+   * Builds the same tree as {@code OBJECT_MAPPER.readTree(body)} and records, for each object in
+   * {@code hits.hits}, the UTF-8 length of its {@code _source} as it appears in the body.
+   */
+  static ParsedResponse readResponse(String body) throws IOException {
+    Map<JsonNode, Long> sourceSizes = new IdentityHashMap<>();
+    try (JsonParser parser = OBJECT_MAPPER.getFactory().createParser(body)) {
+      if (parser.nextToken() != JsonToken.START_OBJECT) {
+        return new ParsedResponse(OBJECT_MAPPER.readTree(body), sourceSizes);
+      }
+      ObjectNode root = readObject(parser, Level.ROOT, body, sourceSizes);
+      if (parser.nextToken() != null) {
+        throw new JsonParseException(parser, "Unexpected content after the response object");
+      }
+      return new ParsedResponse(root, sourceSizes);
+    }
+  }
+
+  private static ObjectNode readObject(
+      JsonParser parser, Level level, String body, Map<JsonNode, Long> sourceSizes)
+      throws IOException {
+    ObjectNode node = OBJECT_MAPPER.createObjectNode();
+    while (parser.nextToken() == JsonToken.FIELD_NAME) {
+      String name = parser.currentName();
+      JsonToken token = parser.nextToken();
+      if (level == Level.ROOT && name.equals("hits") && token == JsonToken.START_OBJECT) {
+        node.set(name, readObject(parser, Level.HITS, body, sourceSizes));
+      } else if (level == Level.HITS && name.equals("hits") && token == JsonToken.START_ARRAY) {
+        node.set(name, readHitArray(parser, body, sourceSizes));
+      } else {
+        int start = (int) parser.currentTokenLocation().getCharOffset();
+        node.set(name, VALUE_READER.readTree(parser));
+        if (level == Level.HIT && name.equals("_source")) {
+          int end = (int) parser.currentLocation().getCharOffset();
+          sourceSizes.put(
+              node, (long) body.substring(start, end).getBytes(StandardCharsets.UTF_8).length);
+        }
+      }
+    }
+    return node;
+  }
+
+  private static ArrayNode readHitArray(
+      JsonParser parser, String body, Map<JsonNode, Long> sourceSizes) throws IOException {
+    ArrayNode hits = OBJECT_MAPPER.createArrayNode();
+    while (parser.nextToken() != JsonToken.END_ARRAY) {
+      hits.add(
+          parser.currentToken() == JsonToken.START_OBJECT
+              ? readObject(parser, Level.HIT, body, sourceSizes)
+              : VALUE_READER.readTree(parser));
+    }
+    return hits;
   }
 
   private void clearScroll() {
