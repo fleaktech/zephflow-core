@@ -22,8 +22,6 @@ import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -58,11 +56,7 @@ public class ElasticsearchSourceCommand extends SimpleSourceCommand<Elasticsearc
 
     Fetcher<ElasticsearchDocument> fetcher = createFetcher(config, jobContext);
 
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(config.getEncodingType())
-            .createDeserializer();
-    RawDataConverter<ElasticsearchDocument> converter =
-        new ElasticsearchRawDataConverter(deserializer);
+    RawDataConverter<ElasticsearchDocument> converter = new ElasticsearchRawDataConverter();
     RawDataEncoder<ElasticsearchDocument> encoder = new ElasticsearchRawDataEncoder();
 
     Map<String, String> metricTags =

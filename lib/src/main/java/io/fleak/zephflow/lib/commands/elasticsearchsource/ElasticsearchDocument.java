@@ -15,4 +15,10 @@ package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import java.util.Map;
 
-public record ElasticsearchDocument(String id, String index, Map<String, Object> source) {}
+public record ElasticsearchDocument(
+    String id, String index, Map<String, Object> source, long sourceSize) {
+
+  public ElasticsearchDocument(String id, String index, Map<String, Object> source) {
+    this(id, index, source, 0);
+  }
+}
