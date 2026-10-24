@@ -59,11 +59,13 @@ building it records where each hit's `_source` is in the body:
   one `readTree` builds. A body whose first token is not `{` is read with `readTree(body)`, as
   today.
 - For a `_source` field of an object in that array, the parser's character offset at the start of
-  the value and after it are recorded, keyed by the value's node. The source size is the UTF-8
-  length of that part of the body. Only the node that ends up in the tree is used, so the last of
-  duplicate `_source` fields, or of duplicate `hits` fields, counts.
-- After the root object, the next token must be the end of input; anything else fails as
-  `readTree` does today (`FAIL_ON_TRAILING_TOKENS`).
+  the value and after it are recorded, keyed by that hit object's node (not the value's: equal
+  scalars such as `0` and `-0` can share one node). The source size is the UTF-8 length of that
+  part of the body. Only the hit nodes that end up in the tree are used, and a later `_source`
+  field of a hit replaces an earlier one, so the last of duplicate `_source` fields, or of
+  duplicate `hits` fields, counts.
+- After the root object, the next token must be the end of input; otherwise the body is read with
+  `readTree(body)`, which fails as today (`FAIL_ON_TRAILING_TOKENS`).
 - The rest of `parseScrollResponse` is unchanged and runs on the finished tree: it reads
   `_scroll_id`, decides whether the scroll is exhausted and clears it, and builds each
   `ElasticsearchDocument` with `path("_id").asText()`, `path("_index").asText()` and

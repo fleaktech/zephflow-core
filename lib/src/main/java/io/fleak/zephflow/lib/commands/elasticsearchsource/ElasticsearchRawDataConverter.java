@@ -13,50 +13,40 @@
  */
 package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.RawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ElasticsearchRawDataConverter implements RawDataConverter<ElasticsearchDocument> {
 
-  private final FleakDeserializer<?> fleakDeserializer;
-
-  public ElasticsearchRawDataConverter(FleakDeserializer<?> fleakDeserializer) {
-    this.fleakDeserializer = fleakDeserializer;
-  }
-
   @Override
   public ConvertedResult<ElasticsearchDocument> convert(
       ElasticsearchDocument doc, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
-      byte[] bytes = OBJECT_MAPPER.writeValueAsBytes(doc.source());
-      Map<String, String> metadata =
-          Map.of(
-              "_id",
-              doc.id() != null ? doc.id() : "",
-              "_index",
-              doc.index() != null ? doc.index() : "");
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(doc.source());
+      record
+          .getPayload()
+          .put("_id", new StringPrimitiveFleakData(Objects.requireNonNullElse(doc.id(), "")));
+      record
+          .getPayload()
+          .put("_index", new StringPrimitiveFleakData(Objects.requireNonNullElse(doc.index(), "")));
 
-      SerializedEvent serializedEvent = new SerializedEvent(null, bytes, metadata);
-      List<RecordFleakData> events = fleakDeserializer.deserialize(serializedEvent);
+      Map<String, String> eventTags = getCallingUserTagAndEventTags(null, record);
 
-      Map<String, String> eventTags =
-          getCallingUserTagAndEventTags(null, events.isEmpty() ? null : events.getFirst());
+      sourceInitializedConfig.dataSizeCounter().increase(doc.sourceSize(), eventTags);
+      sourceInitializedConfig.inputEventCounter().increase(1, eventTags);
 
-      sourceInitializedConfig.dataSizeCounter().increase(bytes.length, eventTags);
-      sourceInitializedConfig.inputEventCounter().increase(events.size(), eventTags);
-
-      return ConvertedResult.success(events, doc);
+      return ConvertedResult.success(List.of(record), doc);
     } catch (Exception e) {
       sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
       log.error("Failed to convert Elasticsearch document id={}", doc.id(), e);

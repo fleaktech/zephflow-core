@@ -19,7 +19,6 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import org.apache.commons.lang3.StringUtils;
 
 public class ElasticsearchSourceConfigValidator implements ConfigValidator {
@@ -30,8 +29,6 @@ public class ElasticsearchSourceConfigValidator implements ConfigValidator {
 
     Preconditions.checkArgument(StringUtils.isNotBlank(config.getHost()), "host is required");
     Preconditions.checkArgument(StringUtils.isNotBlank(config.getIndex()), "index is required");
-
-    DeserializerFactory.validateEncodingType(config.getEncodingType());
 
     Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
 
