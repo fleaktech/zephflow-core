@@ -75,6 +75,7 @@ class ElasticsearchRawDataConverterTest {
     assertEquals(
         List.of(
             List.of(Map.of("d", "Infinity", "n", "-Infinity", "_id", "id-1", "_index", "idx")),
+            List.of(Map.of("d", "Infinity", "n", "-Infinity", "_id", "id-1", "_index", "idx")),
             List.of(
                 Map.of(
                     "d",
@@ -85,7 +86,10 @@ class ElasticsearchRawDataConverterTest {
                     "id-1",
                     "_index",
                     "idx"))),
-        List.of(legacy(EncodingType.JSON_OBJECT, doc), converted(doc)));
+        List.of(
+            legacy(EncodingType.JSON_OBJECT, doc),
+            legacy(EncodingType.JSON_OBJECT_LINE, doc),
+            converted(doc)));
   }
 
   @Test

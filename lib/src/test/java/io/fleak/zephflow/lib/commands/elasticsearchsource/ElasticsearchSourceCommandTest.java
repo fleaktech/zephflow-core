@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import static io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchStub.json;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_DESER_ERR_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_SIZE_COUNT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -146,7 +147,10 @@ class ElasticsearchSourceCommandTest {
             increases.stream()
                 .filter(
                     i ->
-                        Set.of(METRIC_NAME_INPUT_EVENT_SIZE_COUNT, METRIC_NAME_INPUT_EVENT_COUNT)
+                        Set.of(
+                                METRIC_NAME_INPUT_EVENT_SIZE_COUNT,
+                                METRIC_NAME_INPUT_EVENT_COUNT,
+                                METRIC_NAME_INPUT_DESER_ERR_COUNT)
                             .contains(i.counter()))
                 .toList(),
             requests.stream().filter(r -> r.method().equals("POST")).toList()));

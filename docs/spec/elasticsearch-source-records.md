@@ -18,8 +18,8 @@ response, and makes `encodingType` optional and unused.
   text in `__raw__`; CSV reads that text as a header line, so it gives no records or fails; XML and
   JSON_ARRAY fail every hit.
 - **Legacy code.** This is the last source command in this repository that decodes with a legacy
-  deserializer. After it, no source command decodes with one; the unused legacy converter classes
-  and the `encodingType` check in `SourceDecoding` still reference `serdes.des`.
+  deserializer. After it, no source command decodes with one; the legacy converter classes that no
+  source creates any more and the `encodingType` check in `SourceDecoding` still reference `serdes.des`.
 
 ## 2. Goals and non-goals
 
@@ -179,5 +179,4 @@ There are no tests for this source today.
 ## 7. Delivery
 
 On the integration branch `feature/elasticsearch-source`: PR 0 this spec, PR 1 the change and its
-tests. The branch merges to main after PR 1, with approval. The UI form and the docs, which still
-ask for `encodingType`, are updated separately.
+tests. Configuration forms and user docs that still show `encodingType` are updated separately.
