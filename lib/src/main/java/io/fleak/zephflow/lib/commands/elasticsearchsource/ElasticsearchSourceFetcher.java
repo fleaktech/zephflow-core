@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
-import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -209,7 +208,8 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
       }
       ObjectNode root = readObject(parser, Level.ROOT, body, sourceSizes);
       if (parser.nextToken() != null) {
-        throw new JsonParseException(parser, "Unexpected content after the response object");
+        // readTree fails on the trailing content with today's error
+        return new ParsedResponse(OBJECT_MAPPER.readTree(body), Map.of());
       }
       return new ParsedResponse(root, sourceSizes);
     }
@@ -231,12 +231,31 @@ public class ElasticsearchSourceFetcher implements Fetcher<ElasticsearchDocument
         node.set(name, VALUE_READER.readTree(parser));
         if (level == Level.HIT && name.equals("_source")) {
           int end = (int) parser.currentLocation().getCharOffset();
-          sourceSizes.put(
-              node, (long) body.substring(start, end).getBytes(StandardCharsets.UTF_8).length);
+          sourceSizes.put(node, utf8Length(body, start, end));
         }
       }
     }
     return node;
+  }
+
+  private static long utf8Length(String s, int start, int end) {
+    long length = 0;
+    for (int i = start; i < end; i++) {
+      char c = s.charAt(i);
+      if (c < 0x80) {
+        length += 1;
+      } else if (c < 0x800) {
+        length += 2;
+      } else if (Character.isHighSurrogate(c)
+          && i + 1 < end
+          && Character.isLowSurrogate(s.charAt(i + 1))) {
+        length += 4;
+        i++;
+      } else {
+        length += 3;
+      }
+    }
+    return length;
   }
 
   private static ArrayNode readHitArray(

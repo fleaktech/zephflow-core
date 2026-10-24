@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class ElasticsearchRawDataConverterTest {
 
@@ -39,21 +39,27 @@ class ElasticsearchRawDataConverterTest {
 
   private final List<Increase> increases = new ArrayList<>();
 
+  static final List<String> SOURCES =
+      List.of(
+          json("{'small':1,'negative':-7,'long':9007199254740993,'maxLong':9223372036854775807}"),
+          json("{'beyondLong':123456789012345678901234567890,'digits400':" + "9".repeat(400) + "}"),
+          json("{'decimal':1.5,'one':1.0,'exponent':-1.5e3,'big':1e300,'subnormal':4.9e-324}"),
+          json("{'underflow':1e-400,'negativeZero':-0.0,'upper':1E+2,'small':0.1e-2}"),
+          json("{'nul':null,'yes':true,'no':false,'text':'中文 é 😀','escaped':'\\u00e9\\n'}"),
+          json("{'nested':{'a':[1,{'b':[]},{}],'c':{'d':null}},'empty':[],'emptyObject':{}}"),
+          json("{'hits':{'hits':[{'_source':1}]},'_scroll_id':'X','é':{ 'w' : [ 1 , 2 ] }}"),
+          json("{'dup':1,'dup':'second'}"),
+          json("{'_id':'clash','_index':7,'a':1}"),
+          "{}");
+
+  static List<String> sources() {
+    return SOURCES;
+  }
+
   @ParameterizedTest
-  @ValueSource(
-      strings = {
-        "{'small':1,'negative':-7,'long':9007199254740993,'maxLong':9223372036854775807}",
-        "{'beyondLong':123456789012345678901234567890}",
-        "{'decimal':1.5,'one':1.0,'exponent':-1.5e3,'big':1e300,'subnormal':4.9e-324}",
-        "{'underflow':1e-400,'negativeZero':-0.0}",
-        "{'nul':null,'yes':true,'no':false,'text':'中文 é 😀','escaped':'\\u00e9\\n'}",
-        "{'nested':{'a':[1,{'b':[]},{}],'c':{'d':null}},'empty':[],'emptyObject':{}}",
-        "{'dup':1,'dup':'second'}",
-        "{'_id':'clash','_index':7,'a':1}",
-        "{}"
-      })
+  @MethodSource("sources")
   void recordsAreTheLegacyJsonOnes(String source) throws Exception {
-    ElasticsearchDocument doc = document(json(source));
+    ElasticsearchDocument doc = document(source);
 
     List<Map<String, Object>> converted = converted(doc);
 
@@ -126,7 +132,6 @@ class ElasticsearchRawDataConverterTest {
             result.transformedData(), result.sourceRecord(), result.error().getClass(), increases));
   }
 
-  /** A hit as the fetcher builds it from a response with this {@code _source}. */
   @SuppressWarnings("unchecked")
   private static ElasticsearchDocument document(String source) throws Exception {
     return new ElasticsearchDocument(

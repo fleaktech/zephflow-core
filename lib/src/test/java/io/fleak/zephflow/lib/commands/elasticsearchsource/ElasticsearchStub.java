@@ -51,7 +51,6 @@ final class ElasticsearchStub implements AutoCloseable {
     return List.copyOf(requests);
   }
 
-  /** Single quotes stand for double quotes, so test bodies read as JSON. */
   static String json(String singleQuoted) {
     return singleQuoted.replace('\'', '"');
   }

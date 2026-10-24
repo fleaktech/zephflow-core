@@ -22,10 +22,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchStub.Response;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -78,7 +80,36 @@ class ElasticsearchSourceFetcherTest {
                 "{'took':1,'hits':{'max_score':null,'hits':[{'_index':'i','_id':'x','_score':1.0,"
                     + "'_source':{'k':'v'},'fields':{'hits':[1]}}]},'_shards':{'total':1}}"),
             List.of(9L)),
-        new Body("[1]", List.of()));
+        new Body("[1]", List.of()),
+        hitsBody(ElasticsearchRawDataConverterTest.SOURCES),
+        hitsBody(
+            IntStream.range(0, 2000)
+                .mapToObj(
+                    i ->
+                        json(
+                            "{ 'n' :"
+                                + " ".repeat(i % 7)
+                                + i
+                                + ", 's' : 'é😀"
+                                + "x".repeat(i % 50)
+                                + "'"
+                                + (i == 1000 ? " ".repeat(5000) : "")
+                                + "}"))
+                .toList()));
+  }
+
+  /** A page whose hits carry these {@code _source} texts as they are. */
+  private static Body hitsBody(List<String> sources) {
+    StringBuilder body = new StringBuilder(json("{'_scroll_id':'S','hits':{'hits':["));
+    for (int i = 0; i < sources.size(); i++) {
+      body.append(i == 0 ? "" : ",")
+          .append(json("{'_id':'h" + i + "','_index':'idx','_source':"))
+          .append(sources.get(i))
+          .append('}');
+    }
+    return new Body(
+        body.append("]}}").toString(),
+        sources.stream().map(s -> (long) s.getBytes(StandardCharsets.UTF_8).length).toList());
   }
 
   @ParameterizedTest
@@ -101,9 +132,13 @@ class ElasticsearchSourceFetcherTest {
   @ParameterizedTest
   @ValueSource(strings = {"{\"hits\":{\"hits\":[]}} xyz", "{\"hits\":{\"hits\":[]}}{}"})
   void trailingContentFailsAsReadTreeDoes(String body) {
-    assertThrows(JsonProcessingException.class, () -> OBJECT_MAPPER.readTree(body));
-    assertThrows(
-        JsonProcessingException.class, () -> ElasticsearchSourceFetcher.readResponse(body));
+    Exception today =
+        assertThrows(JsonProcessingException.class, () -> OBJECT_MAPPER.readTree(body));
+    Exception now =
+        assertThrows(
+            JsonProcessingException.class, () -> ElasticsearchSourceFetcher.readResponse(body));
+    assertEquals(
+        List.of(today.getClass(), today.getMessage()), List.of(now.getClass(), now.getMessage()));
   }
 
   @Test
@@ -115,6 +150,24 @@ class ElasticsearchSourceFetcherTest {
           List.of(
               "Failed to fetch from Elasticsearch",
               "Elasticsearch initial search failed with status 500: boom"),
+          List.of(e.getMessage(), e.getCause().getMessage()));
+    }
+  }
+
+  @Test
+  void aFailedScrollFailsTheFetch() throws Exception {
+    try (var stub =
+            new ElasticsearchStub(
+                new Response(
+                    200, json("{'_scroll_id':'S1','hits':{'hits':[{'_id':'1','_source':{}}]}}")),
+                new Response(503, "busy"));
+        var fetcher = fetcher(stub)) {
+      fetcher.fetch();
+      RuntimeException e = assertThrows(RuntimeException.class, fetcher::fetch);
+      assertEquals(
+          List.of(
+              "Failed to fetch from Elasticsearch",
+              "Elasticsearch scroll failed with status 503: busy"),
           List.of(e.getMessage(), e.getCause().getMessage()));
     }
   }
