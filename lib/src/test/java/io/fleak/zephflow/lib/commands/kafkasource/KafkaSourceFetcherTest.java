@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -125,5 +126,63 @@ class KafkaSourceFetcherTest {
     Map<String, Object> payload = Map.of("f1", 100L);
 
     assertEquals(FleakData.wrap(payload), result.get(0));
+  }
+
+  private record FetchedEvent(String key, String value, Map<String, String> metadata) {
+    static FetchedEvent from(SerializedEvent event) {
+      return new FetchedEvent(new String(event.key()), new String(event.value()), event.metadata());
+    }
+  }
+
+  private static KafkaConsumer<byte[], byte[]> consumerReturningRecordWithHeader() {
+    KafkaConsumer<byte[], byte[]> mockConsumer = mock();
+    RecordHeaders headers = new RecordHeaders();
+    headers.add("asset_id", "a1".getBytes());
+    ConsumerRecord<byte[], byte[]> consumerRecord =
+        new ConsumerRecord<>(
+            "topic",
+            0,
+            0L,
+            0L,
+            TimestampType.CREATE_TIME,
+            1,
+            1,
+            "k".getBytes(),
+            "v".getBytes(),
+            headers,
+            Optional.empty());
+    when(mockConsumer.poll(Duration.ofMillis(1000)))
+        .thenReturn(
+            new ConsumerRecords<>(Map.of(new TopicPartition("topic", 0), List.of(consumerRecord))));
+    return mockConsumer;
+  }
+
+  @Test
+  void extractorMetadataReachesSerializedEvent() {
+    KafkaSourceFetcher fetcher =
+        new KafkaSourceFetcher(
+            consumerReturningRecordWithHeader(),
+            null,
+            BatchCommitStrategy.forKafka(),
+            KafkaHeaderMetadata::fromHeaders);
+
+    assertEquals(
+        List.of(new FetchedEvent("k", "v", Map.of("__md_kafka_header_asset_id", "a1"))),
+        fetcher.fetch().stream().map(FetchedEvent::from).toList());
+  }
+
+  @Test
+  void defaultConstructorsKeepMetadataNull() {
+    List<FetchedEvent> expected = List.of(new FetchedEvent("k", "v", null));
+
+    assertEquals(
+        expected,
+        new KafkaSourceFetcher(consumerReturningRecordWithHeader(), null)
+            .fetch().stream().map(FetchedEvent::from).toList());
+    assertEquals(
+        expected,
+        new KafkaSourceFetcher(
+                consumerReturningRecordWithHeader(), null, BatchCommitStrategy.forKafka())
+            .fetch().stream().map(FetchedEvent::from).toList());
   }
 }
