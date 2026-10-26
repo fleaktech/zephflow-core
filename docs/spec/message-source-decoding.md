@@ -52,7 +52,8 @@ The source compiles its `RecordDecoder` once, at initialization, from its decodi
 each message, the converter:
 
 1. Returns success with no records when the value is null (a Kafka tombstone), without decoding it.
-2. Otherwise decodes the value with `RecordDecoder.decodeAll(value, DecodeLimits.UNLIMITED)`.
+2. Otherwise decodes the value with `RecordDecoder.decodeAll(value, limits)`, where the sources pass
+   `DecodeLimits.UNLIMITED` (3.4).
 3. If every outcome is a decoded record, the message succeeds with those records, in order. An
    input that decodes to no outcome (an empty value, for most formats) succeeds with no records.
 4. If any outcome is `Failed` or `Oversized`, or decoding throws, the whole message fails and no
@@ -145,15 +146,16 @@ Downstream failures keep today's handling: the message as received, the stack tr
 failing node's id (or `unknown`).
 
 Every failed message is counted and logged at error, with or without a DLQ, as today. The log
-line keeps today's content (the message's key, value and metadata) and adds the first line. Without
-a DLQ, the message is then dropped.
+line keeps today's content (the message's key, value and metadata) and adds the first line; that
+content is built only when error logging is enabled. Without a DLQ, the message is then dropped.
 
 ### 3.4 Limits and memory
 
-The decoder runs with `DecodeLimits.UNLIMITED`: no record or document limit. A message is already
-whole in memory when it is fetched, and decoding it needs a few times its size. The xz codec memory
-falls back to min(128 MiB, heap/2), and parquet to its heap share, as the decoder does under
-unlimited limits.
+The sources decode with `DecodeLimits.UNLIMITED`: no record or document limit. A message is already
+whole in memory when it is fetched, and decoding it needs a few times its size. Another caller can
+pass limits to the converter; a message over them fails as `Oversized` (`OVERSIZED <format> message:
+<limit>`). The xz codec memory falls back to min(128 MiB, heap/2), and parquet to its heap share, as
+the decoder does under unlimited limits.
 
 ### 3.5 Metrics
 
