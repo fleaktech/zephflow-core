@@ -51,16 +51,28 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   }
 
   private final RecordDecoder decoder;
+  private final DecodeLimits limits;
   private final String format;
   private final Unit unit;
   private final DlqTexts texts;
 
+  /** Decodes without record or document limits, as the sources do. */
   public MessageDecodingConverter(DecodingConfig config, Unit unit) {
-    this(DecodingConfigCompiler.compile(config), config.format(), unit);
+    this(config, unit, DecodeLimits.UNLIMITED);
+  }
+
+  public MessageDecodingConverter(DecodingConfig config, Unit unit, DecodeLimits limits) {
+    this(DecodingConfigCompiler.compile(config), config.format(), unit, limits);
   }
 
   MessageDecodingConverter(RecordDecoder decoder, FormatConfig format, Unit unit) {
+    this(decoder, format, unit, DecodeLimits.UNLIMITED);
+  }
+
+  private MessageDecodingConverter(
+      RecordDecoder decoder, FormatConfig format, Unit unit, DecodeLimits limits) {
     this.decoder = decoder;
+    this.limits = limits;
     this.format = SourceDecoding.formatName(format);
     this.unit = unit;
     this.texts =
@@ -100,7 +112,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     List<RecordFleakData> records = null;
     MessageDecodeException failure;
     try {
-      DecodeResult result = decoder.decodeAll(value, DecodeLimits.UNLIMITED);
+      DecodeResult result = decoder.decodeAll(value, limits);
       if (result.problems().isEmpty()) {
         records = withMetadata(result.records(), sourceRecord);
         failure = null;
@@ -121,7 +133,9 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     }
     context.dataSizeCounter().increase(size, Map.of());
     context.deserializeFailureCounter().increase(Map.of());
-    log.error("failed to deserialize event: {}\n{}", failure.getMessage(), description.get());
+    if (log.isErrorEnabled()) {
+      log.error("failed to deserialize event: {}\n{}", failure.getMessage(), description.get());
+    }
     return ConvertedResult.failure(failure, sourceRecord);
   }
 

@@ -57,6 +57,8 @@ import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.Logger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -328,6 +330,59 @@ class MessageDecodingConverterTest {
             .convert(message, context);
 
     assertEquals("recordIndex 2", Failure.of(result).dlqText().lines().toList().getLast());
+  }
+
+  @Test
+  void limitsFailAMessageOverThem() {
+    SerializedEvent message = message("{\"a\":\"0123456789\"}\n");
+
+    ConvertedResult<SerializedEvent> result =
+        new MessageDecodingConverter(
+                JSON_LINES, MessageDecodingConverter.Unit.MESSAGE, new DecodeLimits(8, 0))
+            .convert(message, context);
+
+    assertEquals(
+        new Failure(
+            null,
+            "OVERSIZED json message: maxRecordBytes\n"
+                + "Action: this source sets maxRecordBytes from the task's heap, so give the task more"
+                + " memory, or write smaller records; if records should be much smaller, check that"
+                + " the source's format matches the message (a wrong format or framing, or an"
+                + " unclosed csv quote, joins many records into one); "
+                + RESEND
+                + "\na record reached 18 bytes, over maxRecordBytes 8"
+                + "\nrecordIndex 1, bytes 0-18",
+            message),
+        Failure.of(result));
+  }
+
+  @Test
+  void decodesWithoutLimitsByDefault() {
+    SerializedEvent message = message("{\"a\":\"0123456789\"}\n");
+
+    assertEquals(
+        ConvertedResult.success(List.of(record(Map.of("a", "0123456789"))), message),
+        convert(JSON_LINES, message));
+  }
+
+  @Test
+  void disabledErrorLogDoesNotDescribeTheMessage() {
+    Logger logger = (Logger) LogManager.getLogger(MessageDecodingConverter.class);
+    Level level = logger.getLevel();
+    logger.setLevel(Level.OFF);
+    try {
+      SerializedEvent message = message("{");
+
+      ConvertedResult<SerializedEvent> result =
+          new MessageDecodingConverter(JSON_OBJECT, MessageDecodingConverter.Unit.MESSAGE)
+              .convert(message, context, () -> fail("the message was described"));
+
+      assertEquals(
+          "MALFORMED json message: JsonEOFException",
+          Failure.of(result).dlqText().lines().findFirst().orElseThrow());
+    } finally {
+      logger.setLevel(level);
+    }
   }
 
   @Test
