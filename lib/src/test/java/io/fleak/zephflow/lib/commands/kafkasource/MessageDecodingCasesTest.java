@@ -358,8 +358,7 @@ class MessageDecodingCasesTest {
         decodes("gzipOfNothingJsonObject", EncodingType.JSON_OBJECT, gzip(new byte[0])),
         decodes("gzipOfNothingJsonArray", EncodingType.JSON_ARRAY, gzip(new byte[0])),
         decodes("gzipOfNothingXml", EncodingType.XML, gzip(new byte[0])),
-        // 4.1 item 6: strict lines, rows and documents; BOMs and UTF-16/32 detected; long names
-        // kept
+        // 4.1 item 6: strict lines/rows/documents, BOM and UTF-16/32 detection, long names
         fails(
             "jsonLinesArrayLine",
             EncodingType.JSON_OBJECT_LINE,

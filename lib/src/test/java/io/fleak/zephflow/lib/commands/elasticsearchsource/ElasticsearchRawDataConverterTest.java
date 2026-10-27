@@ -62,6 +62,7 @@ class ElasticsearchRawDataConverterTest {
                   "negative",
                   -7L,
                   "long",
+                  // 9007199254740993 loses precision today: the converter reads it as a double
                   9007199254740992L,
                   "maxLong",
                   9223372036854775807L,
