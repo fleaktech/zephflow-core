@@ -13,25 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes;
 
-import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /** Created by bolei on 9/16/24 */
-public record TypedEventContainer<T>(T payload, Map<String, String> metadataWithKey) {
-  public Map<String, StringPrimitiveFleakData> getMetadataPayload() {
-
-    if (metadataWithKey == null) {
-      return null;
-    }
-
-    return metadataWithKey.entrySet().stream()
-        .collect(
-            Collectors.toMap(
-                Map.Entry::getKey,
-                e -> {
-                  String v = e.getValue();
-                  return new StringPrimitiveFleakData(v);
-                }));
-  }
-}
+public record TypedEventContainer<T>(T payload, Map<String, String> metadataWithKey) {}

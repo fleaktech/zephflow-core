@@ -21,7 +21,6 @@ import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import java.nio.charset.StandardCharsets;
@@ -343,16 +342,13 @@ class KvTypedSerializerTest {
   }
 
   @Test
-  void kvIsOptInPerSinkAndNotDeserializable() {
+  void kvIsOptInPerSink() {
     assertThrows(
         IllegalArgumentException.class,
         () -> SerializerFactory.validateEncodingType(EncodingType.KV));
     assertNotNull(
         SerializerFactory.createSerializerFactory(
             EncodingType.KV, null, KvSerializerOptions.DEFAULT));
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> DeserializerFactory.createDeserializerFactory(EncodingType.KV));
   }
 
   @Test

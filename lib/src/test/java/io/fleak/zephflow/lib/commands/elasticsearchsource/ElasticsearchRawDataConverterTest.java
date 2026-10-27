@@ -22,15 +22,16 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class ElasticsearchRawDataConverterTest {
@@ -52,20 +53,106 @@ class ElasticsearchRawDataConverterTest {
           json("{'_id':'clash','_index':7,'a':1}"),
           "{}");
 
-  static List<String> sources() {
-    return SOURCES;
+  static final List<List<Map<String, Object>>> RECORDS =
+      List.of(
+          List.of(
+              Map.of(
+                  "small",
+                  1L,
+                  "negative",
+                  -7L,
+                  "long",
+                  // 9007199254740993 loses precision today: the converter reads it as a double
+                  9007199254740992L,
+                  "maxLong",
+                  9223372036854775807L,
+                  "_id",
+                  "id-1",
+                  "_index",
+                  "idx")),
+          List.of(
+              Map.of(
+                  "beyondLong",
+                  1.2345678901234568E29,
+                  "digits400",
+                  Double.POSITIVE_INFINITY,
+                  "_id",
+                  "id-1",
+                  "_index",
+                  "idx")),
+          List.of(
+              Map.of(
+                  "decimal",
+                  1.5,
+                  "one",
+                  1.0,
+                  "exponent",
+                  -1500.0,
+                  "big",
+                  1.0E300,
+                  "subnormal",
+                  4.9E-324,
+                  "_id",
+                  "id-1",
+                  "_index",
+                  "idx")),
+          List.of(
+              Map.of(
+                  "underflow",
+                  0.0,
+                  "negativeZero",
+                  -0.0,
+                  "upper",
+                  100.0,
+                  "small",
+                  0.001,
+                  "_id",
+                  "id-1",
+                  "_index",
+                  "idx")),
+          List.of(
+              nullable(
+                  "nul", null, "yes", true, "no", false, "text", "中文 é 😀", "escaped", "é\n", "_id",
+                  "id-1", "_index", "idx")),
+          List.of(
+              Map.of(
+                  "nested",
+                  Map.of(
+                      "a", List.of(1L, Map.of("b", List.of()), Map.of()), "c", nullable("d", null)),
+                  "empty",
+                  List.of(),
+                  "emptyObject",
+                  Map.of(),
+                  "_id",
+                  "id-1",
+                  "_index",
+                  "idx")),
+          List.of(
+              Map.of(
+                  "hits",
+                  Map.of("hits", List.of(Map.of("_source", 1L))),
+                  "_scroll_id",
+                  "X",
+                  "é",
+                  Map.of("w", List.of(1L, 2L)),
+                  "_id",
+                  "id-1",
+                  "_index",
+                  "idx")),
+          List.of(Map.of("dup", "second", "_id", "id-1", "_index", "idx")),
+          List.of(Map.of("a", 1L, "_id", "id-1", "_index", "idx")),
+          List.of(Map.of("_id", "id-1", "_index", "idx")));
+
+  static Stream<Arguments> sources() {
+    return IntStream.range(0, SOURCES.size())
+        .mapToObj(i -> Arguments.of(SOURCES.get(i), RECORDS.get(i)));
   }
 
   @ParameterizedTest
   @MethodSource("sources")
-  void recordsAreTheLegacyJsonOnes(String source) throws Exception {
-    ElasticsearchDocument doc = document(source);
-
-    List<Map<String, Object>> converted = converted(doc);
-
-    assertEquals(
-        List.of(legacy(EncodingType.JSON_OBJECT, doc), legacy(EncodingType.JSON_OBJECT_LINE, doc)),
-        List.of(converted, converted));
+  void recordsKeepTheirJsonTypes(String source, List<Map<String, Object>> expected)
+      throws Exception {
+    assertEquals(expected, converted(document(source)));
   }
 
   @Test
@@ -74,22 +161,16 @@ class ElasticsearchRawDataConverterTest {
 
     assertEquals(
         List.of(
-            List.of(Map.of("d", "Infinity", "n", "-Infinity", "_id", "id-1", "_index", "idx")),
-            List.of(Map.of("d", "Infinity", "n", "-Infinity", "_id", "id-1", "_index", "idx")),
-            List.of(
-                Map.of(
-                    "d",
-                    Double.POSITIVE_INFINITY,
-                    "n",
-                    Double.NEGATIVE_INFINITY,
-                    "_id",
-                    "id-1",
-                    "_index",
-                    "idx"))),
-        List.of(
-            legacy(EncodingType.JSON_OBJECT, doc),
-            legacy(EncodingType.JSON_OBJECT_LINE, doc),
-            converted(doc)));
+            Map.of(
+                "d",
+                Double.POSITIVE_INFINITY,
+                "n",
+                Double.NEGATIVE_INFINITY,
+                "_id",
+                "id-1",
+                "_index",
+                "idx")),
+        converted(doc));
   }
 
   @Test
@@ -142,18 +223,12 @@ class ElasticsearchRawDataConverterTest {
         "id-1", "idx", OBJECT_MAPPER.convertValue(OBJECT_MAPPER.readTree(source), Map.class));
   }
 
-  private static List<Map<String, Object>> legacy(
-      EncodingType encodingType, ElasticsearchDocument doc) throws Exception {
-    return DeserializerFactory.createDeserializerFactory(encodingType)
-        .createDeserializer()
-        .deserialize(
-            new SerializedEvent(
-                null,
-                OBJECT_MAPPER.writeValueAsBytes(doc.source()),
-                Map.of("_id", doc.id(), "_index", doc.index())))
-        .stream()
-        .map(RecordFleakData::unwrap)
-        .toList();
+  private static Map<String, Object> nullable(Object... keysAndValues) {
+    Map<String, Object> map = new HashMap<>();
+    for (int i = 0; i < keysAndValues.length; i += 2) {
+      map.put((String) keysAndValues[i], keysAndValues[i + 1]);
+    }
+    return map;
   }
 
   private List<Map<String, Object>> converted(ElasticsearchDocument doc) {

@@ -20,7 +20,6 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
@@ -54,7 +53,15 @@ class FileSourceConfigValidatorTest {
     File tempFile = new File(tempDir, "test.txt");
     assertTrue(tempFile.createNewFile());
 
-    for (EncodingType type : DeserializerFactory.SUPPORTED_ENCODING_TYPES) {
+    for (EncodingType type :
+        List.of(
+            EncodingType.CSV,
+            EncodingType.JSON_OBJECT,
+            EncodingType.JSON_ARRAY,
+            EncodingType.JSON_OBJECT_LINE,
+            EncodingType.STRING_LINE,
+            EncodingType.TEXT,
+            EncodingType.XML)) {
       FileSourceDto.Config config =
           FileSourceDto.Config.builder()
               .filePath(tempFile.getAbsolutePath())

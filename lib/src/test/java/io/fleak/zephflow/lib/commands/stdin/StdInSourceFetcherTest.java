@@ -14,17 +14,10 @@
 package io.fleak.zephflow.lib.commands.stdin;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
-import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,12 +25,10 @@ import org.junit.jupiter.api.Test;
 /** Created by bolei on 12/20/24 */
 class StdInSourceFetcherTest {
   private final InputStream originalSystemIn = System.in;
-  private FleakDeserializer<?> mockDeserializer;
   private StdInSourceFetcher fetcher;
 
   @BeforeEach
   void setUp() {
-    mockDeserializer = mock(FleakDeserializer.class);
     fetcher = new StdInSourceFetcher();
   }
 
@@ -52,10 +43,6 @@ class StdInSourceFetcherTest {
     String testInput = "{\"key\":\"value\"}\n\n";
     ByteArrayInputStream testIn = new ByteArrayInputStream(testInput.getBytes());
     System.setIn(testIn);
-
-    // Mock deserializer behavior
-    RecordFleakData mockRecord = mock(RecordFleakData.class);
-    when(mockDeserializer.deserialize(any(SerializedEvent.class))).thenReturn(List.of(mockRecord));
 
     // Execute fetch
     var result = fetcher.fetch();
@@ -78,9 +65,6 @@ class StdInSourceFetcherTest {
     String testInput = "\n";
     ByteArrayInputStream testIn = new ByteArrayInputStream(testInput.getBytes());
     System.setIn(testIn);
-
-    // Mock deserializer behavior
-    when(mockDeserializer.deserialize(any(SerializedEvent.class))).thenReturn(List.of());
 
     // Execute fetch
     var result = fetcher.fetch();

@@ -13,6 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.filedecode;
 
+import static io.fleak.zephflow.lib.serdes.EncodingType.CSV;
+import static io.fleak.zephflow.lib.serdes.EncodingType.JSON_ARRAY;
+import static io.fleak.zephflow.lib.serdes.EncodingType.JSON_OBJECT;
+import static io.fleak.zephflow.lib.serdes.EncodingType.JSON_OBJECT_LINE;
+import static io.fleak.zephflow.lib.serdes.EncodingType.STRING_LINE;
+import static io.fleak.zephflow.lib.serdes.EncodingType.TEXT;
+import static io.fleak.zephflow.lib.serdes.EncodingType.XML;
+
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
@@ -27,8 +35,8 @@ import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The inputs that decide how a file source's bytes are decoded: either the legacy {@code
@@ -36,6 +44,9 @@ import java.util.List;
  */
 public record SourceDecoding(
     EncodingType encodingType, CompressionType compressionType, DecodingConfig decoding) {
+
+  private static final Set<EncodingType> SUPPORTED_ENCODING_TYPES =
+      Set.of(CSV, JSON_OBJECT, JSON_ARRAY, JSON_OBJECT_LINE, STRING_LINE, TEXT, XML);
 
   /** The format's type name, as {@code decoding} spells it ({@code json}, {@code csv}, ...). */
   public String formatName() {
@@ -79,7 +90,13 @@ public record SourceDecoding(
       }
       return decoding;
     }
-    DeserializerFactory.validateEncodingType(encodingType);
+    if (!SUPPORTED_ENCODING_TYPES.contains(encodingType)) {
+      throw new IllegalArgumentException(
+          "Unsupported deserialization encoding type: "
+              + encodingType
+              + ". Supported types: "
+              + SUPPORTED_ENCODING_TYPES);
+    }
     DecompressionCodec codec =
         compressionType == CompressionType.GZIP ? DecompressionCodec.GZIP : DecompressionCodec.AUTO;
     return new DecodingConfig(List.of(codec), format(encodingType));

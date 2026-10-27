@@ -25,7 +25,6 @@ import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
@@ -39,13 +38,10 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * The same events through the legacy {@link IotHubRawDataConverter} and {@link
- * IotHubMessageConverter}: both give the records written out here, merged metadata fields and
- * {@code _iothub} envelope included.
+ * Events through {@link IotHubMessageConverter} give the records written out here, merged metadata
+ * fields and {@code _iothub} envelope included.
  */
 class IotHubMessageConverterTest {
-
-  record Observed(List<RecordFleakData> legacy, List<RecordFleakData> decoded) {}
 
   private static final Map<String, String> METADATA =
       Map.of("deviceId", "sensor-01", "enqueuedTime", "2026-07-16T10:00:00Z", "prop.schema", "v2");
@@ -165,16 +161,12 @@ class IotHubMessageConverterTest {
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("cases")
-  void legacyAndDecoderGiveTheSameRecords(
+  void givesTheRecordsWithMetadataAndEnvelope(
       String name,
       EncodingType encodingType,
       SerializedEvent event,
       List<RecordFleakData> records) {
-    assertEquals(
-        new Observed(records, records),
-        new Observed(
-            legacy(encodingType, event).transformedData(),
-            decoded(encodingType, event).transformedData()));
+    assertEquals(records, decoded(encodingType, event).transformedData());
   }
 
   @Test
@@ -186,34 +178,22 @@ class IotHubMessageConverterTest {
   }
 
   @Test
-  void aBadMessageFailsOnBoth() {
+  void aBadMessageFails() {
     SerializedEvent event = event(null, "not json", METADATA);
 
-    ConvertedResult<SerializedEvent> legacy = legacy(EncodingType.JSON_OBJECT, event);
     ConvertedResult<SerializedEvent> decoded = decoded(EncodingType.JSON_OBJECT, event);
 
     assertEquals(
         Arrays.asList(
             null,
             event,
-            null,
-            event,
             MessageDecodeException.class,
             "MALFORMED json message: JsonParseException"),
         Arrays.asList(
-            legacy.transformedData(),
-            legacy.sourceRecord(),
             decoded.transformedData(),
             decoded.sourceRecord(),
             decoded.error().getClass(),
             decoded.error().getMessage()));
-  }
-
-  private static ConvertedResult<SerializedEvent> legacy(
-      EncodingType encodingType, SerializedEvent event) {
-    return new IotHubRawDataConverter(
-            DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer())
-        .convert(event, context());
   }
 
   private static ConvertedResult<SerializedEvent> decoded(

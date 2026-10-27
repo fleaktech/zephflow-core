@@ -18,12 +18,10 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
-import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
+import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import jakarta.jms.*;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -70,10 +68,11 @@ class ActiveMqSourceFetcherTest {
     assertNull(fetchedData.getFirst().key());
     assertNotNull(fetchedData.getFirst().value());
 
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT)
-            .createDeserializer();
-    BytesRawDataConverter converter = new BytesRawDataConverter(deserializer);
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            ActiveMqSourceCommand.decodingConfig(
+                ActiveMqSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build()),
+            MessageDecodingConverter.Unit.MESSAGE);
 
     SourceExecutionContext<SerializedEvent> mockContext = mock();
     when(mockContext.dataSizeCounter()).thenReturn(mock());

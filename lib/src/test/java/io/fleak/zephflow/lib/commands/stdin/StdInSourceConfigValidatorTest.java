@@ -22,7 +22,6 @@ import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +43,15 @@ class StdInSourceConfigValidatorTest {
 
   @Test
   void validateConfig_allSupportedEncodingTypes() {
-    for (EncodingType type : DeserializerFactory.SUPPORTED_ENCODING_TYPES) {
+    for (EncodingType type :
+        List.of(
+            EncodingType.CSV,
+            EncodingType.JSON_OBJECT,
+            EncodingType.JSON_ARRAY,
+            EncodingType.JSON_OBJECT_LINE,
+            EncodingType.STRING_LINE,
+            EncodingType.TEXT,
+            EncodingType.XML)) {
       StdInSourceDto.Config config = StdInSourceDto.Config.builder().encodingType(type).build();
 
       assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));

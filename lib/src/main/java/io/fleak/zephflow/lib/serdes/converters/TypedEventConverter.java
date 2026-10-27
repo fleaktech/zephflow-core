@@ -15,19 +15,8 @@ package io.fleak.zephflow.lib.serdes.converters;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.TypedEventContainer;
-import org.apache.commons.collections4.MapUtils;
 
 /** Created by bolei on 9/16/24 */
 public abstract class TypedEventConverter<T> {
-  public RecordFleakData typedEventToFleakData(TypedEventContainer<T> typedEvent) {
-    RecordFleakData recordFleakData = payloadToFleakData(typedEvent.payload());
-    if (MapUtils.isNotEmpty(typedEvent.getMetadataPayload())) {
-      recordFleakData.getPayload().putAll(typedEvent.getMetadataPayload());
-    }
-    return recordFleakData;
-  }
-
-  protected abstract RecordFleakData payloadToFleakData(T payload);
-
   public abstract TypedEventContainer<T> fleakDataToTypedEvent(RecordFleakData recordFleakData);
 }

@@ -154,7 +154,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     return ConvertedResult.success(records, sourceRecord);
   }
 
-  /** Puts the message's metadata over each record's fields, as the legacy deserializers did. */
+  /** Puts the message's metadata over each record's fields. */
   private static List<RecordFleakData> withMetadata(
       List<RecordFleakData> records, SerializedEvent sourceRecord) {
     Map<String, String> metadata = SerializedEvent.metadataWithKey(sourceRecord);

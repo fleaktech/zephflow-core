@@ -14,18 +14,19 @@
 package io.fleak.zephflow.lib.commands.parser;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
+import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonBytes;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_RAW;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,33 +43,20 @@ class ParserCommandTest {
         (ParserCommand) new ParserCommandFactory().createCommand("my_node", JOB_CONTEXT);
     command.parseAndValidateArg(parserConfigMap);
 
-    DeserializerFactory<?> deserializerFactory =
-        DeserializerFactory.createDeserializerFactory(EncodingType.STRING_LINE);
-    FleakDeserializer<?> deserializer = deserializerFactory.createDeserializer();
-
-    DeserializerFactory<?> expectedDataDeserializerFactory =
-        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_ARRAY);
-    FleakDeserializer<?> expectedDataDeserializer =
-        expectedDataDeserializerFactory.createDeserializer();
-
     try (InputStream testInput = this.getClass().getResourceAsStream("/parser/cisco_asa_data.txt");
         InputStream expectedIn =
             this.getClass().getResourceAsStream("/parser/cisco_asa_parsed.json")) {
       byte[] input = IOUtils.toByteArray(Objects.requireNonNull(testInput));
-      SerializedEvent serializedEvent = new SerializedEvent(null, input, null);
-
       byte[] expectedOutput = IOUtils.toByteArray(Objects.requireNonNull(expectedIn));
-      SerializedEvent expectedDataSerializedEvent = new SerializedEvent(null, expectedOutput, null);
 
-      List<RecordFleakData> inputEvents = deserializer.deserialize(serializedEvent);
+      List<RecordFleakData> inputEvents = lines(input);
       command.initialize(new MetricClientProvider.NoopMetricClientProvider());
       var context = command.getExecutionContext();
       var processResult = command.process(inputEvents, "test_user", context);
 
       List<RecordFleakData> parsedEvents = processResult.getOutput();
 
-      List<RecordFleakData> expected =
-          expectedDataDeserializer.deserialize(expectedDataSerializedEvent);
+      List<RecordFleakData> expected = jsonObjects(expectedOutput);
       assertEquals(expected, parsedEvents);
     } catch (Exception e) {
       throw new RuntimeException(e);
@@ -83,29 +71,42 @@ class ParserCommandTest {
         (ParserCommand) new ParserCommandFactory().createCommand("my_node", JOB_CONTEXT);
     command.parseAndValidateArg(parserConfigMap);
 
-    DeserializerFactory<?> deserializerFactory =
-        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT);
-    FleakDeserializer<?> deserializer = deserializerFactory.createDeserializer();
-
     try (InputStream testInput =
             this.getClass().getResourceAsStream("/parser/zscaler_kv_data.json");
         InputStream expectedIn =
             this.getClass().getResourceAsStream("/parser/zscaler_kv_parsed.json")) {
       byte[] input = IOUtils.toByteArray(Objects.requireNonNull(testInput));
-      SerializedEvent serializedEvent = new SerializedEvent(null, input, null);
-
       byte[] expectedOutput = IOUtils.toByteArray(Objects.requireNonNull(expectedIn));
-      SerializedEvent expectedDataSerializedEvent = new SerializedEvent(null, expectedOutput, null);
 
-      List<RecordFleakData> inputEvents = deserializer.deserialize(serializedEvent);
+      List<RecordFleakData> inputEvents = List.of(jsonObject(input));
       command.initialize(new MetricClientProvider.NoopMetricClientProvider());
       var context = command.getExecutionContext();
       var processResult = command.process(inputEvents, "test_user", context);
 
       List<RecordFleakData> parsedEvents = processResult.getOutput();
 
-      List<RecordFleakData> expected = deserializer.deserialize(expectedDataSerializedEvent);
+      List<RecordFleakData> expected = List.of(jsonObject(expectedOutput));
       assertEquals(expected, parsedEvents);
     }
+  }
+
+  /** Each line as a {@code __raw__} record, as STRING_LINE read it. */
+  private static List<RecordFleakData> lines(byte[] bytes) {
+    return new String(bytes, StandardCharsets.UTF_8)
+        .lines()
+        .map(
+            line -> new RecordFleakData(Map.of(FIELD_NAME_RAW, new StringPrimitiveFleakData(line))))
+        .toList();
+  }
+
+  /** The array's objects as records, as JSON_ARRAY read them. */
+  private static List<RecordFleakData> jsonObjects(byte[] bytes) {
+    List<ObjectNode> objects = fromJsonBytes(bytes, new TypeReference<>() {});
+    return objects.stream().map(JsonUtils::fromJsonPayload).toList();
+  }
+
+  /** The object as a record, as JSON_OBJECT read it. */
+  private static RecordFleakData jsonObject(byte[] bytes) {
+    return JsonUtils.fromJsonPayload(fromJsonBytes(bytes, new TypeReference<ObjectNode>() {}));
   }
 }
