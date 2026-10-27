@@ -12,8 +12,8 @@ it:
   `PubSubRawDataConverter` and `IotHubRawDataConverter`.
 
 There are two decoders with different results for the same input, and a caller that picks the old
-one no longer gets what the sources do. Nothing outside this repository's tests uses them any more,
-so they can go.
+one no longer gets what the sources do. Outside this repository nothing uses them; inside, only
+the IoT Hub converter's constants and `SourceDecoding`'s check, which move. So they can go.
 
 ## Scope
 
@@ -91,8 +91,9 @@ Removed with their code:
   `serdes/unittest_xml_expected_output.json`), and the decompressor tests in `serdes/compression`
   (`CompositeDecompressorTest`, `DecompressorFactoryTest`, `GzipDecompressorTest`,
   `GzipDetectingDecompressorTest`); `GzipCompressorTest` and `CompressorFactoryTest` stay. The
-  `isGzip` cases of `GzipDetectingDecompressorTest` (null, empty, one byte) move to a new
-  `CompressionUtilsTest`, since `isGzip` stays public;
+  cases of `GzipDetectingDecompressorTest` that test the kept public helpers move to a new
+  `CompressionUtilsTest`: `isGzip` is false for null, empty, one byte and an uncompressed payload
+  (one expected list of booleans), and `gunzip` throws on a truncated gzip payload;
 - `BytesRawDataConverterTest`;
 - `IotHubRawDataConverterTest`: its three cases are already covered, on whole records through the
   source's converter, by `IotHubMessageConverterTest`'s `metadataAndProperties`,
@@ -107,13 +108,16 @@ Legacy comparisons, rewritten to keep every case:
   `S3RealtimeDecodingCasesTest`; method names and Javadocs that mention the legacy side
   (`legacyAndDecoderResults`, `aTruncatedGzipEmitsTheRecordsBeforeTheCutWhereLegacyFailed`,
   `legacyAndDecoderGiveTheSameRecords`, `aBadMessageFailsOnBoth`,
-  `xmlWithOver1021AttributesNowDecodes`, the case builder `legacy(...)`) are renamed to say what the
+  `xmlWithOver1021AttributesNowDecodes`, the case builders `same`, `both`, `differs`, `legacy`, and
+  case comments such as "decodes the same" or "fails … on both sides") are renamed to say what the
   generic decoder does.
 - `ElasticsearchRawDataConverterTest.recordsAreTheLegacyJsonOnes` states no expectation: its 10
   `SOURCES` documents (big and small numbers, `-0.0`, duplicate keys, `_id`/`_index` clashes) are
   compared with the legacy deserializers' output computed at run time. Before the legacy code goes,
-  that output is captured once, on this branch, and written into the test as a literal expected
-  record list per document; the test then compares the converter's records with it. The captured
+  that output is captured once, on this branch, and written into the test as a literal unwrapped
+  `List<Map<String, Object>>` per document (exact `Long` / `Double` / `-0.0` values); the test then
+  compares `converted(doc)` with it as today, since `RecordFleakData` equality would ignore number
+  types. `SOURCES` stays a `List<String>`. The captured
   values are what the converter produces today (the test passes now), so no expectation changes;
   the test is renamed (`recordsKeepTheirJsonTypes`). `aNumberBeyondTheDoubleRangeStaysANumber`
   also calls the legacy helper: its two legacy rows go and its converter row (positive and negative
@@ -138,7 +142,9 @@ Tests that use a legacy class as a tool:
 - `S3SinkCommandTest`: read back the written objects with the generic decoder for the same
   `encodingType` and no decompression (`MessageDecodingConverter.decodingConfig(encodingType, null,
   false)` + `RecordDecoder`), so an uncompressed sink that starts compressing still fails; the gzip
-  case keeps its explicit `CompressionUtils.gunzip` first. Same expected objects.
+  case keeps its explicit `CompressionUtils.gunzip` first. The expected value is the whole
+  `DecodeResult(inputEvents, List.of())`, so a malformed extra record also fails, as the legacy
+  all-or-nothing read did.
 - `FileSourceConfigValidatorTest`, `KafkaSourceConfigValidatorTest`,
   `StdInSourceConfigValidatorTest`: iterate the seven accepted values listed in the test instead of
   `DeserializerFactory.SUPPORTED_ENCODING_TYPES`.
@@ -153,7 +159,8 @@ Tests that use a legacy class as a tool:
 Checks:
 - `git grep -nP 'serdes\.des\b|DeserializerFactory|FleakDeserializer|\b(Composite|Gzip|GzipDetecting|Noop)?Decompressor(Factory)?\b|(Bytes|Sqs|PubSub|IotHub)RawDataConverter|(JsonObject|String)TypedEventConverter|typedEventToFleakData|payloadToFleakData|getMetadataPayload' -- . ':!docs'`
   finds nothing (`-P`: `\b` needs Perl syntax; before the change it lists every file this spec
-  removes or rewrites). (`serdes.decode.compress.Decompressors` and the parquet codecs' decompressors are
+  removes or rewrites to drop a legacy reference). `git grep -n 'legacy deserializ' -- lib` finds
+  nothing either. (`serdes.decode.compress.Decompressors` and the parquet codecs' decompressors are
   generic-decoder code and do not match.)
 - `./gradlew build` (all modules, javadoc included) and `./gradlew :lib:goldenTest` pass; the golden
   harness and fixtures use no removed class, and no expected file changes.
