@@ -26,11 +26,17 @@ Removed (main code):
 | `commands/source/BytesRawDataConverter`, `commands/sqssource/SqsRawDataConverter`, `commands/pubsubsource/PubSubRawDataConverter`, `commands/azureiothubsource/IotHubRawDataConverter` | 4 |
 | The decode half of `serdes.converters`, used only by the deserializers: `JsonObjectTypedEventConverter`, `StringTypedEventConverter`; `TypedEventConverter.typedEventToFleakData` / `payloadToFleakData` and their implementations in `ObjectMapTypedEventConverter` and `RecordFleakDataTypedEventConverter`; `TypedEventContainer.getMetadataPayload` | 2 files, 4 edited |
 
+The converters row is a second step past the ticket's list: those methods convert legacy
+deserializer output and have no other caller here or in the downstream code checked for this change,
+so keeping them would leave a public half of the legacy decode path.
+
 Kept:
 - The compressors in `serdes.compression` (`Compressor`, `CompressorFactory`, `GzipCompressor`,
   `NoopCompressor`): the S3 and blob sinks write with them; they are not decoders.
-- The encode half of `serdes.converters` (`fleakDataToTypedEvent`) and `TypedEventContainer` with its
-  `metadataWithKey` component: the serializers use them.
+- The encode half of `serdes.converters` (`fleakDataToTypedEvent`) and `TypedEventContainer`: the
+  serializers use them. Its `metadataWithKey` component is always null once the deserializers are
+  gone (only they set it), but `SingleEventTypedSerializer` reads it; it stays so that the
+  serializers' API does not change here.
 - `commands/source/RawDataConverter`, the interface the generic converters implement.
 - General utilities that library users call directly: `XmlUtils`, `JsonUtils.fromJsonBytes`,
   `CompressionUtils.gunzip` / `isGzip`. Inside this repository only the removed code and tests call
@@ -80,9 +86,13 @@ methods are gone for any code that compiled against them.
 ## Tests
 
 Removed with their code:
-- the tests under `serdes/des` (7 files) and the decompressor tests in `serdes/compression`
+- the tests under `serdes/des` (7 files), with the resources only they read
+  (`serdes/json_array_per_line_input.jsonl`, `serdes/unittest_xml_input.xml`,
+  `serdes/unittest_xml_expected_output.json`), and the decompressor tests in `serdes/compression`
   (`CompositeDecompressorTest`, `DecompressorFactoryTest`, `GzipDecompressorTest`,
-  `GzipDetectingDecompressorTest`); `GzipCompressorTest` and `CompressorFactoryTest` stay;
+  `GzipDetectingDecompressorTest`); `GzipCompressorTest` and `CompressorFactoryTest` stay. The
+  `isGzip` cases of `GzipDetectingDecompressorTest` (null, empty, one byte) move to a new
+  `CompressionUtilsTest`, since `isGzip` stays public;
 - `BytesRawDataConverterTest`;
 - `IotHubRawDataConverterTest`: its three cases are already covered, on whole records through the
   source's converter, by `IotHubMessageConverterTest`'s `metadataAndProperties`,
@@ -96,14 +106,18 @@ Legacy comparisons, rewritten to keep every case:
   helpers and the legacy-only expectations go. The classes become `MessageDecodingCasesTest` and
   `S3RealtimeDecodingCasesTest`; method names and Javadocs that mention the legacy side
   (`legacyAndDecoderResults`, `aTruncatedGzipEmitsTheRecordsBeforeTheCutWhereLegacyFailed`,
-  `legacyAndDecoderGiveTheSameRecords`, `aBadMessageFailsOnBoth`) are renamed to say what the
+  `legacyAndDecoderGiveTheSameRecords`, `aBadMessageFailsOnBoth`,
+  `xmlWithOver1021AttributesNowDecodes`, the case builder `legacy(...)`) are renamed to say what the
   generic decoder does.
 - `ElasticsearchRawDataConverterTest.recordsAreTheLegacyJsonOnes` states no expectation: its 10
   `SOURCES` documents (big and small numbers, `-0.0`, duplicate keys, `_id`/`_index` clashes) are
   compared with the legacy deserializers' output computed at run time. Before the legacy code goes,
   that output is captured once, on this branch, and written into the test as a literal expected
   record list per document; the test then compares the converter's records with it. The captured
-  values are what the converter produces today (the test passes now), so no expectation changes.
+  values are what the converter produces today (the test passes now), so no expectation changes;
+  the test is renamed (`recordsKeepTheirJsonTypes`). `aNumberBeyondTheDoubleRangeStaysANumber`
+  also calls the legacy helper: its two legacy rows go and its converter row (positive and negative
+  infinity) stays as the whole expected value.
 
 Tests that use a legacy class as a tool:
 - `ActiveMqSourceFetcherTest`, `KafkaSourceFetcherTest`: build the converter the source builds
@@ -116,13 +130,15 @@ Tests that use a legacy class as a tool:
   the generic decoder's `MALFORMED` text instead of "Test deserialization error".
 - `StdInSourceFetcherTest`: the mocked `FleakDeserializer` and its stubs are deleted; the fetcher
   never receives it.
-- `ParserCommandTest`, `CompiledRulesTest`: the line fixtures are read with plain line reading
-  (instead of STRING_LINE), and the JSON fixtures (JSON_ARRAY, and JSON_OBJECT in
+- `ParserCommandTest`, `CompiledRulesTest`: the line fixtures are read with plain line reading,
+  each line wrapped as `{"__raw__": line}` as STRING_LINE did, and the JSON fixtures (JSON_ARRAY, and JSON_OBJECT in
   `testParseKvWithTabSeparator`) with `JsonUtils.fromJsonBytes` into `ObjectNode`s and
   `JsonUtils.fromJsonPayload` per object, the mapping the legacy JSON deserializers used, so the
   expected objects are unchanged.
 - `S3SinkCommandTest`: read back the written objects with the generic decoder for the same
-  `encodingType` (`SourceDecoding` + `RecordDecoder`), same expected objects.
+  `encodingType` and no decompression (`MessageDecodingConverter.decodingConfig(encodingType, null,
+  false)` + `RecordDecoder`), so an uncompressed sink that starts compressing still fails; the gzip
+  case keeps its explicit `CompressionUtils.gunzip` first. Same expected objects.
 - `FileSourceConfigValidatorTest`, `KafkaSourceConfigValidatorTest`,
   `StdInSourceConfigValidatorTest`: iterate the seven accepted values listed in the test instead of
   `DeserializerFactory.SUPPORTED_ENCODING_TYPES`.
@@ -130,12 +146,14 @@ Tests that use a legacy class as a tool:
   `DeserializerFactory.SUPPORTED_ENCODING_TYPES`. It checks the fixed prefix
   ("Unsupported deserialization encoding type: PARQUET. Supported types: ") and that the bracketed
   list, parsed into a set, equals the seven names (the set's order is not stable).
-- `KvTypedSerializerTest`: the assertion that `DeserializerFactory` rejects KV goes;
+- `KvTypedSerializerTest`: the assertion that `DeserializerFactory` rejects KV goes, and
+  `kvIsOptInPerSinkAndNotDeserializable` is renamed to what it still checks;
   `SourceDecodingTest.invalidCombinationsAreRejected` gains the KV case next to PARQUET.
 
 Checks:
-- `git grep -nE 'serdes\.des\b|DeserializerFactory|FleakDeserializer|\b(Composite|Gzip|GzipDetecting|Noop)?Decompressor(Factory)?\b|(Bytes|Sqs|PubSub|IotHub)RawDataConverter|(JsonObject|String)TypedEventConverter|typedEventToFleakData|payloadToFleakData|getMetadataPayload' -- . ':!docs'`
-  finds nothing. (`serdes.decode.compress.Decompressors` and the parquet codecs' decompressors are
+- `git grep -nP 'serdes\.des\b|DeserializerFactory|FleakDeserializer|\b(Composite|Gzip|GzipDetecting|Noop)?Decompressor(Factory)?\b|(Bytes|Sqs|PubSub|IotHub)RawDataConverter|(JsonObject|String)TypedEventConverter|typedEventToFleakData|payloadToFleakData|getMetadataPayload' -- . ':!docs'`
+  finds nothing (`-P`: `\b` needs Perl syntax; before the change it lists every file this spec
+  removes or rewrites). (`serdes.decode.compress.Decompressors` and the parquet codecs' decompressors are
   generic-decoder code and do not match.)
 - `./gradlew build` (all modules, javadoc included) and `./gradlew :lib:goldenTest` pass; the golden
   harness and fixtures use no removed class, and no expected file changes.
@@ -143,7 +161,8 @@ Checks:
 ## Docs
 
 `docs/ARCHITECTURE.md` stops describing `lib/serdes/` as holding deserializers (the generic decoder
-lives in `lib/serdes/decode/`). Other docs under `docs/spec` and `docs/superpowers` are records of
+lives in `lib/serdes/decode/`), and `MessageDecodingConverter`'s Javadoc stops comparing with "the
+legacy deserializers". Other docs under `docs/spec` and `docs/superpowers` are records of
 earlier work and stay as written.
 
 ## Delivery
