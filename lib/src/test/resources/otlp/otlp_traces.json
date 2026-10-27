@@ -1,0 +1,111 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "checkout" } },
+          { "key": "process.pid", "value": { "intValue": "4211" } }
+        ]
+      },
+      "schemaUrl": "https://opentelemetry.io/schemas/1.24.0",
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "io.fleak.demo.checkout",
+            "version": "1.0.0",
+            "attributes": [
+              { "key": "scope.tier", "value": { "stringValue": "backend" } }
+            ]
+          },
+          "spans": [
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "eee19b7ec3c1b174",
+              "traceState": "fleak=1",
+              "name": "POST /checkout",
+              "kind": 2,
+              "startTimeUnixNano": "1750000000000000123",
+              "endTimeUnixNano": "1750000000500000456",
+              "attributes": [
+                { "key": "http.route", "value": { "stringValue": "/checkout" } },
+                { "key": "http.status_code", "value": { "intValue": "500" } }
+              ],
+              "droppedAttributesCount": 1,
+              "events": [
+                {
+                  "timeUnixNano": "1750000000100000000",
+                  "name": "exception",
+                  "attributes": [
+                    { "key": "exception.type", "value": { "stringValue": "TimeoutError" } }
+                  ],
+                  "droppedAttributesCount": 2
+                },
+                {
+                  "timeUnixNano": "1750000000200000000",
+                  "name": "retry"
+                }
+              ],
+              "droppedEventsCount": 3,
+              "links": [
+                {
+                  "traceId": "aaaefff798038103d269b633813fc60c",
+                  "spanId": "bbb19b7ec3c1b174",
+                  "traceState": "upstream=1",
+                  "attributes": [
+                    { "key": "link.kind", "value": { "stringValue": "follows_from" } }
+                  ],
+                  "droppedAttributesCount": 4
+                }
+              ],
+              "droppedLinksCount": 5,
+              "status": { "code": "STATUS_CODE_ERROR", "message": "upstream timeout" }
+            },
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "ccc19b7ec3c1b174",
+              "parentSpanId": "eee19b7ec3c1b174",
+              "name": "GET /inventory",
+              "kind": "SPAN_KIND_CLIENT",
+              "startTimeUnixNano": "1750000000150000000",
+              "endTimeUnixNano": "1750000000250000000",
+              "status": { "code": 1 }
+            }
+          ]
+        },
+        {
+          "scope": { "name": "io.fleak.demo.cache" },
+          "spans": [
+            {
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "ddd19b7ec3c1b174",
+              "name": "cache.get",
+              "startTimeUnixNano": "1750000000300000000",
+              "endTimeUnixNano": "1750000000310000000"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "shipping" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "9998efff798038103d269b633813fc6c",
+              "spanId": "fff19b7ec3c1b174",
+              "name": "carrier.quote",
+              "kind": 4,
+              "startTimeUnixNano": "1750000000400000000",
+              "endTimeUnixNano": "1750000000900000000"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

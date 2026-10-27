@@ -56,7 +56,7 @@ ByteInput (caller's stream; random access for parquet)
   → decompression chain (configured codecs, or "auto" = gzip detection)
   → transcoding to UTF-8 (text formats only, when the input is not UTF-8)
   → format: either a format with its own record boundaries (json, csv, xml, yaml, avro, protobuf,
-            parquet), or text framing (line, multiline, whole)
+            otlp, parquet), or text framing (line, multiline, whole)
   → caller pulls one DecodeOutcome at a time
 ```
 
@@ -177,7 +177,7 @@ DecodeResult all = decoder.decodeAll(bytes, limits);              // small input
   record ordinal starting at 1.
 - `span` is the record's offset and length in the stream after decompression and transcoding. It is
   given where exact (line-based formats, csv, json array elements, length-delimited protobuf,
-  whole documents) and null otherwise (xml elements, yaml multi-document, avro, parquet).
+  whole documents) and null otherwise (xml elements, yaml multi-document, avro, otlp, parquet).
 - `Failed.raw` holds the record's bytes where they can be located; otherwise it is empty and the
   caller uses `span`, or fetches the input again.
 
@@ -229,6 +229,7 @@ Compression inside avro and parquet belongs to those formats and is not configur
 | `yaml` | `mode`: `document`, `multi_document` | Each document must be a mapping |
 | `avro` | `container`: `ocf` (an object container file, which carries its schema), or `datum` (the whole input is one record) with `schema` (JSON, or a string holding it) | One record per avro record; the schema must be a record |
 | `protobuf` | `descriptorSet` (a base64 `FileDescriptorSet` with every dependency; line breaks are allowed), `messageType` (full name), `framing`: `single`, `varint_delimited` | One record per message, by proto field name |
+| `otlp` | `signal`: `logs`, `metrics`, `traces` | One record per log record, span or metric data point of one binary OTLP export request, in OTLP/JSON's names (see below) |
 | `parquet` | — | One record per row, by column name. Needs random access; cannot be combined with `compression` |
 
 **Multiline.** Exactly one pattern is set; it is a Java regex searched anywhere in the line, so
@@ -324,6 +325,22 @@ the whole input is one message, and an empty input is a message with every field
 message that does not parse is `MALFORMED`, and one over `maxRecordBytes` is `Oversized` with a
 preview; both lose only themselves. A broken prefix or an input that ends inside a message is
 terminal.
+
+**OTLP.** The whole input is one `ExportLogsServiceRequest`, `ExportMetricsServiceRequest` or
+`ExportTraceServiceRequest`, as `signal` says (a message does not name its type, so the caller
+picks it), parsed with the official OTLP classes after the same object budget as protobuf. Each log
+record, span or metric data point is one record: its fields by OTLP/JSON name, with its metric
+(name, description, unit, metadata and the metric type as `metricType`), its scope and resource
+attributes as plain maps, and the schema URLs. 64-bit integers are strings, each with a
+`*Millis` companion for times; `severityNumber` stays a number; other enums are names; trace and
+span ids are hex and other bytes base64; attribute lists become maps. A value at its proto3 default
+is omitted, as OTLP/JSON omits it, and a metric without data has no records. The records are the
+ones `OtlpRecords.fromJson` makes from the same request in OTLP/JSON, which zephflow-plus
+`otel_source` produces from JSON input. Records are built one at a time as they are pulled. A
+message that does not parse is a terminal `MALFORMED`, and a record whose own serialized size is
+over `maxRecordBytes` is `Oversized` with a preview of those bytes and loses only itself. An empty
+input has no records. Bytes of another signal are not detected: they parse into meaningless records
+or are `MALFORMED`.
 
 **Parquet.** The file is read by parquet-mr's own `ParquetFileReader`, through random access. Before
 it parses the footer, the footer is checked: the file must start and end with `PAR1`, and the
@@ -569,3 +586,11 @@ P51–P54 and P58–P60 describe PR8's own reader, which PR9 replaced (section 1
 | P64 | `readNextRowGroup` does not advance past a row group that fails, and refuses one of 0 rows, so the cursor skips such groups itself; a row group whose rows its data cannot fill loses the rows from the first one that cannot be read |
 | P65 | Page headers are the other place: parquet-mr parses them with an unbounded thrift protocol, and reads the last chunk of a row group into a buffer of whatever size a page claims, so one flipped bit in a header could allocate tens of megabytes. The cursor therefore reads each run of consecutive chunks itself, walks their headers as parquet will, and lends the bytes to parquet's reader through the `InputFile`, which reads them from memory instead of the input, except a page that runs past its chunk. A page may run past its chunk, as parquet tolerates for old writers, but not past the file's data |
 | P66 | Thrift checks string lengths against the protocol's limit but binary lengths only through its transport, so the bounded parser reads from a transport that compares every claimed length with the bytes left; with thrift's own transport a damaged binary field could still allocate up to 100 MB |
+
+## 17. OTLP format notes
+
+| # | Note |
+|---|---|
+| P67 | Each leaf is turned into its OTLP/JSON map (`OtlpJsonMaps`) and then into a record by the walkers moved from zephflow-plus `otel_source`, so one implementation decides the record shape for JSON and protobuf input. Tests compare the format's records with those of the same message printed by protobuf's `JsonFormat` (enums as numbers, ids as hex) |
+| P68 | `opentelemetry-proto` 1.11.1-alpha is built with protobuf 4.36.2, which became the project's protobuf version |
+| P69 | A leaf's resource and scope maps are built once per scope and shared by its records until each record is wrapped; the message itself is held until the cursor ends |

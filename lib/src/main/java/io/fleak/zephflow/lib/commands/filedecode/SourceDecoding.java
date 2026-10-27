@@ -30,6 +30,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.OtlpFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
@@ -58,6 +59,7 @@ public record SourceDecoding(
       case AvroFormatConfig f -> "avro";
       case CsvFormatConfig f -> "csv";
       case JsonFormatConfig f -> "json";
+      case OtlpFormatConfig f -> "otlp";
       case ParquetFormatConfig f -> "parquet";
       case ProtobufFormatConfig f -> "protobuf";
       case TextFormatConfig f -> "text";

@@ -31,6 +31,7 @@ import io.fleak.zephflow.lib.serdes.decode.internal.RandomAccessDecoder;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonArrayFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonLinesFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonObjectFormat;
+import io.fleak.zephflow.lib.serdes.decode.otlp.OtlpFormat;
 import io.fleak.zephflow.lib.serdes.decode.parquet.ParquetFormat;
 import io.fleak.zephflow.lib.serdes.decode.protobuf.ProtobufDelimitedFormat;
 import io.fleak.zephflow.lib.serdes.decode.protobuf.ProtobufSingleFormat;
@@ -80,6 +81,7 @@ public final class DecodingConfigCompiler {
       case AvroFormatConfig avro -> streamed(codecs, avro(avro));
       case CsvFormatConfig csv -> streamed(codecs, csv(csv));
       case JsonFormatConfig json -> streamed(codecs, json(json));
+      case OtlpFormatConfig otlp -> streamed(codecs, otlp(otlp));
       case ParquetFormatConfig parquet -> parquet(codecs);
       case ProtobufFormatConfig protobuf -> streamed(codecs, protobuf(protobuf));
       case TextFormatConfig text -> streamed(codecs, text(text));
@@ -243,6 +245,14 @@ public final class DecodingConfigCompiler {
       case DOCUMENT -> (in, limits, flags) -> new YamlDocumentFormat(in, limits);
       case MULTI_DOCUMENT -> YamlMultiDocumentFormat::new;
     };
+  }
+
+  private static FormatFactory otlp(OtlpFormatConfig otlp) {
+    OtlpFormatConfig.Signal signal = otlp.signal();
+    if (signal == null) {
+      throw new IllegalArgumentException("otlp format needs a signal: logs, metrics or traces");
+    }
+    return (in, limits, flags) -> new OtlpFormat(in, limits, signal);
   }
 
   private static FormatFactory protobuf(ProtobufFormatConfig protobuf) {

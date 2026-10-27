@@ -229,6 +229,7 @@ public record DlqTexts(
     return switch (format) {
       case "avro" -> "an avro block";
       case "protobuf" -> "a protobuf message";
+      case "otlp" -> "an OTLP export request";
       case "parquet" -> "the parquet footer";
       default -> "a unit";
     };

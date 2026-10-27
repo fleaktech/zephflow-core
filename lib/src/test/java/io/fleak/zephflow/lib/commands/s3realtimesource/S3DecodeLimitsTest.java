@@ -21,6 +21,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.OtlpFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
@@ -45,12 +46,14 @@ class S3DecodeLimitsTest {
     FormatConfig avro = new AvroFormatConfig(null, null);
     FormatConfig protobuf = new ProtobufFormatConfig(null, null, null);
     FormatConfig parquet = new ParquetFormatConfig();
+    FormatConfig otlp = new OtlpFormatConfig(OtlpFormatConfig.Signal.LOGS);
     return Stream.of(
         Arguments.of(json, 2 * GIB, new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB)),
         Arguments.of(text, 2 * GIB, new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB)),
         Arguments.of(avro, 2 * GIB, new DecodeLimits(16 * MIB, 4 * MIB, 128 * MIB)),
         Arguments.of(protobuf, 2 * GIB, new DecodeLimits(2 * MIB, 2 * MIB, 128 * MIB)),
         Arguments.of(parquet, 2 * GIB, DecodeLimits.UNLIMITED),
+        Arguments.of(otlp, 2 * GIB, new DecodeLimits(2 * MIB, 2 * MIB, 128 * MIB)),
         Arguments.of(
             new CsvFormatConfig(null, null, null, null, null, null, null, true, null),
             2 * GIB,

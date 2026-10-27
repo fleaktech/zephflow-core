@@ -34,7 +34,8 @@ databricksSdk = "0.165.0"
 # x86_64 + aarch64). The later 1.2.0 repackage dropped the native libraries, so it fails to
 # load at runtime — do not bump without verifying natives are present in the jar.
 zerobusSdk = "1.0.1"
-protobuf = "4.33.0"
+protobuf = "4.36.2"
+opentelemetryProto = "1.11.1-alpha"
 deltaKernel = "4.0.0"
 netty = "4.1.138.Final"
 zookeeper = "3.8.7"
@@ -133,6 +134,8 @@ hadoop-aws = { module = "org.apache.hadoop:hadoop-aws", version.ref = "hadoop" }
 databricks-sdk = { module = "com.databricks:databricks-sdk-java", version.ref = "databricksSdk" }
 zerobus-ingest-sdk = { module = "com.databricks:zerobus-ingest-sdk", version.ref = "zerobusSdk" }
 protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+protobuf-java-util = { module = "com.google.protobuf:protobuf-java-util", version.ref = "protobuf" }
+opentelemetry-proto = { module = "io.opentelemetry.proto:opentelemetry-proto", version.ref = "opentelemetryProto" }
 
 delta-kernel-api = { module = "io.delta:delta-kernel-api", version.ref = "deltaKernel" }
 delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref = "deltaKernel" }
