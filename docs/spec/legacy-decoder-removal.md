@@ -12,8 +12,8 @@ it:
   `PubSubRawDataConverter` and `IotHubRawDataConverter`.
 
 There are two decoders with different results for the same input, and a caller that picks the old
-one no longer gets what the sources do. Outside this repository nothing uses them; inside, only
-the IoT Hub converter's constants and `SourceDecoding`'s check, which move. So they can go.
+one no longer gets what the sources do. Outside this repository nothing uses them; inside main code,
+only the IoT Hub converter's constants and `SourceDecoding`'s check, which move. So they can go.
 
 ## Scope
 
