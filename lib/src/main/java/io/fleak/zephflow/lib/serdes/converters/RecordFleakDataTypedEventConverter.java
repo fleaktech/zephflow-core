@@ -23,11 +23,6 @@ import io.fleak.zephflow.lib.serdes.TypedEventContainer;
 public class RecordFleakDataTypedEventConverter extends TypedEventConverter<RecordFleakData> {
 
   @Override
-  protected RecordFleakData payloadToFleakData(RecordFleakData payload) {
-    return payload;
-  }
-
-  @Override
   public TypedEventContainer<RecordFleakData> fleakDataToTypedEvent(RecordFleakData data) {
     return new TypedEventContainer<>(data, null);
   }

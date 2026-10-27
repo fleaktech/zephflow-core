@@ -13,18 +13,12 @@
  */
 package io.fleak.zephflow.lib.serdes.converters;
 
-import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.TypedEventContainer;
 import java.util.Map;
 
 /** Created by bolei on 9/16/24 */
 public class ObjectMapTypedEventConverter extends TypedEventConverter<Map<String, Object>> {
-
-  @Override
-  protected RecordFleakData payloadToFleakData(Map<String, Object> payload) {
-    return (RecordFleakData) FleakData.wrap(payload);
-  }
 
   @Override
   public TypedEventContainer<Map<String, Object>> fleakDataToTypedEvent(

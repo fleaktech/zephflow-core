@@ -18,12 +18,10 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
-import io.fleak.zephflow.lib.commands.source.BytesRawDataConverter;
+import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.time.Duration;
 import java.util.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -102,12 +100,13 @@ class KafkaSourceFetcherTest {
     // Set up mockConsumer to return consumerRecords
     when(mockConsumer.poll(Duration.ofMillis(1000))).thenReturn(consumerRecords);
 
-    FleakDeserializer<?> deserializer =
-        DeserializerFactory.createDeserializerFactory(EncodingType.JSON_OBJECT)
-            .createDeserializer();
     KafkaSourceFetcher fetcher = new KafkaSourceFetcher(mockConsumer, null);
 
-    BytesRawDataConverter converter = new BytesRawDataConverter(deserializer);
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            KafkaSourceCommand.decodingConfig(
+                KafkaSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build()),
+            MessageDecodingConverter.Unit.MESSAGE);
 
     SourceExecutionContext<SerializedEvent> sourceInitializedConfig = mock();
     when(sourceInitializedConfig.dataSizeCounter()).thenReturn(mock());

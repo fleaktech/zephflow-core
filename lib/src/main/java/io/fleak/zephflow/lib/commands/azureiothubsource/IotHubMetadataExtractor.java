@@ -40,13 +40,13 @@ public class IotHubMetadataExtractor implements Function<EventContext, Map<Strin
     if (systemProperties != null) {
       Object deviceId = systemProperties.get(DEVICE_ID_SYSTEM_PROPERTY);
       if (deviceId != null) {
-        metadata.put(IotHubRawDataConverter.DEVICE_ID_KEY, String.valueOf(deviceId));
+        metadata.put(IotHubMessageConverter.DEVICE_ID_KEY, String.valueOf(deviceId));
       }
     }
 
     if (eventData.getEnqueuedTime() != null) {
       metadata.put(
-          IotHubRawDataConverter.ENQUEUED_TIME_KEY, eventData.getEnqueuedTime().toString());
+          IotHubMessageConverter.ENQUEUED_TIME_KEY, eventData.getEnqueuedTime().toString());
     }
 
     Map<String, Object> properties = eventData.getProperties();
@@ -54,7 +54,7 @@ public class IotHubMetadataExtractor implements Function<EventContext, Map<Strin
       for (Map.Entry<String, Object> e : properties.entrySet()) {
         if (e.getValue() != null) {
           metadata.put(
-              IotHubRawDataConverter.PROPERTY_PREFIX + e.getKey(), String.valueOf(e.getValue()));
+              IotHubMessageConverter.PROPERTY_PREFIX + e.getKey(), String.valueOf(e.getValue()));
         }
       }
     }

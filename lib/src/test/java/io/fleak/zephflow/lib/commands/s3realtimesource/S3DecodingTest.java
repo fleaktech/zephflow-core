@@ -26,9 +26,10 @@ import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import io.fleak.zephflow.lib.utils.JsonUtils;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -113,13 +114,28 @@ class S3DecodingTest {
 
   @Test
   void parquetEncodingTypeIsRejected() {
-    assertEquals(
-        "Unsupported deserialization encoding type: PARQUET. Supported types: "
-            + DeserializerFactory.SUPPORTED_ENCODING_TYPES,
+    String prefix = "Unsupported deserialization encoding type: PARQUET. Supported types: ";
+    String message =
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new S3Decoding(EncodingType.PARQUET, null, null, false).decodingConfig())
-            .getMessage());
+            .getMessage();
+
+    String supported = message.substring(prefix.length());
+    assertEquals(
+        List.of(
+            prefix,
+            Set.of(
+                "CSV",
+                "JSON_OBJECT",
+                "JSON_ARRAY",
+                "JSON_OBJECT_LINE",
+                "STRING_LINE",
+                "TEXT",
+                "XML")),
+        List.of(
+            message.substring(0, prefix.length()),
+            Set.copyOf(Arrays.asList(supported.substring(1, supported.length() - 1).split(", ")))));
   }
 
   @Test

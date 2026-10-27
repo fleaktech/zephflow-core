@@ -22,7 +22,6 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -306,7 +305,15 @@ class KafkaSourceConfigValidatorTest {
 
   @Test
   void testAllSupportedEncodingTypes() {
-    for (EncodingType type : DeserializerFactory.SUPPORTED_ENCODING_TYPES) {
+    for (EncodingType type :
+        List.of(
+            EncodingType.CSV,
+            EncodingType.JSON_OBJECT,
+            EncodingType.JSON_ARRAY,
+            EncodingType.JSON_OBJECT_LINE,
+            EncodingType.STRING_LINE,
+            EncodingType.TEXT,
+            EncodingType.XML)) {
       KafkaSourceDto.Config config =
           KafkaSourceDto.Config.builder()
               .broker("localhost:9092")

@@ -35,12 +35,14 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.S3DlqWriterTest;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.DeserializerFactory;
+import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
+import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.*;
@@ -138,9 +140,7 @@ public class S3SinkCommandTest {
 
     ResponseBytes<GetObjectResponse> s3ObjectBytes = s3Client.getObjectAsBytes(getObjectRequest);
     byte[] data = s3ObjectBytes.asByteArray();
-    var deser = DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
-    var actual = deser.deserialize(new SerializedEvent(null, data, null));
-    assertEquals(inputEvents, actual);
+    assertEquals(new DecodeResult(inputEvents, List.of()), decoded(encodingType, data));
   }
 
   @Test
@@ -320,11 +320,9 @@ public class S3SinkCommandTest {
         s3Client
             .getObjectAsBytes(GetObjectRequest.builder().bucket(BUCKET_NAME).key(objectKey).build())
             .asByteArray();
-    var deserializer =
-        DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
-    var actualEvents =
-        deserializer.deserialize(new SerializedEvent(null, gunzip(compressedObjectBytes), null));
-    assertEquals(inputEvents, actualEvents);
+    assertEquals(
+        new DecodeResult(inputEvents, List.of()),
+        decoded(encodingType, gunzip(compressedObjectBytes)));
   }
 
   // The default credential chain is pointed at bogus keys, so the write only succeeds when the sink
@@ -393,9 +391,7 @@ public class S3SinkCommandTest {
                     .key(listObjectsResponse.contents().get(0).key())
                     .build())
             .asByteArray();
-    var deserializer =
-        DeserializerFactory.createDeserializerFactory(encodingType).createDeserializer();
-    assertEquals(inputEvents, deserializer.deserialize(new SerializedEvent(null, data, null)));
+    assertEquals(new DecodeResult(inputEvents, List.of()), decoded(encodingType, data));
   }
 
   private List<Map<String, Object>> readParquetRecords(File parquetFile, StructType schema)
@@ -570,5 +566,12 @@ public class S3SinkCommandTest {
     assertTrue(object.key().endsWith(".jsonl"), object.key());
     assertEquals(
         2, new String(object.data(), java.nio.charset.StandardCharsets.UTF_8).lines().count());
+  }
+
+  /** The object read back as {@code encodingType}, with no decompression. */
+  private static DecodeResult decoded(EncodingType encodingType, byte[] data) {
+    return DecodingConfigCompiler.compile(
+            MessageDecodingConverter.decodingConfig(encodingType, null, false))
+        .decodeAll(data, DecodeLimits.UNLIMITED);
   }
 }

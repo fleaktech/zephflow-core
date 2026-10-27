@@ -20,11 +20,12 @@ import static org.mockito.Mockito.*;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.des.FleakDeserializer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -73,12 +74,14 @@ class SimpleSourceCommandTest {
   private static final String TEST_NODE_ID = "testNode";
   private static final String TEST_COMMAND_NAME = "testCommand";
   private static final Map<String, Object> TEST_CONFIG = Map.of("k", "test-config");
+  private static final byte[] JSON = "{\"a\":1}".getBytes();
+  private static final RecordFleakData RECORD = (RecordFleakData) FleakData.wrap(Map.of("a", 1));
+  private static final byte[] NOT_JSON = "test data".getBytes();
 
   private JobContext mockJobContext;
   private ConfigParser mockConfigParser;
   private ConfigValidator mockConfigValidator;
   private Fetcher<SerializedEvent> mockFetcher;
-  private FleakDeserializer<?> mockDeserializer;
   private RawDataEncoder<SerializedEvent> mockEncoder;
   private Fetcher.Committer mockCommitter;
   private SourceEventAcceptor mockSourceEventAcceptor;
@@ -98,9 +101,10 @@ class SimpleSourceCommandTest {
     mockConfigParser = mock(ConfigParser.class);
     mockConfigValidator = mock(ConfigValidator.class);
     mockFetcher = mock();
-    mockDeserializer = mock();
     RawDataConverter<SerializedEvent> rawDataConverter =
-        new BytesRawDataConverter(mockDeserializer);
+        new MessageDecodingConverter(
+            MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, false),
+            MessageDecodingConverter.Unit.MESSAGE);
     mockEncoder = mock();
     mockSourceEventAcceptor = mock(SourceEventAcceptor.class);
     mockMetricClientProvider = mock(MetricClientProvider.class);
@@ -144,18 +148,13 @@ class SimpleSourceCommandTest {
 
   @Test
   void testExecuteWithSuccessfulFetch() throws Exception {
-    // Setup test data
-    RecordFleakData mockRecord = mock(RecordFleakData.class);
-
-    SerializedEvent mockRaw = new SerializedEvent(null, "abcdef".getBytes(), null);
-    List<SerializedEvent> fetched = List.of(mockRaw);
+    List<SerializedEvent> fetched = List.of(new SerializedEvent(null, JSON, null));
     when(mockFetcher.fetch())
         .thenAnswer(
             i -> {
               command.terminate();
               return fetched;
             });
-    when(mockDeserializer.deserialize(same(mockRaw))).thenReturn(List.of(mockRecord));
 
     // Setup commit strategy
     when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
@@ -165,10 +164,10 @@ class SimpleSourceCommandTest {
     command.initialize(mockMetricClientProvider);
     command.execute("testUser", mockSourceEventAcceptor);
 
-    verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
+    verify(mockSourceEventAcceptor).accept(Collections.singletonList(RECORD));
     verify(mockCommitter).commit();
     verify(mockSourceEventAcceptor).terminate();
-    verify(dataSizeCounter).increase(6, Map.of());
+    verify(dataSizeCounter).increase(JSON.length, Map.of());
     verify(inputEventCounter).increase(1, Map.of());
     verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
     verify(deserializeFailureCounter, never()).increase(anyMap());
@@ -176,12 +175,8 @@ class SimpleSourceCommandTest {
 
   @Test
   void testExecuteWithProcessingError() throws Exception {
-    SerializedEvent serializedEvent = new SerializedEvent(null, "test data".getBytes(), null);
-    // Setup test data
-    RecordFleakData mockRecord = mock(RecordFleakData.class);
-
+    SerializedEvent serializedEvent = new SerializedEvent(null, JSON, null);
     List<SerializedEvent> fetched = List.of(serializedEvent);
-    when(mockDeserializer.deserialize(same(serializedEvent))).thenReturn(List.of(mockRecord));
 
     // Setup processing error
     RuntimeException testException = new RuntimeException("Test processing error");
@@ -209,7 +204,7 @@ class SimpleSourceCommandTest {
     verify(mockDlqWriter)
         .writeToDlq(
             anyLong(), same(serializedEvent), contains("Test processing error"), eq("unknown"));
-    verify(dataSizeCounter).increase(9, Map.of());
+    verify(dataSizeCounter).increase(JSON.length, Map.of());
     verify(inputEventCounter).increase(1, Map.of());
     verify(deserializeFailureCounter, never()).increase(anyLong(), anyMap());
     verify(deserializeFailureCounter, never()).increase(anyMap());
@@ -217,15 +212,13 @@ class SimpleSourceCommandTest {
 
   @Test
   public void testExecuteWithDeserError() throws Exception {
-    SerializedEvent serializedEvent = new SerializedEvent(null, "test data".getBytes(), null);
+    SerializedEvent serializedEvent = new SerializedEvent(null, NOT_JSON, null);
     when(mockFetcher.fetch())
         .thenAnswer(
             invocation -> {
               command.terminate();
               return List.of(serializedEvent);
             });
-    when(mockDeserializer.deserialize(any()))
-        .thenThrow(new IllegalArgumentException("Test deserialization error"));
     when(mockEncoder.serialize(same(serializedEvent))).thenReturn(serializedEvent);
 
     // Setup commit strategy
@@ -237,12 +230,8 @@ class SimpleSourceCommandTest {
 
     verify(mockEncoder).serialize(same(serializedEvent));
     verify(mockDlqWriter)
-        .writeToDlq(
-            anyLong(),
-            same(serializedEvent),
-            contains("Test deserialization error"),
-            eq(TEST_NODE_ID));
-    verify(dataSizeCounter).increase(9, Map.of());
+        .writeToDlq(anyLong(), same(serializedEvent), contains("MALFORMED"), eq(TEST_NODE_ID));
+    verify(dataSizeCounter).increase(NOT_JSON.length, Map.of());
     verify(inputEventCounter, never()).increase(anyLong(), anyMap());
     verify(inputEventCounter, never()).increase(anyMap());
     verify(deserializeFailureCounter).increase(Map.of());
@@ -250,11 +239,8 @@ class SimpleSourceCommandTest {
 
   @Test
   void testExecuteWithDownstreamNodeError() throws Exception {
-    SerializedEvent serializedEvent = new SerializedEvent(null, "test data".getBytes(), null);
-    RecordFleakData mockRecord = mock(RecordFleakData.class);
-
+    SerializedEvent serializedEvent = new SerializedEvent(null, JSON, null);
     List<SerializedEvent> fetched = List.of(serializedEvent);
-    when(mockDeserializer.deserialize(same(serializedEvent))).thenReturn(List.of(mockRecord));
 
     NodeExecutionException downstreamError =
         new NodeExecutionException(
@@ -312,14 +298,10 @@ class SimpleSourceCommandTest {
 
   @Test
   void testFetcherExhaustedWithDataProcessesBeforeExit() throws Exception {
-    // Setup test data
-    RecordFleakData mockRecord = mock(RecordFleakData.class);
-    SerializedEvent mockRaw = new SerializedEvent(null, "abcdef".getBytes(), null);
-    List<SerializedEvent> fetched = List.of(mockRaw);
+    List<SerializedEvent> fetched = List.of(new SerializedEvent(null, JSON, null));
 
     when(mockFetcher.fetch()).thenReturn(fetched);
     when(mockFetcher.isExhausted()).thenReturn(true);
-    when(mockDeserializer.deserialize(same(mockRaw))).thenReturn(List.of(mockRecord));
 
     // Setup commit strategy
     when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
@@ -331,7 +313,7 @@ class SimpleSourceCommandTest {
 
     // Verify data was processed before exit
     verify(mockFetcher, times(1)).fetch();
-    verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
+    verify(mockSourceEventAcceptor).accept(Collections.singletonList(RECORD));
     verify(mockCommitter).commit();
     verify(mockSourceEventAcceptor).terminate();
   }
@@ -341,22 +323,20 @@ class SimpleSourceCommandTest {
     // No DLQ config set — sampler should be no-op and not cause issues
     when(mockJobContext.getDlqConfig()).thenReturn(null);
 
-    RecordFleakData mockRecord = mock(RecordFleakData.class);
-    SerializedEvent mockRaw = new SerializedEvent(null, "abcdef".getBytes(), null);
+    SerializedEvent raw = new SerializedEvent(null, JSON, null);
     when(mockFetcher.fetch())
         .thenAnswer(
             i -> {
               command.terminate();
-              return List.of(mockRaw);
+              return List.of(raw);
             });
-    when(mockDeserializer.deserialize(same(mockRaw))).thenReturn(List.of(mockRecord));
     when(mockCommitStrategy.getCommitMode()).thenReturn(CommitStrategy.CommitMode.BATCH);
     when(mockCommitStrategy.shouldCommitNow(anyInt(), anyLong())).thenReturn(false);
 
     command.initialize(mockMetricClientProvider);
     command.execute("testUser", mockSourceEventAcceptor);
 
-    verify(mockSourceEventAcceptor).accept(Collections.singletonList(mockRecord));
+    verify(mockSourceEventAcceptor).accept(Collections.singletonList(RECORD));
     verify(mockSourceEventAcceptor).terminate();
   }
 }

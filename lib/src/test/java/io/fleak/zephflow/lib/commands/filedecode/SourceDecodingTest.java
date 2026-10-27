@@ -88,13 +88,15 @@ class SourceDecodingTest {
             "exactly one of encodingType and decoding must be set",
             "compressionType is only allowed with encodingType; decoding carries its own"
                 + " compression",
-            "Unsupported deserialization encoding type: PARQUET"),
+            "Unsupported deserialization encoding type: PARQUET",
+            "Unsupported deserialization encoding type: KV"),
         Arrays.stream(
                 new SourceDecoding[] {
                   new SourceDecoding(null, null, null),
                   new SourceDecoding(EncodingType.CSV, null, PARQUET),
                   new SourceDecoding(null, CompressionType.GZIP, PARQUET),
-                  new SourceDecoding(EncodingType.PARQUET, null, null)
+                  new SourceDecoding(EncodingType.PARQUET, null, null),
+                  new SourceDecoding(EncodingType.KV, null, null)
                 })
             .map(
                 d ->
