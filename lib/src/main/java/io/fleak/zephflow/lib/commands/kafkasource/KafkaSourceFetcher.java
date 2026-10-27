@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
@@ -32,10 +33,18 @@ import org.apache.kafka.common.TopicPartition;
 public record KafkaSourceFetcher(
     KafkaConsumer<byte[], byte[]> consumer,
     KafkaHealthMonitor healthMonitor,
-    CommitStrategy commitStrategy)
+    CommitStrategy commitStrategy,
+    Function<ConsumerRecord<byte[], byte[]>, Map<String, String>> metadataExtractor)
     implements Fetcher<SerializedEvent> {
 
   private static final LogOffsetCommitCallback COMMIT_CALLBACK = new LogOffsetCommitCallback();
+
+  public KafkaSourceFetcher(
+      KafkaConsumer<byte[], byte[]> consumer,
+      KafkaHealthMonitor healthMonitor,
+      CommitStrategy commitStrategy) {
+    this(consumer, healthMonitor, commitStrategy, record -> null);
+  }
 
   public KafkaSourceFetcher(
       KafkaConsumer<byte[], byte[]> consumer, KafkaHealthMonitor healthMonitor) {
@@ -52,7 +61,8 @@ public record KafkaSourceFetcher(
     List<SerializedEvent> rawEvents = new ArrayList<>();
 
     for (ConsumerRecord<byte[], byte[]> r : records) {
-      SerializedEvent serializedEvent = new SerializedEvent(r.key(), r.value(), null);
+      SerializedEvent serializedEvent =
+          new SerializedEvent(r.key(), r.value(), metadataExtractor.apply(r));
       rawEvents.add(serializedEvent);
     }
     return rawEvents;
