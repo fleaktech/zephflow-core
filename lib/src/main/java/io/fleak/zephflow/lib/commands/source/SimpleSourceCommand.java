@@ -212,9 +212,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
 
     commitStrategy.onBatchStart();
     int recordCount = 0;
+    int handledRecords = 0;
     long lastCommitTime = System.currentTimeMillis();
 
     for (ConvertedResult<T> convertedResult : convertedResults) {
+      handledRecords++;
       if (convertedResult.error() instanceof MessageDecodeException decodeFailure) {
         deadLetterDecodeFailure(
             convertedResult.sourceRecord(), decodeFailure, dlqWriter, rawDataEncoder);
@@ -246,7 +248,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       if (committer != null && commitStrategy.shouldCommitNow(recordCount, timeSinceLastCommit)) {
         sourceEventAcceptor.beforeCommit();
         try {
-          committer.commit();
+          committer.commitThrough(handledRecords);
           recordCount = 0;
           lastCommitTime = currentTime;
           log.debug("Committed batch of records after {} ms", timeSinceLastCommit);
@@ -262,7 +264,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         && commitStrategy.getCommitMode() == CommitStrategy.CommitMode.BATCH) {
       sourceEventAcceptor.beforeCommit();
       try {
-        committer.commit();
+        committer.commitThrough(handledRecords);
         log.debug("Final commit for batch with {} remaining records", recordCount);
       } catch (Exception e) {
         log.error("failed to commit final batch", e);

@@ -67,7 +67,7 @@ class SimpleSourceCommandDecodeFailureTest {
     verify(dlqWriter).writeToDlq(anyLong(), same(bad), eq(TEXT), eq(NODE_ID));
     verify(dlqWriter).writeToDlq(anyLong(), any(), anyString(), anyString());
     verify(acceptor).accept(List.of(record));
-    verify(committer).commit();
+    verify(committer).commitThrough(2);
   }
 
   @Test
@@ -75,7 +75,7 @@ class SimpleSourceCommandDecodeFailureTest {
     run(decodeFailure(), dlqWriter, List.of(bad, bad));
 
     verify(dlqWriter, times(2)).writeToDlq(anyLong(), same(bad), eq(TEXT), eq(NODE_ID));
-    verify(committer, never()).commit();
+    verify(committer, never()).commitThrough(anyInt());
   }
 
   @Test
@@ -95,7 +95,7 @@ class SimpleSourceCommandDecodeFailureTest {
         errors.stream().map(e -> e.getMessage().getFormattedMessage()).toList());
     assertSame(writeError, errors.getFirst().getThrown());
     verify(acceptor).accept(List.of(record));
-    verify(committer).commit();
+    verify(committer).commitThrough(2);
     verify(acceptor).terminate();
   }
 
@@ -104,7 +104,7 @@ class SimpleSourceCommandDecodeFailureTest {
     run(decodeFailure(), null, List.of(bad, good));
 
     verify(acceptor).accept(List.of(record));
-    verify(committer).commit();
+    verify(committer).commitThrough(2);
   }
 
   @Test
@@ -131,7 +131,7 @@ class SimpleSourceCommandDecodeFailureTest {
     run(otherFailure(), dlqWriter, List.of(bad, good));
 
     verify(acceptor, never()).accept(any());
-    verify(committer, never()).commit();
+    verify(committer, never()).commitThrough(anyInt());
     verify(acceptor).terminate();
   }
 

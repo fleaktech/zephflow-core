@@ -139,6 +139,39 @@ class SimpleSourceCommandCommitTest {
     verifyNoInteractions(dlqWriter);
   }
 
+  @Test
+  void testCommitCoversOnlyRecordsHandedOverSoFar() throws Exception {
+    List<Integer> committedThrough = new ArrayList<>();
+    mockCommitter =
+        new Fetcher.Committer() {
+          @Override
+          public void commit() {
+            throw new AssertionError("expected a bounded commit");
+          }
+
+          @Override
+          public void commitThrough(int handledRecords) {
+            committedThrough.add(handledRecords);
+          }
+        };
+    AtomicInteger accepted = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              if (accepted.incrementAndGet() == 2) {
+                throw new IllegalStateException("downstream failure");
+              }
+              return null;
+            })
+        .when(sourceEventAcceptor)
+        .accept(any());
+    TestSourceCommand command = new TestSourceCommand();
+
+    command.testProcessFetchedData(createTestData(8), BatchCommitStrategy.ofBatchSize(3));
+
+    // the second record went to the DLQ, so it is handled but not counted toward the batch size
+    assertEquals(List.of(4, 7, 8), committedThrough);
+  }
+
   private static SourceEventAcceptor recordingAcceptor(
       List<String> calls, RuntimeException beforeCommitFailure) {
     return new SourceEventAcceptor() {

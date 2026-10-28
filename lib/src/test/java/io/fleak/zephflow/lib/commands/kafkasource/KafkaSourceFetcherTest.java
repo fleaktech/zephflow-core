@@ -14,6 +14,9 @@
 package io.fleak.zephflow.lib.commands.kafkasource;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
@@ -27,6 +30,8 @@ import java.util.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
@@ -183,5 +188,34 @@ class KafkaSourceFetcherTest {
         new KafkaSourceFetcher(
                 consumerReturningRecordWithHeader(), null, BatchCommitStrategy.forKafka())
             .fetch().stream().map(FetchedEvent::from).toList());
+  }
+
+  @Test
+  void commitThroughCommitsTheNextOffsetOfHandledRecordsPerPartition() throws Exception {
+    KafkaConsumer<byte[], byte[]> consumer = mock();
+    TopicPartition p0 = new TopicPartition("topic", 0);
+    TopicPartition p1 = new TopicPartition("topic", 1);
+    Map<TopicPartition, List<ConsumerRecord<byte[], byte[]>>> polled = new LinkedHashMap<>();
+    polled.put(p0, List.of(record(p0, 10), record(p0, 11), record(p0, 12)));
+    polled.put(p1, List.of(record(p1, 40), record(p1, 41)));
+    when(consumer.poll(Duration.ofMillis(1000))).thenReturn(new ConsumerRecords<>(polled));
+    KafkaSourceFetcher fetcher = new KafkaSourceFetcher(consumer, null);
+    fetcher.fetch();
+
+    fetcher.committer().commitThrough(2);
+    fetcher.committer().commitThrough(4);
+    fetcher.committer().commitThrough(0);
+
+    verify(consumer).commitAsync(eq(Map.of(p0, new OffsetAndMetadata(12))), any());
+    verify(consumer)
+        .commitAsync(
+            eq(Map.of(p0, new OffsetAndMetadata(13), p1, new OffsetAndMetadata(41))), any());
+    verify(consumer, times(2)).commitAsync(anyMap(), any());
+    verify(consumer, never()).commitAsync(any(OffsetCommitCallback.class));
+  }
+
+  private static ConsumerRecord<byte[], byte[]> record(TopicPartition partition, long offset) {
+    return new ConsumerRecord<>(
+        partition.topic(), partition.partition(), offset, "k".getBytes(), "v".getBytes());
   }
 }
