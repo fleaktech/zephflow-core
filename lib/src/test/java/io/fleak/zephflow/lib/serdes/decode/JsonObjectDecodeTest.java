@@ -97,7 +97,7 @@ class JsonObjectDecodeTest {
                 "[1]",
                 -1,
                 new RawSpan(0, 3),
-                "IllegalArgumentException: expected a JSON object but found ARRAY",
+                "IllegalArgumentException: expected a JSON object, got a JSON array",
                 true)),
         decode(OBJECT, utf8("[1]")));
     assertEquals(

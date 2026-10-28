@@ -146,8 +146,11 @@ Downstream failures keep today's handling: the message as received, the stack tr
 failing node's id (or `unknown`).
 
 Every failed message is counted and logged at error, with or without a DLQ, as today. The log
-line keeps today's content (the message's key, value and metadata) and adds the first line; that
-content is built only when error logging is enabled. Without a DLQ, the message is then dropped.
+line keeps today's content (the message's key, value and metadata) and adds the first line,
+followed by the first line of the error's message (for example `MALFORMED json message:
+IllegalArgumentException: expected a JSON array, got a JSON object`). The key and value are shown
+as text when they are valid UTF-8 without control characters other than tabs and line breaks, and
+in base64 otherwise. That content is built only when error logging is enabled. Without a DLQ, the message is then dropped.
 
 ### 3.4 Limits and memory
 
