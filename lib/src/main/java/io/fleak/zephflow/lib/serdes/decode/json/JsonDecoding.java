@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.serdes.decode.json;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,9 +57,21 @@ final class JsonDecoding {
 
   static RecordFleakData toRecord(JsonNode node) {
     if (!(node instanceof ObjectNode object)) {
-      throw new IllegalArgumentException("expected a JSON object but found " + node.getNodeType());
+      throw new IllegalArgumentException("expected a JSON object, got " + describe(node.asToken()));
     }
     return JsonUtils.fromJsonPayload(object);
+  }
+
+  static String describe(JsonToken token) {
+    return switch (token) {
+      case START_OBJECT -> "a JSON object";
+      case START_ARRAY -> "a JSON array";
+      case VALUE_STRING -> "a JSON string";
+      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> "a JSON number";
+      case VALUE_TRUE, VALUE_FALSE -> "a JSON boolean";
+      case VALUE_NULL -> "null";
+      default -> token.toString();
+    };
   }
 
   static long byteOffset(JsonLocation location) {

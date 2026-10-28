@@ -39,7 +39,7 @@ class JsonArrayDecodeTest {
                 "7",
                 2,
                 new RawSpan(10, 1),
-                "IllegalArgumentException: expected a JSON object but found NUMBER",
+                "IllegalArgumentException: expected a JSON object, got a JSON number",
                 false),
             new Ok(json("{\"b\":[1,2]}"), 3, new RawSpan(13, 11))),
         decode(ARRAY, utf8(input)));
@@ -74,9 +74,19 @@ class JsonArrayDecodeTest {
                 "",
                 1,
                 RawSpan.toEnd(0),
-                "IllegalArgumentException: expected a JSON array but found START_OBJECT",
+                "IllegalArgumentException: expected a JSON array, got a JSON object",
                 true)),
         decode(ARRAY, utf8("{\"records\":[]}")));
+    assertEquals(
+        List.of(
+            new Bad(
+                ErrorKind.MALFORMED,
+                "",
+                1,
+                RawSpan.toEnd(0),
+                "IllegalArgumentException: expected a JSON array, got a JSON string",
+                true)),
+        decode(ARRAY, utf8("\"a\"")));
   }
 
   @Test

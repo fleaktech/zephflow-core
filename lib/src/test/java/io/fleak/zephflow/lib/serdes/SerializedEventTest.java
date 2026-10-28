@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.METADATA_KEY;
 import static io.fleak.zephflow.lib.utils.MiscUtils.toBase64String;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -103,5 +104,40 @@ class SerializedEventTest {
     assertArrayEquals(value, event.value());
     assertEquals(1, event.metadata().size());
     assertEquals("testEvent", event.metadata().get("eventType"));
+  }
+
+  @Test
+  void toStringShowsTextAsText() {
+    SerializedEvent event =
+        new SerializedEvent(
+            "k".getBytes(StandardCharsets.UTF_8),
+            "{\"a\":\t\"é\"}\r\n".getBytes(StandardCharsets.UTF_8),
+            Map.of("m", "1"));
+
+    assertEquals(
+        "key(text):\nk\nvalue(text):\n{\"a\":\t\"é\"}\r\n\nmetadata:\n{\"m\":\"1\"}",
+        event.toString());
+  }
+
+  @Test
+  void toStringShowsBinaryAsBase64() {
+    byte[] invalidUtf8 = {(byte) 0xff, 'a'};
+    byte[] control = {'a', 0, 'b'};
+    SerializedEvent event = new SerializedEvent(invalidUtf8, control, null);
+
+    assertEquals(
+        "key(base64):\n"
+            + toBase64String(invalidUtf8)
+            + "\nvalue(base64):\n"
+            + toBase64String(control)
+            + "\nmetadata:\nnull",
+        event.toString());
+  }
+
+  @Test
+  void toStringShowsNullAsNull() {
+    assertEquals(
+        "key:\nnull\nvalue:\nnull\nmetadata:\nnull",
+        new SerializedEvent(null, null, null).toString());
   }
 }
