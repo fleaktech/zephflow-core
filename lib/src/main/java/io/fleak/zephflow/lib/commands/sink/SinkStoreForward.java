@@ -51,11 +51,6 @@ public interface SinkStoreForward extends Closeable {
    */
   int offer(List<RecordFleakData> records);
 
-  /** Like {@link #offer}, but until the buffer drains a full buffer waits instead of dropping. */
-  default int spill(List<RecordFleakData> records) {
-    return offer(records);
-  }
-
   /**
    * Starts the background forwarder. {@code target} delivers a chunk of buffered records back to
    * the remote; it must throw on failure so the forwarder can keep the records and retry.

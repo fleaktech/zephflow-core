@@ -25,7 +25,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -123,30 +122,6 @@ class ChronicleStoreForwardTest {
   }
 
   @Test
-  void replayDropsRecordsAfterTheRetryLimit(@TempDir Path dir) throws Exception {
-    CountingCounter dropped = new CountingCounter();
-    AtomicInteger attempts = new AtomicInteger();
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(
-            new ChronicleStoreForward.Config(dir, 1_000_000, 50, 10, "node-1", 3),
-            IO_IS_CONNECTION,
-            null,
-            null,
-            dropped);
-    sf.start(
-        records -> {
-          attempts.incrementAndGet();
-          throw new IOException("connection down");
-        });
-    sf.offer(List.of(record("x"), record("y")));
-
-    await(() -> !sf.isBuffering());
-    assertEquals(4, attempts.get());
-    assertEquals(2, dropped.total());
-    sf.close();
-  }
-
-  @Test
   void permanentFailureDropsRecords(@TempDir Path dir) throws Exception {
     CountingCounter dropped = new CountingCounter();
     SinkStoreForward.ReplayTarget target =
@@ -181,139 +156,6 @@ class ChronicleStoreForwardTest {
     assertEquals(2, stored);
     assertEquals(1, dropped.total());
     sf.close();
-  }
-
-  @Test
-  void spillWaitsForSpaceInsteadOfDropping(@TempDir Path dir) throws Exception {
-    CountingCounter dropped = new CountingCounter();
-    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
-    CountDownLatch release = new CountDownLatch(1);
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(config(dir, 30, 1), IO_IS_CONNECTION, null, null, dropped);
-    sf.start(
-        records -> {
-          release.await();
-          delivered.addAll(records);
-        });
-
-    CompletableFuture<Integer> stored =
-        CompletableFuture.supplyAsync(
-            () -> sf.spill(List.of(record("a"), record("b"), record("c"))));
-    Thread.sleep(200);
-    assertFalse(stored.isDone());
-
-    release.countDown();
-    assertEquals(3, stored.get(10, TimeUnit.SECONDS));
-    await(() -> !sf.isBuffering());
-    assertEquals(List.of("a", "b", "c"), values(delivered));
-    assertEquals(0, dropped.total());
-    sf.close();
-  }
-
-  @Test
-  void offerDuringASpillAlsoWaitsForSpace(@TempDir Path dir) throws Exception {
-    CountingCounter dropped = new CountingCounter();
-    CountDownLatch release = new CountDownLatch(1);
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(config(dir, 30, 1), IO_IS_CONNECTION, null, null, dropped);
-    sf.start(records -> release.await());
-
-    assertEquals(2, sf.spill(List.of(record("a"), record("b"))));
-    CompletableFuture<Integer> stored =
-        CompletableFuture.supplyAsync(() -> sf.offer(List.of(record("c"))));
-    Thread.sleep(200);
-    assertFalse(stored.isDone());
-
-    release.countDown();
-    assertEquals(1, stored.get(10, TimeUnit.SECONDS));
-    assertEquals(0, dropped.total());
-    sf.close();
-  }
-
-  @Test
-  void spillDropsARecordLargerThanTheCap(@TempDir Path dir) throws Exception {
-    CountingCounter dropped = new CountingCounter();
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(config(dir, 30, 1), IO_IS_CONNECTION, null, null, dropped);
-    sf.start(records -> {});
-
-    assertEquals(0, sf.spill(List.of(record("x".repeat(50)))));
-    assertEquals(1, dropped.total());
-    sf.close();
-  }
-
-  @Test
-  void outageAfterADrainedSpillDropsWhenFullAgain(@TempDir Path dir) throws Exception {
-    CountingCounter dropped = new CountingCounter();
-    AtomicBoolean remoteDown = new AtomicBoolean(false);
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(config(dir, 30, 10), IO_IS_CONNECTION, null, null, dropped);
-    sf.start(
-        records -> {
-          if (remoteDown.get()) {
-            throw new IOException("down");
-          }
-        });
-
-    assertEquals(1, sf.spill(List.of(record("a"))));
-    await(() -> !sf.isBuffering());
-
-    remoteDown.set(true);
-    assertEquals(2, sf.offer(List.of(record("a"), record("b"), record("c"))));
-    assertEquals(1, dropped.total());
-    sf.close();
-  }
-
-  @Test
-  void closeReleasesAWaitingSpill(@TempDir Path dir) throws Exception {
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(config(dir, 30, 10), IO_IS_CONNECTION, null, null, null);
-    sf.start(
-        records -> {
-          throw new IOException("down");
-        });
-
-    CompletableFuture<Integer> stored =
-        CompletableFuture.supplyAsync(
-            () -> sf.spill(List.of(record("a"), record("b"), record("c"))));
-    Thread.sleep(200);
-    assertFalse(stored.isDone());
-
-    sf.close();
-    assertEquals(2, stored.get(10, TimeUnit.SECONDS));
-  }
-
-  @Test
-  void interruptReleasesAWaitingSpill(@TempDir Path dir) throws Exception {
-    ChronicleStoreForward sf =
-        new ChronicleStoreForward(config(dir, 30, 10), IO_IS_CONNECTION, null, null, null);
-    sf.start(
-        records -> {
-          throw new IOException("down");
-        });
-
-    AtomicInteger stored = new AtomicInteger(-1);
-    AtomicBoolean interruptKept = new AtomicBoolean(false);
-    Thread spiller =
-        new Thread(
-            () -> {
-              stored.set(sf.spill(List.of(record("a"), record("b"), record("c"))));
-              interruptKept.set(Thread.currentThread().isInterrupted());
-            });
-    spiller.start();
-    Thread.sleep(200);
-    assertTrue(spiller.isAlive());
-
-    spiller.interrupt();
-    spiller.join(10_000);
-    assertEquals(2, stored.get());
-    assertTrue(interruptKept.get());
-    sf.close();
-  }
-
-  @Test
-  void spillDefaultsToOffer() {
-    assertEquals(0, SinkStoreForward.noop().spill(List.of(record("a"))));
   }
 
   @Test

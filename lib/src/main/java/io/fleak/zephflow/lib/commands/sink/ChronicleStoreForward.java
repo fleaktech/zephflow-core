@@ -65,19 +65,7 @@ import net.openhft.chronicle.wire.DocumentContext;
 public class ChronicleStoreForward implements SinkStoreForward {
 
   public record Config(
-      Path storePath,
-      long maxBytes,
-      long retryIntervalMs,
-      int drainChunkSize,
-      String nodeId,
-      int maxRetries) {
-    public static final int UNLIMITED_RETRIES = -1;
-
-    public Config(
-        Path storePath, long maxBytes, long retryIntervalMs, int drainChunkSize, String nodeId) {
-      this(storePath, maxBytes, retryIntervalMs, drainChunkSize, nodeId, UNLIMITED_RETRIES);
-    }
-  }
+      Path storePath, long maxBytes, long retryIntervalMs, int drainChunkSize, String nodeId) {}
 
   private static final String PAYLOAD_KEY = "r";
   static final String ACK_FILE_NAME = "sf-ack.idx";
@@ -93,9 +81,6 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private final long maxBytes;
   private final long retryIntervalMs;
   private final int drainChunkSize;
-  private final int maxRetries;
-  // worker thread only
-  private int retriesOfCurrentChunk = 0;
   private final String nodeId;
   private final ConnectionFailureClassifier classifier;
 
@@ -123,8 +108,6 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private final Object stateLock = new Object();
   private volatile boolean buffering = false;
   private volatile boolean closed = false;
-  // Set by spill() until the buffer drains: a slow remote must not lose records to a full buffer.
-  private boolean waitForSpace = false;
 
   private ReplayTarget replayTarget;
   private Thread worker;
@@ -138,7 +121,6 @@ public class ChronicleStoreForward implements SinkStoreForward {
     this.maxBytes = config.maxBytes();
     this.retryIntervalMs = config.retryIntervalMs();
     this.drainChunkSize = config.drainChunkSize();
-    this.maxRetries = config.maxRetries();
     this.nodeId = config.nodeId();
     this.classifier = classifier;
     this.bufferedCounter = bufferedCounter;
@@ -248,7 +230,6 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     writeMarker();
     outstandingBytes.set(0);
-    waitForSpace = false;
   }
 
   /**
@@ -300,43 +281,36 @@ public class ChronicleStoreForward implements SinkStoreForward {
 
   @Override
   public int offer(List<RecordFleakData> records) {
-    return store(records, false);
-  }
-
-  @Override
-  public int spill(List<RecordFleakData> records) {
-    return store(records, true);
-  }
-
-  private int store(List<RecordFleakData> records, boolean spill) {
     if (records.isEmpty()) {
       return 0;
     }
     int stored = 0;
     synchronized (stateLock) {
+      if (queue == null) {
+        // Coming out of DIRECT: this is a fresh outage, so open a clean queue before appending.
+        try {
+          rebuildQueueFresh();
+        } catch (IOException e) {
+          log.error(
+              "store-and-forward [{}] cannot open buffer dir {}; {} records reported as not stored",
+              nodeId,
+              storePath,
+              records.size(),
+              e);
+          return 0; // stays DIRECT; the caller surfaces the unstored records as errors
+        }
+      }
       for (RecordFleakData record : records) {
-        if (!ensureQueue(records.size() - stored)) {
-          break;
-        }
-        if (spill) {
-          waitForSpace = true;
-        }
         byte[] payload = encode(record);
         long need = payload.length + (long) Integer.BYTES;
         if (outstandingBytes.get() + need > maxBytes) {
-          // the worker may drain and tear the queue down while we wait, so reopen it after
-          if (!awaitSpace(need) || !ensureQueue(records.size() - stored)) {
-            break; // cap reached; drop the remaining tail
-          }
+          break; // cap reached; drop the remaining tail
         }
         append(payload);
         outstandingBytes.addAndGet(need);
         stored++;
       }
       inc(bufferedCounter, stored);
-      if (queue == null) {
-        return stored; // stays DIRECT; the caller surfaces the unstored records as errors
-      }
       int dropped = records.size() - stored;
       if (dropped > 0) {
         inc(droppedCounter, dropped);
@@ -350,55 +324,6 @@ public class ChronicleStoreForward implements SinkStoreForward {
       stateLock.notifyAll();
     }
     return stored;
-  }
-
-  /** Caller holds {@link #stateLock}. */
-  private boolean ensureQueue(int pendingRecords) {
-    if (queue != null) {
-      return true;
-    }
-    // Coming out of DIRECT: this is a fresh outage, so open a clean queue before appending.
-    try {
-      rebuildQueueFresh();
-      return true;
-    } catch (IOException e) {
-      log.error(
-          "store-and-forward [{}] cannot open buffer dir {}; {} records reported as not stored",
-          nodeId,
-          storePath,
-          pendingRecords,
-          e);
-      return false;
-    }
-  }
-
-  /** Caller holds {@link #stateLock}. Returns false when the record has to be dropped. */
-  private boolean awaitSpace(long need) {
-    if (!waitForSpace || need > maxBytes) {
-      return false;
-    }
-    // the worker only drains while buffering, so flip it on before waiting for it
-    buffering = true;
-    stateLock.notifyAll();
-    while (outstandingBytes.get() + need > maxBytes) {
-      if (closed) {
-        return false;
-      }
-      try {
-        stateLock.wait(retryIntervalMs);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private void releaseSpace(long bytes) {
-    outstandingBytes.addAndGet(-bytes);
-    synchronized (stateLock) {
-      stateLock.notifyAll();
-    }
   }
 
   @Override
@@ -503,16 +428,12 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     try {
       replayTarget.deliver(chunk.records);
-      retriesOfCurrentChunk = 0;
-      releaseSpace(chunk.bytes);
+      outstandingBytes.addAndGet(-chunk.bytes);
       inc(replayedCounter, chunk.records.size());
       advanceAck();
       return DrainOutcome.DELIVERED;
     } catch (Exception e) {
-      boolean retriesLeft =
-          maxRetries == Config.UNLIMITED_RETRIES || retriesOfCurrentChunk < maxRetries;
-      if (classifier.isConnectionFailure(e) && retriesLeft) {
-        retriesOfCurrentChunk++;
+      if (classifier.isConnectionFailure(e)) {
         tailer.moveToIndex(chunk.startIndex); // rewind; keep the records for the next attempt
         log.warn(
             "store-and-forward [{}] replay hit a connectivity failure, will retry: {}",
@@ -522,12 +443,11 @@ public class ChronicleStoreForward implements SinkStoreForward {
       }
       // Permanent failure: these records can never be delivered. The tailer has already advanced
       // past them, so account for the drop and advance the watermark so we don't re-read them.
-      retriesOfCurrentChunk = 0;
-      releaseSpace(chunk.bytes);
+      outstandingBytes.addAndGet(-chunk.bytes);
       inc(droppedCounter, chunk.records.size());
       advanceAck();
       log.error(
-          "store-and-forward [{}] dropping {} records after a replay failure that is not retried",
+          "store-and-forward [{}] dropping {} records after a non-connectivity replay failure",
           nodeId,
           chunk.records.size(),
           e);
