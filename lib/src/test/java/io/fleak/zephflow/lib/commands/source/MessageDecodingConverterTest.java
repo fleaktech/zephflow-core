@@ -197,7 +197,10 @@ class MessageDecodingConverterTest {
 
     assertEquals(
         List.of(
-            "failed to deserialize event: MALFORMED json message: JsonParseException\n" + message),
+            "failed to deserialize event: MALFORMED json message: JsonParseException: Unrecognized"
+                + " token 'not': was expecting (JSON String, Number, Array, Object or token 'null',"
+                + " 'true' or 'false')\n"
+                + message),
         errors);
 
     Throwable cause = result.error().getCause();
@@ -217,6 +220,29 @@ class MessageDecodingConverterTest {
     verify(dataSize).increase(message.value().length, Map.of());
     verify(failures).increase(Map.of());
     verify(inputCount, never()).increase(anyLong(), anyMap());
+  }
+
+  @Test
+  void errorLogSaysWhyAndShowsATextValueAsText() {
+    DecodingConfig jsonArray =
+        new DecodingConfig(List.of(), new JsonFormatConfig(JsonFormatConfig.Mode.ARRAY));
+
+    List<String> errors;
+    try (BoundedLogCapture logs = new BoundedLogCapture(MessageDecodingConverter.class)) {
+      convert(jsonArray, message("{\"id\":1}"));
+      errors =
+          logs.events().stream()
+              .filter(e -> e.getLevel() == Level.ERROR)
+              .map(e -> e.getMessage().getFormattedMessage())
+              .toList();
+    }
+
+    assertEquals(
+        List.of(
+            "failed to deserialize event: MALFORMED json message: IllegalArgumentException:"
+                + " expected a JSON array, got a JSON object\n"
+                + "key:\nnull\nvalue(text):\n{\"id\":1}\nmetadata:\nnull"),
+        errors);
   }
 
   @Test

@@ -20,4 +20,10 @@ import java.util.function.Consumer;
 /** Created by bolei on 11/14/24 */
 public interface SourceEventAcceptor extends Consumer<List<RecordFleakData>> {
   void terminate() throws Exception;
+
+  /**
+   * Called before the source commits its read position. Throws if records handed over so far may
+   * not have reached their sinks, in which case the source must stop without committing.
+   */
+  default void beforeCommit() {}
 }

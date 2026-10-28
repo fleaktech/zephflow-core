@@ -21,6 +21,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -30,14 +31,29 @@ import org.apache.kafka.common.TopicPartition;
 
 /** Created by bolei on 9/24/24 */
 @Slf4j
-public record KafkaSourceFetcher(
-    KafkaConsumer<byte[], byte[]> consumer,
-    KafkaHealthMonitor healthMonitor,
-    CommitStrategy commitStrategy,
-    Function<ConsumerRecord<byte[], byte[]>, Map<String, String>> metadataExtractor)
-    implements Fetcher<SerializedEvent> {
+public final class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
 
   private static final LogOffsetCommitCallback COMMIT_CALLBACK = new LogOffsetCommitCallback();
+
+  private final KafkaConsumer<byte[], byte[]> consumer;
+  private final KafkaHealthMonitor healthMonitor;
+  private final CommitStrategy commitStrategy;
+  private final Function<ConsumerRecord<byte[], byte[]>, Map<String, String>> metadataExtractor;
+
+  // Partition and offset of each record of the latest fetch, in the order fetch() returned them.
+  private List<TopicPartition> fetchedPartitions = List.of();
+  private long[] fetchedOffsets = new long[0];
+
+  public KafkaSourceFetcher(
+      KafkaConsumer<byte[], byte[]> consumer,
+      KafkaHealthMonitor healthMonitor,
+      CommitStrategy commitStrategy,
+      Function<ConsumerRecord<byte[], byte[]>, Map<String, String>> metadataExtractor) {
+    this.consumer = consumer;
+    this.healthMonitor = healthMonitor;
+    this.commitStrategy = commitStrategy;
+    this.metadataExtractor = metadataExtractor;
+  }
 
   public KafkaSourceFetcher(
       KafkaConsumer<byte[], byte[]> consumer,
@@ -59,18 +75,45 @@ public record KafkaSourceFetcher(
     log.debug("Got records: {}", records.count());
 
     List<SerializedEvent> rawEvents = new ArrayList<>();
+    List<TopicPartition> partitions = new ArrayList<>(records.count());
+    long[] offsets = new long[records.count()];
 
     for (ConsumerRecord<byte[], byte[]> r : records) {
       SerializedEvent serializedEvent =
           new SerializedEvent(r.key(), r.value(), metadataExtractor.apply(r));
+      offsets[rawEvents.size()] = r.offset();
+      partitions.add(new TopicPartition(r.topic(), r.partition()));
       rawEvents.add(serializedEvent);
     }
+    fetchedPartitions = partitions;
+    fetchedOffsets = offsets;
     return rawEvents;
   }
 
   @Override
+  public CommitStrategy commitStrategy() {
+    return commitStrategy;
+  }
+
+  @Override
   public Committer committer() {
-    return () -> consumer.commitAsync(COMMIT_CALLBACK);
+    return new Committer() {
+      @Override
+      public void commit() {
+        consumer.commitAsync(COMMIT_CALLBACK);
+      }
+
+      @Override
+      public void commitThrough(int handledRecords) {
+        Map<TopicPartition, OffsetAndMetadata> next = new HashMap<>();
+        for (int i = 0; i < handledRecords; i++) {
+          next.put(fetchedPartitions.get(i), new OffsetAndMetadata(fetchedOffsets[i] + 1));
+        }
+        if (!next.isEmpty()) {
+          consumer.commitAsync(next, COMMIT_CALLBACK);
+        }
+      }
+    };
   }
 
   @Override

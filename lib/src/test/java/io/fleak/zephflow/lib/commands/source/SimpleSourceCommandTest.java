@@ -165,7 +165,7 @@ class SimpleSourceCommandTest {
     command.execute("testUser", mockSourceEventAcceptor);
 
     verify(mockSourceEventAcceptor).accept(Collections.singletonList(RECORD));
-    verify(mockCommitter).commit();
+    verify(mockCommitter).commitThrough(1);
     verify(mockSourceEventAcceptor).terminate();
     verify(dataSizeCounter).increase(JSON.length, Map.of());
     verify(inputEventCounter).increase(1, Map.of());
@@ -314,7 +314,7 @@ class SimpleSourceCommandTest {
     // Verify data was processed before exit
     verify(mockFetcher, times(1)).fetch();
     verify(mockSourceEventAcceptor).accept(Collections.singletonList(RECORD));
-    verify(mockCommitter).commit();
+    verify(mockCommitter).commitThrough(1);
     verify(mockSourceEventAcceptor).terminate();
   }
 
