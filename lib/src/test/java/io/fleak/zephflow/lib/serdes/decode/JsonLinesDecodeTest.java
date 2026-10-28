@@ -60,7 +60,7 @@ class JsonLinesDecodeTest {
                 "[1,2]",
                 4,
                 new RawSpan(19, 5),
-                "IllegalArgumentException: expected a JSON object but found ARRAY",
+                "IllegalArgumentException: expected a JSON object, got a JSON array",
                 false),
             new Bad(
                 ErrorKind.MALFORMED,

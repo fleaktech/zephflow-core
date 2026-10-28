@@ -65,7 +65,7 @@ public final class JsonArrayFormat implements FormatCursor {
         return terminal("no JSON array in the input");
       }
       if (first != JsonToken.START_ARRAY) {
-        return terminal("expected a JSON array but found " + first);
+        return terminal("expected a JSON array, got " + JsonDecoding.describe(first));
       }
       pendingOffset = JsonDecoding.byteOffset(parser.currentLocation());
     }

@@ -196,12 +196,7 @@ public final class UnitRun {
 
   /** The simple name of the innermost cause that is not a SourceReadException, with an AWS code. */
   public static String causeName(Throwable error) {
-    Throwable chosen = error;
-    for (Throwable t : ExceptionUtils.getThrowableList(error)) {
-      if (!(t instanceof SourceReadException)) {
-        chosen = t;
-      }
-    }
+    Throwable chosen = innermostCause(error);
     String name = chosen.getClass().getSimpleName();
     if (chosen instanceof AwsServiceException aws
         && aws.awsErrorDetails() != null
@@ -209,6 +204,22 @@ public final class UnitRun {
       name += " " + aws.awsErrorDetails().errorCode();
     }
     return name;
+  }
+
+  /** The first line of the message of the cause {@link #causeName} names, or "" without one. */
+  public static String causeMessage(Throwable error) {
+    String message = innermostCause(error).getMessage();
+    return message == null ? "" : message.lines().findFirst().orElse("").strip();
+  }
+
+  private static Throwable innermostCause(Throwable error) {
+    Throwable chosen = error;
+    for (Throwable t : ExceptionUtils.getThrowableList(error)) {
+      if (!(t instanceof SourceReadException)) {
+        chosen = t;
+      }
+    }
+    return chosen;
   }
 
   /** Handles one outcome; returns false when no more outcomes are wanted. */
