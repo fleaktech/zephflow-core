@@ -1410,4 +1410,59 @@ class NoSourceDagRunnerTest {
         JsonUtils.OBJECT_MAPPER.readTree(expectedErrorByStep),
         JsonUtils.OBJECT_MAPPER.readTree(toJsonString(dagResult.errorByStep)));
   }
+
+  @Test
+  void deliveryConfirmation_reachesOnlyInitializedCommitBarrierSinks() throws Exception {
+    ScalarSinkCommand barrierSink =
+        mock(ScalarSinkCommand.class, withSettings().extraInterfaces(CommitBarrierSink.class));
+    ScalarSinkCommand idleBarrierSink =
+        mock(ScalarSinkCommand.class, withSettings().extraInterfaces(CommitBarrierSink.class));
+    when(barrierSink.isInitialized()).thenReturn(true);
+    Dag<OperatorCommand> dag =
+        new Dag<>(
+            List.of(
+                Node.<OperatorCommand>builder().id(NODE_ID_1).nodeContent(mockScalarCmd1).build(),
+                Node.<OperatorCommand>builder().id(SINK_ID).nodeContent(barrierSink).build(),
+                Node.<OperatorCommand>builder().id(NODE_ID_2).nodeContent(idleBarrierSink).build()),
+            List.of(
+                Edge.builder().from(NODE_ID_1).to(SINK_ID).build(),
+                Edge.builder().from(NODE_ID_1).to(NODE_ID_2).build()));
+    noSourceDagRunner =
+        new NoSourceDagRunner(edgesFromSource, dag, mockMetricProvider, mockCounters, false);
+
+    noSourceDagRunner.deferDeliveryConfirmation();
+    noSourceDagRunner.awaitDeliveryConfirmation();
+
+    verify((CommitBarrierSink) barrierSink).deferDeliveryConfirmation();
+    verify((CommitBarrierSink) idleBarrierSink).deferDeliveryConfirmation();
+    verify((CommitBarrierSink) barrierSink).awaitDeliveryConfirmation();
+    verify((CommitBarrierSink) idleBarrierSink, never()).awaitDeliveryConfirmation();
+  }
+
+  @Test
+  void deliveryConfirmation_failureNamesTheSinkNode() throws Exception {
+    ScalarSinkCommand barrierSink =
+        mock(ScalarSinkCommand.class, withSettings().extraInterfaces(CommitBarrierSink.class));
+    when(barrierSink.isInitialized()).thenReturn(true);
+    when(barrierSink.commandName()).thenReturn(SINK_CMD_NAME);
+    doThrow(new IllegalStateException("not acknowledged"))
+        .when((CommitBarrierSink) barrierSink)
+        .awaitDeliveryConfirmation();
+    Dag<OperatorCommand> dag =
+        new Dag<>(
+            List.of(Node.<OperatorCommand>builder().id(SINK_ID).nodeContent(barrierSink).build()),
+            List.of());
+    noSourceDagRunner =
+        new NoSourceDagRunner(
+            List.of(Edge.builder().from(SOURCE_NODE_ID).to(SINK_ID).build()),
+            dag,
+            mockMetricProvider,
+            mockCounters,
+            false);
+
+    NodeExecutionException thrown =
+        assertThrows(NodeExecutionException.class, noSourceDagRunner::awaitDeliveryConfirmation);
+
+    assertEquals(SINK_ID, thrown.getNodeId());
+  }
 }

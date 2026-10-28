@@ -84,6 +84,12 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
             || storeAndForwardEnabled
             || config.getDeliveryMode() != KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET;
 
+    boolean deferredConfirmation =
+        waitForBrokerAcks
+            && !bounded
+            && !storeAndForwardEnabled
+            && isDeliveryConfirmationDeferred();
+
     KafkaConnectionFailureClassifier connectionFailureClassifier =
         waitForBrokerAcks ? new KafkaConnectionFailureClassifier() : null;
 
@@ -92,6 +98,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
             config,
             storeAndForwardEnabled,
             waitForBrokerAcks,
+            deferredConfirmation,
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
             counters.sinkErrorCounter(),
@@ -126,6 +133,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
       KafkaSinkDto.Config config,
       boolean storeAndForwardEnabled,
       boolean waitForBrokerAcks,
+      boolean deferredConfirmation,
       FleakCounter asyncDeliveredCountCounter,
       FleakCounter asyncDeliveredSizeCounter,
       FleakCounter asyncErrorCounter,
@@ -159,7 +167,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
-        waitForBrokerAcks,
+        waitForBrokerAcks && !deferredConfirmation,
+        deferredConfirmation,
         connectionFailureClassifier,
         storeAndForwardEnabled);
   }
