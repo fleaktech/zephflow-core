@@ -35,7 +35,9 @@ import org.apache.commons.lang3.tuple.Pair;
  * predefined batch size, and flush each batch into sink synchronously.
  */
 @Slf4j
-public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
+public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements CommitBarrierSink {
+
+  private boolean deliveryConfirmationDeferred;
 
   protected SimpleSinkCommand(
       String nodeId,
@@ -81,6 +83,23 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   protected abstract int batchSize();
+
+  @Override
+  public void deferDeliveryConfirmation() {
+    deliveryConfirmationDeferred = true;
+  }
+
+  /** Whether flushes may return before delivery is confirmed; read when creating the context. */
+  protected boolean isDeliveryConfirmationDeferred() {
+    return deliveryConfirmationDeferred;
+  }
+
+  @Override
+  public void awaitDeliveryConfirmation() throws Exception {
+    if (getExecutionContext() instanceof SinkExecutionContext<?> sinkContext) {
+      sinkContext.flusher().awaitDeliveryConfirmation();
+    }
+  }
 
   private SinkResult writeBoundedBatch(
       List<RecordFleakData> batch, Map<String, String> tags, SinkExecutionContext<T> context) {
@@ -348,6 +367,9 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       requireBoundedWriteAllowed(events.preparedList().size(), hooks);
       return flush(events, tags);
     }
+
+    /** Waits for writes that {@link #flush} returned before the target system confirmed. */
+    default void awaitDeliveryConfirmation() throws Exception {}
 
     /** Discards unsent records before closing resources. Buffered implementations override this. */
     default void abort() throws java.io.IOException {

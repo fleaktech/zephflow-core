@@ -174,6 +174,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       }
       converter.acknowledge(sourceRecord);
       if (committer != null) {
+        sourceEventAcceptor.beforeCommit();
         try {
           committer.commit();
         } catch (Exception e) {
@@ -226,22 +227,6 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         }
         log.trace("Transformed data: {}", convertedResult.transformedData().size());
         sourceEventAcceptor.accept(convertedResult.transformedData());
-        recordCount++;
-
-        long currentTime = System.currentTimeMillis();
-        long timeSinceLastCommit = currentTime - lastCommitTime;
-
-        if (committer != null && commitStrategy.shouldCommitNow(recordCount, timeSinceLastCommit)) {
-          try {
-            committer.commit();
-            recordCount = 0;
-            lastCommitTime = currentTime;
-            log.debug("Committed batch of records after {} ms", timeSinceLastCommit);
-          } catch (Exception e) {
-            log.error("failed to commit", e);
-          }
-        }
-
       } catch (Exception e) {
         log.debug("failed to process data: {}", convertedResult.transformedData(), e);
         if (dlqWriter != null) {
@@ -251,6 +236,23 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
           dlqWriter.writeToDlq(
               System.currentTimeMillis(), raw, ExceptionUtils.getStackTrace(e), failingNodeId);
         }
+        continue;
+      }
+      recordCount++;
+
+      long currentTime = System.currentTimeMillis();
+      long timeSinceLastCommit = currentTime - lastCommitTime;
+
+      if (committer != null && commitStrategy.shouldCommitNow(recordCount, timeSinceLastCommit)) {
+        sourceEventAcceptor.beforeCommit();
+        try {
+          committer.commit();
+          recordCount = 0;
+          lastCommitTime = currentTime;
+          log.debug("Committed batch of records after {} ms", timeSinceLastCommit);
+        } catch (Exception e) {
+          log.error("failed to commit", e);
+        }
       }
     }
 
@@ -258,6 +260,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     if (committer != null
         && recordCount > 0
         && commitStrategy.getCommitMode() == CommitStrategy.CommitMode.BATCH) {
+      sourceEventAcceptor.beforeCommit();
       try {
         committer.commit();
         log.debug("Final commit for batch with {} remaining records", recordCount);
@@ -291,6 +294,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
           failure.getMessage(),
           e);
     }
+  }
+
+  @Override
+  public boolean confirmsDeliveryBeforeCommit() {
+    return true;
   }
 
   /** The fetch loop exits after the batch in hand; the thread running it releases resources. */

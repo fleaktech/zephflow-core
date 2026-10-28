@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.source;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -22,7 +23,9 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -87,6 +90,74 @@ class SimpleSourceCommandCommitTest {
     // Should never commit
     System.out.println("Expected: 0 commits, Actual: " + commitCount.get());
     assertEquals(0, commitCount.get(), "No-commit strategy should never commit");
+  }
+
+  @Test
+  void testAcceptorConfirmsDeliveryBeforeEachCommit() throws Exception {
+    List<String> calls = new ArrayList<>();
+    sourceEventAcceptor = recordingAcceptor(calls, null);
+    mockCommitter = () -> calls.add("commit");
+    TestSourceCommand command = new TestSourceCommand();
+
+    command.testProcessFetchedData(createTestData(7), BatchCommitStrategy.ofBatchSize(3));
+
+    assertEquals(
+        List.of(
+            "accept",
+            "accept",
+            "accept",
+            "beforeCommit",
+            "commit",
+            "accept",
+            "accept",
+            "accept",
+            "beforeCommit",
+            "commit",
+            "accept",
+            "beforeCommit",
+            "commit"),
+        calls);
+  }
+
+  @Test
+  void testFailedDeliveryConfirmationStopsWithoutCommitting() {
+    List<String> calls = new ArrayList<>();
+    IllegalStateException unconfirmed = new IllegalStateException("records not acknowledged");
+    sourceEventAcceptor = recordingAcceptor(calls, unconfirmed);
+    TestSourceCommand command = new TestSourceCommand();
+
+    InvocationTargetException thrown =
+        assertThrows(
+            InvocationTargetException.class,
+            () ->
+                command.testProcessFetchedData(
+                    createTestData(5), BatchCommitStrategy.ofBatchSize(3)));
+
+    assertEquals(unconfirmed, thrown.getCause());
+    assertEquals(0, commitCount.get());
+    assertEquals(List.of("accept", "accept", "accept", "beforeCommit"), calls);
+    verifyNoInteractions(dlqWriter);
+  }
+
+  private static SourceEventAcceptor recordingAcceptor(
+      List<String> calls, RuntimeException beforeCommitFailure) {
+    return new SourceEventAcceptor() {
+      @Override
+      public void accept(List<RecordFleakData> records) {
+        calls.add("accept");
+      }
+
+      @Override
+      public void beforeCommit() {
+        calls.add("beforeCommit");
+        if (beforeCommitFailure != null) {
+          throw beforeCommitFailure;
+        }
+      }
+
+      @Override
+      public void terminate() {}
+    };
   }
 
   private List<SerializedEvent> createTestData(int count) {
