@@ -29,8 +29,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
@@ -44,7 +47,9 @@ import org.apache.kafka.common.PartitionInfo;
  * <b>throws</b> a classified connectivity failure so {@link SimpleSinkCommand} can buffer the batch
  * locally and replay it once the broker is reachable again. In <b>fire-and-forget</b> mode ({@code
  * deliveryMode: FIRE_AND_FORGET}) it returns as soon as records are in the producer's client-side
- * buffer and reports delivery via async callbacks.
+ * buffer and reports delivery via async callbacks. In <b>deferred-confirmation</b> mode ({@code
+ * WAIT_FOR_ACK} under a source that calls the commit barrier) it sends like fire-and-forget and
+ * {@link #awaitDeliveryConfirmation} waits for the acks before the source commits.
  */
 @Slf4j
 public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
@@ -59,7 +64,9 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   private final FleakCounter asyncErrorCounter;
 
   private final boolean synchronousDelivery;
+  private final boolean deferredConfirmation;
   private final ConnectionFailureClassifier connectionFailureClassifier;
+  private final AtomicReference<Exception> undeliveredFailure = new AtomicReference<>();
 
   // Mid-batch connectivity failures are rethrown only when store-and-forward can buffer and
   // replay the whole batch; without that, records whose acks already succeeded would be
@@ -85,6 +92,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
         asyncDeliveredSizeCounter,
         asyncErrorCounter,
         false,
+        false,
         null,
         false);
   }
@@ -98,6 +106,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       @NonNull FleakCounter asyncDeliveredSizeCounter,
       @NonNull FleakCounter asyncErrorCounter,
       boolean synchronousDelivery,
+      boolean deferredConfirmation,
       ConnectionFailureClassifier connectionFailureClassifier,
       boolean bufferBatchOnConnectivityFailure) {
     this.producer = producer;
@@ -108,6 +117,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     this.asyncDeliveredSizeCounter = asyncDeliveredSizeCounter;
     this.asyncErrorCounter = asyncErrorCounter;
     this.synchronousDelivery = synchronousDelivery;
+    this.deferredConfirmation = deferredConfirmation;
     this.connectionFailureClassifier = connectionFailureClassifier;
     this.bufferBatchOnConnectivityFailure = bufferBatchOnConnectivityFailure;
   }
@@ -127,9 +137,58 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
-    return synchronousDelivery
-        ? flushSynchronously(events, metricTags)
+    if (synchronousDelivery) {
+      return flushSynchronously(events, metricTags);
+    }
+    return deferredConfirmation
+        ? flushDeferringConfirmation(events, metricTags)
         : flushFireAndForget(events, metricTags);
+  }
+
+  private SimpleSinkCommand.FlushResult flushDeferringConfirmation(
+      List<RecordFleakData> events, Map<String, String> metricTags) {
+    ensureBrokerReachable();
+
+    List<ErrorOutput> errorOutputs = new ArrayList<>();
+    int sentCount = 0;
+    for (RecordFleakData event : events) {
+      try {
+        byte[] eventValue = serializeValue(event);
+        if (eventValue == null) {
+          errorOutputs.add(new ErrorOutput(event, NO_RECORD_ERROR));
+          continue;
+        }
+        PendingAck ack = new PendingAck(eventValue.length, metricTags);
+        producer.send(new ProducerRecord<>(topic, keyBytes(event), eventValue), ack);
+        Exception rejection = ack.rejectionDuringSend();
+        if (rejection != null) {
+          errorOutputs.add(new ErrorOutput(event, rejection.getMessage()));
+          continue;
+        }
+        sentCount++;
+      } catch (Exception e) {
+        errorOutputs.add(new ErrorOutput(event, e.getMessage()));
+      }
+    }
+    return new SimpleSinkCommand.FlushResult(sentCount, 0, errorOutputs);
+  }
+
+  /**
+   * Waits for every deferred send. A connectivity failure means a record may be lost, so it is
+   * thrown to keep the source from committing; other failures were already counted as sink errors.
+   */
+  @Override
+  public void awaitDeliveryConfirmation() {
+    if (!deferredConfirmation) {
+      return;
+    }
+    producer.flush();
+    Exception failure = undeliveredFailure.getAndSet(null);
+    if (failure != null) {
+      throw new IllegalStateException(
+          "Kafka did not acknowledge records sent to topic " + topic + ": " + failure.getMessage(),
+          failure);
+    }
   }
 
   private SimpleSinkCommand.FlushResult flushFireAndForget(
@@ -346,6 +405,46 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     if (bounded) producer.close();
     else producer.close(Duration.ofSeconds(10));
     log.info("KafkaSinkFlusher closed successfully");
+  }
+
+  /**
+   * A failure that completes the send before {@code send()} returns is the caller's to report as an
+   * error output; one that arrives later is reported here. {@link #settled} decides which.
+   */
+  private final class PendingAck implements Callback {
+    private final AtomicBoolean settled = new AtomicBoolean();
+    private final int size;
+    private final Map<String, String> metricTags;
+    private volatile Exception rejection;
+
+    PendingAck(int size, Map<String, String> metricTags) {
+      this.size = size;
+      this.metricTags = metricTags;
+    }
+
+    @Override
+    public void onCompletion(RecordMetadata metadata, Exception exception) {
+      if (exception == null) {
+        asyncDeliveredCountCounter.increase(metricTags);
+        asyncDeliveredSizeCounter.increase(size, metricTags);
+        return;
+      }
+      rejection = exception;
+      if (settled.compareAndSet(false, true)) {
+        return;
+      }
+      log.error("Kafka broker did not acknowledge a record sent to topic {}", topic, exception);
+      asyncErrorCounter.increase(metricTags);
+      asyncErrorCounter.recordErrorSample(exception.getMessage());
+      if (connectionFailureClassifier != null
+          && connectionFailureClassifier.isConnectionFailure(exception)) {
+        undeliveredFailure.compareAndSet(null, exception);
+      }
+    }
+
+    Exception rejectionDuringSend() {
+      return settled.compareAndSet(false, true) ? null : rejection;
+    }
   }
 
   private record Inflight(RecordFleakData event, int size, Future<RecordMetadata> future) {}

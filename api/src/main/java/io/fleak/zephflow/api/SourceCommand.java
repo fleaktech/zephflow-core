@@ -40,6 +40,13 @@ public abstract class SourceCommand extends OperatorCommand {
     return false;
   }
 
+  /**
+   * Whether {@link #execute} calls {@link SourceEventAcceptor#beforeCommit} before every commit.
+   */
+  public boolean confirmsDeliveryBeforeCommit() {
+    return false;
+  }
+
   public enum SourceType {
     BATCH,
     STREAMING

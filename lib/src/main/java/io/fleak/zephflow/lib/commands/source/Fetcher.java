@@ -51,5 +51,13 @@ public interface Fetcher<T> extends Closeable {
   @FunctionalInterface
   interface Committer {
     void commit() throws Exception;
+
+    /**
+     * Commits the read position just past the first {@code handledRecords} records of the latest
+     * fetch. The default commits everything fetched so far.
+     */
+    default void commitThrough(int handledRecords) throws Exception {
+      commit();
+    }
   }
 }
