@@ -16,11 +16,14 @@ package io.fleak.zephflow.lib.commands.sink;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.ScalarSinkCommand.SinkResult;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -83,6 +86,111 @@ class SimpleSinkCommandStoreForwardTest {
     assertEquals(expected, result);
   }
 
+  @Test
+  void slowFlushSpillsTheNextWriteToDisk() {
+    FakeStoreForward storeForward = new FakeStoreForward();
+    FakeFlusher flusher = new FakeFlusher(false);
+    flusher.delayMillis = 50;
+    SinkExecutionContext<Integer> ctx = context(flusher, storeForward);
+    FakeSink sink = new FakeSink(spillAfterMillis(10));
+
+    sink.writeToSink(List.of(record(0)), "user", ctx);
+    flusher.flushAttempted = false;
+    List<RecordFleakData> next = List.of(record(1), record(2));
+    SinkResult result = sink.writeToSink(next, "user", ctx);
+
+    assertEquals(new SinkResult(2, 2, new ArrayList<>()), result);
+    assertEquals(next, storeForward.spilled);
+    assertFalse(flusher.flushAttempted);
+  }
+
+  @Test
+  void fastFlushKeepsWritingDirectly() {
+    FakeStoreForward storeForward = new FakeStoreForward();
+    FakeFlusher flusher = new FakeFlusher(false);
+    SinkExecutionContext<Integer> ctx = context(flusher, storeForward);
+    FakeSink sink = new FakeSink(spillAfterMillis(10_000));
+
+    sink.writeToSink(List.of(record(0)), "user", ctx);
+    flusher.flushAttempted = false;
+    sink.writeToSink(List.of(record(1)), "user", ctx);
+
+    assertTrue(flusher.flushAttempted);
+    assertTrue(storeForward.spilled.isEmpty());
+  }
+
+  @Test
+  void slowFlushKeepsWritingDirectlyWhenSpillIsOff() {
+    FakeStoreForward storeForward = new FakeStoreForward();
+    FakeFlusher flusher = new FakeFlusher(false);
+    flusher.delayMillis = 50;
+    SinkExecutionContext<Integer> ctx = context(flusher, storeForward);
+    FakeSink sink = new FakeSink(null);
+
+    sink.writeToSink(List.of(record(0)), "user", ctx);
+    flusher.flushAttempted = false;
+    sink.writeToSink(List.of(record(1)), "user", ctx);
+
+    assertTrue(flusher.flushAttempted);
+    assertTrue(storeForward.spilled.isEmpty());
+  }
+
+  @Test
+  void slowFailedFlushDoesNotSpill() {
+    FakeStoreForward storeForward = new FakeStoreForward();
+    FakeFlusher flusher = new FakeFlusher(true);
+    flusher.delayMillis = 50;
+    SinkExecutionContext<Integer> ctx = context(flusher, storeForward);
+    FakeSink sink = new FakeSink(spillAfterMillis(10));
+
+    sink.writeToSink(List.of(record(0)), "user", ctx);
+    flusher.flushAttempted = false;
+    sink.writeToSink(List.of(record(1)), "user", ctx);
+
+    assertTrue(flusher.flushAttempted);
+    assertTrue(storeForward.spilled.isEmpty());
+  }
+
+  @Test
+  void slowFlushInTheMiddleOfAWriteSpillsTheRestOfIt() {
+    FakeStoreForward storeForward = new FakeStoreForward();
+    FakeFlusher flusher = new FakeFlusher(false);
+    flusher.delayMillis = 50;
+    SinkExecutionContext<Integer> ctx = context(flusher, storeForward);
+    FakeSink sink = new FakeSink(spillAfterMillis(10), 1);
+
+    SinkResult result = sink.writeToSink(List.of(record(0), record(1), record(2)), "user", ctx);
+
+    assertEquals(new SinkResult(3, 3, new ArrayList<>()), result);
+    assertEquals(1, flusher.flushCount);
+    assertEquals(List.of(record(1)), storeForward.spilled);
+    assertEquals(List.of(record(2)), storeForward.offered);
+  }
+
+  @Test
+  void recordsThatFailPreprocessingAreNotBuffered() {
+    FakeStoreForward storeForward = new FakeStoreForward();
+    storeForward.buffering = true;
+    SinkExecutionContext<Integer> ctx = context(new FakeFlusher(false), storeForward);
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("val", "not a number"));
+
+    SinkResult result = new FakeSink().writeToSink(List.of(record(0), bad), "user", ctx);
+
+    assertEquals(2, result.getInputCount());
+    assertEquals(1, result.getSuccessCount());
+    assertEquals(bad, result.getFailureEvents().getFirst().inputEvent());
+    assertEquals(List.of(record(0)), storeForward.offered);
+  }
+
+  private static JobContext spillAfterMillis(long millis) {
+    return JobContext.builder()
+        .otherProperties(
+            new HashMap<>(
+                Map.<String, Serializable>of(
+                    JobContext.SINK_SPILL_AFTER_MS, String.valueOf(millis))))
+        .build();
+  }
+
   private SinkExecutionContext<Integer> context(
       FakeFlusher flusher, SinkStoreForward storeForward) {
     FleakCounter noop = new NoopCounter();
@@ -98,13 +206,24 @@ class SimpleSinkCommandStoreForwardTest {
   }
 
   private static final class FakeSink extends SimpleSinkCommand<Integer> {
+    private final int batchSize;
+
     FakeSink() {
-      super("node", null, null, null);
+      this(null);
+    }
+
+    FakeSink(JobContext jobContext) {
+      this(jobContext, 100);
+    }
+
+    FakeSink(JobContext jobContext, int batchSize) {
+      super("node", jobContext, null, null);
+      this.batchSize = batchSize;
     }
 
     @Override
     protected int batchSize() {
-      return 100;
+      return batchSize;
     }
 
     @Override
@@ -125,6 +244,8 @@ class SimpleSinkCommandStoreForwardTest {
   private static final class FakeFlusher implements SimpleSinkCommand.Flusher<Integer> {
     private final boolean fail;
     boolean flushAttempted = false;
+    int flushCount = 0;
+    long delayMillis = 0;
 
     FakeFlusher(boolean fail) {
       this.fail = fail;
@@ -133,8 +254,11 @@ class SimpleSinkCommandStoreForwardTest {
     @Override
     public SimpleSinkCommand.FlushResult flush(
         SimpleSinkCommand.PreparedInputEvents<Integer> preparedInputEvents,
-        Map<String, String> metricTags) {
+        Map<String, String> metricTags)
+        throws InterruptedException {
       flushAttempted = true;
+      flushCount++;
+      Thread.sleep(delayMillis);
       if (fail) {
         throw new RuntimeException("connection down");
       }
@@ -151,6 +275,7 @@ class SimpleSinkCommandStoreForwardTest {
     boolean shouldBuffer = false;
     int storeLimit = Integer.MAX_VALUE;
     final List<RecordFleakData> offered = new ArrayList<>();
+    final List<RecordFleakData> spilled = new ArrayList<>();
 
     @Override
     public boolean isBuffering() {
@@ -167,6 +292,13 @@ class SimpleSinkCommandStoreForwardTest {
       int stored = Math.min(records.size(), storeLimit);
       offered.addAll(records.subList(0, stored));
       return stored;
+    }
+
+    @Override
+    public int spill(List<RecordFleakData> records) {
+      spilled.addAll(records);
+      buffering = true;
+      return records.size();
     }
 
     @Override
