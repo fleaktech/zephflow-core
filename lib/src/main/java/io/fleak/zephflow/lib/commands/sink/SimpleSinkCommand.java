@@ -345,7 +345,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
       return new SinkResult(batch.size(), 0, errorOutputs);
     }
     SinkStoreForward storeForward = sinkContext.storeForward();
-    if (spillNextBatch && storeForward != SinkStoreForward.noop()) {
+    if (spillNextBatch) {
       spillNextBatch = false;
       return bufferToDisk(
           batch,

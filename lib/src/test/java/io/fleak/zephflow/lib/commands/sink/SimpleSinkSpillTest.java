@@ -16,10 +16,12 @@ package io.fleak.zephflow.lib.commands.sink;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -129,6 +131,57 @@ class SimpleSinkSpillTest {
     sink.terminate();
   }
 
+  @Test
+  void spilledRecordThatFailsPreprocessingIsCountedAsAnError(@TempDir Path dir) throws Exception {
+    RecordingFlusher flusher = new RecordingFlusher(50);
+    SpillSink sink = new SpillSink(jobContext(dir, "20"), flusher, null, null);
+    AtomicInteger preprocessCalls = new AtomicInteger();
+    sink.preProcessor =
+        (event, ts) -> {
+          if (preprocessCalls.incrementAndGet() > 2) {
+            throw new IllegalArgumentException("bad record");
+          }
+          return event;
+        };
+    sink.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    ExecutionContext context = sink.getExecutionContext();
+
+    sink.writeToSink(List.of(record(0)), "user", context);
+    sink.writeToSink(List.of(record(1)), "user", context);
+    flusher.laterFlushes.countDown();
+
+    await(() -> sink.errorCounter.total() == 1);
+    await(() -> !storeForward(sink).isBuffering());
+    assertEquals(List.of(record(0)), flusher.delivered);
+    sink.terminate();
+  }
+
+  @Test
+  void boundedRunDoesNotSpill(@TempDir Path dir) throws Exception {
+    SpillSink sink = new SpillSink(jobContext(dir, "20"), new RecordingFlusher(0), null, null);
+    sink.setExecutionHooks(
+        new ExecutionHooks(() -> {}, mock(ExecutionHooks.Effects.class), Runnable::run));
+    sink.initialize(new MetricClientProvider.NoopMetricClientProvider());
+
+    assertSame(SinkStoreForward.noop(), storeForward(sink));
+    sink.terminate();
+  }
+
+  @Test
+  void spillAfterMillisParsesThePositiveSetting(@TempDir Path dir) {
+    assertEquals(30, SimpleSinkCommand.spillAfterMillis(jobContext(dir, " 30 ")));
+  }
+
+  @Test
+  void spillAfterMillisIsOffForMissingOrInvalidSettings(@TempDir Path dir) {
+    assertEquals(0, SimpleSinkCommand.spillAfterMillis(null));
+    assertEquals(
+        0, SimpleSinkCommand.spillAfterMillis(JobContext.builder().otherProperties(null).build()));
+    assertEquals(0, SimpleSinkCommand.spillAfterMillis(jobContext(dir, "abc")));
+    assertEquals(0, SimpleSinkCommand.spillAfterMillis(jobContext(dir, "0")));
+    assertEquals(0, SimpleSinkCommand.spillAfterMillis(jobContext(dir, "-5")));
+  }
+
   private static SinkStoreForward storeForward(SpillSink sink) {
     return ((SinkExecutionContext<?>) sink.getExecutionContext()).storeForward();
   }
@@ -169,6 +222,8 @@ class SimpleSinkSpillTest {
     private final RecordingFlusher flusher;
     private final SinkStoreForward ownStoreForward;
     private final FleakCounter sinkOutputCounter;
+    final CountingCounter errorCounter = new CountingCounter();
+    SinkMessagePreProcessor<RecordFleakData> preProcessor = (event, ts) -> event;
 
     SpillSink(
         JobContext jobContext,
@@ -200,10 +255,10 @@ class SimpleSinkSpillTest {
       FleakCounter noop = new CountingCounter();
       return new SinkExecutionContext<>(
           flusher,
-          (event, ts) -> event,
+          preProcessor,
           ownStoreForward == null ? SinkStoreForward.noop() : ownStoreForward,
           noop,
-          noop,
+          errorCounter,
           sinkOutputCounter == null ? noop : sinkOutputCounter,
           noop,
           noop);

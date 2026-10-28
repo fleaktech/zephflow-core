@@ -284,6 +284,39 @@ class ChronicleStoreForwardTest {
   }
 
   @Test
+  void interruptReleasesAWaitingSpill(@TempDir Path dir) throws Exception {
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 30, 10), IO_IS_CONNECTION, null, null, null);
+    sf.start(
+        records -> {
+          throw new IOException("down");
+        });
+
+    AtomicInteger stored = new AtomicInteger(-1);
+    AtomicBoolean interruptKept = new AtomicBoolean(false);
+    Thread spiller =
+        new Thread(
+            () -> {
+              stored.set(sf.spill(List.of(record("a"), record("b"), record("c"))));
+              interruptKept.set(Thread.currentThread().isInterrupted());
+            });
+    spiller.start();
+    Thread.sleep(200);
+    assertTrue(spiller.isAlive());
+
+    spiller.interrupt();
+    spiller.join(10_000);
+    assertEquals(2, stored.get());
+    assertTrue(interruptKept.get());
+    sf.close();
+  }
+
+  @Test
+  void spillDefaultsToOffer() {
+    assertEquals(0, SinkStoreForward.noop().spill(List.of(record("a"))));
+  }
+
+  @Test
   void restartResumesBacklogFromDisk(@TempDir Path dir) throws Exception {
     // First run: deliveries always fail (connectivity), so the 3 records stay on disk.
     ChronicleStoreForward first =
