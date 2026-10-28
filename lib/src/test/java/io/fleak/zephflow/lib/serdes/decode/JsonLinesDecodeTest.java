@@ -81,6 +81,30 @@ class JsonLinesDecodeTest {
   }
 
   @Test
+  void nonObjectLinesNameTheirJsonType() {
+    String input = "\"s\"\n1\n1.5\ntrue\nfalse\nnull";
+    assertEquals(
+        List.of(
+            notAnObject("\"s\"", 1, new RawSpan(0, 3), "a JSON string"),
+            notAnObject("1", 2, new RawSpan(4, 1), "a JSON number"),
+            notAnObject("1.5", 3, new RawSpan(6, 3), "a JSON number"),
+            notAnObject("true", 4, new RawSpan(10, 4), "a JSON boolean"),
+            notAnObject("false", 5, new RawSpan(15, 5), "a JSON boolean"),
+            notAnObject("null", 6, new RawSpan(21, 4), "null")),
+        decode(LINES, utf8(input)));
+  }
+
+  private static Bad notAnObject(String line, int index, RawSpan span, String found) {
+    return new Bad(
+        ErrorKind.MALFORMED,
+        line,
+        index,
+        span,
+        "IllegalArgumentException: expected a JSON object, got " + found,
+        false);
+  }
+
+  @Test
   void emptyInputHasNoOutcomes() {
     assertEquals(List.of(), decode(LINES, new byte[0]));
   }

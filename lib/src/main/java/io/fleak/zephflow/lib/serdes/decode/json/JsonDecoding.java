@@ -57,21 +57,9 @@ final class JsonDecoding {
 
   static RecordFleakData toRecord(JsonNode node) {
     if (!(node instanceof ObjectNode object)) {
-      throw new IllegalArgumentException("expected a JSON object, got " + describe(node));
+      throw new IllegalArgumentException("expected a JSON object, got " + describe(node.asToken()));
     }
     return JsonUtils.fromJsonPayload(object);
-  }
-
-  static String describe(JsonNode node) {
-    return switch (node.getNodeType()) {
-      case OBJECT -> "a JSON object";
-      case ARRAY -> "a JSON array";
-      case STRING -> "a JSON string";
-      case NUMBER -> "a JSON number";
-      case BOOLEAN -> "a JSON boolean";
-      case NULL -> "null";
-      default -> node.getNodeType().toString();
-    };
   }
 
   static String describe(JsonToken token) {

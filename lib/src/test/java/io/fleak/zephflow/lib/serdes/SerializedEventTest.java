@@ -111,11 +111,12 @@ class SerializedEventTest {
     SerializedEvent event =
         new SerializedEvent(
             "k".getBytes(StandardCharsets.UTF_8),
-            "{\"a\":\"é\"}\n".getBytes(StandardCharsets.UTF_8),
+            "{\"a\":\t\"é\"}\r\n".getBytes(StandardCharsets.UTF_8),
             Map.of("m", "1"));
 
     assertEquals(
-        "key(text):\nk\nvalue(text):\n{\"a\":\"é\"}\n\nmetadata:\n{\"m\":\"1\"}", event.toString());
+        "key(text):\nk\nvalue(text):\n{\"a\":\t\"é\"}\r\n\nmetadata:\n{\"m\":\"1\"}",
+        event.toString());
   }
 
   @Test
