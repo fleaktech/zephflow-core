@@ -120,6 +120,9 @@ public record DagExecutor(
       sourceCommand.initialize(metricClientProvider);
       shutdownFlushHook.install();
 
+      if (sourceCommand.confirmsDeliveryBeforeCommit()) {
+        noSourceDagRunner.deferDeliveryConfirmation();
+      }
       // Streaming path is long-lived, so time-triggered windows get a background flush thread.
       // No-op unless the DAG actually contains a windowed node.
       noSourceDagRunner.startFlushScheduler(jobConfig.getJobId());
@@ -130,6 +133,11 @@ public record DagExecutor(
             @Override
             public void terminate() {
               noSourceDagRunner.terminate();
+            }
+
+            @Override
+            public void beforeCommit() {
+              noSourceDagRunner.awaitDeliveryConfirmation();
             }
 
             @Override
