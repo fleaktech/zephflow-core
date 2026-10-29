@@ -1,0 +1,3 @@
+{
+  "expression": "field_present($, \"a.b\")"
+}
