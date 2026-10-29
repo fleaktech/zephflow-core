@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.filedecode;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.OtlpFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import java.lang.management.ManagementFactory;
@@ -40,6 +41,7 @@ public final class HeapDecodeLimits {
       case AvroFormatConfig a -> new DecodeLimits(heapBytes / 128, heapBytes / 512, codecMemory);
       case ProtobufFormatConfig p ->
           new DecodeLimits(heapBytes / 1024, heapBytes / 1024, codecMemory);
+      case OtlpFormatConfig o -> new DecodeLimits(heapBytes / 1024, heapBytes / 1024, codecMemory);
       default -> new DecodeLimits(heapBytes / 128, heapBytes / 64, codecMemory);
     };
   }

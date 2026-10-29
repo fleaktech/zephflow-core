@@ -170,6 +170,10 @@ class FsSourceDecodingConfigTest {
                 + "\",\"messageType\":\"t.M\",\"framing\":\"single\"}}",
             new byte[] {0x0A, 0x05, 'a'}),
         Arguments.of(
+            "otlp",
+            "{\"format\":{\"type\":\"otlp\",\"signal\":\"logs\"}}",
+            new byte[] {0x0A, 0x05, 'a'}),
+        Arguments.of(
             "avro",
             "{\"format\":{\"type\":\"avro\",\"container\":\"datum\",\"schema\":" + SMALL + "}}",
             new byte[] {0x0A, 'a'}));

@@ -1,0 +1,103 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "checkout" } },
+          { "key": "service.version", "value": { "stringValue": "1.4.2" } },
+          { "key": "process.pid", "value": { "intValue": "4211" } }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {
+            "name": "io.opentelemetry.example",
+            "version": "1.0.0",
+            "attributes": [
+              { "key": "scope.tier", "value": { "stringValue": "backend" } }
+            ]
+          },
+          "logRecords": [
+            {
+              "timeUnixNano": "1750000000000000123",
+              "observedTimeUnixNano": "1750000000000000456",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": { "stringValue": "order placed" },
+              "attributes": [
+                { "key": "order.id", "value": { "stringValue": "A-1001" } },
+                { "key": "order.total", "value": { "doubleValue": 42.5 } },
+                { "key": "order.items", "value": { "intValue": "3" } },
+                { "key": "order.expedited", "value": { "boolValue": true } },
+                {
+                  "key": "order.tags",
+                  "value": {
+                    "arrayValue": {
+                      "values": [
+                        { "stringValue": "gift" },
+                        { "stringValue": "priority" }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "key": "order.customer",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [
+                        { "key": "id", "value": { "stringValue": "C-77" } },
+                        { "key": "vip", "value": { "boolValue": false } }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "traceId": "5b8efff798038103d269b633813fc60c",
+              "spanId": "eee19b7ec3c1b174",
+              "flags": 1
+            },
+            {
+              "timeUnixNano": "1750000000000000789",
+              "severityNumber": 17,
+              "severityText": "ERROR",
+              "body": { "stringValue": "payment declined" },
+              "attributes": [
+                { "key": "order.id", "value": { "stringValue": "A-1002" } }
+              ]
+            }
+          ]
+        },
+        {
+          "scope": { "name": "io.opentelemetry.other" },
+          "logRecords": [
+            {
+              "timeUnixNano": "1750000000000000999",
+              "severityNumber": 5,
+              "severityText": "DEBUG",
+              "body": { "stringValue": "cache warm" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "shipping" } }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "logRecords": [
+            {
+              "timeUnixNano": "1750000000000001111",
+              "severityNumber": 13,
+              "severityText": "WARN",
+              "body": { "stringValue": "carrier slow" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

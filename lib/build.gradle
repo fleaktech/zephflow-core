@@ -49,6 +49,7 @@ dependencies {
   implementation libs.databricks.sdk
   implementation libs.zerobus.ingest.sdk
   implementation libs.protobuf.java
+  implementation libs.opentelemetry.proto
 
   implementation libs.splunk
 
@@ -67,6 +68,7 @@ dependencies {
   runtimeOnly libs.mssql.jdbc.driver
 
   testImplementation libs.h2.database
+  testImplementation libs.protobuf.java.util
   implementation libs.angus.mail
   implementation(libs.azure.storage.blob) {
     exclude group: 'com.azure', module: 'azure-core-http-netty'

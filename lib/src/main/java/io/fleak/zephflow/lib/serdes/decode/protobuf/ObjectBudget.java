@@ -28,7 +28,7 @@ import java.util.Map;
  * value's defaults when the value is missing), and a packed field at most one per byte. Parsing
  * alone builds a tree of the same shape, so the check has to come first.
  */
-final class ObjectBudget {
+public final class ObjectBudget {
 
   static final long OBJECTS_PER_BYTE = 4;
   static final long EXTRA_OBJECTS = 100_000;
@@ -42,7 +42,7 @@ final class ObjectBudget {
     this.left = left;
   }
 
-  static void check(Descriptor type, byte[] bytes) throws IOException {
+  public static void check(Descriptor type, byte[] bytes) throws IOException {
     new ObjectBudget(OBJECTS_PER_BYTE * bytes.length + EXTRA_OBJECTS)
         .message(type, CodedInputStream.newInstance(bytes), 0, false);
   }

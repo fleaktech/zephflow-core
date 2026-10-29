@@ -141,7 +141,7 @@ class S3DecodingTest {
   @Test
   void theFormatNameIsTheDecodingsFormatType() {
     List<String> types =
-        List.of("avro", "csv", "json", "parquet", "protobuf", "text", "xml", "yaml");
+        List.of("avro", "csv", "json", "otlp", "parquet", "protobuf", "text", "xml", "yaml");
     assertEquals(
         types,
         types.stream()

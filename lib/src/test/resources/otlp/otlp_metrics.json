@@ -1,0 +1,132 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "checkout" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "io.fleak.demo.metrics", "version": "1.0.0" },
+          "metrics": [
+            {
+              "name": "queue.depth",
+              "unit": "{item}",
+              "description": "Items awaiting processing",
+              "gauge": {
+                "dataPoints": [
+                  {
+                    "timeUnixNano": "1750000000000000000",
+                    "asDouble": 3.5,
+                    "attributes": [
+                      { "key": "queue", "value": { "stringValue": "orders" } }
+                    ]
+                  },
+                  {
+                    "timeUnixNano": "1750000000000000000",
+                    "asInt": "9007199254740993"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "requests.total",
+              "unit": "{request}",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1749999000000000000",
+                    "timeUnixNano": "1750000000000000000",
+                    "asInt": "421"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "requests.delta",
+              "sum": {
+                "aggregationTemporality": "AGGREGATION_TEMPORALITY_DELTA",
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1749999000000000000",
+                    "timeUnixNano": "1750000000000000000",
+                    "asDouble": 0
+                  }
+                ]
+              }
+            },
+            {
+              "name": "request.duration",
+              "unit": "ms",
+              "histogram": {
+                "aggregationTemporality": 2,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1749999000000000000",
+                    "timeUnixNano": "1750000000000000000",
+                    "count": "7",
+                    "sum": 12.5,
+                    "min": 0.5,
+                    "max": 9.0,
+                    "bucketCounts": ["1", "2", "4"],
+                    "explicitBounds": [1.0, 5.0],
+                    "exemplars": [
+                      {
+                        "timeUnixNano": "1750000000000000000",
+                        "asDouble": 8.75,
+                        "traceId": "5b8efff798038103d269b633813fc60c",
+                        "spanId": "eee19b7ec3c1b174",
+                        "filteredAttributes": [
+                          { "key": "http.route", "value": { "stringValue": "/checkout" } }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "request.duration.exp",
+              "exponentialHistogram": {
+                "aggregationTemporality": 1,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1749999000000000000",
+                    "timeUnixNano": "1750000000000000000",
+                    "count": "6",
+                    "sum": 30.0,
+                    "scale": -2,
+                    "zeroCount": "3",
+                    "zeroThreshold": 0.0,
+                    "positive": { "offset": 4, "bucketCounts": ["1", "0", "2"] }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "request.duration.summary",
+              "summary": {
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1749999000000000000",
+                    "timeUnixNano": "1750000000000000000",
+                    "count": "10",
+                    "sum": 99.5,
+                    "quantileValues": [
+                      { "value": 0.1 },
+                      { "quantile": 0.5, "value": 1.0 },
+                      { "quantile": 0.99, "value": 9.0 }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
