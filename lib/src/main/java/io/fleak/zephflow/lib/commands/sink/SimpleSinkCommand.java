@@ -25,6 +25,8 @@ import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.function.ToIntFunction;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
@@ -35,7 +37,18 @@ import org.apache.commons.lang3.tuple.Pair;
  * predefined batch size, and flush each batch into sink synchronously.
  */
 @Slf4j
-public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
+public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements CommitBarrierSink {
+
+  private boolean deliveryConfirmationDeferred;
+
+  private static final long SPILL_MAX_BYTES = 1_073_741_824L; // 1 GiB
+  private static final long SPILL_RETRY_INTERVAL_MS = 5_000L;
+  private static final int SPILL_MAX_RETRIES = 3;
+  // A spilled record has already been committed upstream, so retry it before giving up on it.
+  private static final ConnectionFailureClassifier RETRY_EVERY_FAILURE = failure -> true;
+
+  private final long spillAfterMillis;
+  private transient volatile boolean spillNextBatch;
 
   protected SimpleSinkCommand(
       String nodeId,
@@ -43,6 +56,94 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       ConfigParser configParser,
       ConfigValidator configValidator) {
     super(nodeId, jobContext, configParser, configValidator);
+    this.spillAfterMillis = spillAfterMillis(jobContext);
+  }
+
+  static long spillAfterMillis(JobContext jobContext) {
+    Object value =
+        jobContext == null || jobContext.getOtherProperties() == null
+            ? null
+            : jobContext.getOtherProperties().get(JobContext.SINK_SPILL_AFTER_MS);
+    if (value == null) {
+      return 0;
+    }
+    try {
+      long millis = Long.parseLong(value.toString().trim());
+      if (millis > 0) {
+        return millis;
+      }
+    } catch (NumberFormatException ignored) {
+    }
+    log.warn("invalid {}={}; slow sinks will not spill", JobContext.SINK_SPILL_AFTER_MS, value);
+    return 0;
+  }
+
+  @Override
+  public void initialize(MetricClientProvider metricClientProvider) {
+    super.initialize(metricClientProvider);
+    if (spillAfterMillis == 0 || executionHooks != null) {
+      return;
+    }
+    synchronized (this) {
+      //noinspection unchecked
+      SinkExecutionContext<T> context = (SinkExecutionContext<T>) executionContext;
+      if (context.storeForward() == SinkStoreForward.noop()) {
+        executionContext = withSpillBuffer(context, metricClientProvider);
+      }
+    }
+  }
+
+  private SinkExecutionContext<T> withSpillBuffer(
+      SinkExecutionContext<T> context, MetricClientProvider metricClientProvider) {
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+    ChronicleStoreForward spillBuffer =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(
+                StoreForwardPaths.resolve(null, jobContext, nodeId),
+                SPILL_MAX_BYTES,
+                SPILL_RETRY_INTERVAL_MS,
+                batchSize(),
+                nodeId,
+                SPILL_MAX_RETRIES),
+            RETRY_EVERY_FAILURE,
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
+            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
+    spillBuffer.start(records -> replaySpilled(records, context));
+    log.info("sink {} spills to disk after a flush slower than {} ms", nodeId, spillAfterMillis);
+    return new SinkExecutionContext<>(
+        context.flusher(),
+        context.messagePreProcessor(),
+        spillBuffer,
+        context.inputMessageCounter(),
+        context.errorCounter(),
+        context.sinkOutputCounter(),
+        context.outputSizeCounter(),
+        context.sinkErrorCounter());
+  }
+
+  private void replaySpilled(List<RecordFleakData> records, SinkExecutionContext<T> context)
+      throws Exception {
+    Map<String, String> tags = Map.of();
+    PreparedInputEvents<T> prepared = new PreparedInputEvents<>();
+    List<ErrorOutput> errors = new ArrayList<>();
+    long ts = System.currentTimeMillis();
+    for (RecordFleakData record : records) {
+      try {
+        prepared.add(record, context.messagePreProcessor().preprocess(record, ts));
+      } catch (Exception e) {
+        context.errorCounter().increase(tags);
+        errors.add(new ErrorOutput(record, e.getMessage()));
+      }
+    }
+    if (!prepared.preparedList().isEmpty()) {
+      FlushResult flushResult = context.flusher().flush(prepared, tags);
+      context.sinkOutputCounter().increase(flushResult.successCount(), tags);
+      context.outputSizeCounter().increase(flushResult.flushedDataSize(), tags);
+      errors.addAll(flushResult.errorOutputList());
+    }
+    countSinkErrors(context.sinkErrorCounter(), errors, tags);
   }
 
   @Override
@@ -65,12 +166,6 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       }
       return result;
     }
-    // Outage fast-path: while store-and-forward is buffering, route everything straight to disk
-    // (no remote attempt) so we don't reorder ahead of already-queued records.
-    if (sinkContext.storeForward().isBuffering()) {
-      return bufferDuringOutage(events, tags, sinkContext);
-    }
-
     List<List<RecordFleakData>> batches = Lists.partition(events, batchSize());
     long ts = System.currentTimeMillis();
 
@@ -81,6 +176,23 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
   }
 
   protected abstract int batchSize();
+
+  @Override
+  public void deferDeliveryConfirmation() {
+    deliveryConfirmationDeferred = true;
+  }
+
+  /** Whether flushes may return before delivery is confirmed; read when creating the context. */
+  protected boolean isDeliveryConfirmationDeferred() {
+    return deliveryConfirmationDeferred;
+  }
+
+  @Override
+  public void awaitDeliveryConfirmation() throws Exception {
+    if (getExecutionContext() instanceof SinkExecutionContext<?> sinkContext) {
+      sinkContext.flusher().awaitDeliveryConfirmation();
+    }
+  }
 
   private SinkResult writeBoundedBatch(
       List<RecordFleakData> batch, Map<String, String> tags, SinkExecutionContext<T> context) {
@@ -232,16 +344,49 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     if (preparedInputEvents.rawAndPreparedList.isEmpty()) {
       return new SinkResult(batch.size(), 0, errorOutputs);
     }
+    SinkStoreForward storeForward = sinkContext.storeForward();
+    if (spillNextBatch) {
+      spillNextBatch = false;
+      return bufferToDisk(
+          batch,
+          preparedInputEvents,
+          errorOutputs,
+          storeForward::spill,
+          callingUserTag,
+          sinkContext);
+    }
+    // While store-and-forward is buffering, go straight to disk so we don't reorder ahead of
+    // already-queued records.
+    if (storeForward.isBuffering()) {
+      return bufferToDisk(
+          batch,
+          preparedInputEvents,
+          errorOutputs,
+          storeForward::offer,
+          callingUserTag,
+          sinkContext);
+    }
     FlushResult flushResult;
+    long flushStartNanos = System.nanoTime();
     try {
       flushResult = sinkContext.flusher().flush(preparedInputEvents, callingUserTag);
+      if (spillAfterMillis > 0
+          && System.nanoTime() - flushStartNanos
+              > TimeUnit.MILLISECONDS.toNanos(spillAfterMillis)) {
+        spillNextBatch = true;
+      }
     } catch (Exception e) {
       // Connectivity failure with store-and-forward enrolled: persist the prepared records to local
       // storage instead of dropping them. Only records that preprocessed successfully are buffered;
       // preprocess errors stay on the normal error path.
-      if (sinkContext.storeForward().shouldBuffer(e)) {
-        return bufferFailedBatch(
-            batch, preparedInputEvents, errorOutputs, callingUserTag, sinkContext);
+      if (storeForward.shouldBuffer(e)) {
+        return bufferToDisk(
+            batch,
+            preparedInputEvents,
+            errorOutputs,
+            storeForward::offer,
+            callingUserTag,
+            sinkContext);
       }
       log.debug("failed to write to sink", e);
       // if error is thrown, it's a complete failure
@@ -259,40 +404,22 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
     return sinkResult;
   }
 
+  private static final String METRIC_NAME_STORE_FORWARD_BUFFERED = "store_forward_buffered_count";
+  private static final String METRIC_NAME_STORE_FORWARD_REPLAYED = "store_forward_replayed_count";
+  private static final String METRIC_NAME_STORE_FORWARD_DROPPED = "store_forward_dropped_count";
   private static final String STORE_FORWARD_FULL_MSG =
       "store-and-forward local buffer is full; record dropped";
 
-  /**
-   * Outage path from {@link #writeToSink}: persist all events to local storage, none sent to
-   * remote.
-   */
-  private SinkResult bufferDuringOutage(
-      List<RecordFleakData> events, Map<String, String> tags, SinkExecutionContext<T> sinkContext) {
-    sinkContext.inputMessageCounter().increase(events.size(), tags);
-    int stored = sinkContext.storeForward().offer(events);
-    List<ErrorOutput> errors = new ArrayList<>();
-    for (int i = stored; i < events.size(); i++) {
-      errors.add(new ErrorOutput(events.get(i), STORE_FORWARD_FULL_MSG));
-    }
-    // Buffered records are safely persisted, so they count as success and the pipeline proceeds.
-    SinkResult result = new SinkResult(events.size(), stored, errors);
-    countSinkErrors(sinkContext.sinkErrorCounter(), errors, tags);
-    return result;
-  }
-
-  /**
-   * Failure path from {@link #writeOneBatch}: buffer the prepared records of a batch that hit a
-   * connectivity failure.
-   */
-  private SinkResult bufferFailedBatch(
+  private SinkResult bufferToDisk(
       List<RecordFleakData> batch,
       PreparedInputEvents<T> preparedInputEvents,
       List<ErrorOutput> preprocessErrors,
+      ToIntFunction<List<RecordFleakData>> store,
       Map<String, String> tags,
       SinkExecutionContext<T> sinkContext) {
     List<RecordFleakData> raws =
         preparedInputEvents.rawAndPreparedList().stream().map(Pair::getKey).toList();
-    int stored = sinkContext.storeForward().offer(raws);
+    int stored = store.applyAsInt(raws);
     List<ErrorOutput> errors = new ArrayList<>(preprocessErrors);
     for (int i = stored; i < raws.size(); i++) {
       errors.add(new ErrorOutput(raws.get(i), STORE_FORWARD_FULL_MSG));
@@ -348,6 +475,9 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand {
       requireBoundedWriteAllowed(events.preparedList().size(), hooks);
       return flush(events, tags);
     }
+
+    /** Waits for writes that {@link #flush} returned before the target system confirmed. */
+    default void awaitDeliveryConfirmation() throws Exception {}
 
     /** Discards unsent records before closing resources. Buffered implementations override this. */
     default void abort() throws java.io.IOException {

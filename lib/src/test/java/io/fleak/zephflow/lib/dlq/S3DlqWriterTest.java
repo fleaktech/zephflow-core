@@ -251,6 +251,62 @@ public class S3DlqWriterTest {
   }
 
   @Test
+  void testWriteNowUploadsOneObjectBeforeReturning() throws IOException {
+    createAndOpenDlqWriter(100, 60000);
+    List<DeadLetter> deadLetters =
+        List.of(
+            DeadLetter.newBuilder()
+                .setProcessingTimestamp(1L)
+                .setValue(ByteBuffer.wrap("value-1".getBytes()))
+                .setErrorMessage("msg1")
+                .setNodeId("node-1")
+                .build(),
+            DeadLetter.newBuilder()
+                .setProcessingTimestamp(2L)
+                .setValue(ByteBuffer.wrap("value-2".getBytes()))
+                .setErrorMessage("msg2")
+                .setNodeId("node-2")
+                .build());
+
+    dlqWriter.writeNow(deadLetters);
+
+    List<String> objectKeys = listS3Objects(dlqWriter.s3Client);
+    assertEquals(1, objectKeys.size());
+    assertTrue(objectKeys.get(0).startsWith(TEST_KEY_PREFIX + "/dead-letters/"));
+    assertTrue(objectKeys.get(0).endsWith("_n2.avro"), objectKeys.get(0));
+    List<DeadLetter> read = readRawDeadLettersFromS3(dlqWriter.s3Client, objectKeys.get(0));
+    assertEquals(List.of(1L, 2L), read.stream().map(DeadLetter::getProcessingTimestamp).toList());
+    assertEquals("node-2", read.get(1).getNodeId().toString());
+  }
+
+  @Test
+  void testWriteNowThrowsWhenTheUploadFails() {
+    createAndOpenDlqWriter(100, 60000);
+    S3DlqWriter missingBucketWriter =
+        S3DlqWriter.createS3DlqWriter(
+            Region.US_EAST_1.toString(),
+            "missing-dlq-bucket",
+            100,
+            60000,
+            new UsernamePasswordCredential(
+                minioContainer.getUserName(), minioContainer.getPassword()),
+            minioContainer.getS3URL(),
+            TEST_KEY_PREFIX);
+    try {
+      List<DeadLetter> deadLetters =
+          List.of(
+              DeadLetter.newBuilder()
+                  .setProcessingTimestamp(1L)
+                  .setErrorMessage("msg")
+                  .setNodeId("node")
+                  .build());
+      assertThrows(NoSuchBucketException.class, () -> missingBucketWriter.writeNow(deadLetters));
+    } finally {
+      missingBucketWriter.close();
+    }
+  }
+
+  @Test
   void testCreateS3DlqWriterFromConfig() throws InterruptedException {
     JobContext.S3DlqConfig config =
         JobContext.S3DlqConfig.builder()

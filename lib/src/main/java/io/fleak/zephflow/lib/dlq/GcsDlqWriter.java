@@ -24,6 +24,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.gcp.GcsClientFactory;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -134,6 +135,14 @@ public class GcsDlqWriter extends DlqWriter {
     while (sanitized.startsWith("/")) sanitized = sanitized.substring(1);
     while (sanitized.endsWith("/")) sanitized = sanitized.substring(0, sanitized.length() - 1);
     return sanitized.isEmpty() ? null : sanitized;
+  }
+
+  @Override
+  public void writeNow(List<DeadLetter> deadLetters) throws IOException {
+    byte[] data = serializer.serialize(deadLetters);
+    String objectName = generateObjectKey(System.currentTimeMillis(), deadLetters.size());
+    uploadToGcsWithRetry(data, objectName);
+    log.info("Uploaded {} records to gs://{}/{}", deadLetters.size(), bucketName, objectName);
   }
 
   private void uploadToGcs(List<DeadLetter> batch) {

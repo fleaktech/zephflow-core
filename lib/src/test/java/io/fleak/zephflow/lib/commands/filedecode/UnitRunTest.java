@@ -38,6 +38,7 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
 import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
+import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.EOFException;
 import java.io.IOException;
@@ -391,6 +392,15 @@ class UnitRunTest {
               .toList());
     }
     assertEquals(3L, decodeFailures.get());
+  }
+
+  @Test
+  void causeMessageIsTheFirstLineOfTheInnermostCause() {
+    IOException cause = new IOException("  bad byte at 7  \nstack detail");
+    assertEquals(
+        "bad byte at 7", UnitRun.causeMessage(new SourceReadException("reading failed", cause)));
+    assertEquals(
+        "", UnitRun.causeMessage(new SourceReadException("reading failed", new EOFException())));
   }
 
   @Test

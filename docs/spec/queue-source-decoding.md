@@ -89,10 +89,10 @@ details, and the same `SimpleSourceCommand` handling (the text written for a
 The DLQ entry is what each source's encoder writes today: the body alone for SQS and Pub/Sub, the
 key, value and metadata for IoT Hub.
 
-The error log line becomes `failed to deserialize event: <first line>` followed by the
-description: the SQS or Pub/Sub message id (today: `failed to deserialize SQS event for messageId:
-<id>` and `failed to deserialize Pub/Sub message: <id>`), or the whole event for IoT Hub (today:
-`failed to deserialize IoT Hub event:` and the event).
+The error log line becomes `failed to deserialize event: <first line>: <error message>` followed
+by the description: the SQS or Pub/Sub message id (today: `failed to deserialize SQS event for
+messageId: <id>` and `failed to deserialize Pub/Sub message: <id>`), or the whole event for IoT Hub
+(today: `failed to deserialize IoT Hub event:` and the event).
 
 ### 3.4 Metrics
 

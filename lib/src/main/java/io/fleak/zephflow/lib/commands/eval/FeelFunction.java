@@ -90,6 +90,8 @@ public interface FeelFunction {
             .put("random_long", new RandomLongFunction())
             .put("in", new InFunction())
             .put("exists", new ExistsFunction())
+            .put("field_present", new FieldPresentFunction())
+            .put("field_value_eq", new FieldValueEqFunction())
             .put("cidr_match", new CidrMatchFunction())
             .put("deep_contains", new DeepContainsFunction())
             .put("coalesce", new CoalesceFunction())

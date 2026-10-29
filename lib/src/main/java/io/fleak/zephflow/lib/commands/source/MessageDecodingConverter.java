@@ -134,9 +134,15 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     context.dataSizeCounter().increase(size, Map.of());
     context.deserializeFailureCounter().increase(Map.of());
     if (log.isErrorEnabled()) {
-      log.error("failed to deserialize event: {}\n{}", failure.getMessage(), description.get());
+      log.error("failed to deserialize event: {}\n{}", logLine(failure), description.get());
     }
     return ConvertedResult.failure(failure, sourceRecord);
+  }
+
+  /** The first line, with the error's message: the first line names only its class. */
+  private static String logLine(MessageDecodeException failure) {
+    String message = failure.getCause() == null ? "" : UnitRun.causeMessage(failure.getCause());
+    return message.isEmpty() ? failure.getMessage() : failure.getMessage() + ": " + message;
   }
 
   private ConvertedResult<SerializedEvent> succeed(

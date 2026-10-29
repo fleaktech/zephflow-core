@@ -16,6 +16,9 @@ package io.fleak.zephflow.lib.serdes;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.NonNull;
@@ -59,7 +62,29 @@ public record SerializedEvent(byte[] key, byte[] value, Map<String, String> meta
   @Override
   public @NonNull String toString() {
     return String.format(
-        "key(base64):%n%s%nvalue(base64):%n%s%nmetadata:%n%s",
-        toBase64String(key), toBase64String(value), toJsonString(metadata));
+        "%s%n%s%nmetadata:%n%s",
+        describe("key", key), describe("value", value), toJsonString(metadata));
+  }
+
+  private static String describe(String name, byte[] bytes) {
+    if (bytes == null) {
+      return name + ":\nnull";
+    }
+    String text = readableText(bytes);
+    return text != null ? name + "(text):\n" + text : name + "(base64):\n" + toBase64String(bytes);
+  }
+
+  /** The bytes as UTF-8 text, or null when they are not valid UTF-8 or hold control characters. */
+  private static String readableText(byte[] bytes) {
+    String text;
+    try {
+      text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+    } catch (CharacterCodingException e) {
+      return null;
+    }
+    boolean readable =
+        text.chars()
+            .allMatch(c -> !Character.isISOControl(c) || c == '\n' || c == '\r' || c == '\t');
+    return readable ? text : null;
   }
 }

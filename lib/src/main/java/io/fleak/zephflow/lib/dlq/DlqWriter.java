@@ -16,7 +16,9 @@ package io.fleak.zephflow.lib.dlq;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.Closeable;
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Optional;
 
 /** Created by bolei on 11/5/24 */
@@ -38,6 +40,10 @@ public abstract class DlqWriter implements Closeable {
   }
 
   protected abstract void doWrite(DeadLetter deadLetter);
+
+  public void writeNow(List<DeadLetter> deadLetters) throws IOException {
+    throw new UnsupportedOperationException(getClass().getSimpleName() + " cannot write now");
+  }
 
   public abstract void open();
 }

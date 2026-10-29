@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import static io.fleak.zephflow.runner.DagResult.sinkResultToOutputEvent;
 
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.CommitBarrierSink;
 import io.fleak.zephflow.api.EndOfInputFlushable;
 import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.KeyedStatefulCommand;
@@ -309,6 +310,31 @@ public class NoSourceDagRunner {
       return new DagResult();
     }
     return lockedRun(List.of(), callingUser, runConfig, false, true);
+  }
+
+  /** Lets sinks return before delivery is confirmed; the source must call the barrier below. */
+  public void deferDeliveryConfirmation() {
+    for (Node<OperatorCommand> node : compiledDagWithoutSource.getNodes()) {
+      if (node.getNodeContent() instanceof CommitBarrierSink sink) {
+        sink.deferDeliveryConfirmation();
+      }
+    }
+  }
+
+  public void awaitDeliveryConfirmation() {
+    for (Node<OperatorCommand> node : compiledDagWithoutSource.getNodes()) {
+      OperatorCommand command = node.getNodeContent();
+      if (!(command instanceof CommitBarrierSink sink) || !command.isInitialized()) {
+        continue;
+      }
+      try {
+        sink.awaitDeliveryConfirmation();
+      } catch (NodeExecutionException e) {
+        throw e;
+      } catch (Exception e) {
+        throw new NodeExecutionException(node.getId(), command.commandName(), e.getMessage(), e);
+      }
+    }
   }
 
   private DagResult lockedRun(

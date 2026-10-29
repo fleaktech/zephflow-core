@@ -25,6 +25,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -36,6 +37,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.errors.RecordTooLargeException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,7 +79,17 @@ class KafkaSinkDeliveryModeTest {
     return buildCommandFromConfigMap(configMap);
   }
 
+  private KafkaSinkCommand buildDeferredCommand(KafkaSinkDto.Config config) {
+    Map<String, Object> configMap = OBJECT_MAPPER.convertValue(config, new TypeReference<>() {});
+    return buildCommandFromConfigMap(configMap, true);
+  }
+
   private KafkaSinkCommand buildCommandFromConfigMap(Map<String, Object> configMap) {
+    return buildCommandFromConfigMap(configMap, false);
+  }
+
+  private KafkaSinkCommand buildCommandFromConfigMap(
+      Map<String, Object> configMap, boolean deferDeliveryConfirmation) {
     KafkaProducerClientFactory producerClientFactory =
         new KafkaProducerClientFactory() {
           @Override
@@ -91,6 +103,9 @@ class KafkaSinkDeliveryModeTest {
             new KafkaSinkCommandFactory(producerClientFactory)
                 .createCommand("delivery_mode_node", TestUtils.JOB_CONTEXT);
     command.parseAndValidateArg(configMap);
+    if (deferDeliveryConfirmation) {
+      command.deferDeliveryConfirmation();
+    }
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     return command;
   }
@@ -215,5 +230,92 @@ class KafkaSinkDeliveryModeTest {
     assertEquals("all", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
     verify(mockProducer).flush();
     verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+  }
+
+  @Test
+  void deferredConfirmation_flushReturnsBeforeAcksAndBarrierFlushesProducer() throws Exception {
+    KafkaSinkCommand command = buildDeferredCommand(baseConfig().build());
+
+    ScalarSinkCommand.SinkResult result =
+        command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    assertEquals(EVENTS.size(), result.getSuccessCount());
+    verify(mockProducer, times(EVENTS.size())).send(any(ProducerRecord.class), any(Callback.class));
+    verify(mockProducer, never()).send(any(ProducerRecord.class));
+    verify(mockProducer, never()).flush();
+    assertEquals("all", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
+
+    command.awaitDeliveryConfirmation();
+
+    verify(mockProducer).flush();
+  }
+
+  @Test
+  void deferredConfirmation_connectivityFailureAfterSendFailsBarrier() {
+    List<Callback> callbacks = captureCallbacksWithoutCompleting();
+    KafkaSinkCommand command = buildDeferredCommand(baseConfig().build());
+    command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    callbacks.getFirst().onCompletion(mock(RecordMetadata.class), null);
+    callbacks.get(1).onCompletion(null, new TimeoutException("delivery timed out"));
+
+    Exception thrown = assertThrows(Exception.class, command::awaitDeliveryConfirmation);
+    assertInstanceOf(TimeoutException.class, thrown.getCause());
+  }
+
+  @Test
+  void deferredConfirmation_permanentFailureAfterSendDoesNotFailBarrier() throws Exception {
+    List<Callback> callbacks = captureCallbacksWithoutCompleting();
+    KafkaSinkCommand command = buildDeferredCommand(baseConfig().build());
+    command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    callbacks.getFirst().onCompletion(null, new RecordTooLargeException("too large"));
+
+    command.awaitDeliveryConfirmation();
+    verify(mockProducer).flush();
+  }
+
+  @Test
+  void deferredConfirmation_rejectionDuringSendBecomesErrorOutputOnly() throws Exception {
+    when(mockProducer.send(any(ProducerRecord.class), any(Callback.class)))
+        .thenAnswer(
+            invocation -> {
+              TimeoutException rejection = new TimeoutException("no metadata after 60000 ms");
+              Callback callback = invocation.getArgument(1);
+              callback.onCompletion(null, rejection);
+              return CompletableFuture.failedFuture(rejection);
+            });
+    KafkaSinkCommand command = buildDeferredCommand(baseConfig().build());
+
+    ScalarSinkCommand.SinkResult result =
+        command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    assertEquals(0, result.getSuccessCount());
+    assertEquals(EVENTS.size(), result.errorCount());
+    command.awaitDeliveryConfirmation();
+  }
+
+  @Test
+  void deferredConfirmation_isIgnoredForFireAndForget() throws Exception {
+    KafkaSinkCommand command =
+        buildDeferredCommand(
+            baseConfig().deliveryMode(KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET).build());
+    command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
+
+    command.awaitDeliveryConfirmation();
+
+    assertEquals("1", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
+    verify(mockProducer, never()).flush();
+  }
+
+  private List<Callback> captureCallbacksWithoutCompleting() {
+    List<Callback> callbacks = new ArrayList<>();
+    when(mockProducer.send(any(ProducerRecord.class), any(Callback.class)))
+        .thenAnswer(
+            invocation -> {
+              callbacks.add(invocation.getArgument(1));
+              return new CompletableFuture<RecordMetadata>();
+            });
+    return callbacks;
   }
 }
