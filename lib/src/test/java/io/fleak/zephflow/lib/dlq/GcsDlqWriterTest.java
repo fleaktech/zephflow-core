@@ -278,6 +278,26 @@ public class GcsDlqWriterTest {
     }
   }
 
+  @Test
+  void testWriteNowUploadsOneObjectBeforeReturning() throws IOException {
+    createAndOpenDlqWriter(100, 60000);
+
+    dlqWriter.writeNow(
+        List.of(
+            DeadLetter.newBuilder()
+                .setProcessingTimestamp(1L)
+                .setValue(ByteBuffer.wrap("value-1".getBytes()))
+                .setErrorMessage("msg1")
+                .setNodeId("node-1")
+                .build()));
+
+    List<String> objectNames = listGcsObjects();
+    assertEquals(1, objectNames.size());
+    assertTrue(objectNames.get(0).endsWith("_n1.avro"), objectNames.get(0));
+    List<DeadLetter> read = readRawDeadLettersFromGcs(objectNames.get(0));
+    assertEquals("node-1", read.get(0).getNodeId().toString());
+  }
+
   private List<String> listGcsObjects() {
     List<String> names = new ArrayList<>();
     for (Blob blob : gcsClient.list(BUCKET_NAME).iterateAll()) {
