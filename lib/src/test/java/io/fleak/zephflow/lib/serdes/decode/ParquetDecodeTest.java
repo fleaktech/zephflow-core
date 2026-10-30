@@ -306,6 +306,16 @@ class ParquetDecodeTest {
   }
 
   @Test
+  void aSchemaInTheFormatIsIgnoredWhenReading() {
+    assertEquals(
+        numbersDecoded(0, 3),
+        decode(
+            "{\"format\":{\"type\":\"parquet\",\"schema\":{\"type\":\"record\",\"name\":\"Other\","
+                + "\"fields\":[{\"name\":\"x\",\"type\":\"string\"}]}}}",
+            numbers(3, 1024 * 1024, CompressionCodecName.UNCOMPRESSED)));
+  }
+
+  @Test
   void rowGroupsFollowEachOtherAndOneOverTheDocumentLimitIsSkipped() {
     byte[] file = numbers(5000, 16 * 1024, CompressionCodecName.UNCOMPRESSED);
     List<RowGroup> groups = footer(file).getRow_groups();

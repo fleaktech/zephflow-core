@@ -23,6 +23,8 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.KvFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.IOException;
 import java.io.InputStream;
@@ -46,6 +48,38 @@ class DecodingConfigCompilerTest {
         JsonUtils.OBJECT_MAPPER.readValue(
             "{\"compression\":[\"GZIP\"],\"format\":{\"type\":\"json\",\"mode\":\"Array\"}}",
             DecodingConfig.class));
+  }
+
+  @Test
+  void kvParsesButCannotBeRead() throws Exception {
+    DecodingConfig config =
+        JsonUtils.OBJECT_MAPPER.readValue(
+            "{\"format\":{\"type\":\"kv\",\"fields\":[\"a\",\"b\"],\"pairDelimiter\":\"|\",\"cleanFields\":true}}",
+            DecodingConfig.class);
+
+    assertEquals(
+        new DecodingConfig(null, new KvFormatConfig(List.of("a", "b"), "|", true)), config);
+    assertEquals(
+        "kv cannot be read: no source decodes kv",
+        assertThrows(IllegalArgumentException.class, () -> DecodingConfigCompiler.compile(config))
+            .getMessage());
+  }
+
+  @Test
+  void parquetCarriesAnOptionalSchema() throws Exception {
+    String schema = "{\"type\":\"record\",\"name\":\"R\",\"fields\":[]}";
+
+    assertEquals(
+        List.of(
+            new DecodingConfig(
+                null, new ParquetFormatConfig(JsonUtils.OBJECT_MAPPER.readTree(schema))),
+            new DecodingConfig(null, new ParquetFormatConfig())),
+        List.of(
+            JsonUtils.OBJECT_MAPPER.readValue(
+                "{\"format\":{\"type\":\"parquet\",\"schema\":" + schema + "}}",
+                DecodingConfig.class),
+            JsonUtils.OBJECT_MAPPER.readValue(
+                "{\"format\":{\"type\":\"parquet\"}}", DecodingConfig.class)));
   }
 
   @Test
