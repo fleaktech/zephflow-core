@@ -25,11 +25,6 @@ import java.util.StringJoiner;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
-/**
- * One {@code key=value} line per record, lines joined by LF. {@code fields} picks and orders the
- * keys; when null, every key in case-insensitive order. Null values are left out, and a record with
- * nothing to write is an error.
- */
 record KvUnitWriter(List<String> fields, String pairDelimiter, boolean cleanFields)
     implements UnitWriter {
 

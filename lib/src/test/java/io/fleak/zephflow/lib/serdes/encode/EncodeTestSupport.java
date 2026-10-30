@@ -97,7 +97,6 @@ final class EncodeTestSupport {
     return DecodingConfigCompiler.compile(decoding).decodeAll(bytes, DecodeLimits.UNLIMITED);
   }
 
-  /** Decodes every file and joins the records, keeping the problems of all files. */
   static DecodeResult decodeFiles(DecodingConfig decoding, List<byte[]> files) {
     List<RecordFleakData> records = new ArrayList<>();
     List<DecodeOutcome> problems = new ArrayList<>();
@@ -141,7 +140,6 @@ final class EncodeTestSupport {
     return (RecordFleakData) JsonUtils.loadFleakDataFromJsonString(json);
   }
 
-  /** One char per byte, so bytes compare exactly and ASCII stays readable in a failure. */
   static String latin1(byte[] bytes) {
     return new String(bytes, StandardCharsets.ISO_8859_1);
   }

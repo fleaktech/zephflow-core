@@ -16,7 +16,6 @@ package io.fleak.zephflow.lib.serdes.encode;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.util.List;
 
-/** The uncompressed bytes of one unit holding {@code records}. */
 @FunctionalInterface
 interface UnitWriter {
   byte[] write(List<RecordFleakData> records) throws Exception;

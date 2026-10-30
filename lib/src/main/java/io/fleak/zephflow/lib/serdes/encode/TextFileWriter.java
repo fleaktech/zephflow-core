@@ -13,18 +13,17 @@
  */
 package io.fleak.zephflow.lib.serdes.encode;
 
-import static io.fleak.zephflow.lib.utils.CompressionUtils.gzip;
-
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import java.io.File;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
+import java.util.zip.GZIPOutputStream;
 import lombok.RequiredArgsConstructor;
 
-/** One file per batch, gzipped as a whole when {@code gzip} is set. */
 @RequiredArgsConstructor
 final class TextFileWriter implements BlobFileWriter<RecordFleakData> {
 
@@ -36,7 +35,13 @@ final class TextFileWriter implements BlobFileWriter<RecordFleakData> {
   public List<File> writeToTempFiles(List<RecordFleakData> records, Path tempDir) throws Exception {
     byte[] bytes = writer.write(records);
     Path file = tempDir.resolve(UUID.randomUUID() + "." + getFileExtension());
-    Files.write(file, gzip ? gzip(bytes) : bytes);
+    if (gzip) {
+      try (OutputStream out = new GZIPOutputStream(Files.newOutputStream(file))) {
+        out.write(bytes);
+      }
+    } else {
+      Files.write(file, bytes);
+    }
     return List.of(file.toFile());
   }
 

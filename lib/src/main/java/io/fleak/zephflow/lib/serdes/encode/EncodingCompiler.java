@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.encode;
 
+import static io.fleak.zephflow.lib.commands.filedecode.SourceDecoding.formatName;
 import static io.fleak.zephflow.lib.utils.CompressionUtils.gzip;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 
@@ -39,9 +40,9 @@ import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import io.fleak.zephflow.lib.serdes.ser.FieldNames;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +57,6 @@ import org.apache.commons.csv.CSVFormat;
  * the option; only per-record failures are left for write time.
  */
 public final class EncodingCompiler {
-
-  private static final Set<DecompressionCodec> WRITABLE_CODECS = Set.of(DecompressionCodec.GZIP);
 
   private static final Pattern FORBIDDEN_KV_DELIMITER_CHARS =
       Pattern.compile("[A-Za-z0-9_.:/=\"\\\\\\r\\n-]");
@@ -120,27 +119,28 @@ public final class EncodingCompiler {
       case JsonFormatConfig json -> json(json, config, capability);
       case KvFormatConfig kv -> kv(kv, config, capability);
       case ParquetFormatConfig parquet -> parquet(parquet, config, capability);
-      case AvroFormatConfig f -> throw unwritable(capability, "avro");
-      case OtlpFormatConfig f -> throw unwritable(capability, "otlp");
-      case ProtobufFormatConfig f -> throw unwritable(capability, "protobuf");
-      case TextFormatConfig f -> throw unwritable(capability, "text");
-      case XmlFormatConfig f -> throw unwritable(capability, "xml");
-      case YamlFormatConfig f -> throw unwritable(capability, "yaml");
+      case AvroFormatConfig f -> throw unwritable(capability, f);
+      case OtlpFormatConfig f -> throw unwritable(capability, f);
+      case ProtobufFormatConfig f -> throw unwritable(capability, f);
+      case TextFormatConfig f -> throw unwritable(capability, f);
+      case XmlFormatConfig f -> throw unwritable(capability, f);
+      case YamlFormatConfig f -> throw unwritable(capability, f);
     };
   }
 
-  private static IllegalArgumentException unwritable(WriterCapability capability, String type) {
+  private static IllegalArgumentException unwritable(
+      WriterCapability capability, FormatConfig format) {
     return new IllegalArgumentException(
-        capability.sink() + ": format " + type + " cannot be written");
+        capability.sink() + ": format " + formatName(format) + " cannot be written");
   }
 
-  private static void requireFormat(WriterCapability capability, String type) {
+  private static void requireFormat(WriterCapability capability, FormatConfig format) {
+    String type = formatName(format);
     if (!capability.formats().contains(type)) {
       throw new IllegalArgumentException(capability.sink() + " cannot write " + type);
     }
   }
 
-  /** Whether each unit is gzipped, the only codec a writer produces. */
   private static boolean gzipped(List<DecompressionCodec> codecs, WriterCapability capability) {
     String sink = capability.sink();
     if (codecs == null || codecs.isEmpty()) {
@@ -160,16 +160,16 @@ public final class EncodingCompiler {
           sink + ": compression takes at most one codec when writing");
     }
     DecompressionCodec codec = codecs.getFirst();
-    if (!WRITABLE_CODECS.contains(codec) || !capability.compression().contains(codec)) {
+    if (codec != DecompressionCodec.GZIP || !capability.compression().contains(codec)) {
       throw new IllegalArgumentException(
           "compression " + codec.configName() + " cannot be written by " + sink);
     }
-    return codec == DecompressionCodec.GZIP;
+    return true;
   }
 
   private static Plan csv(CsvFormatConfig csv, EncodingConfig config, WriterCapability capability) {
     String sink = capability.sink();
-    requireFormat(capability, "csv");
+    requireFormat(capability, csv);
     boolean gzip = gzipped(config.compression(), capability);
     if ("".equals(csv.quote())) {
       throw new IllegalArgumentException(
@@ -223,7 +223,6 @@ public final class EncodingCompiler {
     }
   }
 
-  /** One ASCII character other than a line ending, as the decoder requires. */
   private static char csvChar(String sink, String option, String value) {
     char c = value.length() == 1 ? value.charAt(0) : 0;
     if (value.length() != 1 || c >= 128 || c == '\n' || c == '\r') {
@@ -236,28 +235,31 @@ public final class EncodingCompiler {
     return c;
   }
 
-  /** Normalized as the legacy csv serializer does, so the same list writes the same bytes. */
   private static List<String> csvColumns(String sink, List<String> columns) {
     if (columns.isEmpty()) {
       throw new IllegalArgumentException(sink + ": csv option columns must not be empty");
     }
-    Set<String> names = new LinkedHashSet<>();
-    for (String column : columns) {
-      String name = FieldNames.normalize(column);
-      if (name.isEmpty()) {
-        throw new IllegalArgumentException(sink + ": csv option columns must not hold blank names");
+    return List.copyOf(distinctNames(sink, "csv option columns", columns));
+  }
+
+  private static Set<String> distinctNames(String sink, String option, List<String> names) {
+    Set<String> normalized = new LinkedHashSet<>();
+    for (String name : names) {
+      String value = FieldNames.normalize(name);
+      if (value.isEmpty()) {
+        throw new IllegalArgumentException(sink + ": " + option + " must not hold blank names");
       }
-      if (!names.add(name)) {
-        throw new IllegalArgumentException(sink + ": csv option columns holds " + name + " twice");
+      if (!normalized.add(value)) {
+        throw new IllegalArgumentException(sink + ": " + option + " holds " + value + " twice");
       }
     }
-    return List.copyOf(names);
+    return normalized;
   }
 
   private static Plan json(
       JsonFormatConfig json, EncodingConfig config, WriterCapability capability) {
     String sink = capability.sink();
-    requireFormat(capability, "json");
+    requireFormat(capability, json);
     boolean gzip = gzipped(config.compression(), capability);
     JsonFormatConfig.Mode mode = json.mode();
     if (mode == null) {
@@ -288,33 +290,24 @@ public final class EncodingCompiler {
     return OBJECT_MAPPER.writeValueAsBytes(array);
   }
 
-  private static byte[] jsonLines(List<RecordFleakData> records) throws JsonProcessingException {
+  private static byte[] jsonLines(List<RecordFleakData> records) throws IOException {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     for (RecordFleakData record : records) {
       if (bytes.size() > 0) {
         bytes.write('\n');
       }
-      bytes.writeBytes(OBJECT_MAPPER.writeValueAsBytes(record));
+      OBJECT_MAPPER.writeValue(bytes, record);
     }
     return bytes.toByteArray();
   }
 
   private static Plan kv(KvFormatConfig kv, EncodingConfig config, WriterCapability capability) {
     String sink = capability.sink();
-    requireFormat(capability, "kv");
+    requireFormat(capability, kv);
     boolean gzip = gzipped(config.compression(), capability);
     List<String> fields = null;
     if (kv.fields() != null && !kv.fields().isEmpty()) {
-      Set<String> names = new HashSet<>();
-      for (String field : kv.fields()) {
-        String name = FieldNames.normalize(field);
-        if (name.isEmpty()) {
-          throw new IllegalArgumentException(sink + ": kv option fields must not hold blank names");
-        }
-        if (!names.add(name)) {
-          throw new IllegalArgumentException(sink + ": kv option fields holds " + name + " twice");
-        }
-      }
+      distinctNames(sink, "kv option fields", kv.fields());
       fields = List.copyOf(kv.fields());
     }
     String pairDelimiter =
@@ -334,7 +327,7 @@ public final class EncodingCompiler {
   private static Plan parquet(
       ParquetFormatConfig parquet, EncodingConfig config, WriterCapability capability) {
     String sink = capability.sink();
-    requireFormat(capability, "parquet");
+    requireFormat(capability, parquet);
     boolean gzip = gzipped(config.compression(), capability);
     if (capability.unit() == Unit.ONE_RECORD) {
       throw new IllegalArgumentException(

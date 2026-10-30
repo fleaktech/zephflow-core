@@ -26,10 +26,6 @@ import java.util.Set;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 
-/**
- * A header row when {@code header} is on, then one row per record, each ending CRLF. The columns
- * are {@code columns}, or the keys of the records in first-seen order when null.
- */
 record CsvUnitWriter(CSVFormat format, List<String> columns, boolean header) implements UnitWriter {
 
   @Override
