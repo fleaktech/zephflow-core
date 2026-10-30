@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.execution.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.tuple.Pair;
@@ -48,19 +49,33 @@ class AbstractBufferedFlusherMetricsTest {
   private final FleakCounter sinkErrorCounter = mock(FleakCounter.class);
 
   private TestFlusher newFlusher(int batchSize) {
-    return new TestFlusher(batchSize, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+    return newFlusher(batchSize, null);
+  }
+
+  private TestFlusher newFlusher(int batchSize, DlqWriter dlqWriter) {
+    return new TestFlusher(
+        batchSize, dlqWriter, sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
   }
 
   private static class TestFlusher extends AbstractBufferedFlusher<RecordFleakData> {
     private final int batchSize;
+    private boolean failWrites;
 
     TestFlusher(
         int batchSize,
+        DlqWriter dlqWriter,
         FleakCounter sinkOutputCounter,
         FleakCounter outputSizeCounter,
         FleakCounter sinkErrorCounter) {
-      super(null, null, "test-node", sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+      super(dlqWriter, null, "test-node", sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
       this.batchSize = batchSize;
+    }
+
+    @Override
+    protected void beforeWrite() {
+      if (failWrites) {
+        throw new IllegalStateException("write failed");
+      }
     }
 
     @Override
@@ -128,6 +143,21 @@ class AbstractBufferedFlusherMetricsTest {
       org.junit.jupiter.api.Assertions.assertEquals(
           EffectOutcome.Delivery.NOT_ATTEMPTED, failure.result().effectOutcome().delivery());
       verifyNoInteractions(sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+    }
+  }
+
+  @Test
+  void scheduledFlushThatThrowsCountsTheBatchWithoutDeadLettering() throws Exception {
+    DlqWriter dlqWriter = mock(DlqWriter.class);
+    try (TestFlusher flusher = newFlusher(100, dlqWriter)) {
+      flusher.initialize();
+      flusher.flush(oneEvent(), Map.of());
+      flusher.failWrites = true;
+
+      flusher.executeScheduledFlush();
+
+      verify(sinkErrorCounter).increase(1L, Map.of());
+      verify(dlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
     }
   }
 

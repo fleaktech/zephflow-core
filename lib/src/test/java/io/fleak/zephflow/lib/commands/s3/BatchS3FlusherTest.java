@@ -413,7 +413,7 @@ class BatchS3FlusherTest {
 
   @SuppressWarnings("unchecked")
   @Test
-  void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
+  void testScheduledFlushFailureIsCountedWithoutDeadLettering() throws Exception {
     DlqWriter mockDlqWriter = mock(DlqWriter.class);
     BlobFileWriter<RecordFleakData> mockFileWriter = mock(BlobFileWriter.class);
     when(mockFileWriter.getFileExtension()).thenReturn("jsonl");
@@ -446,8 +446,8 @@ class BatchS3FlusherTest {
 
     dlqFlusher.executeScheduledFlush();
 
-    verify(mockDlqWriter)
-        .writeToDlq(anyLong(), any(), contains("S3 upload error"), eq("s3-test-node"));
+    verify(sinkErrorCounter).increase(1L, Map.of());
+    verify(mockDlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
     dlqFlusher.close();
   }
 

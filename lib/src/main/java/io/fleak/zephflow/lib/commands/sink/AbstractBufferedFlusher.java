@@ -24,7 +24,6 @@ import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,7 +33,7 @@ import org.apache.commons.lang3.tuple.Pair;
 
 /**
  * Base class for buffered sink flushers that provides common functionality for buffer management,
- * record-level recovery, retry logic, and DLQ handling.
+ * record-level recovery, and retry logic.
  *
  * <p>This class implements the Template Method pattern where {@link #flush} is the template method
  * that orchestrates buffering and flushing, and subclasses provide the actual write logic via
@@ -50,7 +49,6 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   protected final DlqWriter dlqWriter;
   protected final String nodeId;
-  protected final RecordFleakDataEncoder recordEncoder = new RecordFleakDataEncoder();
   protected final boolean testMode;
   protected final io.fleak.zephflow.api.execution.ExecutionHooks boundedHooks;
   protected final FleakCounter sinkOutputCounter;
@@ -158,8 +156,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   }
 
   /**
-   * Counts the failed records of an out-of-band flush and sends them to the DLQ, or logs them as
-   * lost when there is none.
+   * Counts the failed records of an out-of-band flush and logs them as lost.
    *
    * @param result The flush result
    */
@@ -588,42 +585,21 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   // ===== HELPER METHODS =====
 
   /**
-   * Handles errors from scheduled (timer-based) flushes by writing to DLQ.
+   * Handles errors from out-of-band flushes by logging them as lost.
    *
    * @param errors The errors to handle
    */
   protected void handleScheduledFlushErrors(List<ErrorOutput> errors) {
-    if (dlqWriter == null) {
-      log.error(
-          "Scheduled flush failed with {} errors but no DLQ configured. Records lost.",
-          errors.size());
-      return;
-    }
-
-    long ts = System.currentTimeMillis();
-    int dlqWriteFailures = 0;
-    for (ErrorOutput error : errors) {
-      try {
-        SerializedEvent serialized = recordEncoder.serialize(error.inputEvent());
-        dlqWriter.writeToDlq(ts, serialized, error.errorMessage(), nodeId);
-      } catch (Exception e) {
-        dlqWriteFailures++;
-        log.debug("Failed to write to DLQ: {}", e.getMessage());
-      }
-    }
-
-    if (dlqWriteFailures > 0) {
-      log.warn(
-          "Wrote {} failed records to DLQ, {} DLQ write failures",
-          errors.size() - dlqWriteFailures,
-          dlqWriteFailures);
-    } else {
-      log.info("Wrote {} failed records to DLQ", errors.size());
-    }
+    log.error(
+        "Out-of-band flush on node {} failed for {} records. Records lost: {}",
+        nodeId,
+        errors.size(),
+        errors.getFirst().errorMessage());
   }
 
   /**
-   * Handles errors from scheduled flushes by converting snapshot to errors and writing to DLQ.
+   * Handles errors from scheduled flushes by converting snapshot to errors and logging them as
+   * lost.
    *
    * @param snapshot The failed records
    * @param errorMessage The error message

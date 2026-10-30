@@ -782,7 +782,7 @@ class BatchDatabricksFlusherTest {
   }
 
   @Test
-  void testScheduledFlushWritesToDlqOnError() throws Exception {
+  void testScheduledFlushErrorIsCountedWithoutDeadLettering() throws Exception {
     BatchDatabricksFlusher flusher = createFlusher();
 
     SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
@@ -797,11 +797,12 @@ class BatchDatabricksFlusherTest {
 
     flusher.executeScheduledFlush();
 
-    verify(dlqWriter).writeToDlq(anyLong(), any(), contains("Scheduled flush error"), isNull());
+    verify(sinkErrorCounter).increase(1L, Map.of());
+    verify(dlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
   }
 
   @Test
-  void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
+  void testScheduledFlushErrorWithNodeIdIsNotDeadLettered() throws Exception {
     BatchDatabricksFlusher flusher = createFlusher("test-node");
 
     SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
@@ -816,8 +817,8 @@ class BatchDatabricksFlusherTest {
 
     flusher.executeScheduledFlush();
 
-    verify(dlqWriter)
-        .writeToDlq(anyLong(), any(), contains("Scheduled flush error"), eq("test-node"));
+    verify(sinkErrorCounter).increase(1L, Map.of());
+    verify(dlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
   }
 
   @Test

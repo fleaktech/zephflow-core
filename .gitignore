@@ -27,6 +27,7 @@ target/
 
 # vscode
 .vscode/
+bin/
 
 # Unit test reports
 TEST*.xml

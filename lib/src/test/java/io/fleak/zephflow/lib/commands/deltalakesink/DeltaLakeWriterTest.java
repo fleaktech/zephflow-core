@@ -1007,11 +1007,30 @@ class DeltaLakeWriterTest {
 
     verify(sinkErrorCounter).increase(eq(1L), anyMap());
     verify(sinkErrorCounter).recordErrorSample(anyString());
-    verify(mockDlqWriter).writeToDlq(anyLong(), any(), any(String.class), eq("delta-test-node"));
+    verify(mockDlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
   }
 
   @Test
-  void testScheduledFlushWritesToDlqWithNodeId() throws Exception {
+  void closeFlushFailureWithoutDlqLogsWithoutThrowing() throws Exception {
+    DeltaLakeWriter writer = createWriter(config, null, "delta-test-node");
+    writer.initialize();
+
+    Map<String, Object> invalidData = new HashMap<>();
+    invalidData.put("id", "not-a-number");
+    invalidData.put("name", "test");
+    invalidData.put("value", 1.0);
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(invalidData);
+    SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record, invalidData);
+    writer.flush(events, Map.of());
+
+    assertDoesNotThrow(writer::close);
+    verify(sinkErrorCounter).increase(eq(1L), anyMap());
+  }
+
+  @Test
+  void testScheduledFlushFailureIsNotDeadLettered() throws Exception {
     DlqWriter mockDlqWriter = mock(DlqWriter.class);
 
     Config testConfig =
@@ -1033,7 +1052,8 @@ class DeltaLakeWriterTest {
 
     writer.executeScheduledFlush();
 
-    verify(mockDlqWriter).writeToDlq(anyLong(), any(), any(String.class), eq("delta-test-node"));
+    verify(sinkErrorCounter).increase(eq(1L), anyMap());
+    verify(mockDlqWriter, never()).writeToDlq(anyLong(), any(), any(), any());
     writer.close();
   }
 
