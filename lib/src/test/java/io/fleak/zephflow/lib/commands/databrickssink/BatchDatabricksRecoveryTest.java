@@ -718,8 +718,7 @@ class BatchDatabricksRecoveryTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"scheduled", "close"})
-  void outOfBandFlushPreservesOriginsAndCountsSuccessExactlyOnce(String lifecycle)
-      throws Exception {
+  void outOfBandFlushCountsFailuresWithoutDeadLettering(String lifecycle) throws Exception {
     Fixture fixture = new Fixture(100, true);
     fixture.validationBehavior =
         ids -> {
@@ -732,31 +731,9 @@ class BatchDatabricksRecoveryTest {
     assertEquals(List.of(1, 4), fixture.committed);
     verify(fixture.outputCounter).increase(2, Map.of());
     verify(fixture.errorCounter).increase(2, Map.of());
-    verify(fixture.dlq)
-        .writeToDlq(
-            anyLong(),
-            argThat(event -> matchesRecord(event, input.get(1))),
-            contains("Parquet conversion failed"),
-            eq("sink"));
-    verify(fixture.dlq)
-        .writeToDlq(
-            anyLong(),
-            argThat(event -> matchesRecord(event, input.get(2))),
-            contains("COPY INTO validation rejected record"),
-            eq("sink"));
+    verify(fixture.dlq, never()).writeToDlq(anyLong(), any(), any(), any());
     fixture.close();
     verify(fixture.outputCounter).increase(2, Map.of());
-  }
-
-  private static boolean matchesRecord(
-      io.fleak.zephflow.lib.serdes.SerializedEvent event, Map<String, Object> expected) {
-    try {
-      return io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER
-          .readTree(event.value())
-          .equals(io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER.valueToTree(expected));
-    } catch (IOException failure) {
-      throw new java.io.UncheckedIOException(failure);
-    }
   }
 
   private static Map<String, Object> record(int id, Object count) {

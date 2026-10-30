@@ -509,7 +509,7 @@ class SplunkHecSinkFlusherTest {
   }
 
   @Test
-  void ioFailure_timer_writesFailedSliceToDlqOnce() throws Exception {
+  void ioFailure_timer_countsFailedSliceWithoutDeadLettering() throws Exception {
     hec = FakeHec.replying(lines -> Reply.NO_RESPONSE);
     SplunkHecSinkFlusher flusher = flusher(3);
     flusher.flush(events("c", "bad"), Map.of());
@@ -519,21 +519,18 @@ class SplunkHecSinkFlusherTest {
     assertEquals(List.of(2, 2, 2), hec.requestSizes());
     assertEquals(0, sinkOutputCounter.total.get());
     assertEquals(2, sinkErrorCounter.total.get());
-    assertEquals(2, dlqWriter.deadLetters.size());
+    assertTrue(dlqWriter.deadLetters.isEmpty());
   }
 
   @Test
-  void timerFailure_writesEachFailedRecordToDlqOnce() throws Exception {
+  void timerFailure_countsEachFailedRecordWithoutDeadLettering() throws Exception {
     hec = FakeHec.replying(lines -> Reply.hec(401, 2, "Token is required"));
     SplunkHecSinkFlusher flusher = flusher(500);
     flusher.flush(events("a", "b"), Map.of());
 
     flusher.executeScheduledFlush();
 
-    assertEquals(2, dlqWriter.deadLetters.size());
-    assertEquals(
-        "Splunk HEC error 401: Token is required",
-        dlqWriter.deadLetters.getFirst().getErrorMessage().toString());
+    assertTrue(dlqWriter.deadLetters.isEmpty());
     assertEquals(2, sinkErrorCounter.total.get());
     assertEquals(0, sinkOutputCounter.total.get());
   }
