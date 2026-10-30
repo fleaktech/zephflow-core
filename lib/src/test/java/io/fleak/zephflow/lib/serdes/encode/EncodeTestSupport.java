@@ -15,15 +15,16 @@ package io.fleak.zephflow.lib.serdes.encode;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkConfigValidator;
+import io.fleak.zephflow.lib.commands.s3.S3SinkConfigValidator;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkConfigValidator;
+import io.fleak.zephflow.lib.commands.sqssink.SqsSinkConfigValidator;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
-import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
-import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
-import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.File;
 import java.io.IOException;
@@ -35,44 +36,17 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
-final class EncodeTestSupport {
+public final class EncodeTestSupport {
 
-  static final WriterCapability S3 =
-      new WriterCapability(
-          "s3sink",
-          Unit.MANY_RECORDS,
-          Set.of("csv", "json", "kv", "parquet"),
-          Set.of(Mode.ARRAY, Mode.LINES),
-          false,
-          Set.of(DecompressionCodec.GZIP));
-
-  static final WriterCapability KAFKA =
-      new WriterCapability(
-          "kafkasink",
-          Unit.ONE_RECORD,
-          Set.of("csv", "json", "kv"),
-          Set.of(Mode.OBJECT, Mode.ARRAY, Mode.LINES),
-          false,
-          Set.of());
-
-  static final WriterCapability SPLUNK =
-      new WriterCapability(
-          "splunkhecsink",
-          Unit.ONE_RECORD,
-          Set.of("csv", "json", "kv"),
-          Set.of(Mode.OBJECT),
-          true,
-          Set.of());
-
-  static final WriterCapability SQS =
-      new WriterCapability(
-          "sqssink", Unit.ONE_RECORD, Set.of("json"), Set.of(Mode.OBJECT), false, Set.of());
+  static final WriterCapability S3 = S3SinkConfigValidator.CAPABILITY;
+  static final WriterCapability KAFKA = KafkaSinkConfigValidator.CAPABILITY;
+  static final WriterCapability SPLUNK = SplunkHecSinkConfigValidator.CAPABILITY;
+  static final WriterCapability SQS = SqsSinkConfigValidator.CAPABILITY;
 
   private EncodeTestSupport() {}
 
-  static EncodingConfig encoding(String json) {
+  public static EncodingConfig encoding(String json) {
     try {
       return JsonUtils.OBJECT_MAPPER.readValue(json, EncodingConfig.class);
     } catch (IOException e) {
@@ -80,8 +54,12 @@ final class EncodeTestSupport {
     }
   }
 
-  static EncodingConfig encoding(String compression, String format) {
+  public static EncodingConfig encoding(String compression, String format) {
     return encoding("{\"compression\":" + compression + ",\"format\":" + format + "}");
+  }
+
+  public static EncodingConfig format(String formatJson) {
+    return encoding("{\"format\":" + formatJson + "}");
   }
 
   static DecodingConfig decoding(String compression, String format) {

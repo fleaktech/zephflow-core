@@ -13,15 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.io.Serializable;
 import java.util.HashMap;
@@ -331,10 +330,6 @@ class KafkaSinkConfigValidatorTest {
 
   private static KafkaSinkDto.Config.ConfigBuilder withoutEncodingType() {
     return KafkaSinkDto.Config.builder().broker("localhost:9092").topic("test-topic");
-  }
-
-  private static EncodingConfig encoding(String json) {
-    return fromJsonString(json, EncodingConfig.class);
   }
 
   @Test

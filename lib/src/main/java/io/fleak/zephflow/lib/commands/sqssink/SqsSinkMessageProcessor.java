@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
-
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
@@ -24,10 +22,6 @@ import javax.annotation.Nullable;
 
 public class SqsSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<SqsOutboundMessage> {
-
-  /** Without {@code encoding}: the record as a JSON object, whatever encodingType says. */
-  static final RecordEncoder LEGACY_ENCODER =
-      event -> toJsonString(event).getBytes(StandardCharsets.UTF_8);
 
   private final RecordEncoder encoder;
   private final PathExpression messageGroupIdExpression;

@@ -19,6 +19,7 @@ import com.google.cloud.pubsub.v1.stub.PublisherStub;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.gcp.PubSubClientFactory;
@@ -105,7 +106,7 @@ public class PubSubSinkCommand extends SimpleSinkCommand<PubSubOutboundMessage> 
         config.getEncoding() != null
             ? EncodingCompiler.recordEncoder(
                 config.getEncoding(), PubSubSinkConfigValidator.CAPABILITY)
-            : PubSubSinkMessageProcessor.LEGACY_ENCODER;
+            : SinkEncoding.LEGACY_JSON_OBJECT;
     return new PubSubSinkMessageProcessor(encoder, orderingKeyExpression);
   }
 

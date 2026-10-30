@@ -13,11 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.stdout;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import org.junit.jupiter.api.Test;
 
@@ -44,10 +43,6 @@ class StdOutSinkConfigValidatorTest {
 
       assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
     }
-  }
-
-  private static EncodingConfig encoding(String json) {
-    return fromJsonString(json, EncodingConfig.class);
   }
 
   @Test

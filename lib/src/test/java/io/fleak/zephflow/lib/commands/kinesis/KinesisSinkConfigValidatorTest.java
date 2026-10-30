@@ -13,13 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.kinesis;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.HashMap;
 import java.util.Map;
@@ -92,10 +91,6 @@ class KinesisSinkConfigValidatorTest {
         .regionStr("us-west-2")
         .streamName("test-stream")
         .credentialId("example-credential-id");
-  }
-
-  private static EncodingConfig encoding(String json) {
-    return fromJsonString(json, EncodingConfig.class);
   }
 
   @Test

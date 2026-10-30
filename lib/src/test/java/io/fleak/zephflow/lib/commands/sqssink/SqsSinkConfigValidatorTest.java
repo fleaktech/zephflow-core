@@ -13,15 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.format;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -165,7 +163,7 @@ class SqsSinkConfigValidatorTest {
   @Test
   void validateConfig_encodingAlone() {
     SqsSinkDto.Config config =
-        standardQueue().encoding(encoding("{\"type\":\"json\",\"mode\":\"object\"}")).build();
+        standardQueue().encoding(format("{\"type\":\"json\",\"mode\":\"object\"}")).build();
     assertDoesNotThrow(
         () -> new SqsSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
   }
@@ -175,7 +173,7 @@ class SqsSinkConfigValidatorTest {
     SqsSinkDto.Config config =
         standardQueue()
             .encodingType(EncodingType.JSON_OBJECT.name())
-            .encoding(encoding("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     assertEquals("sqssink: encoding cannot be combined with encodingType", refusal(config));
   }
@@ -183,13 +181,13 @@ class SqsSinkConfigValidatorTest {
   @Test
   void validateConfig_encodingJsonLines() {
     SqsSinkDto.Config config =
-        standardQueue().encoding(encoding("{\"type\":\"json\",\"mode\":\"lines\"}")).build();
+        standardQueue().encoding(format("{\"type\":\"json\",\"mode\":\"lines\"}")).build();
     assertEquals("sqssink cannot write json mode lines", refusal(config));
   }
 
   @Test
   void validateConfig_encodingCsv() {
-    SqsSinkDto.Config config = standardQueue().encoding(encoding("{\"type\":\"csv\"}")).build();
+    SqsSinkDto.Config config = standardQueue().encoding(format("{\"type\":\"csv\"}")).build();
     assertEquals("sqssink cannot write csv", refusal(config));
   }
 
@@ -202,14 +200,6 @@ class SqsSinkConfigValidatorTest {
     return SqsSinkDto.Config.builder()
         .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
         .regionStr("us-east-1");
-  }
-
-  private static EncodingConfig encoding(String format) {
-    try {
-      return OBJECT_MAPPER.readValue("{\"format\":" + format + "}", EncodingConfig.class);
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
   }
 
   private static String refusal(SqsSinkDto.Config config) {

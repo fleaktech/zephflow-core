@@ -13,11 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -30,6 +33,13 @@ import java.util.Map;
  */
 public final class SinkEncoding {
 
+  /**
+   * Without {@code encoding}, sqssink and pubsubsink write the record as a JSON object whatever
+   * encodingType says.
+   */
+  public static final RecordEncoder LEGACY_JSON_OBJECT =
+      record -> toJsonString(record).getBytes(StandardCharsets.UTF_8);
+
   private SinkEncoding() {}
 
   /** A legacy format field of a sink config, by its config name. */
@@ -38,7 +48,7 @@ public final class SinkEncoding {
     boolean isSet() {
       return switch (value) {
         case null -> false;
-        case String s -> !s.isBlank();
+        case String s -> !s.isEmpty();
         case Collection<?> c -> !c.isEmpty();
         case Map<?, ?> m -> !m.isEmpty();
         default -> true;

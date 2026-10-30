@@ -14,7 +14,7 @@
 package io.fleak.zephflow.lib.commands.sink;
 
 import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
-import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.format;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,7 +41,7 @@ class SinkEncodingTest {
           "testsink", Unit.ONE_RECORD, Set.of("json"), Set.of(Mode.OBJECT), false, Set.of());
 
   private static final EncodingConfig JSON_OBJECT =
-      encoding("{\"type\":\"json\",\"mode\":\"object\"}");
+      format("{\"type\":\"json\",\"mode\":\"object\"}");
 
   @Test
   void encodingAloneIsValid() {
@@ -51,7 +51,7 @@ class SinkEncodingTest {
                 JSON_OBJECT,
                 CAPABILITY,
                 field("encodingType", null),
-                field("kvPairDelimiter", " "),
+                field("kvPairDelimiter", ""),
                 field("kvFields", List.of()),
                 field("avroSchema", Map.of())));
   }
@@ -67,9 +67,11 @@ class SinkEncodingTest {
                     CAPABILITY,
                     field("encodingType", "JSON_OBJECT"),
                     field("kvFields", List.of("a")),
+                    field("kvPairDelimiter", "\t"),
                     field("kvCleanFields", false)));
     assertEquals(
-        "testsink: encoding cannot be combined with encodingType, kvFields, kvCleanFields",
+        "testsink: encoding cannot be combined with encodingType, kvFields, kvPairDelimiter,"
+            + " kvCleanFields",
         e.getMessage());
   }
 
@@ -80,7 +82,7 @@ class SinkEncodingTest {
             IllegalArgumentException.class,
             () ->
                 SinkEncoding.validate(
-                    encoding("{\"type\":\"csv\"}"), CAPABILITY, field("encodingType", null)));
+                    format("{\"type\":\"csv\"}"), CAPABILITY, field("encodingType", null)));
     assertEquals("testsink cannot write csv", e.getMessage());
   }
 
@@ -92,13 +94,5 @@ class SinkEncodingTest {
 
     byte[] expected = serializer.serialize(List.of(record)).value();
     assertArrayEquals(expected, SinkEncoding.fromSerializer(serializer).encode(record));
-  }
-
-  private static EncodingConfig encoding(String format) {
-    try {
-      return OBJECT_MAPPER.readValue("{\"format\":" + format + "}", EncodingConfig.class);
-    } catch (Exception e) {
-      throw new IllegalStateException(e);
-    }
   }
 }

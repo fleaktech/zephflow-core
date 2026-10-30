@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -44,7 +45,6 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.*;
@@ -594,10 +594,6 @@ public class S3SinkCommandTest {
     return List.of(
         (RecordFleakData) FleakData.wrap(Map.of("key1", "101", "key2", "a string")),
         (RecordFleakData) FleakData.wrap(Map.of("key1", "102", "key2", "another string")));
-  }
-
-  private static EncodingConfig encoding(String json) throws Exception {
-    return OBJECT_MAPPER.readValue(json, EncodingConfig.class);
   }
 
   /** The object read back as {@code encodingType}, with no decompression. */

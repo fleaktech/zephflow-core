@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
+import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.LEGACY_JSON_OBJECT;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -25,8 +26,7 @@ class SqsSinkMessageProcessorTest {
 
   @Test
   void testPreprocessWithoutFifoFields() throws Exception {
-    SqsSinkMessageProcessor processor =
-        new SqsSinkMessageProcessor(SqsSinkMessageProcessor.LEGACY_ENCODER, null, null);
+    SqsSinkMessageProcessor processor = new SqsSinkMessageProcessor(LEGACY_JSON_OBJECT, null, null);
 
     RecordFleakData event =
         new RecordFleakData(
@@ -48,8 +48,7 @@ class SqsSinkMessageProcessorTest {
     PathExpression groupIdExpression = PathExpression.fromString("$.groupId");
     PathExpression dedupIdExpression = PathExpression.fromString("$.dedupId");
     SqsSinkMessageProcessor processor =
-        new SqsSinkMessageProcessor(
-            SqsSinkMessageProcessor.LEGACY_ENCODER, groupIdExpression, dedupIdExpression);
+        new SqsSinkMessageProcessor(LEGACY_JSON_OBJECT, groupIdExpression, dedupIdExpression);
 
     RecordFleakData event =
         new RecordFleakData(
@@ -70,8 +69,7 @@ class SqsSinkMessageProcessorTest {
     PathExpression groupIdExpression = PathExpression.fromString("$.groupId");
     PathExpression dedupIdExpression = PathExpression.fromString("$.dedupId");
     SqsSinkMessageProcessor processor =
-        new SqsSinkMessageProcessor(
-            SqsSinkMessageProcessor.LEGACY_ENCODER, groupIdExpression, dedupIdExpression);
+        new SqsSinkMessageProcessor(LEGACY_JSON_OBJECT, groupIdExpression, dedupIdExpression);
 
     RecordFleakData event =
         new RecordFleakData(Map.of("data", new StringPrimitiveFleakData("payload")));
@@ -85,8 +83,7 @@ class SqsSinkMessageProcessorTest {
 
   @Test
   void testPreprocessBodyIsValidJson() throws Exception {
-    SqsSinkMessageProcessor processor =
-        new SqsSinkMessageProcessor(SqsSinkMessageProcessor.LEGACY_ENCODER, null, null);
+    SqsSinkMessageProcessor processor = new SqsSinkMessageProcessor(LEGACY_JSON_OBJECT, null, null);
 
     RecordFleakData event =
         new RecordFleakData(Map.of("key", new StringPrimitiveFleakData("value")));

@@ -13,13 +13,11 @@
  */
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.format;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -231,21 +229,21 @@ class SplunkHecSinkConfigValidatorTest {
 
   @Test
   void validateConfig_encodingAlone() {
-    for (String format :
+    for (String formatJson :
         List.of(
             "{\"type\":\"json\",\"mode\":\"object\"}",
             "{\"type\":\"csv\",\"header\":false,\"columns\":[\"a\",\"b\"]}",
             "{\"type\":\"kv\",\"fields\":[\"a\"],\"pairDelimiter\":\"|\"}")) {
       SplunkHecSinkDto.Config c = validConfig();
-      c.setEncoding(encoding(format));
-      assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT), format);
+      c.setEncoding(format(formatJson));
+      assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT), formatJson);
     }
   }
 
   @Test
   void validateConfig_encodingWithLegacyFields() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncoding(encoding("{\"type\":\"kv\"}"));
+    c.setEncoding(format("{\"type\":\"kv\"}"));
     c.setEncodingType("KV");
     c.setCsvColumns(List.of("a"));
     c.setKvFields(List.of("a"));
@@ -260,16 +258,8 @@ class SplunkHecSinkConfigValidatorTest {
   @Test
   void validateConfig_encodingCsvWithHeader() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncoding(encoding("{\"type\":\"csv\",\"columns\":[\"a\",\"b\"]}"));
+    c.setEncoding(format("{\"type\":\"csv\",\"columns\":[\"a\",\"b\"]}"));
     assertEquals("splunkhecsink writes csv only with header false and columns set", refusal(c));
-  }
-
-  private static EncodingConfig encoding(String format) {
-    try {
-      return OBJECT_MAPPER.readValue("{\"format\":" + format + "}", EncodingConfig.class);
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
   }
 
   private String refusal(SplunkHecSinkDto.Config c) {

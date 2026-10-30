@@ -13,12 +13,11 @@
  */
 package io.fleak.zephflow.lib.commands.azureeventhubsink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import org.junit.jupiter.api.Test;
 
 class AzureEventHubSinkConfigValidatorTest {
@@ -73,10 +72,6 @@ class AzureEventHubSinkConfigValidatorTest {
   void rejectsInvalidPartitionKeyExpression() {
     var config = validConfig().partitionKeyFieldExpressionStr("((not-a-path").build();
     assertThrows(Exception.class, () -> validate(config));
-  }
-
-  private static EncodingConfig encoding(String json) {
-    return fromJsonString(json, EncodingConfig.class);
   }
 
   @Test

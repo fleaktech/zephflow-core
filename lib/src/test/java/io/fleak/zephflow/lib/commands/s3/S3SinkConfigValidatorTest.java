@@ -61,6 +61,33 @@ class S3SinkConfigValidatorTest {
   }
 
   @Test
+  void validateConfig_nonPositiveBatchSizeIsRefused() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("encodingType", "JSON_OBJECT_LINE");
+    configMap.put("batchSize", 0);
+    configMap.put("credentialId", "credential_2");
+
+    assertRefused(
+        configMap,
+        "Batch size must be positive when batching is enabled, but found: 0. If omitted, ensure"
+            + " default is applied correctly.");
+  }
+
+  @Test
+  void validateEncodingConfig_nonPositiveBatchSizeIsRefused() {
+    Map<String, Object> configMap = encodingConfig(Map.of("format", JSON_LINES));
+    configMap.put("batchSize", -1);
+
+    assertRefused(
+        configMap,
+        "Batch size must be positive when batching is enabled, but found: -1. If omitted, ensure"
+            + " default is applied correctly.");
+  }
+
+  @Test
   void validateEncodingConfig_success() {
     Map<String, Object> configMap =
         encodingConfig(Map.of("compression", List.of("gzip"), "format", JSON_LINES));
