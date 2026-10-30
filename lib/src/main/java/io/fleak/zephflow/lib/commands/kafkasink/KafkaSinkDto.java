@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.kafkasink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +35,9 @@ public interface KafkaSinkDto {
     @NonNull private String broker;
     @NonNull private String topic;
     private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
+    private String encodingType;
+
+    private EncodingConfig encoding;
 
     private List<String> kvFields;
 

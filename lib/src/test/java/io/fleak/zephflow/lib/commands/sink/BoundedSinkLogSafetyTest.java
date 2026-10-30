@@ -201,7 +201,8 @@ class BoundedSinkLogSafetyTest {
         FleakSerializer<?> serializer = mock();
         when(serializer.serialize(anyList())).thenThrow(failure);
         var flusher =
-            new AzureEventHubSinkFlusher(mock(EventHubProducerClient.class), serializer, null);
+            new AzureEventHubSinkFlusher(
+                mock(EventHubProducerClient.class), SinkEncoding.fromSerializer(serializer), null);
         flush(flusher, (RecordFleakData) FleakData.wrap(Map.of("message", ROW)), bounded);
       }
       default -> throw new AssertionError(kind);

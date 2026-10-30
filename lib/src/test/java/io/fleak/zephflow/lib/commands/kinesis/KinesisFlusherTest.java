@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -56,7 +57,11 @@ class KinesisFlusherTest {
     serializer = serializerFactory.createSerializer();
 
     flusher =
-        new KinesisFlusher(kinesisClient, STREAM_NAME, partitionKeyPathExpression, serializer);
+        new KinesisFlusher(
+            kinesisClient,
+            STREAM_NAME,
+            partitionKeyPathExpression,
+            SinkEncoding.fromSerializer(serializer));
   }
 
   @Test
@@ -233,7 +238,9 @@ class KinesisFlusherTest {
             new io.fleak.zephflow.lib.serdes.SerializedEvent(null, new byte[] {1, 2, 3}, Map.of()))
         .thenReturn(
             new io.fleak.zephflow.lib.serdes.SerializedEvent(null, new byte[] {4, 5}, Map.of()));
-    var bounded = new KinesisFlusher(kinesisClient, STREAM_NAME, null, failingSerializer);
+    var bounded =
+        new KinesisFlusher(
+            kinesisClient, STREAM_NAME, null, SinkEncoding.fromSerializer(failingSerializer));
     var malformed = event("bad");
     var accepted = event("accepted");
     var rejected = event("rejected");

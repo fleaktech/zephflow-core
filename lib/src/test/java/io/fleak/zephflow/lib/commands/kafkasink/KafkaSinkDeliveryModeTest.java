@@ -25,6 +25,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,7 @@ import org.apache.kafka.common.errors.RecordTooLargeException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 /** Delivery-mode selection and producer configuration for {@link KafkaSinkCommand} (FLE-2366). */
@@ -230,6 +232,36 @@ class KafkaSinkDeliveryModeTest {
     assertEquals("all", capturedProducerProperties.get(ProducerConfig.ACKS_CONFIG));
     verify(mockProducer).flush();
     verify(mockProducer, never()).send(any(ProducerRecord.class), any(Callback.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void encoding_sendsEachRecordAsOneMessageInThatFormat() {
+    KafkaSinkCommand command =
+        buildCommandFromConfigMap(
+            Map.of(
+                "broker",
+                "localhost:9092",
+                "topic",
+                TOPIC,
+                "encoding",
+                Map.of("format", Map.of("type", "csv", "delimiter", "|"))));
+
+    command.writeToSink(
+        List.of(
+            (RecordFleakData) FleakData.wrap(Map.of("id", 1, "name", "alice")),
+            (RecordFleakData) FleakData.wrap(Map.of("id", 2, "name", "bob"))),
+        "test_user",
+        command.getExecutionContext());
+
+    ArgumentCaptor<ProducerRecord<byte[], byte[]>> sent =
+        ArgumentCaptor.forClass(ProducerRecord.class);
+    verify(mockProducer, times(2)).send(sent.capture());
+    assertEquals(
+        List.of("name|id\r\nalice|1\r\n", "name|id\r\nbob|2\r\n"),
+        sent.getAllValues().stream()
+            .map(record -> new String(record.value(), StandardCharsets.UTF_8))
+            .toList());
   }
 
   @Test

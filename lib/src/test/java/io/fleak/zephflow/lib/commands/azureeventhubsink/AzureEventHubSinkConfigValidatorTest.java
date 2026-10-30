@@ -13,10 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.azureeventhubsink;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.fromJsonString;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import org.junit.jupiter.api.Test;
 
 class AzureEventHubSinkConfigValidatorTest {
@@ -71,5 +73,50 @@ class AzureEventHubSinkConfigValidatorTest {
   void rejectsInvalidPartitionKeyExpression() {
     var config = validConfig().partitionKeyFieldExpressionStr("((not-a-path").build();
     assertThrows(Exception.class, () -> validate(config));
+  }
+
+  private static EncodingConfig encoding(String json) {
+    return fromJsonString(json, EncodingConfig.class);
+  }
+
+  @Test
+  void acceptsEncodingAlone() {
+    var config =
+        validConfig()
+            .encodingType(null)
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+    assertDoesNotThrow(() -> validate(config));
+  }
+
+  @Test
+  void rejectsEncodingWithEncodingType() {
+    var config =
+        validConfig()
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+    assertEquals(
+        "azureeventhubsink: encoding cannot be combined with encodingType",
+        assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage());
+  }
+
+  @Test
+  void rejectsEncodingInAFormatItCannotWrite() {
+    var config =
+        validConfig()
+            .encodingType(null)
+            .encoding(encoding("{\"format\":{\"type\":\"kv\"}}"))
+            .build();
+    assertEquals(
+        "azureeventhubsink cannot write kv",
+        assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage());
+  }
+
+  @Test
+  void rejectsNeitherEncodingNorEncodingTypeAsBefore() {
+    var config = validConfig().encodingType(null).build();
+    assertEquals(
+        "enumStr is marked non-null but is null",
+        assertThrows(NullPointerException.class, () -> validate(config)).getMessage());
   }
 }
