@@ -24,22 +24,105 @@ import org.junit.jupiter.api.Test;
 
 class S3SinkConfigValidatorTest {
 
+  private static final String BATCHING_FALSE_REFUSED =
+      "s3sink no longer supports batching false; it always writes one file per batch";
+
+  private static final Map<String, Object> TEST_AVRO_SCHEMA =
+      Map.of(
+          "type", "record",
+          "name", "TestRecord",
+          "fields", List.of(Map.of("name", "id", "type", "int")));
+
+  private static final Map<String, Object> JSON_LINES = Map.of("type", "json", "mode", "lines");
+
   private final S3SinkConfigValidator validator = new S3SinkConfigValidator();
   private final JsonConfigParser<S3SinkDto.Config> configParser =
       new JsonConfigParser<>(S3SinkDto.Config.class);
 
   @Test
-  void validateConfig() {
+  void validateConfig_batchingFalseIsRefused() {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("regionStr", "us-east-1");
     configMap.put("bucketName", "example-bucket");
     configMap.put("keyName", "example-key");
-    configMap.put("encodingType", "JSON_OBJECT");
+    configMap.put("encodingType", "JSON_OBJECT_LINE");
     configMap.put("batching", false);
     configMap.put("credentialId", "credential_2");
 
+    assertRefused(configMap, BATCHING_FALSE_REFUSED);
+  }
+
+  @Test
+  void validateEncodingConfig_batchingFalseIsRefused() {
+    Map<String, Object> configMap = encodingConfig(Map.of("format", JSON_LINES));
+    configMap.put("batching", false);
+
+    assertRefused(configMap, BATCHING_FALSE_REFUSED);
+  }
+
+  @Test
+  void validateEncodingConfig_success() {
+    Map<String, Object> configMap =
+        encodingConfig(Map.of("compression", List.of("gzip"), "format", JSON_LINES));
+
     S3SinkDto.Config config = configParser.parseConfig(configMap);
-    validator.validateConfig(config, "abc", JOB_CONTEXT);
+    assertDoesNotThrow(() -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+  }
+
+  @Test
+  void validateEncodingConfig_withLegacyFieldsIsRefused() {
+    Map<String, Object> configMap = encodingConfig(Map.of("format", JSON_LINES));
+    configMap.put("encodingType", "JSON_OBJECT_LINE");
+    configMap.put("compressionType", "GZIP");
+
+    assertRefused(
+        configMap, "s3sink: encoding cannot be combined with encodingType, compressionType");
+  }
+
+  @Test
+  void validateEncodingConfig_withCompressionTypeIsRefused() {
+    Map<String, Object> configMap = encodingConfig(Map.of("format", Map.of("type", "csv")));
+    configMap.put("compressionType", "GZIP");
+
+    assertRefused(configMap, "s3sink: encoding cannot be combined with compressionType");
+  }
+
+  @Test
+  void validateEncodingConfig_jsonObjectIsRefused() {
+    assertRefused(
+        encodingConfig(Map.of("format", Map.of("type", "json", "mode", "object"))),
+        "s3sink: json mode object holds exactly one record and s3sink writes many records per"
+            + " unit; use mode array or lines");
+  }
+
+  @Test
+  void validateEncodingConfig_parquetWithGzipIsRefused() {
+    Map<String, Object> configMap =
+        encodingConfig(
+            Map.of(
+                "compression",
+                List.of("gzip"),
+                "format",
+                Map.of("type", "parquet", "schema", TEST_AVRO_SCHEMA)));
+
+    assertRefused(
+        configMap,
+        "s3sink: parquet cannot be combined with compression; its pages carry their own");
+  }
+
+  @Test
+  void validateConfig_withoutEncodingOrEncodingTypeKeepsTodaysError() {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("credentialId", "credential_2");
+
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class, () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertEquals("enumStr is marked non-null but is null", exception.getMessage());
   }
 
   @Test
@@ -60,30 +143,6 @@ class S3SinkConfigValidatorTest {
 
     S3SinkDto.Config config = configParser.parseConfig(configMap);
     assertDoesNotThrow(() -> validator.validateConfig(config, "abc", JOB_CONTEXT));
-  }
-
-  @Test
-  void validateParquetConfig_requiresBatching() {
-    Map<String, Object> avroSchema =
-        Map.of(
-            "type", "record",
-            "name", "TestRecord",
-            "fields", List.of(Map.of("name", "id", "type", "int")));
-    Map<String, Object> configMap = new HashMap<>();
-    configMap.put("regionStr", "us-east-1");
-    configMap.put("bucketName", "example-bucket");
-    configMap.put("keyName", "example-key");
-    configMap.put("encodingType", "PARQUET");
-    configMap.put("batching", false);
-    configMap.put("avroSchema", avroSchema);
-    configMap.put("credentialId", "credential_2");
-
-    S3SinkDto.Config config = configParser.parseConfig(configMap);
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
-    assertTrue(exception.getMessage().contains("batching mode"));
   }
 
   @Test
@@ -126,7 +185,6 @@ class S3SinkConfigValidatorTest {
     configMap.put("bucketName", "example-bucket");
     configMap.put("keyName", "example-key");
     configMap.put("encodingType", "TEXT");
-    configMap.put("batching", false);
     configMap.put("credentialId", "credential_2");
 
     S3SinkDto.Config config = configParser.parseConfig(configMap);
@@ -216,5 +274,24 @@ class S3SinkConfigValidatorTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(duplicate, "abc", JOB_CONTEXT));
+  }
+
+  private static Map<String, Object> encodingConfig(Map<String, Object> encoding) {
+    Map<String, Object> configMap = new HashMap<>();
+    configMap.put("regionStr", "us-east-1");
+    configMap.put("bucketName", "example-bucket");
+    configMap.put("keyName", "example-key");
+    configMap.put("credentialId", "credential_2");
+    configMap.put("encoding", encoding);
+    return configMap;
+  }
+
+  private void assertRefused(Map<String, Object> configMap, String message) {
+    S3SinkDto.Config config = configParser.parseConfig(configMap);
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    assertEquals(message, exception.getMessage());
   }
 }

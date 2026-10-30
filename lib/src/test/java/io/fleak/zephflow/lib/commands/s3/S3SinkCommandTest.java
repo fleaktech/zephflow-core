@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.s3;
 import static io.fleak.zephflow.lib.TestUtils.JOB_CONTEXT;
 import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -43,6 +44,7 @@ import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.*;
@@ -51,8 +53,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -101,7 +101,7 @@ public class S3SinkCommandTest {
             .keyName("rr-test")
             .encodingType(encodingType.toString())
             .s3EndpointOverride(minioContainer.getS3URL())
-            .batching(false)
+            .batchSize(2)
             .build();
 
     JobContext jobContext = JobContext.builder().metricTags(JOB_CONTEXT.getMetricTags()).build();
@@ -273,9 +273,8 @@ public class S3SinkCommandTest {
     assertTrue(objectKey.matches(expectedPattern), "Key should match pattern: " + objectKey);
   }
 
-  @ParameterizedTest
-  @ValueSource(booleans = {true, false})
-  public void testWriteGzipCompressedIntoS3(boolean batching) throws Exception {
+  @Test
+  public void testWriteGzipCompressedIntoS3() throws Exception {
     EncodingType encodingType = EncodingType.JSON_OBJECT_LINE;
 
     S3SinkDto.Config config =
@@ -286,7 +285,6 @@ public class S3SinkCommandTest {
             .encodingType(encodingType.toString())
             .compressionType(CompressionType.GZIP)
             .s3EndpointOverride(minioContainer.getS3URL())
-            .batching(batching)
             .build();
 
     JobContext jobContext = JobContext.builder().metricTags(JOB_CONTEXT.getMetricTags()).build();
@@ -327,12 +325,11 @@ public class S3SinkCommandTest {
 
   // The default credential chain is pointed at bogus keys, so the write only succeeds when the sink
   // resolves the MinIO credential from jobContext.otherProperties via credentialId.
-  @ParameterizedTest
-  @ValueSource(booleans = {true, false})
-  public void testWriteIntoS3WithCredentialId(boolean batching) throws Exception {
+  @Test
+  public void testWriteIntoS3WithCredentialId() throws Exception {
     EncodingType encodingType = EncodingType.JSON_OBJECT_LINE;
     String credentialId = "minio_credential";
-    String keyName = "test-credentials-batching-" + batching;
+    String keyName = "test-credentials";
 
     S3SinkDto.Config config =
         S3SinkDto.Config.builder()
@@ -342,7 +339,6 @@ public class S3SinkCommandTest {
             .encodingType(encodingType.toString())
             .credentialId(credentialId)
             .s3EndpointOverride(minioContainer.getS3URL())
-            .batching(batching)
             .build();
 
     JobContext jobContext =
@@ -377,7 +373,7 @@ public class S3SinkCommandTest {
       System.setProperty("aws.secretAccessKey", minioContainer.getPassword());
     }
 
-    assertEquals(new ScalarSinkCommand.SinkResult(2, batching ? 0 : 2, List.of()), sinkResult);
+    assertEquals(new ScalarSinkCommand.SinkResult(2, 0, List.of()), sinkResult);
 
     var listObjectsResponse =
         s3Client.listObjectsV2(
@@ -483,35 +479,6 @@ public class S3SinkCommandTest {
   }
 
   @Test
-  public void testWriteKvIntoS3_withoutBatching() throws Exception {
-    S3SinkDto.Config config =
-        S3SinkDto.Config.builder()
-            .regionStr(REGION_STR)
-            .bucketName(BUCKET_NAME)
-            .keyName("kv-test")
-            .encodingType(EncodingType.KV.toString())
-            .s3EndpointOverride(minioContainer.getS3URL())
-            .batching(false)
-            .kvFields(List.of("src.ip", "action", "msg"))
-            .kvPairDelimiter("|")
-            .kvCleanFields(true)
-            .build();
-
-    List<RecordFleakData> events = new ArrayList<>(firewallEvents());
-    events.add(1, (RecordFleakData) FleakData.wrap(Map.of("user", "heartbeat")));
-    S3Object object = writeOnlyObject(config, events);
-
-    assertEquals(1, object.failures().size());
-    assertEquals(
-        "event has none of the configured KV fields", object.failures().get(0).errorMessage());
-
-    assertTrue(object.key().endsWith(".raw"), "KV objects use the .raw suffix: " + object.key());
-    assertEquals(
-        "src_ip=10.0.0.1|action=allow\nsrc_ip=10.0.0.2|action=deny|msg=\"port scan\"",
-        new String(object.data(), java.nio.charset.StandardCharsets.UTF_8));
-  }
-
-  @Test
   public void testWriteKvIntoS3_batchedAndGzipped() throws Exception {
     S3SinkDto.Config config =
         S3SinkDto.Config.builder()
@@ -554,7 +521,6 @@ public class S3SinkCommandTest {
             .keyName("jsonl-with-stale-kv")
             .encodingType(EncodingType.JSON_OBJECT_LINE.toString())
             .s3EndpointOverride(minioContainer.getS3URL())
-            .batching(false)
             .kvFields(List.of("a", "a"))
             .kvPairDelimiter("=")
             .build();
@@ -566,6 +532,72 @@ public class S3SinkCommandTest {
     assertTrue(object.key().endsWith(".jsonl"), object.key());
     assertEquals(
         2, new String(object.data(), java.nio.charset.StandardCharsets.UTF_8).lines().count());
+  }
+
+  @Test
+  public void testWriteJsonLinesWithEncodingGzipped() throws Exception {
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName("encoded-jsonl")
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .encoding(
+                encoding(
+                    "{\"compression\":[\"gzip\"],\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+
+    S3Object object = writeOnlyObject(config, keyedEvents());
+
+    assertEquals(
+        new WrittenObject(
+            "encoded-jsonl/{base}.jsonl.gz",
+            "{\"key1\":\"101\",\"key2\":\"a string\"}\n"
+                + "{\"key1\":\"102\",\"key2\":\"another string\"}",
+            List.of()),
+        new WrittenObject(
+            baseKey(object.key()), new String(gunzip(object.data()), UTF_8), object.failures()));
+  }
+
+  @Test
+  public void testWriteCsvWithEncoding() throws Exception {
+    S3SinkDto.Config config =
+        S3SinkDto.Config.builder()
+            .regionStr(REGION_STR)
+            .bucketName(BUCKET_NAME)
+            .keyName("encoded-csv")
+            .s3EndpointOverride(minioContainer.getS3URL())
+            .encoding(
+                encoding(
+                    "{\"format\":{\"type\":\"csv\",\"delimiter\":\"|\",\"columns\":[\"key2\",\"key1\"]}}"))
+            .build();
+
+    S3Object object = writeOnlyObject(config, keyedEvents());
+
+    assertEquals(
+        new WrittenObject(
+            "encoded-csv/{base}.csv",
+            "key2|key1\r\na string|101\r\nanother string|102\r\n",
+            List.of()),
+        new WrittenObject(
+            baseKey(object.key()), new String(object.data(), UTF_8), object.failures()));
+  }
+
+  private record WrittenObject(String key, String content, List<ErrorOutput> failures) {}
+
+  /** The object key with its date partition and file name replaced by {@code {base}}. */
+  private static String baseKey(String key) {
+    return key.replaceFirst("year=\\d{4}/month=\\d{2}/day=\\d{2}/[0-9a-f-]+", "{base}");
+  }
+
+  private static List<RecordFleakData> keyedEvents() {
+    return List.of(
+        (RecordFleakData) FleakData.wrap(Map.of("key1", "101", "key2", "a string")),
+        (RecordFleakData) FleakData.wrap(Map.of("key1", "102", "key2", "another string")));
+  }
+
+  private static EncodingConfig encoding(String json) throws Exception {
+    return OBJECT_MAPPER.readValue(json, EncodingConfig.class);
   }
 
   /** The object read back as {@code encodingType}, with no decompression. */
