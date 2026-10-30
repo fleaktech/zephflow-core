@@ -81,6 +81,8 @@ public final class DecodingConfigCompiler {
       case AvroFormatConfig avro -> streamed(codecs, avro(avro));
       case CsvFormatConfig csv -> streamed(codecs, csv(csv));
       case JsonFormatConfig json -> streamed(codecs, json(json));
+      case KvFormatConfig kv ->
+          throw new IllegalArgumentException("kv cannot be read: no source decodes kv");
       case OtlpFormatConfig otlp -> streamed(codecs, otlp(otlp));
       case ParquetFormatConfig parquet -> parquet(codecs);
       case ProtobufFormatConfig protobuf -> streamed(codecs, protobuf(protobuf));

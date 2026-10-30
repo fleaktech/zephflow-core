@@ -13,8 +13,15 @@
  */
 package io.fleak.zephflow.lib.serdes.decode.config;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 /**
- * A parquet file, read one row group at a time through random access. Its pages carry their own
- * compression, so it cannot be combined with {@code compression}.
+ * Parquet files. {@code schema} is the avro record schema of the columns a writer produces; readers
+ * ignore it, since a parquet file carries its own schema.
  */
-public record ParquetFormatConfig() implements FormatConfig {}
+public record ParquetFormatConfig(JsonNode schema) implements FormatConfig {
+
+  public ParquetFormatConfig() {
+    this(null);
+  }
+}
