@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.sqssink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import lombok.*;
 
 public interface SqsSinkDto {
@@ -28,7 +29,8 @@ public interface SqsSinkDto {
   class Config implements CommandConfig {
     @NonNull private String queueUrl;
     @NonNull private String regionStr;
-    @NonNull private String encodingType;
+    private String encodingType;
+    private EncodingConfig encoding;
     private String credentialId;
     private String messageGroupIdExpression;
     private String deduplicationIdExpression;

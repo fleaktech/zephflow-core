@@ -22,6 +22,8 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -91,7 +93,14 @@ public class SqsSinkCommand extends SimpleSinkCommand<SqsOutboundMessage> {
             ? PathExpression.fromString(config.getDeduplicationIdExpression())
             : null;
 
-    return new SqsSinkMessageProcessor(messageGroupIdExpression, deduplicationIdExpression);
+    RecordEncoder encoder =
+        config.getEncoding() != null
+            ? EncodingCompiler.recordEncoder(
+                config.getEncoding(), SqsSinkConfigValidator.CAPABILITY)
+            : SqsSinkMessageProcessor.LEGACY_ENCODER;
+
+    return new SqsSinkMessageProcessor(
+        encoder, messageGroupIdExpression, deduplicationIdExpression);
   }
 
   @Override

@@ -244,4 +244,97 @@ class SplunkHecSinkCommandTest {
     assertEquals("time=2026-10-20", envelopes.get(1).get("event").asText());
     assertEquals("fleak:kv", envelopes.get(0).get("sourcetype").asText());
   }
+
+  private static final RecordFleakData RECORD =
+      new RecordFleakData(
+          Map.of(
+              "a", new StringPrimitiveFleakData("1"), "b", new StringPrimitiveFleakData("x, y")));
+
+  @Test
+  void encodingJsonObject_sendsTheDefaultEnvelope() throws Exception {
+    List<String> expected =
+        List.of("{\"event\":{\"a\":\"1\",\"b\":\"x, y\"},\"sourcetype\":\"fleak\"}");
+
+    assertEquals(expected, sentEnvelopes(Map.of()));
+    assertEquals(
+        expected,
+        sentEnvelopes(
+            Map.of("encoding", Map.of("format", Map.of("type", "json", "mode", "object")))));
+  }
+
+  @Test
+  void encodingCsv_sendsTheEnvelopeOfCsvColumns() throws Exception {
+    List<String> expected = List.of("{\"event\":\"1,\\\"x, y\\\"\",\"sourcetype\":\"fleak\"}");
+
+    assertEquals(
+        expected, sentEnvelopes(Map.of("encodingType", "CSV", "csvColumns", List.of("a", "b"))));
+    assertEquals(
+        expected,
+        sentEnvelopes(
+            Map.of(
+                "encoding",
+                Map.of(
+                    "format",
+                    Map.of("type", "csv", "header", false, "columns", List.of("a", "b"))))));
+  }
+
+  @Test
+  void encodingKv_sendsTheEnvelopeOfKvOptions() throws Exception {
+    List<String> expected = List.of("{\"event\":\"b=\\\"x, y\\\"|a=1\",\"sourcetype\":\"fleak\"}");
+
+    assertEquals(
+        expected,
+        sentEnvelopes(
+            Map.of("encodingType", "KV", "kvFields", List.of("b", "a"), "kvPairDelimiter", "|")));
+    assertEquals(
+        expected,
+        sentEnvelopes(
+            Map.of(
+                "encoding",
+                Map.of(
+                    "format",
+                    Map.of("type", "kv", "fields", List.of("b", "a"), "pairDelimiter", "|")))));
+  }
+
+  private static List<String> sentEnvelopes(Map<String, Object> format) throws Exception {
+    List<String> bodies = Collections.synchronizedList(new ArrayList<>());
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/services/collector/event",
+        exchange -> {
+          bodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+          byte[] out = "{\"text\":\"Success\",\"code\":0}".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, out.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(out);
+          }
+        });
+    server.start();
+
+    JobContext jobContext =
+        JobContext.builder()
+            .metricTags(TestUtils.JOB_CONTEXT.getMetricTags())
+            .otherProperties(
+                new HashMap<>(Map.of("hec_token", new HashMap<>(Map.of("key", "abcd-1234")))))
+            .build();
+    Map<String, Object> nodeConfig = new HashMap<>(format);
+    nodeConfig.put(
+        "hecUrl",
+        "http://127.0.0.1:" + server.getAddress().getPort() + "/services/collector/event");
+    nodeConfig.put("credentialId", "hec_token");
+    nodeConfig.put("sourcetype", "fleak");
+
+    SplunkHecSinkCommand command =
+        (SplunkHecSinkCommand)
+            new SplunkHecSinkCommandFactory().createCommand("splunkNode", jobContext);
+    command.parseAndValidateArg(nodeConfig);
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      command.writeToSink(List.of(RECORD), "test_user", command.getExecutionContext());
+    } finally {
+      command.terminate();
+      server.stop(0);
+    }
+    return bodies.stream().flatMap(String::lines).filter(l -> !l.isEmpty()).toList();
+  }
 }

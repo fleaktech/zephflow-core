@@ -13,13 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -138,5 +141,66 @@ class PubSubSinkConfigValidatorTest {
             .build();
     assertThrows(
         Exception.class, () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingAlone() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encoding(encoding("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
+    assertDoesNotThrow(
+        () -> new PubSubSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingWithEncodingType() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(encoding("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
+    assertEquals("pubsubsink: encoding cannot be combined with encodingType", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingJsonLines() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encoding(encoding("{\"type\":\"json\",\"mode\":\"lines\"}"))
+            .build();
+    assertEquals("pubsubsink cannot write json mode lines", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingCsv() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder().topic("t").encoding(encoding("{\"type\":\"csv\"}")).build();
+    assertEquals("pubsubsink cannot write csv", refusal(config));
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType() {
+    assertEquals(
+        "no encoding type is provided", refusal(PubSubSinkDto.Config.builder().topic("t").build()));
+  }
+
+  private static EncodingConfig encoding(String format) {
+    try {
+      return OBJECT_MAPPER.readValue("{\"format\":" + format + "}", EncodingConfig.class);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static String refusal(PubSubSinkDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new PubSubSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+        .getMessage();
   }
 }

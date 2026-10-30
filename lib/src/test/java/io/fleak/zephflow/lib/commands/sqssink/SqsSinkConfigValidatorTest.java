@@ -13,12 +13,15 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -157,5 +160,62 @@ class SqsSinkConfigValidatorTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingAlone() {
+    SqsSinkDto.Config config =
+        standardQueue().encoding(encoding("{\"type\":\"json\",\"mode\":\"object\"}")).build();
+    assertDoesNotThrow(
+        () -> new SqsSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingWithEncodingType() {
+    SqsSinkDto.Config config =
+        standardQueue()
+            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(encoding("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
+    assertEquals("sqssink: encoding cannot be combined with encodingType", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingJsonLines() {
+    SqsSinkDto.Config config =
+        standardQueue().encoding(encoding("{\"type\":\"json\",\"mode\":\"lines\"}")).build();
+    assertEquals("sqssink cannot write json mode lines", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingCsv() {
+    SqsSinkDto.Config config = standardQueue().encoding(encoding("{\"type\":\"csv\"}")).build();
+    assertEquals("sqssink cannot write csv", refusal(config));
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType() {
+    assertEquals("no encoding type is provided", refusal(standardQueue().build()));
+  }
+
+  private static SqsSinkDto.Config.ConfigBuilder standardQueue() {
+    return SqsSinkDto.Config.builder()
+        .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
+        .regionStr("us-east-1");
+  }
+
+  private static EncodingConfig encoding(String format) {
+    try {
+      return OBJECT_MAPPER.readValue("{\"format\":" + format + "}", EncodingConfig.class);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static String refusal(SqsSinkDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> new SqsSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+        .getMessage();
   }
 }

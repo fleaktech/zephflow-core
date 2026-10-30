@@ -14,8 +14,25 @@
 package io.fleak.zephflow.lib.commands.sqssink;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.SendMessageBatchRequest;
+import software.amazon.awssdk.services.sqs.model.SendMessageBatchRequestEntry;
+import software.amazon.awssdk.services.sqs.model.SendMessageBatchResponse;
+import software.amazon.awssdk.services.sqs.model.SendMessageBatchResultEntry;
 
 class SqsSinkCommandTest {
 
@@ -68,5 +85,66 @@ class SqsSinkCommandTest {
     var cmd = new TestableSqsSinkCommand();
     cmd.setConfig(config(null));
     assertEquals(SqsSinkDto.DEFAULT_BATCH_SIZE, cmd.callBatchSize());
+  }
+
+  private static final String QUEUE_URL =
+      "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue";
+
+  @Test
+  void encodingJsonObject_sendsTheBodyOfEncodingType() throws Exception {
+    RecordFleakData record =
+        new RecordFleakData(
+            Map.of(
+                "city", new StringPrimitiveFleakData("Zürich 苏黎世"),
+                "id", new StringPrimitiveFleakData("7")));
+    SendMessageBatchRequest expected =
+        SendMessageBatchRequest.builder()
+            .queueUrl(QUEUE_URL)
+            .entries(
+                SendMessageBatchRequestEntry.builder()
+                    .id("0")
+                    .messageBody("{\"city\":\"Zürich 苏黎世\",\"id\":\"7\"}")
+                    .build())
+            .build();
+
+    assertEquals(expected, sentRequest(Map.of("encodingType", "JSON_OBJECT"), record));
+    assertEquals(
+        expected,
+        sentRequest(
+            Map.of("encoding", Map.of("format", Map.of("type", "json", "mode", "object"))),
+            record));
+  }
+
+  private static SendMessageBatchRequest sentRequest(
+      Map<String, Object> format, RecordFleakData record) throws Exception {
+    AwsClientFactory clients = mock();
+    SqsClient sqs = mock();
+    when(clients.createSqsClient(any(), any())).thenReturn(sqs);
+    when(sqs.sendMessageBatch(any(SendMessageBatchRequest.class)))
+        .thenReturn(
+            SendMessageBatchResponse.builder()
+                .successful(SendMessageBatchResultEntry.builder().id("0").messageId("m").build())
+                .build());
+    SqsSinkCommand command =
+        new SqsSinkCommand(
+            "node",
+            TestUtils.JOB_CONTEXT,
+            new JsonConfigParser<>(SqsSinkDto.Config.class),
+            new SqsSinkConfigValidator(),
+            clients);
+    Map<String, Object> config = new HashMap<>(format);
+    config.put("queueUrl", QUEUE_URL);
+    config.put("regionStr", "us-east-1");
+    command.parseAndValidateArg(config);
+    try {
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      command.writeToSink(List.of(record), "user", command.getExecutionContext());
+    } finally {
+      command.terminate();
+    }
+    ArgumentCaptor<SendMessageBatchRequest> sent =
+        ArgumentCaptor.forClass(SendMessageBatchRequest.class);
+    verify(sqs).sendMessageBatch(sent.capture());
+    return sent.getValue();
   }
 }

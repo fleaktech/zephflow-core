@@ -24,8 +24,9 @@ import org.junit.jupiter.api.Test;
 class PubSubSinkMessageProcessorTest {
 
   @Test
-  void testPreprocessWithoutOrderingKey() {
-    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(null);
+  void testPreprocessWithoutOrderingKey() throws Exception {
+    PubSubSinkMessageProcessor processor =
+        new PubSubSinkMessageProcessor(PubSubSinkMessageProcessor.LEGACY_ENCODER, null);
 
     RecordFleakData event =
         new RecordFleakData(
@@ -42,9 +43,10 @@ class PubSubSinkMessageProcessorTest {
   }
 
   @Test
-  void testPreprocessWithOrderingKey() {
+  void testPreprocessWithOrderingKey() throws Exception {
     PathExpression keyExpr = PathExpression.fromString("$.tenantId");
-    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(keyExpr);
+    PubSubSinkMessageProcessor processor =
+        new PubSubSinkMessageProcessor(PubSubSinkMessageProcessor.LEGACY_ENCODER, keyExpr);
 
     RecordFleakData event =
         new RecordFleakData(
@@ -59,9 +61,10 @@ class PubSubSinkMessageProcessorTest {
   }
 
   @Test
-  void testPreprocessWithMissingOrderingKeyField() {
+  void testPreprocessWithMissingOrderingKeyField() throws Exception {
     PathExpression keyExpr = PathExpression.fromString("$.tenantId");
-    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(keyExpr);
+    PubSubSinkMessageProcessor processor =
+        new PubSubSinkMessageProcessor(PubSubSinkMessageProcessor.LEGACY_ENCODER, keyExpr);
 
     RecordFleakData event =
         new RecordFleakData(Map.of("data", new StringPrimitiveFleakData("payload")));
@@ -73,8 +76,9 @@ class PubSubSinkMessageProcessorTest {
   }
 
   @Test
-  void testPreprocessBodyIsValidJson() {
-    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(null);
+  void testPreprocessBodyIsValidJson() throws Exception {
+    PubSubSinkMessageProcessor processor =
+        new PubSubSinkMessageProcessor(PubSubSinkMessageProcessor.LEGACY_ENCODER, null);
 
     RecordFleakData event =
         new RecordFleakData(Map.of("key", new StringPrimitiveFleakData("value")));

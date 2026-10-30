@@ -13,18 +13,34 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
+import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
+import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 
 public class SqsSinkConfigValidator implements ConfigValidator {
+
+  public static final WriterCapability CAPABILITY =
+      new WriterCapability(
+          COMMAND_NAME_SQS_SINK,
+          Unit.ONE_RECORD,
+          Set.of("json"),
+          Set.of(JsonFormatConfig.Mode.OBJECT),
+          false,
+          Set.of());
+
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SqsSinkDto.Config config = (SqsSinkDto.Config) commandConfig;
@@ -32,11 +48,16 @@ public class SqsSinkConfigValidator implements ConfigValidator {
         StringUtils.isNotBlank(config.getQueueUrl()), "no queue URL is provided");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(config.getRegionStr()), "no region is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getEncodingType()), "no encoding type is provided");
+    if (config.getEncoding() != null) {
+      SinkEncoding.validate(
+          config.getEncoding(), CAPABILITY, field("encodingType", config.getEncodingType()));
+    } else {
+      Preconditions.checkArgument(
+          StringUtils.isNotBlank(config.getEncodingType()), "no encoding type is provided");
 
-    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-    SerializerFactory.validateEncodingType(encodingType);
+      EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+      SerializerFactory.validateEncodingType(encodingType);
+    }
 
     if (config.getBatchSize() != null) {
       Preconditions.checkArgument(
