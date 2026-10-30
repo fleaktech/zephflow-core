@@ -53,15 +53,17 @@ class LegacyEquivalenceTest {
                   + "\"meta\":{\"k\":\"v\",\"n\":2},\"event.id\":4624,\"src ip\":\"10.0.0.1\","
                   + "\"note\":\"has, comma \\\"q\\\"\\nand a line break\",\"empty\":\"\"}"),
           json("{\"id\":2,\"name\":\"Bob\",\"city\":\"New York\",\"none\":null,\"Name\":\"dup\"}"),
-          json("{\"id\":3,\"name\":\" spaced \",\"note\":\"a=b\\\\c\"}"));
+          json("{\"id\":3,\"name\":\" spaced \",\"note\":\"a=b\\\\c\"}"),
+          json("{\"id\":4,\"name\":\"café 中文\",\"city\":\"é\"}"));
 
   private static final List<RecordFleakData> ONE_NULL_COLUMN =
       List.of(json("{\"a\":null}"), json("{\"a\":\"x\"}"));
 
-  private static final List<String> KV_FIELDS = List.of("name", "event.id", "src ip", "missing");
+  private static final List<String> KV_FIELDS =
+      List.of("name", "event.id", "src ip", "missing", " id");
 
   private static final String KV_WITH_OPTIONS =
-      "{\"type\":\"kv\",\"fields\":[\"name\",\"event.id\",\"src ip\",\"missing\"],"
+      "{\"type\":\"kv\",\"fields\":[\"name\",\"event.id\",\"src ip\",\"missing\",\" id\"],"
           + "\"pairDelimiter\":\" | \",\"cleanFields\":true}";
 
   private static final Map<String, Object> AVRO_SCHEMA =

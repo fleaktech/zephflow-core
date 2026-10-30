@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,7 +47,8 @@ class EncodeRoundTripTest {
               "lf", "x\ny",
               "crlf", "x\r\ny",
               "spaces", "  padded  ",
-              "empty", ""),
+              "empty", "",
+              "nonascii", "café 中文"),
           record(
               "comma", ",",
               "pipe", "|",
@@ -57,11 +59,12 @@ class EncodeRoundTripTest {
               "lf", "\n",
               "crlf", "\r\n",
               "spaces", " ",
-              "empty", ""));
+              "empty", "",
+              "nonascii", "é"));
 
   private static final String TRICKY_COLUMNS =
       "[\"comma\",\"pipe\",\"dquote\",\"squote\",\"backslash\",\"cr\",\"lf\",\"crlf\",\"spaces\","
-          + "\"empty\"]";
+          + "\"empty\",\"nonascii\"]";
 
   private static final List<RecordFleakData> ONE_COLUMN =
       List.of(record("a", ""), record("a", "x"), record("a", ""));
@@ -110,6 +113,21 @@ class EncodeRoundTripTest {
   static Stream<String> jsonManyRecordModes() {
     return Stream.of(
         "{\"type\":\"json\",\"mode\":\"array\"}", "{\"type\":\"json\",\"mode\":\"lines\"}");
+  }
+
+  @Test
+  void csvWithHeaderAndColumnsKeepsTheChosenColumnsInOrderInFileMode() throws Exception {
+    String format = "{\"type\":\"csv\",\"columns\":[\"b\",\"a\"]}";
+    List<RecordFleakData> records =
+        List.of(record("a", "a1", "b", "b1", "c", "c1"), record("a", "a2", "b", "b2", "c", "c2"));
+    byte[] file =
+        writeOneFile(EncodingCompiler.fileWriter(encoding(NONE, format), S3), records, dir);
+    assertEquals(
+        List.of(
+            "b,a\r\nb1,a1\r\nb2,a2\r\n",
+            new DecodeResult(
+                List.of(record("b", "b1", "a", "a1"), record("b", "b2", "a", "a2")), List.of())),
+        List.of(new String(file, StandardCharsets.UTF_8), decode(decoding(NONE, format), file)));
   }
 
   @Test

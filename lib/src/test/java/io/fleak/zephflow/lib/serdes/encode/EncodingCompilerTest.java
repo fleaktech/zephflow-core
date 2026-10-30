@@ -14,9 +14,14 @@
 package io.fleak.zephflow.lib.serdes.encode;
 
 import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.*;
+import static io.fleak.zephflow.lib.utils.CompressionUtils.gunzip;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +40,15 @@ class EncodingCompilerTest {
   private static final WriterCapability ONE_RECORD_PARQUET =
       new WriterCapability(
           "testsink", Unit.ONE_RECORD, Set.of("parquet"), Set.of(), false, Set.of());
+
+  private static final WriterCapability ONE_RECORD_GZIP =
+      new WriterCapability(
+          "testsink",
+          Unit.ONE_RECORD,
+          Set.of("json"),
+          Set.of(Mode.LINES),
+          false,
+          Set.of(DecompressionCodec.GZIP));
 
   private static final String KV_DELIMITER_RULE =
       " must not contain letters, digits, '_', '.', ':', '/', '-', '=', '\"', '\\' or line breaks";
@@ -132,9 +146,20 @@ class EncodingCompilerTest {
             format("{\"type\":\"parquet\"}"),
             "s3sink: parquet option schema is required when writing"),
         refusal(
+            "parquet schema null",
+            S3,
+            format("{\"type\":\"parquet\",\"schema\":null}"),
+            "s3sink: parquet option schema is required when writing"),
+        refusal(
             "parquet schema neither object nor string",
             S3,
             format("{\"type\":\"parquet\",\"schema\":[1]}"),
+            "s3sink: parquet option schema must be an avro record schema, as a JSON object or a"
+                + " string holding one"),
+        refusal(
+            "parquet schema string that is not JSON",
+            S3,
+            format("{\"type\":\"parquet\",\"schema\":\"not json\"}"),
             "s3sink: parquet option schema must be an avro record schema, as a JSON object or a"
                 + " string holding one"),
         refusal(
@@ -229,6 +254,11 @@ class EncodingCompilerTest {
             "csv delimiter equal to quote",
             S3,
             csv(",\"delimiter\":\"'\",\"quote\":\"'\""),
+            "s3sink: csv options delimiter, quote and escape must be different characters"),
+        refusal(
+            "csv escape equal to delimiter",
+            S3,
+            csv(",\"delimiter\":\";\",\"escape\":\";\""),
             "s3sink: csv options delimiter, quote and escape must be different characters"),
         refusal(
             "csv escape equal to the default quote",
@@ -335,6 +365,18 @@ class EncodingCompilerTest {
             assertThrows(
                     IllegalArgumentException.class, () -> EncodingCompiler.fileWriter(csv, KAFKA))
                 .getMessage()));
+  }
+
+  @Test
+  void recordEncoderGzipsEachRecordWhenTheSinkAllowsIt() throws Exception {
+    RecordFleakData record = json("{\"id\":1,\"name\":\"a\"}");
+    String lines = "{\"type\":\"json\",\"mode\":\"lines\"}";
+    byte[] plain =
+        EncodingCompiler.recordEncoder(encoding("[]", lines), ONE_RECORD_GZIP).encode(record);
+    byte[] gzipped =
+        EncodingCompiler.recordEncoder(encoding("[\"gzip\"]", lines), ONE_RECORD_GZIP)
+            .encode(record);
+    assertArrayEquals(plain, gunzip(gzipped));
   }
 
   private static Arguments refusal(
