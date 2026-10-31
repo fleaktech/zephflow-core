@@ -47,6 +47,11 @@ public final class GuardedCursor implements RecordCursor {
   }
 
   @Override
+  public long normalizedEndOffset() {
+    return format == null ? -1 : format.normalizedEndOffset();
+  }
+
+  @Override
   public DecodeOutcome next() throws SourceReadException {
     if (done) {
       if (flags.getReadFailure() != null) {

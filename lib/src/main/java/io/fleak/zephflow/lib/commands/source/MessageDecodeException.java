@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
+import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
+import java.util.List;
 import lombok.Getter;
 
 /** A message that failed to decode, with the text its DLQ entry carries. */
@@ -20,9 +22,15 @@ import lombok.Getter;
 public class MessageDecodeException extends Exception {
 
   private final String dlqText;
+  private final List<DecodeOutcome> problems;
 
   public MessageDecodeException(String dlqText, Throwable cause) {
+    this(dlqText, cause, List.of());
+  }
+
+  public MessageDecodeException(String dlqText, Throwable cause, List<DecodeOutcome> problems) {
     super(dlqText.lines().findFirst().orElse(""), cause);
     this.dlqText = dlqText;
+    this.problems = List.copyOf(problems);
   }
 }

@@ -25,6 +25,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
+import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
@@ -119,6 +120,7 @@ public final class EncodingCompiler {
       case JsonFormatConfig json -> json(json, config, capability);
       case KvFormatConfig kv -> kv(kv, config, capability);
       case ParquetFormatConfig parquet -> parquet(parquet, config, capability);
+      case AutoFormatConfig f -> throw unwritable(capability, f);
       case AvroFormatConfig f -> throw unwritable(capability, f);
       case OtlpFormatConfig f -> throw unwritable(capability, f);
       case ProtobufFormatConfig f -> throw unwritable(capability, f);

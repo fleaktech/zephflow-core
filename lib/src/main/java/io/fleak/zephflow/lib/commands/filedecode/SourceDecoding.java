@@ -23,6 +23,7 @@ import static io.fleak.zephflow.lib.serdes.EncodingType.XML;
 
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
@@ -57,6 +58,7 @@ public record SourceDecoding(
 
   public static String formatName(FormatConfig format) {
     return switch (format) {
+      case AutoFormatConfig f -> "auto";
       case AvroFormatConfig f -> "avro";
       case CsvFormatConfig f -> "csv";
       case JsonFormatConfig f -> "json";

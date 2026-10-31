@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.source;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.filedecode.DlqTexts;
@@ -28,9 +29,13 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.DecodeResult;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.auto.AutoFormatCursor;
+import io.fleak.zephflow.lib.serdes.decode.auto.FormatRecord;
+import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -55,6 +60,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   private final String format;
   private final Unit unit;
   private final DlqTexts texts;
+  private final boolean automatic;
 
   /** Decodes without record or document limits, as the sources do. */
   public MessageDecodingConverter(DecodingConfig config, Unit unit) {
@@ -62,7 +68,13 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   }
 
   public MessageDecodingConverter(DecodingConfig config, Unit unit, DecodeLimits limits) {
-    this(DecodingConfigCompiler.compile(config), config.format(), unit, limits);
+    this(
+        DecodingConfigCompiler.compile(
+            config,
+            unit == Unit.MESSAGE ? AutoFormatCursor.Unit.MESSAGE : AutoFormatCursor.Unit.FILE),
+        config.format(),
+        unit,
+        limits);
   }
 
   MessageDecodingConverter(RecordDecoder decoder, FormatConfig format, Unit unit) {
@@ -75,6 +87,7 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     this.limits = limits;
     this.format = SourceDecoding.formatName(format);
     this.unit = unit;
+    this.automatic = format instanceof AutoFormatConfig;
     this.texts =
         new DlqTexts(
             this.format, SourceDecoding.multiline(format), 0, noun(unit), retry(unit), null, false);
@@ -161,44 +174,55 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   }
 
   /** Puts the message's metadata over each record's fields. */
-  private static List<RecordFleakData> withMetadata(
+  private List<RecordFleakData> withMetadata(
       List<RecordFleakData> records, SerializedEvent sourceRecord) {
     Map<String, String> metadata = SerializedEvent.metadataWithKey(sourceRecord);
+    if (automatic) {
+      Map<String, FleakData> values = new LinkedHashMap<>();
+      metadata.forEach((key, value) -> values.put(key, new StringPrimitiveFleakData(value)));
+      return records.stream().map(record -> FormatRecord.withMetadata(record, values)).toList();
+    }
     for (RecordFleakData record : records) {
       metadata.forEach((k, v) -> record.getPayload().put(k, new StringPrimitiveFleakData(v)));
     }
     return records;
   }
 
+  public boolean automatic() {
+    return automatic;
+  }
+
   private MessageDecodeException problemFailure(List<DecodeOutcome> problems) {
     DecodeOutcome first = problems.getFirst();
     String location = location(first, problems.size() - 1);
-    return switch (first) {
-      case DecodeOutcome.Failed failed ->
-          failure(
-              failed.kind()
-                  + " "
-                  + format
-                  + " "
-                  + noun(unit)
-                  + ": "
-                  + UnitRun.causeName(failed.error()),
-              failureAction(failed.kind()),
-              stackTrace(failed.error()),
-              location,
-              failed.error());
-      case DecodeOutcome.Oversized oversized -> {
-        DlqTexts.OversizedText text = texts.oversizedText(oversized);
-        yield failure(
-            "OVERSIZED " + format + " " + noun(unit) + ": " + text.label(),
-            text.action(),
-            text.detail(),
-            location,
-            null);
-      }
-      case DecodeOutcome.Decoded decoded ->
-          throw new IllegalStateException("a decoded record is not a problem");
-    };
+    MessageDecodeException result =
+        switch (first) {
+          case DecodeOutcome.Failed failed ->
+              failure(
+                  failed.kind()
+                      + " "
+                      + format
+                      + " "
+                      + noun(unit)
+                      + ": "
+                      + UnitRun.causeName(failed.error()),
+                  failureAction(failed.kind()),
+                  stackTrace(failed.error()),
+                  location,
+                  failed.error());
+          case DecodeOutcome.Oversized oversized -> {
+            DlqTexts.OversizedText text = texts.oversizedText(oversized);
+            yield failure(
+                "OVERSIZED " + format + " " + noun(unit) + ": " + text.label(),
+                text.action(),
+                text.detail(),
+                location,
+                null);
+          }
+          case DecodeOutcome.Decoded decoded ->
+              throw new IllegalStateException("a decoded record is not a problem");
+        };
+    return new MessageDecodeException(result.getDlqText(), result.getCause(), problems);
   }
 
   private static MessageDecodeException failure(

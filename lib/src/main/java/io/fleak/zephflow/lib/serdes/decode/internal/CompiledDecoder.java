@@ -29,10 +29,22 @@ public final class CompiledDecoder implements RecordDecoder {
 
   private final List<DecompressionCodec> codecs;
   private final FormatFactory format;
+  private final Long capturedPrefix;
 
   public CompiledDecoder(List<DecompressionCodec> codecs, FormatFactory format) {
+    this(codecs, format, null);
+  }
+
+  private CompiledDecoder(
+      List<DecompressionCodec> codecs, FormatFactory format, Long capturedPrefix) {
     this.codecs = codecs;
     this.format = format;
+    this.capturedPrefix = capturedPrefix;
+  }
+
+  public CompiledDecoder withCapturedTextPrefix(long utf8Length) {
+    if (utf8Length < 0) throw new IllegalArgumentException("Negative captured prefix length");
+    return new CompiledDecoder(codecs, format, utf8Length);
   }
 
   @Override
@@ -53,7 +65,13 @@ public final class CompiledDecoder implements RecordDecoder {
     }
     InputStream guarded = new ReadGuardStream(raw, flags);
     try {
-      return format.create(Decompressors.wrap(codecs, guarded, flags, limits), limits, flags);
+      InputStream decompressed = Decompressors.wrap(codecs, guarded, flags, limits);
+      InputStream bounded =
+          capturedPrefix == null
+              ? decompressed
+              : io.fleak.zephflow.lib.serdes.decode.json.JsonEncoding.originalPrefix(
+                  decompressed, capturedPrefix);
+      return format.create(bounded, limits, flags);
     } catch (IOException | RuntimeException e) {
       guarded.close();
       throw e;

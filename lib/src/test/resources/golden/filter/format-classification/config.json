@@ -1,0 +1,3 @@
+{
+  "expression": "$.__format__.id == \"json_object\""
+}
