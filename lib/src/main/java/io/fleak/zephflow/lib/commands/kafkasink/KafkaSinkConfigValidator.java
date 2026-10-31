@@ -13,11 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
+import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
+import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
+import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Locale;
 import java.util.Map;
@@ -29,6 +34,15 @@ import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 
 public class KafkaSinkConfigValidator implements ConfigValidator {
+
+  public static final WriterCapability CAPABILITY =
+      new WriterCapability(
+          COMMAND_NAME_KAFKA_SINK,
+          Unit.ONE_RECORD,
+          Set.of("csv", "json", "kv"),
+          Set.of(Mode.OBJECT, Mode.ARRAY, Mode.LINES),
+          false,
+          Set.of());
 
   private static final Set<String> SUPPORTED_SASL_MECHANISMS =
       Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
@@ -52,11 +66,21 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     if (StringUtils.isBlank(config.getTopic())) {
       throw new IllegalArgumentException("Topic must be provided");
     }
-    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-    if (encodingType != EncodingType.KV) {
-      SerializerFactory.validateEncodingType(encodingType);
+    if (config.getEncoding() != null) {
+      SinkEncoding.validate(
+          config.getEncoding(),
+          CAPABILITY,
+          field("encodingType", config.getEncodingType()),
+          field("kvFields", config.getKvFields()),
+          field("kvPairDelimiter", config.getKvPairDelimiter()),
+          field("kvCleanFields", config.getKvCleanFields()));
+    } else {
+      EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+      if (encodingType != EncodingType.KV) {
+        SerializerFactory.validateEncodingType(encodingType);
+      }
+      config.validateKvOptions();
     }
-    config.validateKvOptions();
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }

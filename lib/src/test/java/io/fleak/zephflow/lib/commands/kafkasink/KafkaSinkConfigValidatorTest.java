@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -325,5 +326,62 @@ class KafkaSinkConfigValidatorTest {
     config.setKvPairDelimiter("=");
     assertThrows(
         IllegalArgumentException.class, () -> validator.validateConfig(config, "test-node", null));
+  }
+
+  private static KafkaSinkDto.Config.ConfigBuilder withoutEncodingType() {
+    return KafkaSinkDto.Config.builder().broker("localhost:9092").topic("test-topic");
+  }
+
+  @Test
+  void validateConfig_encodingAlone_ok() {
+    KafkaSinkDto.Config config =
+        withoutEncodingType()
+            .encoding(encoding("{\"format\":{\"type\":\"csv\",\"delimiter\":\"|\"}}"))
+            .build();
+
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
+  }
+
+  @Test
+  void validateConfig_encodingWithLegacyFormatFields_rejected() {
+    KafkaSinkDto.Config config =
+        base()
+            .kvFields(List.of("src_ip"))
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"object\"}}"))
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertEquals(
+        "kafkasink: encoding cannot be combined with encodingType, kvFields",
+        exception.getMessage());
+  }
+
+  @Test
+  void validateConfig_encodingWithCompression_rejected() {
+    KafkaSinkDto.Config config =
+        withoutEncodingType()
+            .encoding(
+                encoding(
+                    "{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("compression gzip cannot be written by kafkasink", exception.getMessage());
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType_keepsLegacyError() {
+    KafkaSinkDto.Config config = withoutEncodingType().build();
+
+    Exception exception =
+        assertThrows(
+            NullPointerException.class, () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("enumStr is marked non-null but is null", exception.getMessage());
   }
 }

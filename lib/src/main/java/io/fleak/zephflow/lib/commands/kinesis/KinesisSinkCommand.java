@@ -22,11 +22,13 @@ import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -86,13 +88,19 @@ public class KinesisSinkCommand extends SimpleSinkCommand<RecordFleakData> {
           PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }
 
+    return new KinesisFlusher(
+        kinesisClient, config.getStreamName(), partitionKeyPathExpression, recordEncoder(config));
+  }
+
+  private static RecordEncoder recordEncoder(KinesisSinkDto.Config config) {
+    if (config.getEncoding() != null) {
+      return EncodingCompiler.recordEncoder(
+          config.getEncoding(), KinesisSinkConfigValidator.CAPABILITY);
+    }
     EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
     SerializerFactory<?> serializerFactory =
         SerializerFactory.createSerializerFactory(encodingType);
-    FleakSerializer<?> serializer = serializerFactory.createSerializer();
-
-    return new KinesisFlusher(
-        kinesisClient, config.getStreamName(), partitionKeyPathExpression, serializer);
+    return SinkEncoding.fromSerializer(serializerFactory.createSerializer());
   }
 
   @Override

@@ -24,13 +24,15 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
 import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import java.nio.file.Path;
@@ -141,11 +143,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     Properties props = KafkaClientProperties.sink(config, jobContext);
     boolean isTestMode = isTestMode(jobContext);
 
-    EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
-    SerializerFactory<?> serializerFactory =
-        SerializerFactory.createSerializerFactory(
-            encodingType, CsvSerializerOptions.DEFAULT, config.kvOptions());
-    FleakSerializer<?> serializer = serializerFactory.createSerializer();
+    RecordEncoder recordEncoder = recordEncoder(config);
 
     PathExpression partitionKeyExpression =
         Optional.ofNullable(config.getPartitionKeyFieldExpressionStr())
@@ -162,7 +160,7 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
     return new KafkaSinkFlusher(
         producer,
         config.getTopic(),
-        serializer,
+        recordEncoder,
         partitionKeyExpression,
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
@@ -171,6 +169,18 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
         deferredConfirmation,
         connectionFailureClassifier,
         storeAndForwardEnabled);
+  }
+
+  private static RecordEncoder recordEncoder(KafkaSinkDto.Config config) {
+    if (config.getEncoding() != null) {
+      return EncodingCompiler.recordEncoder(
+          config.getEncoding(), KafkaSinkConfigValidator.CAPABILITY);
+    }
+    EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
+    SerializerFactory<?> serializerFactory =
+        SerializerFactory.createSerializerFactory(
+            encodingType, CsvSerializerOptions.DEFAULT, config.kvOptions());
+    return SinkEncoding.fromSerializer(serializerFactory.createSerializer());
   }
 
   private static final int STORE_FORWARD_DRAIN_CHUNK = 1000;

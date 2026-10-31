@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.stdout;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -42,5 +43,52 @@ class StdOutSinkConfigValidatorTest {
 
       assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
     }
+  }
+
+  @Test
+  void validateConfig_encodingAlone() {
+    StdOutDto.Config config =
+        StdOutDto.Config.builder()
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"object\"}}"))
+            .build();
+
+    assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
+  }
+
+  @Test
+  void validateConfig_encodingWithEncodingType() {
+    StdOutDto.Config config =
+        StdOutDto.Config.builder()
+            .encodingType(EncodingType.JSON_OBJECT)
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"object\"}}"))
+            .build();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("stdout: encoding cannot be combined with encodingType", exception.getMessage());
+  }
+
+  @Test
+  void validateConfig_encodingInAFormatItCannotWrite() {
+    StdOutDto.Config config =
+        StdOutDto.Config.builder().encoding(encoding("{\"format\":{\"type\":\"kv\"}}")).build();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("stdout cannot write kv", exception.getMessage());
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType() {
+    StdOutDto.Config config = StdOutDto.Config.builder().build();
+
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class, () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("no encoding type is provided", exception.getMessage());
   }
 }

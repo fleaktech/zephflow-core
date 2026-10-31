@@ -21,7 +21,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.ConnectionFailureClassifier;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -57,7 +57,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
 
   private final KafkaProducer<byte[], byte[]> producer;
   private final String topic;
-  private final FleakSerializer<?> fleakSerializer;
+  private final RecordEncoder recordEncoder;
   private final PathExpression partitionKeyExpression;
   private final FleakCounter asyncDeliveredCountCounter;
   private final FleakCounter asyncDeliveredSizeCounter;
@@ -78,7 +78,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   public KafkaSinkFlusher(
       @NonNull KafkaProducer<byte[], byte[]> producer,
       @NonNull String topic,
-      @NonNull FleakSerializer<?> fleakSerializer,
+      @NonNull RecordEncoder recordEncoder,
       PathExpression partitionKeyExpression, // This one can stay nullable
       @NonNull FleakCounter asyncDeliveredCountCounter,
       @NonNull FleakCounter asyncDeliveredSizeCounter,
@@ -86,7 +86,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
     this(
         producer,
         topic,
-        fleakSerializer,
+        recordEncoder,
         partitionKeyExpression,
         asyncDeliveredCountCounter,
         asyncDeliveredSizeCounter,
@@ -100,7 +100,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   public KafkaSinkFlusher(
       @NonNull KafkaProducer<byte[], byte[]> producer,
       @NonNull String topic,
-      @NonNull FleakSerializer<?> fleakSerializer,
+      @NonNull RecordEncoder recordEncoder,
       PathExpression partitionKeyExpression,
       @NonNull FleakCounter asyncDeliveredCountCounter,
       @NonNull FleakCounter asyncDeliveredSizeCounter,
@@ -111,7 +111,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
       boolean bufferBatchOnConnectivityFailure) {
     this.producer = producer;
     this.topic = topic;
-    this.fleakSerializer = fleakSerializer;
+    this.recordEncoder = recordEncoder;
     this.partitionKeyExpression = partitionKeyExpression;
     this.asyncDeliveredCountCounter = asyncDeliveredCountCounter;
     this.asyncDeliveredSizeCounter = asyncDeliveredSizeCounter;
@@ -309,8 +309,7 @@ public class KafkaSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakDa
   }
 
   private byte[] serializeValue(RecordFleakData event) throws Exception {
-    var serializedEvent = fleakSerializer.serialize(List.of(event));
-    byte[] eventValue = serializedEvent.value();
+    byte[] eventValue = recordEncoder.encode(event);
     return (eventValue == null || eventValue.length == 0) ? null : eventValue;
   }
 

@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.azureeventhubsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -52,5 +53,8 @@ public interface AzureEventHubSinkDto {
 
     /** Output encoding (e.g. {@code JSON_OBJECT}). */
     private String encodingType;
+
+    /** Output format in the shape of a source's {@code decoding}; replaces {@code encodingType}. */
+    private EncodingConfig encoding;
   }
 }

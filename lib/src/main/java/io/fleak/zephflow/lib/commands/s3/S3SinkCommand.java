@@ -30,12 +30,12 @@ import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
-import software.amazon.awssdk.services.s3.S3Client;
 
 public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
   private static final int S3_SINK_BATCH_SIZE = 1_000_000_000;
@@ -77,33 +77,20 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
         counters.sinkErrorCounter());
   }
 
-  private SimpleSinkCommand.Flusher<RecordFleakData> createS3Flusher(
+  private BatchS3Flusher createS3Flusher(
       S3SinkDto.Config config, JobContext jobContext, SinkCounters counters) {
     Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt =
         lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
-
-    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-
-    if (config.isBatching()) {
-      return createBatchS3Flusher(
-          config, jobContext, counters, usernamePasswordCredentialOpt, encodingType);
-    }
-    return createOnDemandS3Flusher(config, usernamePasswordCredentialOpt, encodingType);
-  }
-
-  private BatchS3Flusher createBatchS3Flusher(
-      S3SinkDto.Config config,
-      JobContext jobContext,
-      SinkCounters counters,
-      Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt,
-      EncodingType encodingType) {
     AwsClientFactory.S3TransferResources s3TransferResources =
         awsClientFactory.createS3TransferResources(
             config.getRegionStr(),
             usernamePasswordCredentialOpt.orElse(null),
             config.getS3EndpointOverride());
 
-    BlobFileWriter<RecordFleakData> fileWriter = createFileWriter(encodingType, config);
+    BlobFileWriter<RecordFleakData> fileWriter =
+        config.getEncoding() != null
+            ? EncodingCompiler.fileWriter(config.getEncoding(), S3SinkConfigValidator.CAPABILITY)
+            : createFileWriter(parseEnum(EncodingType.class, config.getEncodingType()), config);
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
     DlqWriter dlqWriter = null;
     if (jobContext.getDlqConfig() != null) {
@@ -125,29 +112,6 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
             counters.sinkErrorCounter());
     flusher.initialize();
     return flusher;
-  }
-
-  private S3Flusher createOnDemandS3Flusher(
-      S3SinkDto.Config config,
-      Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt,
-      EncodingType encodingType) {
-    S3Client s3Client =
-        awsClientFactory.createS3Client(
-            config.getRegionStr(),
-            usernamePasswordCredentialOpt.orElse(null),
-            config.getS3EndpointOverride());
-    SerializerFactory<?> serializerFactory =
-        SerializerFactory.createSerializerFactory(
-            encodingType, CsvSerializerOptions.DEFAULT, config.kvOptions());
-    FleakSerializer<?> serializer = serializerFactory.createSerializer();
-    S3Commiter<RecordFleakData> commiter =
-        new OnDemandS3Commiter(
-            s3Client,
-            config.getBucketName(),
-            StringUtils.stripEnd(config.getKeyName(), "/"),
-            serializer,
-            CompressorFactory.getCompressor(config.getCompressionType()));
-    return new S3Flusher(commiter);
   }
 
   private BlobFileWriter<RecordFleakData> createFileWriter(

@@ -13,29 +13,32 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
-
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
+import java.nio.charset.StandardCharsets;
 import javax.annotation.Nullable;
 
 public class SqsSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<SqsOutboundMessage> {
 
+  private final RecordEncoder encoder;
   private final PathExpression messageGroupIdExpression;
   private final PathExpression deduplicationIdExpression;
 
   public SqsSinkMessageProcessor(
+      RecordEncoder encoder,
       @Nullable PathExpression messageGroupIdExpression,
       @Nullable PathExpression deduplicationIdExpression) {
+    this.encoder = encoder;
     this.messageGroupIdExpression = messageGroupIdExpression;
     this.deduplicationIdExpression = deduplicationIdExpression;
   }
 
   @Override
-  public SqsOutboundMessage preprocess(RecordFleakData event, long ts) {
-    String body = toJsonString(event);
+  public SqsOutboundMessage preprocess(RecordFleakData event, long ts) throws Exception {
+    String body = new String(encoder.encode(event), StandardCharsets.UTF_8);
 
     String messageGroupId = null;
     if (messageGroupIdExpression != null) {

@@ -13,25 +13,28 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
-
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
+import java.nio.charset.StandardCharsets;
 import javax.annotation.Nullable;
 
 public class PubSubSinkMessageProcessor
     implements SimpleSinkCommand.SinkMessagePreProcessor<PubSubOutboundMessage> {
 
+  private final RecordEncoder encoder;
   private final PathExpression orderingKeyExpression;
 
-  public PubSubSinkMessageProcessor(@Nullable PathExpression orderingKeyExpression) {
+  public PubSubSinkMessageProcessor(
+      RecordEncoder encoder, @Nullable PathExpression orderingKeyExpression) {
+    this.encoder = encoder;
     this.orderingKeyExpression = orderingKeyExpression;
   }
 
   @Override
-  public PubSubOutboundMessage preprocess(RecordFleakData event, long ts) {
-    String body = toJsonString(event);
+  public PubSubOutboundMessage preprocess(RecordFleakData event, long ts) throws Exception {
+    String body = new String(encoder.encode(event), StandardCharsets.UTF_8);
     String orderingKey =
         orderingKeyExpression != null
             ? orderingKeyExpression.getStringValueFromEventOrDefault(event, null)

@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.format;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
@@ -138,5 +139,58 @@ class PubSubSinkConfigValidatorTest {
             .build();
     assertThrows(
         Exception.class, () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingAlone() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
+    assertDoesNotThrow(
+        () -> new PubSubSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingWithEncodingType() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
+    assertEquals("pubsubsink: encoding cannot be combined with encodingType", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingJsonLines() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encoding(format("{\"type\":\"json\",\"mode\":\"lines\"}"))
+            .build();
+    assertEquals("pubsubsink cannot write json mode lines", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingCsv() {
+    PubSubSinkDto.Config config =
+        PubSubSinkDto.Config.builder().topic("t").encoding(format("{\"type\":\"csv\"}")).build();
+    assertEquals("pubsubsink cannot write csv", refusal(config));
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType() {
+    assertEquals(
+        "no encoding type is provided", refusal(PubSubSinkDto.Config.builder().topic("t").build()));
+  }
+
+  private static String refusal(PubSubSinkDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new PubSubSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+        .getMessage();
   }
 }

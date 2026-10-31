@@ -19,10 +19,13 @@ import com.google.cloud.pubsub.v1.stub.PublisherStub;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.gcp.PubSubClientFactory;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
@@ -99,7 +102,12 @@ public class PubSubSinkCommand extends SimpleSinkCommand<PubSubOutboundMessage> 
         StringUtils.isNotBlank(config.getOrderingKeyExpression())
             ? PathExpression.fromString(config.getOrderingKeyExpression())
             : null;
-    return new PubSubSinkMessageProcessor(orderingKeyExpression);
+    RecordEncoder encoder =
+        config.getEncoding() != null
+            ? EncodingCompiler.recordEncoder(
+                config.getEncoding(), PubSubSinkConfigValidator.CAPABILITY)
+            : SinkEncoding.LEGACY_JSON_OBJECT;
+    return new PubSubSinkMessageProcessor(encoder, orderingKeyExpression);
   }
 
   @Override

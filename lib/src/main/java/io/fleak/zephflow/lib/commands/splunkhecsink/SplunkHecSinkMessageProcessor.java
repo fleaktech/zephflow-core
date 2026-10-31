@@ -20,13 +20,17 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.parseEnum;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import io.fleak.zephflow.lib.serdes.ser.kv.KvTypedSerializer;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import org.apache.commons.lang3.StringUtils;
 
 public class SplunkHecSinkMessageProcessor
@@ -55,8 +59,16 @@ public class SplunkHecSinkMessageProcessor
   }
 
   static SplunkHecSinkMessageProcessor fromConfig(SplunkHecSinkDto.Config config) {
+    LineEncoder lineEncoder =
+        config.getEncoding() != null ? lineEncoder(config.getEncoding()) : lineEncoder(config);
     return new SplunkHecSinkMessageProcessor(
-        config.getIndex(), config.getSourcetype(), config.getSource(), lineEncoder(config));
+        config.getIndex(), config.getSourcetype(), config.getSource(), lineEncoder);
+  }
+
+  private static LineEncoder lineEncoder(EncodingConfig encoding) {
+    RecordEncoder encoder =
+        EncodingCompiler.recordEncoder(encoding, SplunkHecSinkConfigValidator.CAPABILITY);
+    return encoding.format() instanceof JsonFormatConfig ? null : line(encoder);
   }
 
   private static LineEncoder lineEncoder(SplunkHecSinkDto.Config config) {
@@ -69,12 +81,14 @@ public class SplunkHecSinkMessageProcessor
       FleakSerializer<?> csvSerializer =
           SerializerFactory.createSerializerFactory(EncodingType.CSV, csvOptions(config))
               .createSerializer();
-      return event -> {
-        byte[] bytes = csvSerializer.serialize(List.of(event)).value();
-        return StringUtils.removeEnd(new String(bytes, StandardCharsets.UTF_8), "\r\n");
-      };
+      return line(SinkEncoding.fromSerializer(csvSerializer));
     }
     return null;
+  }
+
+  private static LineEncoder line(RecordEncoder encoder) {
+    return event ->
+        StringUtils.removeEnd(new String(encoder.encode(event), StandardCharsets.UTF_8), "\r\n");
   }
 
   static CsvSerializerOptions csvOptions(SplunkHecSinkDto.Config config) {

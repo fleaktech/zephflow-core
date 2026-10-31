@@ -21,8 +21,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,17 +41,17 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
   final KinesisClient kinesisClient;
   final String streamName;
   final PathExpression partitionKeyPathExpression;
-  final FleakSerializer<?> fleakSerializer;
+  final RecordEncoder recordEncoder;
 
   public KinesisFlusher(
       KinesisClient kinesisClient,
       String streamName,
       @Nullable PathExpression partitionKeyPathExpression,
-      FleakSerializer<?> fleakSerializer) {
+      RecordEncoder recordEncoder) {
     this.kinesisClient = kinesisClient;
     this.streamName = streamName;
     this.partitionKeyPathExpression = partitionKeyPathExpression;
-    this.fleakSerializer = fleakSerializer;
+    this.recordEncoder = recordEncoder;
   }
 
   @Override
@@ -70,12 +69,12 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
     for (Pair<RecordFleakData, RecordFleakData> pair : preparedInputEvents.rawAndPreparedList()) {
       try {
         RecordFleakData recordFleakData = pair.getRight();
-        SerializedEvent serializedEvent = fleakSerializer.serialize(List.of(recordFleakData));
-        if (serializedEvent.value() == null) {
+        byte[] value = recordEncoder.encode(recordFleakData);
+        if (value == null) {
           throw new IllegalArgumentException(
               String.format("JSON serialization resulted in null for record %s", pair.getRight()));
         }
-        recordSizes.add(serializedEvent.value().length);
+        recordSizes.add(value.length);
         String partitionKey =
             partitionKeyPathExpression == null
                 ? UUID.randomUUID().toString()
@@ -85,7 +84,7 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
         PutRecordsRequestEntry entry =
             PutRecordsRequestEntry.builder()
                 .partitionKey(partitionKey)
-                .data(SdkBytes.fromByteArray(serializedEvent.value()))
+                .data(SdkBytes.fromByteArray(value))
                 .build();
         records.add(entry);
       } catch (Exception e) {
@@ -147,8 +146,8 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
     List<ErrorOutput> errors = new ArrayList<>();
     for (var pair : events.rawAndPreparedList()) {
       try {
-        var serialized = fleakSerializer.serialize(List.of(pair.getRight()));
-        if (serialized.value() == null)
+        byte[] value = recordEncoder.encode(pair.getRight());
+        if (value == null)
           throw new IllegalArgumentException("Serialization produced no record bytes");
         String key =
             partitionKeyPathExpression == null
@@ -158,11 +157,11 @@ public class KinesisFlusher implements SimpleSinkCommand.Flusher<RecordFleakData
         var entry =
             PutRecordsRequestEntry.builder()
                 .partitionKey(key)
-                .data(SdkBytes.fromByteArray(serialized.value()))
+                .data(SdkBytes.fromByteArray(value))
                 .build();
         entries.add(entry);
         submitted.add(pair.getLeft());
-        sizes.add(serialized.value().length);
+        sizes.add(value.length);
       } catch (Exception failure) {
         errors.add(
             new ErrorOutput(pair.getLeft(), "Failed to process record: " + failure.getMessage()));

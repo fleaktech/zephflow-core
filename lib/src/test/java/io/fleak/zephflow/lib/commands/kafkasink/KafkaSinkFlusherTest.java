@@ -21,6 +21,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
@@ -192,7 +193,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            mockSerializer,
+            SinkEncoding.fromSerializer(mockSerializer),
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -248,7 +249,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            failingSerializer,
+            SinkEncoding.fromSerializer(failingSerializer),
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -334,7 +335,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            mockSerializer,
+            SinkEncoding.fromSerializer(mockSerializer),
             keyExpression,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -423,7 +424,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            nullValueSerializer,
+            SinkEncoding.fromSerializer(nullValueSerializer),
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -453,7 +454,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            mockSerializer,
+            SinkEncoding.fromSerializer(mockSerializer),
             nullKeyExpression,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -483,7 +484,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            mockSerializer,
+            SinkEncoding.fromSerializer(mockSerializer),
             errorKeyExpression,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -521,7 +522,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            emptySerializer,
+            SinkEncoding.fromSerializer(emptySerializer),
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,

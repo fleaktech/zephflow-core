@@ -20,8 +20,9 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 
 /** Created by bolei on 12/20/24 */
@@ -59,10 +60,14 @@ public class StdOutSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private SimpleSinkCommand.Flusher<RecordFleakData> createStdOutFlusher(StdOutDto.Config config) {
+    if (config.getEncoding() != null) {
+      return new StdOutSinkFlusher(
+          EncodingCompiler.recordEncoder(
+              config.getEncoding(), StdOutSinkConfigValidator.CAPABILITY));
+    }
     SerializerFactory<?> serializerFactory =
         SerializerFactory.createSerializerFactory(config.getEncodingType());
-    FleakSerializer<?> serializer = serializerFactory.createSerializer();
-    return new StdOutSinkFlusher(serializer);
+    return new StdOutSinkFlusher(SinkEncoding.fromSerializer(serializerFactory.createSerializer()));
   }
 
   @Override

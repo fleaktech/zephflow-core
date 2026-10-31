@@ -23,10 +23,12 @@ import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubClientFactory;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubConnectionConfig;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
@@ -89,17 +91,24 @@ public class AzureEventHubSinkCommand extends SimpleSinkCommand<RecordFleakData>
 
     EventHubProducerClient producerClient = clientFactory.createProducerClient(connection);
 
-    EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
-    FleakSerializer<?> serializer =
-        SerializerFactory.createSerializerFactory(encodingType).createSerializer();
-
     PathExpression partitionKeyExpression =
         Optional.ofNullable(config.getPartitionKeyFieldExpressionStr())
             .filter(StringUtils::isNotBlank)
             .map(PathExpression::fromString)
             .orElse(null);
 
-    return new AzureEventHubSinkFlusher(producerClient, serializer, partitionKeyExpression);
+    return new AzureEventHubSinkFlusher(
+        producerClient, recordEncoder(config), partitionKeyExpression);
+  }
+
+  private static RecordEncoder recordEncoder(AzureEventHubSinkDto.Config config) {
+    if (config.getEncoding() != null) {
+      return EncodingCompiler.recordEncoder(
+          config.getEncoding(), AzureEventHubSinkConfigValidator.CAPABILITY);
+    }
+    EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
+    return SinkEncoding.fromSerializer(
+        SerializerFactory.createSerializerFactory(encodingType).createSerializer());
   }
 
   @Override

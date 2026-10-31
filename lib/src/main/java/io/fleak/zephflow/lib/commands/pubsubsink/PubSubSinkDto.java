@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import java.util.Map;
 import lombok.*;
 
@@ -29,7 +30,8 @@ public interface PubSubSinkDto {
   class Config implements CommandConfig {
     private String projectId;
     @NonNull private String topic;
-    @NonNull private String encodingType;
+    private String encodingType;
+    private EncodingConfig encoding;
     private String credentialId;
     private String orderingKeyExpression;
     @Builder.Default private Integer batchSize = DEFAULT_BATCH_SIZE;

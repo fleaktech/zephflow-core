@@ -13,26 +13,47 @@
  */
 package io.fleak.zephflow.lib.commands.kinesis;
 
+import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
+import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
+import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 
 /** Created by bolei on 9/3/24 */
 public class KinesisSinkConfigValidator implements ConfigValidator {
+
+  public static final WriterCapability CAPABILITY =
+      new WriterCapability(
+          COMMAND_NAME_KINESIS_SINK,
+          Unit.ONE_RECORD,
+          Set.of("csv", "json"),
+          Set.of(Mode.OBJECT, Mode.ARRAY, Mode.LINES),
+          false,
+          Set.of());
+
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     KinesisSinkDto.Config config = (KinesisSinkDto.Config) commandConfig;
     if (enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
     }
-    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-    SerializerFactory.validateEncodingType(encodingType);
+    if (config.getEncoding() != null) {
+      SinkEncoding.validate(
+          config.getEncoding(), CAPABILITY, field("encodingType", config.getEncodingType()));
+    } else {
+      EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
+      SerializerFactory.validateEncodingType(encodingType);
+    }
     if (StringUtils.trimToNull(config.getPartitionKeyFieldExpressionStr()) != null) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
     }

@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.CompressionType;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +31,7 @@ public interface S3SinkDto {
     @NonNull private String regionStr;
     @NonNull private String bucketName;
     @NonNull private String keyName;
-    @NonNull private String encodingType;
+    private String encodingType;
     private String credentialId;
     private String s3EndpointOverride;
     @Builder.Default private boolean batching = true;
@@ -44,5 +45,7 @@ public interface S3SinkDto {
     private String kvPairDelimiter;
 
     private Boolean kvCleanFields;
+
+    private EncodingConfig encoding;
   }
 }

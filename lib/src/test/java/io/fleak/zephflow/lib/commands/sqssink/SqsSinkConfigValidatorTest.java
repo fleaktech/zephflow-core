@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.format;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
@@ -157,5 +158,54 @@ class SqsSinkConfigValidatorTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingAlone() {
+    SqsSinkDto.Config config =
+        standardQueue().encoding(format("{\"type\":\"json\",\"mode\":\"object\"}")).build();
+    assertDoesNotThrow(
+        () -> new SqsSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingWithEncodingType() {
+    SqsSinkDto.Config config =
+        standardQueue()
+            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
+    assertEquals("sqssink: encoding cannot be combined with encodingType", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingJsonLines() {
+    SqsSinkDto.Config config =
+        standardQueue().encoding(format("{\"type\":\"json\",\"mode\":\"lines\"}")).build();
+    assertEquals("sqssink cannot write json mode lines", refusal(config));
+  }
+
+  @Test
+  void validateConfig_encodingCsv() {
+    SqsSinkDto.Config config = standardQueue().encoding(format("{\"type\":\"csv\"}")).build();
+    assertEquals("sqssink cannot write csv", refusal(config));
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType() {
+    assertEquals("no encoding type is provided", refusal(standardQueue().build()));
+  }
+
+  private static SqsSinkDto.Config.ConfigBuilder standardQueue() {
+    return SqsSinkDto.Config.builder()
+        .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
+        .regionStr("us-east-1");
+  }
+
+  private static String refusal(SqsSinkDto.Config config) {
+    return assertThrows(
+            IllegalArgumentException.class,
+            () -> new SqsSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT))
+        .getMessage();
   }
 }

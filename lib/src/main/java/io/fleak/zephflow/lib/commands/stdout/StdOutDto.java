@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.stdout;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,5 +29,6 @@ public interface StdOutDto {
   @AllArgsConstructor
   class Config implements CommandConfig {
     private EncodingType encodingType;
+    private EncodingConfig encoding;
   }
 }

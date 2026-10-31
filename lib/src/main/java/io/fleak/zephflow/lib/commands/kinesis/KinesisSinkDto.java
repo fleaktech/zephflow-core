@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.kinesis;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import lombok.*;
 
 /** Created by bolei on 9/3/24 */
@@ -28,6 +29,7 @@ public interface KinesisSinkDto {
     @NonNull private String streamName;
     private String credentialId;
     private String partitionKeyFieldExpressionStr;
-    @NonNull private String encodingType;
+    private String encodingType;
+    private EncodingConfig encoding;
   }
 }

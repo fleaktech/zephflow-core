@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
 import io.fleak.zephflow.api.CommandConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
 import java.util.List;
 import lombok.*;
@@ -50,5 +51,7 @@ public interface SplunkHecSinkDto {
     private String kvPairDelimiter;
 
     private Boolean kvCleanFields;
+
+    private EncodingConfig encoding;
   }
 }

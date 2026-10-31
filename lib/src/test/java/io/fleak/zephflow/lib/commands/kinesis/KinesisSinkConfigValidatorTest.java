@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.kinesis;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
@@ -83,5 +84,70 @@ class KinesisSinkConfigValidatorTest {
       assertDoesNotThrow(
           () -> validator.validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
     }
+  }
+
+  private static KinesisSinkDto.Config.ConfigBuilder withoutEncodingType() {
+    return KinesisSinkDto.Config.builder()
+        .regionStr("us-west-2")
+        .streamName("test-stream")
+        .credentialId("example-credential-id");
+  }
+
+  @Test
+  void validateConfig_encodingAlone() {
+    KinesisSinkDto.Config config =
+        withoutEncodingType()
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+
+    assertDoesNotThrow(
+        () ->
+            new KinesisSinkConfigValidator()
+                .validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
+  }
+
+  @Test
+  void validateConfig_encodingWithEncodingType() {
+    KinesisSinkDto.Config config =
+        withoutEncodingType()
+            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
+            .build();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new KinesisSinkConfigValidator()
+                    .validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
+    assertEquals(
+        "kinesissink: encoding cannot be combined with encodingType", exception.getMessage());
+  }
+
+  @Test
+  void validateConfig_encodingInAFormatItCannotWrite() {
+    KinesisSinkDto.Config config =
+        withoutEncodingType().encoding(encoding("{\"format\":{\"type\":\"kv\"}}")).build();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new KinesisSinkConfigValidator()
+                    .validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
+    assertEquals("kinesissink cannot write kv", exception.getMessage());
+  }
+
+  @Test
+  void validateConfig_neitherEncodingNorEncodingType() {
+    KinesisSinkDto.Config config = withoutEncodingType().build();
+
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () ->
+                new KinesisSinkConfigValidator()
+                    .validateConfig(config, "myNodeId", KINESIS_SINK_TEST_JOB_CONTEXT));
+    assertEquals("enumStr is marked non-null but is null", exception.getMessage());
   }
 }

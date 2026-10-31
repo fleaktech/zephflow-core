@@ -26,7 +26,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,17 +51,17 @@ import lombok.extern.slf4j.Slf4j;
 public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<RecordFleakData> {
 
   private final EventHubProducerClient producerClient;
-  private final FleakSerializer<?> fleakSerializer;
+  private final RecordEncoder recordEncoder;
   private final PathExpression partitionKeyExpression; // nullable
 
   private volatile boolean closed = false;
 
   public AzureEventHubSinkFlusher(
       @NonNull EventHubProducerClient producerClient,
-      @NonNull FleakSerializer<?> fleakSerializer,
+      @NonNull RecordEncoder recordEncoder,
       PathExpression partitionKeyExpression) {
     this.producerClient = producerClient;
-    this.fleakSerializer = fleakSerializer;
+    this.recordEncoder = recordEncoder;
     this.partitionKeyExpression = partitionKeyExpression;
   }
 
@@ -249,8 +249,7 @@ public class AzureEventHubSinkFlusher implements SimpleSinkCommand.Flusher<Recor
   }
 
   private byte[] serializeValue(RecordFleakData event) throws Exception {
-    var serialized = fleakSerializer.serialize(List.of(event));
-    byte[] value = serialized.value();
+    byte[] value = recordEncoder.encode(event);
     return (value == null || value.length == 0) ? null : value;
   }
 
