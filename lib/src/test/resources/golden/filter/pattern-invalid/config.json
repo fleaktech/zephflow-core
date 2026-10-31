@@ -1,0 +1,3 @@
+{
+  "expression": "not field_regex_search($, \"v\", \"[\")"
+}

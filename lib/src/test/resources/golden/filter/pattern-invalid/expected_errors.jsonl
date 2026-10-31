@@ -1,0 +1,1 @@
+{"error":"filter expression 'notfield_regex_search($,\"v\",\"[\")' failed: Unclosed character class near index 0\n[\n^","input":{"id":1,"v":"ERROR"}}

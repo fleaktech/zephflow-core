@@ -41,7 +41,7 @@ public final class FieldPopulationSelector {
 
   /** Returns whether at least one location has this logical name, including null and containers. */
   public static boolean isPresent(FleakData record, String fieldName) {
-    return walk(record, Objects.requireNonNull(fieldName), value -> true);
+    return walk(record, Objects.requireNonNull(fieldName), value -> true, false);
   }
 
   /**
@@ -52,7 +52,8 @@ public final class FieldPopulationSelector {
     return walk(
         record,
         Objects.requireNonNull(fieldName),
-        value -> isScalar(value) && expected.equals(scalarJson(value)));
+        located -> isScalar(located.value()) && expected.equals(scalarJson(located.value())),
+        false);
   }
 
   /**
@@ -148,7 +149,23 @@ public final class FieldPopulationSelector {
   /** Encodes a string as a JSON literal; callers may also use it for FEEL string arguments. */
   public static String quote(String value) {
     StringBuilder result = new StringBuilder(value.length() + 2).append('"');
-    JsonStringEncoder.getInstance().quoteAsString(value, result);
+    char[] quoted = JsonStringEncoder.getInstance().quoteAsString(value);
+    for (int index = 0; index < quoted.length; index++) {
+      char character = quoted[index];
+      if (Character.isHighSurrogate(character)
+          && index + 1 < quoted.length
+          && Character.isLowSurrogate(quoted[index + 1])) {
+        result.append(character).append(quoted[++index]);
+      } else if (Character.isSurrogate(character)) {
+        // Keep individual UTF-16 units intact through UTF-8, JDBC and FEEL literals.
+        result.append("\\u");
+        for (int shift = 12; shift >= 0; shift -= 4) {
+          result.append(Character.forDigit((character >> shift) & 15, 16));
+        }
+      } else {
+        result.append(character);
+      }
+    }
     return result.append('"').toString();
   }
 
@@ -183,11 +200,53 @@ public final class FieldPopulationSelector {
     return !(value instanceof RecordFleakData) && !(value instanceof ArrayFleakData);
   }
 
+  /**
+   * Visits every scalar occurrence (including null) of a logical field and returns its presence.
+   * Locations distinguish object keys from array indices and are immutable snapshots. Containers
+   * contribute to presence but are not emitted as scalar values.
+   */
+  public static boolean visitScalars(
+      FleakData record,
+      String fieldName,
+      java.util.function.BiConsumer<java.util.List<PathSegment>, FleakData> scalarConsumer) {
+    Objects.requireNonNull(scalarConsumer);
+    boolean[] present = {false};
+    walk(
+        record,
+        Objects.requireNonNull(fieldName),
+        located -> {
+          present[0] = true;
+          if (isScalar(located.value())) {
+            scalarConsumer.accept(located.location().segments(), located.value());
+          }
+          return false;
+        },
+        true);
+    return present[0];
+  }
+
+  /** One physical step in a record, independent of the logical dotted field name. */
+  public sealed interface PathSegment permits ObjectKey, ArrayIndex {}
+
+  /** An object key, including keys that contain dots or look like array indices. */
+  public record ObjectKey(String name) implements PathSegment {
+    public ObjectKey {
+      Objects.requireNonNull(name);
+    }
+  }
+
+  /** A zero-based array position. */
+  public record ArrayIndex(int index) implements PathSegment {
+    public ArrayIndex {
+      if (index < 0) throw new IllegalArgumentException("Array index must be nonnegative");
+    }
+  }
+
   private static boolean walk(
-      FleakData root, String fieldName, Predicate<FleakData> selectedValue) {
+      FleakData root, String fieldName, Predicate<LocatedValue> selectedValue, boolean locate) {
     if (!(root instanceof RecordFleakData record)) return false;
     Deque<Iterator<LocatedValue>> stack = new ArrayDeque<>();
-    stack.push(fields(record, ""));
+    stack.push(fields(record, "", locate ? new Location(null, null) : null));
     while (!stack.isEmpty()) {
       Iterator<LocatedValue> current = stack.peek();
       if (!current.hasNext()) {
@@ -195,19 +254,22 @@ public final class FieldPopulationSelector {
         continue;
       }
       LocatedValue located = current.next();
-      if (fieldName.equals(located.path()) && selectedValue.test(located.value())) return true;
+      if (fieldName.equals(located.path()) && selectedValue.test(located)) return true;
       if (located.value() instanceof RecordFleakData child) {
-        stack.push(fields(child, located.path()));
+        stack.push(fields(child, located.path(), located.location()));
       } else if (located.value() instanceof ArrayFleakData array) {
         Iterator<FleakData> elements = array.getArrayPayload().iterator();
         stack.push(
             new Iterator<>() {
+              private int index;
+
               public boolean hasNext() {
                 return elements.hasNext();
               }
 
               public LocatedValue next() {
-                return new LocatedValue(located.path(), elements.next());
+                Location location = append(located.location(), new ArrayIndex(index++));
+                return new LocatedValue(located.path(), elements.next(), location);
               }
             });
       }
@@ -215,7 +277,8 @@ public final class FieldPopulationSelector {
     return false;
   }
 
-  private static Iterator<LocatedValue> fields(RecordFleakData record, String prefix) {
+  private static Iterator<LocatedValue> fields(
+      RecordFleakData record, String prefix, Location parent) {
     Iterator<Map.Entry<String, FleakData>> entries = record.getPayload().entrySet().iterator();
     return new Iterator<>() {
       public boolean hasNext() {
@@ -224,16 +287,33 @@ public final class FieldPopulationSelector {
 
       public LocatedValue next() {
         Map.Entry<String, FleakData> entry = entries.next();
-        return new LocatedValue(join(prefix, entry.getKey()), entry.getValue());
+        return new LocatedValue(
+            join(prefix, entry.getKey()),
+            entry.getValue(),
+            append(parent, new ObjectKey(entry.getKey())));
       }
     };
+  }
+
+  private static Location append(Location parent, PathSegment segment) {
+    return parent == null ? null : new Location(parent, segment);
+  }
+
+  private record Location(Location parent, PathSegment segment) {
+    private java.util.List<PathSegment> segments() {
+      java.util.LinkedList<PathSegment> result = new java.util.LinkedList<>();
+      for (Location current = this; current.segment != null; current = current.parent) {
+        result.addFirst(current.segment);
+      }
+      return java.util.List.copyOf(result);
+    }
   }
 
   private static String join(String prefix, String name) {
     return prefix.isEmpty() ? name : prefix + "." + name;
   }
 
-  private record LocatedValue(String path, FleakData value) {}
+  private record LocatedValue(String path, FleakData value, Location location) {}
 
   private static final class JsonFrame {
     private final String path;

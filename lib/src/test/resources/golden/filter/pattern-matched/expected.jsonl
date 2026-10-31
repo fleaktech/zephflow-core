@@ -1,0 +1,5 @@
+{"id":1,"v":"WARN ERROR ERROR"}
+{"id":3,"v":["WARN","ERROR"]}
+{"id":4,"v":200}
+{"id":5,"v":true}
+{"id":10,"v":["WARN",["ERROR"]]}
