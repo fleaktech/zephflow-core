@@ -1,0 +1,3 @@
+{
+  "expression": "field_regex_search($, \"v\", \"ERROR|^200$|^true$\")"
+}

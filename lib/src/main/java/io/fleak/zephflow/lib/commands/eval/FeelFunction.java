@@ -93,6 +93,7 @@ public interface FeelFunction {
             .put("in", new InFunction())
             .put("exists", new ExistsFunction())
             .put("field_present", new FieldPresentFunction())
+            .put("field_regex_search", new FieldRegexSearchFunction())
             .put("field_value_eq", new FieldValueEqFunction())
             .put("cidr_match", new CidrMatchFunction())
             .put("deep_contains", new DeepContainsFunction())

@@ -26,6 +26,25 @@ class FieldPopulationSelectorTest {
   private static final ObjectMapper JSON = new ObjectMapper();
 
   @Test
+  void quotesUnpairedUtf16WithoutLosingItsIdentityInUtf8() throws Exception {
+    String high = String.valueOf((char) 0xd800);
+    String otherHigh = String.valueOf((char) 0xd801);
+    String low = String.valueOf((char) 0xdc00);
+    for (String input : List.of(high, otherHigh, low, "\\ud800", "😀", high + "x" + low)) {
+      String quoted = FieldPopulationSelector.quote(input);
+      String transported =
+          new String(
+              quoted.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+              java.nio.charset.StandardCharsets.UTF_8);
+      assertEquals(input, JSON.readValue(transported, String.class));
+      assertEquals(quoted, transported);
+    }
+    assertNotEquals(FieldPopulationSelector.quote(high), FieldPopulationSelector.quote(otherHigh));
+    assertNotEquals(FieldPopulationSelector.quote(high), FieldPopulationSelector.quote("\\ud800"));
+    assertEquals("\"😀\"", FieldPopulationSelector.quote("😀"));
+  }
+
+  @Test
   void distinguishesPresenceScalarsAndEmptyContainers() throws Exception {
     String json =
         "{\"nil\":null,\"object\":{},\"array\":[],\"zero\":0,\"no\":false,\"empty\":\"\"}";
@@ -113,6 +132,65 @@ class FieldPopulationSelectorTest {
     assertEquals("", FieldPopulationSelector.findFieldName(json, ""::equals).orElseThrow());
     assertEquals("x.y", FieldPopulationSelector.findFieldName(json, "x.y"::equals).orElseThrow());
     assertTrue(FieldPopulationSelector.findFieldName(json, "missing"::equals).isEmpty());
+  }
+
+  @Test
+  void visitsImmutablePhysicalLocationsWithoutChangingLogicalNames() throws Exception {
+    FleakData input =
+        record("{\"a.b\":\"literal\",\"a\":[{\"b\":[\"first\",null]},{\"b\":\"last\"}]}");
+    List<List<FieldPopulationSelector.PathSegment>> locations = new ArrayList<>();
+    List<Object> values = new ArrayList<>();
+    assertTrue(
+        FieldPopulationSelector.visitScalars(
+            input,
+            "a.b",
+            (location, value) -> {
+              locations.add(location);
+              values.add(value == null ? null : value.unwrap());
+            }));
+    assertEquals(
+        List.of(
+            List.of(new FieldPopulationSelector.ObjectKey("a.b")),
+            List.of(
+                new FieldPopulationSelector.ObjectKey("a"),
+                new FieldPopulationSelector.ArrayIndex(0),
+                new FieldPopulationSelector.ObjectKey("b"),
+                new FieldPopulationSelector.ArrayIndex(0)),
+            List.of(
+                new FieldPopulationSelector.ObjectKey("a"),
+                new FieldPopulationSelector.ArrayIndex(0),
+                new FieldPopulationSelector.ObjectKey("b"),
+                new FieldPopulationSelector.ArrayIndex(1)),
+            List.of(
+                new FieldPopulationSelector.ObjectKey("a"),
+                new FieldPopulationSelector.ArrayIndex(1),
+                new FieldPopulationSelector.ObjectKey("b"))),
+        locations);
+    assertEquals(java.util.Arrays.asList("literal", "first", null, "last"), values);
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> locations.getFirst().add(new FieldPopulationSelector.ObjectKey("changed")));
+    assertFalse(
+        FieldPopulationSelector.visitScalars(input, "missing", (location, value) -> fail()));
+  }
+
+  @Test
+  void separatesNumericKeysEmptyNamesAndNullPresenceFromArrayPositions() throws Exception {
+    FleakData input = record("{\"\":{\"2\":[\"x\"]},\"nil\":null,\"empty\":[]}");
+    List<List<FieldPopulationSelector.PathSegment>> locations = new ArrayList<>();
+    assertTrue(
+        FieldPopulationSelector.visitScalars(
+            input, "2", (location, value) -> locations.add(location)));
+    assertEquals(
+        List.of(
+            List.of(
+                new FieldPopulationSelector.ObjectKey(""),
+                new FieldPopulationSelector.ObjectKey("2"),
+                new FieldPopulationSelector.ArrayIndex(0))),
+        locations);
+    assertTrue(
+        FieldPopulationSelector.visitScalars(input, "nil", (location, value) -> assertNull(value)));
+    assertTrue(FieldPopulationSelector.visitScalars(input, "empty", (location, value) -> fail()));
   }
 
   private static List<String> values(String json, String field) {

@@ -1,0 +1,11 @@
+{"id":1,"v":"WARN ERROR ERROR"}
+{"id":2,"v":"WARN"}
+{"id":3,"v":["WARN","ERROR"]}
+{"id":4,"v":200}
+{"id":5,"v":true}
+{"id":6,"v":null}
+{"id":7}
+{"id":8,"v":{}}
+{"id":9,"v":[]}
+{"id":10,"v":["WARN",["ERROR"]]}
+{"id":11,"v":"error"}
