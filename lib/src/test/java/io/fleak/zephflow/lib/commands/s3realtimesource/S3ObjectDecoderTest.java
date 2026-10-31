@@ -27,6 +27,9 @@ import io.fleak.zephflow.lib.serdes.decode.RawSpan;
 import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
+import io.fleak.zephflow.lib.serdes.decode.auto.DetectedFormat;
+import io.fleak.zephflow.lib.serdes.decode.auto.FormatRecord;
+import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
@@ -98,6 +101,24 @@ class S3ObjectDecoderTest {
                 1,
                 new RawSpan(0, 7))),
         seen);
+  }
+
+  @Test
+  void autoKeepsMetadataInsideTheEnvelopeAndProjectsAdapterValues() throws SourceReadException {
+    byte[] original = "{\"a\":1,\"__s3_bucket\":\"payload\"}".getBytes(StandardCharsets.UTF_8);
+    when(s3.getObject(any(GetObjectRequest.class))).thenReturn(body(original));
+    var decoder =
+        new S3ObjectDecoder(
+            new S3Decoding(null, null, new DecodingConfig(null, new AutoFormatConfig()), true),
+            2048 * MIB);
+    assertEquals(Status.FINISHED, decoder.decode(s3, REF, 1024, spoolDir, collect()).status());
+    var record = assertInstanceOf(DecodeOutcome.Decoded.class, seen.getFirst()).record();
+    assertEquals(DetectedFormat.JSON_OBJECT, FormatRecord.format(record));
+    assertEquals(new String(original, StandardCharsets.UTF_8), FormatRecord.text(record));
+    assertEquals(
+        json("{\"a\":1,\"__s3_bucket\":\"b\",\"__s3_key\":\"logs/k.jsonl\"}"),
+        FormatRecord.project(record));
+    assertEquals(List.of(), spoolFiles());
   }
 
   @Test

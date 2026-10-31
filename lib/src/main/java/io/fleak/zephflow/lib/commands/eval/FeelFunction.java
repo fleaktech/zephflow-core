@@ -52,6 +52,8 @@ public interface FeelFunction {
   static Map<String, FeelFunction> createFunctionsTable(PythonExecutor pythonExecutor) {
     var builder =
         ImmutableMap.<String, FeelFunction>builder()
+            .put("format_record", new FormatRecordFunction())
+            .put("format_classify", new FormatClassifyFunction())
             .put("ts_str_to_epoch", new TsStrToEpochFunction())
             .put("epoch_to_ts_str", new EpochToTsStrFunction())
             .put("str_contains", new StrContainsFunction())

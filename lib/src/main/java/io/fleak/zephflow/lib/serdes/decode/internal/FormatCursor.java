@@ -30,6 +30,10 @@ public interface FormatCursor extends AutoCloseable {
   /** Offset of the first byte of the first record not yet returned, or -1 when unknown. */
   long pendingOffset();
 
+  default long normalizedEndOffset() {
+    return -1;
+  }
+
   @Override
   void close();
 }

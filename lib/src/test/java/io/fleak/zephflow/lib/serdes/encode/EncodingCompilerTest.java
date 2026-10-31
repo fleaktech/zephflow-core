@@ -57,6 +57,16 @@ class EncodingCompilerTest {
     return Stream.of(
         refusal("no format", S3, "{\"compression\":[]}", "s3sink: encoding format is required"),
         refusal(
+            "auto on a message sink",
+            KAFKA,
+            format("{\"type\":\"auto\"}"),
+            "kafkasink: format auto cannot be written"),
+        refusal(
+            "auto on a file sink",
+            S3,
+            format("{\"type\":\"auto\"}"),
+            "s3sink: format auto cannot be written"),
+        refusal(
             "avro",
             KAFKA,
             format("{\"type\":\"avro\",\"container\":\"ocf\"}"),

@@ -22,6 +22,11 @@ public interface RecordCursor extends AutoCloseable {
    */
   DecodeOutcome next() throws SourceReadException;
 
+  /** End of admitted automatic text input, in normalized UTF-8 bytes including separators. */
+  default long normalizedEndOffset() {
+    return -1;
+  }
+
   @Override
   void close();
 }

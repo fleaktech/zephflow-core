@@ -1,0 +1,3 @@
+{"__format__": {"id": "json_object", "text": "{\"a\":1}", "record": {"a": 1}, "metadata": {}}}
+{"__format__": {"id": "json_array", "text": "[]", "record": {}, "metadata": {}}}
+{"__format__": {"id": "unrecognized_text", "text": "hello", "record": {}, "metadata": {}}}

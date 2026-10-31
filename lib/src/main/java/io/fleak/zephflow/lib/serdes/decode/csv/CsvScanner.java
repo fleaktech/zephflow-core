@@ -26,16 +26,18 @@ import java.util.List;
  * record over the limit is scanned to its end without being kept, so the next record is read
  * normally; only a quote left open until the end of the input makes it terminal.
  */
-final class CsvScanner implements AutoCloseable {
+public final class CsvScanner implements AutoCloseable {
 
-  sealed interface Frame {}
+  public sealed interface Frame {}
 
   /** {@code problem} is null for a well-formed record. */
-  record Row(List<byte[]> fields, long offset, byte[] bytes, String problem) implements Frame {}
+  public record Row(List<byte[]> fields, long offset, byte[] bytes, String problem)
+      implements Frame {}
 
-  record OversizedRow(long offset, long size, byte[] preview, boolean terminal) implements Frame {}
+  public record OversizedRow(long offset, long size, byte[] preview, boolean terminal)
+      implements Frame {}
 
-  record UnclosedQuote(long offset, byte[] bytes) implements Frame {}
+  public record UnclosedQuote(long offset, byte[] bytes) implements Frame {}
 
   private enum State {
     FIELD_START,
@@ -79,7 +81,7 @@ final class CsvScanner implements AutoCloseable {
   private boolean oversized;
   private String problem;
 
-  CsvScanner(InputStream in, CsvDialect dialect, long maxRecordBytes, boolean skipBom) {
+  public CsvScanner(InputStream in, CsvDialect dialect, long maxRecordBytes, boolean skipBom) {
     this.in = in;
     this.dialect = dialect;
     this.maxRecordBytes = maxRecordBytes;
@@ -87,7 +89,7 @@ final class CsvScanner implements AutoCloseable {
   }
 
   /** The next record, or null at the end. Empty lines and comment lines are skipped. */
-  Frame next() throws IOException {
+  public Frame next() throws IOException {
     if (!started) {
       started = true;
       if (skipBom) {

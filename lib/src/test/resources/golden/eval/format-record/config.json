@@ -1,0 +1,3 @@
+{
+  "expression": "format_record(format_classify($, \"__raw__\"))"
+}

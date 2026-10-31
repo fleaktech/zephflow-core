@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
+  @JsonSubTypes.Type(value = AutoFormatConfig.class, name = "auto"),
   @JsonSubTypes.Type(value = AvroFormatConfig.class, name = "avro"),
   @JsonSubTypes.Type(value = CsvFormatConfig.class, name = "csv"),
   @JsonSubTypes.Type(value = JsonFormatConfig.class, name = "json"),
@@ -30,7 +31,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
   @JsonSubTypes.Type(value = YamlFormatConfig.class, name = "yaml"),
 })
 public sealed interface FormatConfig
-    permits AvroFormatConfig,
+    permits AutoFormatConfig,
+        AvroFormatConfig,
         CsvFormatConfig,
         JsonFormatConfig,
         KvFormatConfig,

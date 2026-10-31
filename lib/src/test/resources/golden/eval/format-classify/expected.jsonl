@@ -1,0 +1,5 @@
+{"__format__":{"id":"json_object","metadata":{"key":"k"},"record":{"__raw__":"a,b","env":"prod","formatId":"csv"},"text":"{\"env\":\"prod\",\"formatId\":\"csv\",\"__raw__\":\"a,b\"}"}}
+{"__format__":{"id":"json_array","metadata":{},"record":{},"text":"[1, {\"x\": 2}, false]"}}
+{"__format__":{"id":"yaml","metadata":{},"record":{},"text":"a: b"}}
+{"__format__":{"id":"csv","metadata":{},"record":{},"text":"a,b"}}
+{"__format__":{"id":"unrecognized_text","metadata":{},"record":{},"text":"hello"}}

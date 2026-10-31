@@ -19,6 +19,7 @@ import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.RawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.decode.auto.FormatRecord;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +56,11 @@ public class IotHubMessageConverter implements RawDataConverter<SerializedEvent>
     }
     return ConvertedResult.success(
         result.transformedData().stream()
-            .map(r -> r.copyAndMerge(Map.of(ENVELOPE_KEY, envelope)))
+            .map(
+                r ->
+                    decoding.automatic()
+                        ? FormatRecord.withMetadata(r, Map.of(ENVELOPE_KEY, envelope))
+                        : r.copyAndMerge(Map.of(ENVELOPE_KEY, envelope)))
             .toList(),
         sourceRecord);
   }

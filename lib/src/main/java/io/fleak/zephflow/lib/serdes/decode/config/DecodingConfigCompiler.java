@@ -21,6 +21,7 @@ import com.google.protobuf.Descriptors.DescriptorValidationException;
 import com.google.protobuf.Descriptors.FileDescriptor;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
+import io.fleak.zephflow.lib.serdes.decode.auto.AutoFormatCursor;
 import io.fleak.zephflow.lib.serdes.decode.avro.AvroDatumFormat;
 import io.fleak.zephflow.lib.serdes.decode.avro.AvroOcfFormat;
 import io.fleak.zephflow.lib.serdes.decode.csv.CsvDialect;
@@ -69,6 +70,20 @@ public final class DecodingConfigCompiler {
   private DecodingConfigCompiler() {}
 
   public static RecordDecoder compile(DecodingConfig config) {
+    return compile(config, AutoFormatCursor.Unit.FILE);
+  }
+
+  /** Replays only the admitted text prefix after the configured decompression, before parsing. */
+  public static RecordDecoder compileCapturedFile(DecodingConfig config, long utf8Length) {
+    RecordDecoder decoder = compile(config);
+    if (!(decoder instanceof CompiledDecoder streamed)) {
+      throw new IllegalArgumentException(
+          "A partial text capture cannot use a random-access format");
+    }
+    return streamed.withCapturedTextPrefix(utf8Length);
+  }
+
+  public static RecordDecoder compile(DecodingConfig config, AutoFormatCursor.Unit unit) {
     if (config == null) {
       throw new IllegalArgumentException("decoding config is required");
     }
@@ -78,6 +93,8 @@ public final class DecodingConfigCompiler {
       throw new IllegalArgumentException("decoding format is required");
     }
     return switch (format) {
+      case AutoFormatConfig auto ->
+          streamed(codecs, (in, limits, flags) -> new AutoFormatCursor(in, limits, flags, unit));
       case AvroFormatConfig avro -> streamed(codecs, avro(avro));
       case CsvFormatConfig csv -> streamed(codecs, csv(csv));
       case JsonFormatConfig json -> streamed(codecs, json(json));

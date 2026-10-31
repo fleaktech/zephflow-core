@@ -30,6 +30,8 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
+import io.fleak.zephflow.lib.serdes.decode.auto.FormatRecord;
+import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.nio.file.Path;
@@ -76,6 +78,7 @@ public final class S3ObjectDecoder {
   private final boolean addS3Metadata;
   private final long heapBytes;
   private final boolean multiline;
+  private final boolean automatic;
 
   /**
    * @param heapBytes the heap the limits are proportions of, at least 1 MiB
@@ -93,6 +96,7 @@ public final class S3ObjectDecoder {
     this.addS3Metadata = decoding.addS3Metadata();
     this.heapBytes = heapBytes;
     this.multiline = SourceDecoding.multiline(config.format());
+    this.automatic = config.format() instanceof AutoFormatConfig;
   }
 
   /** Skips the validation and the fixed limits; for tests that wrap the decoder only. */
@@ -103,6 +107,7 @@ public final class S3ObjectDecoder {
     this.addS3Metadata = addS3Metadata;
     this.heapBytes = 0;
     this.multiline = false;
+    this.automatic = false;
   }
 
   /** The compiled decoder, for a caller that holds an object's bytes itself. */
@@ -161,6 +166,16 @@ public final class S3ObjectDecoder {
   private DecodeOutcome enrich(DecodeOutcome outcome, S3ObjectRef ref) {
     if (!addS3Metadata || !(outcome instanceof DecodeOutcome.Decoded decoded)) {
       return outcome;
+    }
+    if (automatic) {
+      return new DecodeOutcome.Decoded(
+          FormatRecord.withMetadata(
+              decoded.record(),
+              Map.of(
+                  S3_METADATA_BUCKET, FleakData.wrap(ref.bucket()),
+                  S3_METADATA_KEY, FleakData.wrap(ref.key()))),
+          decoded.recordIndex(),
+          decoded.span());
     }
     Map<String, FleakData> payload = new HashMap<>(decoded.record().getPayload());
     payload.put(S3_METADATA_BUCKET, FleakData.wrap(ref.bucket()));
