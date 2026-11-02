@@ -30,16 +30,10 @@ import org.antlr.v4.runtime.*;
 /** Created by bolei on 5/23/24 */
 public interface AntlrUtils {
   Map<GrammarType, Function<String, Lexer>> LEXTER_MAP =
-      Map.of(
-          EXPRESSION_SQL,
-          input -> new ExpressionSQLParserLexer(CharStreams.fromString(input)),
-          EVAL,
-          input -> new EvalExpressionLexer(CharStreams.fromString(input)));
+      Map.of(EVAL, input -> new EvalExpressionLexer(CharStreams.fromString(input)));
 
   Map<GrammarType, Function<CommonTokenStream, Parser>> PARSER_MAP =
-      Map.of(
-          EXPRESSION_SQL, ExpressionSQLParserParser::new,
-          EVAL, EvalExpressionParser::new);
+      Map.of(EVAL, EvalExpressionParser::new);
 
   static void ensureConsumedAllTokens(Parser parser) {
 
@@ -49,28 +43,6 @@ public interface AntlrUtils {
       throw new IllegalArgumentException(
           "Encountered parsing error at position " + currentToken.getStopIndex());
     }
-  }
-
-  static String cleanIdentifier(String v) {
-    return cleanWrappedString(v, '\"');
-  }
-
-  static String cleanStringLiteral(String v) {
-    return cleanWrappedString(v, '\'');
-  }
-
-  static String cleanWrappedString(String v, char wrappedChar) {
-    int len = v.length();
-    if (len > 0) {
-      int from = 0;
-      int to = len;
-
-      if (v.charAt(0) == wrappedChar) from = 1;
-      if (v.charAt(len - 1) == wrappedChar) to -= 1;
-      if (from > 0 || to < len) return v.substring(from, to);
-    }
-
-    return v;
   }
 
   static Parser parseInput(String input, GrammarType grammarType) {
@@ -85,7 +57,6 @@ public interface AntlrUtils {
   }
 
   enum GrammarType {
-    EXPRESSION_SQL,
     EVAL
   }
 

@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 
 class BoundedResourceMeasurementTest {
   @Test
-  void largeFiniteFanoutPreservesWholeSqlInputWithoutRetainingDebugOutputs() {
+  void largeFiniteFanoutPreservesWholeBatchInputWithoutRetainingDebugOutputs() {
     int count = 25_000;
     var memory = ManagementFactory.getMemoryMXBean();
     var threads = ManagementFactory.getThreadMXBean();
@@ -48,13 +48,14 @@ class BoundedResourceMeasurementTest {
             .toList();
     var engine =
         new DagRunnerService(
-            new DagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS),
+            new DagCompiler(
+                BatchCountCommandFactory.registryWithBatchCount(
+                    OperatorCommandRegistry.OPERATOR_COMMANDS)),
             new MetricClientProvider.NoopMetricClientProvider());
     var graph =
         List.of(
-            new DagNode("source", "noop", Map.of(), List.of("sql", "copy")),
-            new DagNode(
-                "sql", "sqleval", Map.of("sql", "SELECT count(*) AS total FROM events"), List.of()),
+            new DagNode("source", "noop", Map.of(), List.of("batch", "copy")),
+            new DagNode("batch", "batchcount", Map.of(), List.of()),
             new DagNode("copy", "noop", Map.of(), List.of()));
     var runner =
         engine.createForBoundedRun(
@@ -75,10 +76,10 @@ class BoundedResourceMeasurementTest {
               () -> {});
       assertEquals(0, result.failedInvocationCount());
       assertEquals(0, result.recordErrorCount());
-      assertEquals(count, observer.counts.get("sql:INPUT"));
+      assertEquals(count, observer.counts.get("batch:INPUT"));
       assertEquals(count, observer.counts.get("copy:OUTPUT"));
-      assertEquals(1, observer.sqlInvocations);
-      assertEquals((double) count, observer.sqlTotal);
+      assertEquals(1, observer.batchInvocations);
+      assertEquals((double) count, observer.batchTotal);
       runner.disposeBounded(CompletionDisposition.FINISHED);
     } finally {
       runner.disposeBounded(CompletionDisposition.ABORTED);
@@ -104,20 +105,20 @@ class BoundedResourceMeasurementTest {
 
   private static final class CountingObserver implements ExecutionObserver {
     final Map<String, Integer> counts = new HashMap<>();
-    int sqlInvocations;
-    double sqlTotal;
+    int batchInvocations;
+    double batchTotal;
 
     public void invocationStarted(long sequence, Invocation invocation) {
-      if (invocation.nodeId().equals("sql") && invocation.phase() == Phase.PROCESS)
-        sqlInvocations++;
+      if (invocation.nodeId().equals("batch") && invocation.phase() == Phase.PROCESS)
+        batchInvocations++;
     }
 
     public void records(
         long sequence, Invocation invocation, Side side, List<RecordFleakData> records) {
       counts.merge(invocation.nodeId() + ":" + side, records.size(), Integer::sum);
-      if (invocation.nodeId().equals("sql") && side == Side.OUTPUT) {
+      if (invocation.nodeId().equals("batch") && side == Side.OUTPUT) {
         assertEquals(1, records.size());
-        sqlTotal = ((Number) records.getFirst().unwrap().get("total")).doubleValue();
+        batchTotal = ((Number) records.getFirst().unwrap().get("total")).doubleValue();
       }
     }
 

@@ -52,9 +52,9 @@ dag:
       - "out"
 
   - id: "odd_tag"
-    commandName: "sqleval"
+    commandName: "eval"
     config:
-      sql: "SELECT num, 'odd' AS type FROM records;"
+      expression: "dict(type='odd', num=$.num)"
     outputs:
       - "out"
 
