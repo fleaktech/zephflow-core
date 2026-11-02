@@ -73,7 +73,6 @@ public interface MiscUtils {
   String METADATA_KINESIS_SCHEMA_NAME = "kinesis_schema_name";
 
   String COMMAND_NAME_NOOP = "noop";
-  String COMMAND_NAME_SQL_EVAL = "sqleval";
 
   String COMMAND_NAME_S3_SINK = "s3sink";
   String COMMAND_NAME_KINESIS_SOURCE = "kinesissource";

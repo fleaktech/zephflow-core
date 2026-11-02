@@ -54,7 +54,6 @@ import io.fleak.zephflow.lib.commands.sample.SampleCommandFactory;
 import io.fleak.zephflow.lib.commands.smtpsink.SmtpSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.splunksource.SplunkSourceCommandFactory;
-import io.fleak.zephflow.lib.commands.sql.SqlCommandFactory;
 import io.fleak.zephflow.lib.commands.sqssink.SqsSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.sqssource.SqsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.stdin.StdInCommandFactory;
@@ -70,7 +69,6 @@ public interface OperatorCommandRegistry {
   Map<String, CommandFactory> OPERATOR_COMMANDS =
       ImmutableMap.<String, CommandFactory>builder()
           .put(COMMAND_NAME_NOOP, new NoopCommandFactory())
-          .put(COMMAND_NAME_SQL_EVAL, new SqlCommandFactory())
           .put(COMMAND_NAME_S3_SINK, new S3SinkCommandFactory())
           .put(COMMAND_NAME_KINESIS_SOURCE, new KinesisSourceCommandFactory())
           .put(COMMAND_NAME_KINESIS_SINK, new KinesisSinkCommandFactory())

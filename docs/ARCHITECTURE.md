@@ -68,15 +68,14 @@ All concrete command implementations. Depends on `api/` only.
 
 Commands are organized by type — sources (Kafka, Kinesis, Splunk, file, stdin),
 sinks (Kafka, S3, ClickHouse, Delta Lake, Databricks, Kinesis, stdout), and
-intermediate commands (eval, assertion/filter, parser, SQL). Browse `lib/` for
+intermediate commands (eval, assertion/filter, parser). Browse `lib/` for
 the full set.
 
 Subpackages of note:
 
-- `lib/antlr/` — two ANTLR grammars: `EvalExpression.g4` (boolean/arithmetic
+- `lib/antlr/` — the ANTLR grammar `EvalExpression.g4` (boolean/arithmetic
   expressions with path selection `$.field[0]`, case expressions, dict
-  construction) and `ExpressionSQLParser.g4` (SELECT/WHERE/JOIN/GROUP BY over
-  in-memory data).
+  construction).
 - `lib/parser/` — extraction rules: Grok, Syslog (3164/5424), CEF, JSON, XML,
   CSV, key-value pairs, delimited text.
 - `lib/serdes/` — serializers per `EncodingType` (JSON_OBJECT_LINE, CSV, KV,

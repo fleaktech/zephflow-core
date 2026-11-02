@@ -32,22 +32,23 @@ import org.junit.jupiter.api.Test;
 class BoundedDagRunnerTest {
   private final DagRunnerService service =
       new DagRunnerService(
-          new DagCompiler(OperatorCommandRegistry.OPERATOR_COMMANDS),
+          new DagCompiler(
+              BatchCountCommandFactory.registryWithBatchCount(
+                  OperatorCommandRegistry.OPERATOR_COMMANDS)),
           new MetricClientProvider.NoopMetricClientProvider());
 
   @Test
-  void fullPopulationIsOneSqlBatchAndSourceIdentityIsObserved() {
+  void fullPopulationIsOneBatchAndSourceIdentityIsObserved() {
     Capture capture = new Capture();
     var runner =
         runner(
             List.of(
-                node("source", "noop", Map.of(), "sql"),
-                node("sql", "sqleval", Map.of("sql", "SELECT count(*) AS total FROM events"))),
+                node("source", "noop", Map.of(), "batch"), node("batch", "batchcount", Map.of())),
             Map.of("source", BoundedDefinition.BoundaryRole.SOURCE_OUTPUT));
     var summary =
         runner.runBounded(List.of(input("source", Side.OUTPUT, 350)), "user", capture, () -> {});
     runner.disposeBounded(CompletionDisposition.FINISHED);
-    assertEquals(List.of(350.0), capture.values("sql", "total"));
+    assertEquals(List.of(350.0), capture.values("batch", "total"));
     assertEquals(350, capture.records("source", Side.OUTPUT).size());
     assertEquals(0, summary.failedInvocationCount());
     assertFalse(
@@ -59,14 +60,14 @@ class BoundedDagRunnerTest {
   }
 
   @Test
-  void separateParentsRemainSeparateSqlInvocationsInAuthoredOrder() {
+  void separateParentsRemainSeparateBatchInvocationsInAuthoredOrder() {
     Capture capture = new Capture();
     var runner =
         runner(
             List.of(
-                node("a", "noop", Map.of(), "sql"),
-                node("b", "noop", Map.of(), "sql"),
-                node("sql", "sqleval", Map.of("sql", "SELECT count(*) AS total FROM events"))),
+                node("a", "noop", Map.of(), "batch"),
+                node("b", "noop", Map.of(), "batch"),
+                node("batch", "batchcount", Map.of())),
             Map.of(
                 "a",
                 BoundedDefinition.BoundaryRole.SOURCE_OUTPUT,
@@ -75,11 +76,11 @@ class BoundedDagRunnerTest {
     runner.runBounded(
         List.of(input("b", Side.OUTPUT, 3), input("a", Side.OUTPUT, 2)), "user", capture, () -> {});
     runner.disposeBounded(CompletionDisposition.FINISHED);
-    assertEquals(List.of(2.0, 3.0), capture.values("sql", "total"));
+    assertEquals(List.of(2.0, 3.0), capture.values("batch", "total"));
     assertEquals(
         List.of("a", "b"),
         capture.started.stream()
-            .filter(i -> i.nodeId().equals("sql") && i.phase() == Phase.PROCESS)
+            .filter(i -> i.nodeId().equals("batch") && i.phase() == Phase.PROCESS)
             .map(Invocation::upstreamNodeId)
             .toList());
   }
@@ -152,54 +153,45 @@ class BoundedDagRunnerTest {
   }
 
   @Test
-  void emptyBindingStillInvokesSql() {
+  void emptyBindingStillInvokesBatchCommand() {
     Capture capture = new Capture();
-    var runner =
-        runner(
-            List.of(node("sql", "sqleval", Map.of("sql", "SELECT count(*) AS total FROM events"))),
-            Map.of());
-    runner.runBounded(List.of(input("sql", Side.INPUT, 0)), "user", capture, () -> {});
+    var runner = runner(List.of(node("batch", "batchcount", Map.of())), Map.of());
+    runner.runBounded(List.of(input("batch", Side.INPUT, 0)), "user", capture, () -> {});
     runner.disposeBounded(CompletionDisposition.FINISHED);
     var existing =
         service.createForTestRun(
-            List.of(node("sql", "sqleval", Map.of("sql", "SELECT count(*) AS total FROM events"))),
+            List.of(node("batch", "batchcount", Map.of())),
             JobContext.builder()
                 .metricTags(Map.of("service", "bounded-test", "env", "test"))
                 .build());
     try {
       var result =
           existing.run(List.of(), "user", new NoSourceDagRunner.DagRunConfig(true, true), true);
-      assertEquals(result.getOutputEvents().get("sql"), capture.records("sql", Side.OUTPUT));
+      assertEquals(result.getOutputEvents().get("batch"), capture.records("batch", Side.OUTPUT));
     } finally {
       existing.terminate();
     }
-    assertTrue(capture.populations.containsKey("sql:INPUT"));
-    assertTrue(capture.populations.containsKey("sql:OUTPUT"));
+    assertTrue(capture.populations.containsKey("batch:INPUT"));
+    assertTrue(capture.populations.containsKey("batch:OUTPUT"));
     assertTrue(capture.failures.isEmpty());
     assertEquals(
         1,
         capture.started.stream()
-            .filter(i -> i.nodeId().equals("sql") && i.phase() == Phase.PROCESS)
+            .filter(i -> i.nodeId().equals("batch") && i.phase() == Phase.PROCESS)
             .count());
   }
 
   @Test
-  void sqlBatchFailureOnEmptyInputStillHasAFatalDiagnostic() {
+  void batchFailureOnEmptyInputStillHasAFatalDiagnostic() {
     Capture capture = new Capture();
     var runner =
-        runner(
-            List.of(
-                node(
-                    "sql",
-                    "sqleval",
-                    Map.of("sql", "SELECT count(*) AS total FROM missing_table"))),
-            Map.of());
+        runner(List.of(node("batch", "batchcount", Map.of("fail", "missing_table"))), Map.of());
     var summary =
-        runner.runBounded(List.of(input("sql", Side.INPUT, 0)), "user", capture, () -> {});
+        runner.runBounded(List.of(input("batch", Side.INPUT, 0)), "user", capture, () -> {});
     runner.disposeBounded(CompletionDisposition.FINISHED);
     assertEquals(1, summary.failedInvocationCount());
     assertEquals(1, capture.failures.size());
-    assertTrue(capture.records("sql", Side.OUTPUT).isEmpty());
+    assertTrue(capture.records("batch", Side.OUTPUT).isEmpty());
   }
 
   @Test
@@ -217,8 +209,7 @@ class BoundedDagRunnerTest {
     var runner =
         runner(
             List.of(
-                node("source", "noop", Map.of(), "sql"),
-                node("sql", "sqleval", Map.of("sql", "SELECT count(*) AS total FROM events"))),
+                node("source", "noop", Map.of(), "batch"), node("batch", "batchcount", Map.of())),
             Map.of("source", BoundedDefinition.BoundaryRole.SOURCE_OUTPUT));
     assertThrows(
         ExecutionStoppedException.class,
@@ -227,10 +218,10 @@ class BoundedDagRunnerTest {
     runner.disposeBounded(CompletionDisposition.ABORTED);
     assertFalse(
         capture.started.stream()
-            .anyMatch(i -> i.nodeId().equals("sql") && i.phase() == Phase.PROCESS));
+            .anyMatch(i -> i.nodeId().equals("batch") && i.phase() == Phase.PROCESS));
     assertTrue(
         capture.started.stream()
-            .anyMatch(i -> i.nodeId().equals("sql") && i.phase() == Phase.DISPOSE));
+            .anyMatch(i -> i.nodeId().equals("batch") && i.phase() == Phase.DISPOSE));
     assertTrue(capture.errors.isEmpty());
   }
 
@@ -340,12 +331,12 @@ class BoundedDagRunnerTest {
     Capture capture = new Capture();
     var runner =
         service.createForBoundedRun(
-            List.of(node("sql", "sqleval", Map.of("sql", "SELECT * FROM events"))),
+            List.of(node("batch", "batchcount", Map.of())),
             JobContext.builder()
                 .metricTags(Map.of("service", "bounded-test", "env", "test"))
                 .build(),
-            new BoundedDefinition(Map.of(), Set.of("sql")));
-    runner.runBounded(List.of(input("sql", Side.INPUT, 2)), "user", capture, () -> {});
+            new BoundedDefinition(Map.of(), Set.of("batch")));
+    runner.runBounded(List.of(input("batch", Side.INPUT, 2)), "user", capture, () -> {});
     runner.disposeBounded(CompletionDisposition.FINISHED);
     assertEquals(2, capture.effects.size());
     for (EffectOutcome outcome : capture.effects) {
@@ -361,12 +352,12 @@ class BoundedDagRunnerTest {
     Capture capture = new Capture();
     var runner =
         service.createForBoundedRun(
-            List.of(node("sql", "sqleval", Map.of("sql", "SELECT * FROM missing_table"))),
+            List.of(node("batch", "batchcount", Map.of("fail", "missing_table"))),
             JobContext.builder()
                 .metricTags(Map.of("service", "bounded-test", "env", "test"))
                 .build(),
-            new BoundedDefinition(Map.of(), Set.of("sql")));
-    runner.runBounded(List.of(input("sql", Side.INPUT, 2)), "user", capture, () -> {});
+            new BoundedDefinition(Map.of(), Set.of("batch")));
+    runner.runBounded(List.of(input("batch", Side.INPUT, 2)), "user", capture, () -> {});
     runner.disposeBounded(CompletionDisposition.FINISHED);
     assertEquals(2, capture.effects.size());
     assertEquals(EffectOutcome.Delivery.ACKNOWLEDGED, capture.effects.getFirst().delivery());
@@ -404,8 +395,8 @@ class BoundedDagRunnerTest {
         runner(
             List.of(
                 node("source", "noop", Map.of(), "bad-a", "bad-b"),
-                node("bad-a", "sqleval", Map.of("sql", "SELECT * FROM missing_a")),
-                node("bad-b", "sqleval", Map.of("sql", "SELECT * FROM missing_b"))),
+                node("bad-a", "batchcount", Map.of("fail", "missing_a")),
+                node("bad-b", "batchcount", Map.of("fail", "missing_b"))),
             Map.of("source", BoundedDefinition.BoundaryRole.SOURCE_OUTPUT));
     var summary =
         runner.runBounded(List.of(input("source", Side.OUTPUT, 3)), "user", capture, () -> {});

@@ -54,8 +54,8 @@ class DagBehaviorTest {
   }
 
   @Test
-  void testEvenOddBranchesWithSqlMergedWithInput() throws Exception {
-    assertStdoutEvents(expectedStdioEvents(), runMain("/test_dag_even_odd_sql.yml"));
+  void testEvenOddBranchesMergedWithInput() throws Exception {
+    assertStdoutEvents(expectedStdioEvents(), runMain("/test_dag_even_odd.yml"));
   }
 
   @Test

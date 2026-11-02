@@ -27,7 +27,6 @@ class OperatorCommandRegistryTest {
     assertEquals(
         ImmutableSet.builder()
             .add(COMMAND_NAME_NOOP)
-            .add(COMMAND_NAME_SQL_EVAL)
             .add(COMMAND_NAME_S3_SINK)
             .add(COMMAND_NAME_KINESIS_SINK)
             .add(COMMAND_NAME_KINESIS_SOURCE)
