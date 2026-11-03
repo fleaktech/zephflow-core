@@ -12,7 +12,14 @@ dependencies {
   implementation libs.commons.compress
   implementation libs.zstd.jni
   implementation libs.xz
-  implementation libs.parquet.hadoop
+  // Parquet's own codecs are unused; codec libs stay at the versions declared here.
+  // HadoopFreeReadOptions calls a package-private constructor, so consumers must not move parquet.
+  implementation(libs.parquet.hadoop) {
+    version { strictly libs.versions.parquet.get() }
+    exclude group: 'com.github.luben', module: 'zstd-jni'
+    exclude group: 'org.xerial.snappy', module: 'snappy-java'
+    exclude group: 'io.airlift', module: 'aircompressor'
+  }
   implementation libs.snappy.java
   implementation libs.lz4
   implementation libs.aws.s3
@@ -32,19 +39,15 @@ dependencies {
 
   implementation libs.clickhouse.jdbc
 
-  implementation(libs.hadoop.common) {
-    exclude group: 'ch.qos.logback'
+  // Parquet writer APIs name Hadoop types; nothing from Hadoop runs or ships.
+  compileOnly(libs.hadoop.common) {
+    transitive = false
   }
-  implementation(libs.hadoop.client) {
-    exclude group: 'ch.qos.logback'
-  }
-  implementation(libs.hadoop.aws) {
-    exclude group: 'software.amazon.awssdk', module: 'bundle'
-    exclude group: 'ch.qos.logback'
+  testCompileOnly(libs.hadoop.common) {
+    transitive = false
   }
 
   implementation libs.delta.kernel.api
-  implementation libs.delta.kernel.defaults
 
   implementation libs.databricks.sdk
   implementation libs.zerobus.ingest.sdk

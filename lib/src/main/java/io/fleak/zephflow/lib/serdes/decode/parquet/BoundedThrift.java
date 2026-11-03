@@ -24,7 +24,6 @@ import shaded.parquet.org.apache.thrift.protocol.TCompactProtocol;
 import shaded.parquet.org.apache.thrift.protocol.TList;
 import shaded.parquet.org.apache.thrift.protocol.TMap;
 import shaded.parquet.org.apache.thrift.protocol.TProtocolException;
-import shaded.parquet.org.apache.thrift.protocol.TSet;
 import shaded.parquet.org.apache.thrift.protocol.TStruct;
 import shaded.parquet.org.apache.thrift.transport.TTransport;
 import shaded.parquet.org.apache.thrift.transport.TTransportException;
@@ -181,25 +180,17 @@ final class BoundedThrift {
       super.readStructEnd();
     }
 
+    // Thrift calls these on a container header, before its byte-availability check; sets use lists.
     @Override
-    public TList readListBegin() throws TException {
-      TList list = super.readListBegin();
+    protected void checkReadBytesAvailable(TList list) throws TException {
       checkElements(list.size);
-      return list;
+      super.checkReadBytesAvailable(list);
     }
 
     @Override
-    public TSet readSetBegin() throws TException {
-      TSet set = super.readSetBegin();
-      checkElements(set.size);
-      return set;
-    }
-
-    @Override
-    public TMap readMapBegin() throws TException {
-      TMap map = super.readMapBegin();
+    protected void checkReadBytesAvailable(TMap map) throws TException {
       checkElements(map.size);
-      return map;
+      super.checkReadBytesAvailable(map);
     }
 
     @Override

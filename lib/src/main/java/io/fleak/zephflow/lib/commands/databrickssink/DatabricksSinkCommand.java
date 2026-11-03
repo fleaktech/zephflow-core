@@ -18,7 +18,6 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import com.databricks.sdk.WorkspaceClient;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
-import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeMessageProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
@@ -53,7 +52,7 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
 
     Flusher<Map<String, Object>> flusher = createBatchFlusher(config, counters);
 
-    SinkMessagePreProcessor<Map<String, Object>> preprocessor = new DeltaLakeMessageProcessor();
+    SinkMessagePreProcessor<Map<String, Object>> preprocessor = new DatabricksMessageProcessor();
 
     return new SinkExecutionContext<>(
         flusher,

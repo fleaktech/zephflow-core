@@ -95,7 +95,7 @@ record ParquetFooter(long metadataStart, long heap) {
         .sum();
   }
 
-  /** parquet 1.12.3 cannot convert a footer that names LZ4_RAW, so it fails the whole file. */
+  /** {@link PageCodecs} has no LZ4_RAW, so a file that uses it fails as a whole. */
   private static void rejectUnknownCodecs(FileMetaData metadata) throws MalformedParquetException {
     if (metadata.getRow_groups() == null) {
       return;
@@ -105,8 +105,7 @@ record ParquetFooter(long metadataStart, long heap) {
           group.getColumns() == null ? List.<ColumnChunk>of() : group.getColumns()) {
         if (chunk.getMeta_data() != null
             && chunk.getMeta_data().getCodec() == CompressionCodec.LZ4_RAW) {
-          throw new MalformedParquetException(
-              "parquet codec LZ4_RAW is not supported by parquet 1.12.3");
+          throw new MalformedParquetException("parquet codec LZ4_RAW is not supported");
         }
       }
     }

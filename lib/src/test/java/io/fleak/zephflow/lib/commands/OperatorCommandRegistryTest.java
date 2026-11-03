@@ -44,7 +44,6 @@ class OperatorCommandRegistryTest {
             .add(COMMAND_NAME_FS_SOURCE)
             .add(COMMAND_NAME_SPLUNK_SOURCE)
             .add(COMMAND_NAME_CLICK_HOUSE_SINK)
-            .add(COMMAND_NAME_DELTA_LAKE_SINK)
             .add(COMMAND_NAME_DATABRICKS_SINK)
             .add(COMMAND_NAME_ZEROBUS_SINK)
             .add(COMMAND_NAME_SYSLOG_UDP)

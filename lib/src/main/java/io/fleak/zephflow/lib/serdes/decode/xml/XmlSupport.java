@@ -30,9 +30,9 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 
 /**
- * Woodstox is named explicitly: other StAX implementations on the classpath (a shaded copy in the
- * Hadoop client, for one) would otherwise be picked by service lookup. DTDs are refused outright,
- * so no entity is expanded and nothing is fetched.
+ * Woodstox is named explicitly: another StAX implementation on the classpath would otherwise be
+ * picked by service lookup. DTDs are refused outright, so no entity is expanded and nothing is
+ * fetched.
  */
 final class XmlSupport {
 

@@ -11,17 +11,14 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.deltalakesink;
+package io.fleak.zephflow.lib.parquet;
 
-import io.fleak.zephflow.api.structure.RecordFleakData;
-import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import java.util.Map;
+public class InvalidRecordException extends IllegalArgumentException {
+  public InvalidRecordException(String message) {
+    super(message);
+  }
 
-public class DeltaLakeMessageProcessor
-    implements SimpleSinkCommand.SinkMessagePreProcessor<Map<String, Object>> {
-
-  @Override
-  public Map<String, Object> preprocess(RecordFleakData event, long ts) {
-    return event.unwrap();
+  public InvalidRecordException(String message, Throwable cause) {
+    super(message, cause);
   }
 }

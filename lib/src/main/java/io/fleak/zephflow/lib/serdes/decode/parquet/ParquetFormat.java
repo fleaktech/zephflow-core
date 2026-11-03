@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import org.apache.parquet.HadoopFreeReadOptions;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.column.page.PageReadStore;
 import org.apache.parquet.hadoop.ParquetFileReader;
@@ -128,15 +129,7 @@ public final class ParquetFormat implements FormatCursor {
             EMPTY,
             true);
       }
-      ParquetReadOptions options =
-          ParquetReadOptions.builder()
-              .useStatsFilter(false)
-              .useDictionaryFilter(false)
-              .useRecordFilter(false)
-              .useColumnIndexFilter(false)
-              .useBloomFilter(false)
-              .withCodecFactory(new PageCodecs(rowGroupBudget))
-              .build();
+      ParquetReadOptions options = HadoopFreeReadOptions.create(new PageCodecs(rowGroupBudget));
       file = new RangeInputFile(in);
       reader = new ParquetFileReader(file, options);
       groups = reader.getRowGroups();

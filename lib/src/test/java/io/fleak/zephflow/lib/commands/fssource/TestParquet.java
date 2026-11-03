@@ -13,11 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.fssource;
 
+import io.fleak.zephflow.lib.parquet.TestParquetCodecs;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.List;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.conf.PlainParquetConfiguration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.example.ExampleParquetWriter;
@@ -35,7 +36,8 @@ final class TestParquet {
     try (ParquetWriter<Group> writer =
         ExampleParquetWriter.builder(new StreamOutputFile(bytes))
             .withType(schema)
-            .withConf(new Configuration(false))
+            .withConf(new PlainParquetConfiguration())
+            .withCodecFactory(TestParquetCodecs.INSTANCE)
             .build()) {
       for (Group row : rows) {
         writer.write(row);

@@ -25,12 +25,12 @@ import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
-import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
-import io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.parquet.ColumnarBatchConverter;
+import io.fleak.zephflow.lib.parquet.InvalidRecordException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -153,7 +153,7 @@ public class BatchDatabricksFlusher extends AbstractBufferedFlusher<Map<String, 
   protected void ensureCanWriteRecord(Map<String, Object> record) throws Exception {
     Preconditions.checkNotNull(record, "Record is null");
     //noinspection EmptyTryBlock
-    try (var ignored = DeltaLakeDataConverter.convertToColumnarBatch(List.of(record), schema)) {
+    try (var ignored = ColumnarBatchConverter.convertToColumnarBatch(List.of(record), schema)) {
       // noop
     }
   }

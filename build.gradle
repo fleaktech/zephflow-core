@@ -262,4 +262,21 @@ configure(subprojects.findAll { it.name in ['lib', 'runner', 'clistarter'] }) {
       implementation(libs.jline)
     }
   }
+
+  // Parquet runs without Hadoop; keep it from coming back through a dependency.
+  def checkNoHadoop = tasks.register('checkNoHadoopOnClasspath') {
+    def classpaths = [configurations.runtimeClasspath, configurations.testRuntimeClasspath]
+    doLast {
+      def hadoop = classpaths.collectMany { classpath ->
+        classpath.incoming.resolutionResult.allComponents
+            .collect { it.moduleVersion }
+            .findAll { it?.group == 'org.apache.hadoop' }
+            .collect { "${classpath.name}: ${it}" }
+      }
+      if (!hadoop.isEmpty()) {
+        throw new GradleException("Hadoop is on the classpath:\n  ${hadoop.join('\n  ')}")
+      }
+    }
+  }
+  tasks.named('check') { dependsOn checkNoHadoop }
 }

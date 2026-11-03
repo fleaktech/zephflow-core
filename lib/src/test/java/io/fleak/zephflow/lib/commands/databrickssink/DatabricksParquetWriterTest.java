@@ -16,7 +16,8 @@ package io.fleak.zephflow.lib.commands.databrickssink;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.delta.kernel.types.*;
-import io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException;
+import io.fleak.zephflow.lib.parquet.InvalidRecordException;
+import io.fleak.zephflow.lib.parquet.ParquetTestReader;
 import java.io.File;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -30,8 +31,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.parquet.example.data.Group;
-import org.apache.parquet.hadoop.ParquetReader;
-import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
 import org.apache.parquet.schema.Type;
@@ -464,9 +463,8 @@ class DatabricksParquetWriterTest {
   private static List<Group> readGroups(List<File> files) throws Exception {
     List<Group> rows = new ArrayList<>();
     for (File file : files) {
-      try (ParquetReader<Group> reader =
-          ParquetReader.builder(new GroupReadSupport(), new org.apache.hadoop.fs.Path(file.toURI()))
-              .build()) {
+      {
+        var reader = ParquetTestReader.rows(file);
         Group row;
         while ((row = reader.read()) != null) rows.add(row);
       }
