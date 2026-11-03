@@ -14,14 +14,18 @@
 package io.fleak.zephflow.lib.parquet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.collect.Lists;
+import io.delta.kernel.data.FilteredColumnarBatch;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructType;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.LongStream;
@@ -83,10 +87,56 @@ class ColumnarBatchParquetWriterTest {
   }
 
   @Test
+  void failureMidWriteClosesTheOpenFileAndRethrows() throws Exception {
+    RuntimeException failure = new RuntimeException("source failed");
+    Iterator<FilteredColumnarBatch> batches =
+        new Iterator<>() {
+          private boolean served;
+
+          @Override
+          public boolean hasNext() {
+            return true;
+          }
+
+          @Override
+          public FilteredColumnarBatch next() {
+            if (served) {
+              throw failure;
+            }
+            served = true;
+            return ColumnarBatchConverter.convertSingleBatch(
+                List.of(Map.<String, Object>of("id", 1L, "name", "one")), SCHEMA);
+          }
+        };
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () -> new ColumnarBatchParquetWriter(SCHEMA).write(batches, tempDir));
+
+    assertSame(failure, thrown);
+    File[] written = tempDir.toFile().listFiles((dir, name) -> name.endsWith(".parquet"));
+    assertEquals(1, written.length);
+    List<Group> groups = ParquetTestReader.readGroups(List.of(written[0]));
+    assertEquals(1L, groups.get(0).getLong("id", 0));
+  }
+
+  @Test
+  void rejectsABatchWithAnotherSchema() {
+    StructType other = new StructType().add("id", LongType.LONG, false);
+    FilteredColumnarBatch batch =
+        ColumnarBatchConverter.convertSingleBatch(List.of(Map.<String, Object>of("id", 1L)), other);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ColumnarBatchParquetWriter(SCHEMA).write(List.of(batch).iterator(), tempDir));
+  }
+
+  @Test
   void noRowsWriteNoFiles() throws Exception {
     List<File> files =
         new ColumnarBatchParquetWriter(SCHEMA)
-            .write(List.<io.delta.kernel.data.FilteredColumnarBatch>of().iterator(), tempDir);
+            .write(List.<FilteredColumnarBatch>of().iterator(), tempDir);
     assertEquals(List.of(), files);
   }
 }
