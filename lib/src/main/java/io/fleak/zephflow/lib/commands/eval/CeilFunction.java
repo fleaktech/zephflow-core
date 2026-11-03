@@ -42,6 +42,9 @@ class CeilFunction implements FeelFunction {
               + (arg != null ? arg.getClass().getSimpleName() : "null"));
     }
 
+    if (arg.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG) {
+      return arg;
+    }
     double value = arg.getNumberValue();
     long ceilValue = (long) Math.ceil(value);
     return new NumberPrimitiveFleakData(ceilValue, NumberPrimitiveFleakData.NumberType.LONG);

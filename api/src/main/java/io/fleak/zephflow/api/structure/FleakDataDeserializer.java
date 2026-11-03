@@ -66,38 +66,20 @@ public class FleakDataDeserializer extends StdDeserializer<FleakData> {
   }
 
   private NumberPrimitiveFleakData deserializeNumber(JsonParser p) throws IOException {
-    NumberPrimitiveFleakData.NumberType type;
+    if (p.getNumberType() == JsonParser.NumberType.INT
+        || p.getNumberType() == JsonParser.NumberType.LONG) {
+      return new NumberPrimitiveFleakData(
+          p.getLongValue(), NumberPrimitiveFleakData.NumberType.LONG);
+    }
     double value;
-
     if (p.isNaN()) {
       value = Double.NaN;
-      type = NumberPrimitiveFleakData.NumberType.DOUBLE;
-    } else if (p.getNumberType() != null) {
-      type =
-          switch (p.getNumberType()) {
-            case INT -> {
-              value = p.getIntValue();
-              yield NumberPrimitiveFleakData.NumberType.LONG;
-            }
-            case LONG -> {
-              value = p.getLongValue();
-              yield NumberPrimitiveFleakData.NumberType.LONG;
-            }
-            case FLOAT -> {
-              value = p.getFloatValue();
-              yield NumberPrimitiveFleakData.NumberType.DOUBLE;
-            }
-            default -> {
-              value = p.getDoubleValue();
-              yield NumberPrimitiveFleakData.NumberType.DOUBLE;
-            }
-          };
+    } else if (p.getNumberType() == JsonParser.NumberType.FLOAT) {
+      value = p.getFloatValue();
     } else {
       value = p.getDoubleValue();
-      type = NumberPrimitiveFleakData.NumberType.DOUBLE;
     }
-
-    return new NumberPrimitiveFleakData(value, type);
+    return new NumberPrimitiveFleakData(value, NumberPrimitiveFleakData.NumberType.DOUBLE);
   }
 
   private RecordFleakData deserializeObject(JsonParser p) throws IOException {

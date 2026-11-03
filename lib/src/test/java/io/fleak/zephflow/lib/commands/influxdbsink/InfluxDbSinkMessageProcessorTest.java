@@ -57,6 +57,17 @@ class InfluxDbSinkMessageProcessorTest {
   }
 
   @Test
+  void keepsLongFieldsAbove2Pow53() throws Exception {
+    var processor =
+        new InfluxDbSinkMessageProcessor(
+            "m", null, List.of(), List.of("id"), null, WritePrecision.MS);
+
+    String lp = lineProtocol(processor, record(Map.of("id", 9007199254740993L)));
+
+    assertTrue(lp.contains("id=9007199254740993i"), lp);
+  }
+
+  @Test
   void jsonStringifiesNestedFieldValue() throws Exception {
     var processor =
         new InfluxDbSinkMessageProcessor(

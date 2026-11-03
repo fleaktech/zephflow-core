@@ -42,8 +42,8 @@ class FieldClassificationFunctionsTest extends FeelFunctionTestBase {
       testFunctionExecution(record, expression, true);
       assertEquals(1, filter(expression, List.of(record)).size(), staged);
       if (token.equals("9007199254740993")) {
-        assertEquals("9007199254740992", scalars.getFirst());
-        testFunctionExecution(record, expression("v", token), false);
+        assertEquals("9007199254740993", scalars.getFirst());
+        testFunctionExecution(record, expression("v", "9007199254740992"), false);
       }
     }
     testFunctionExecution(event("{\"v\":1.0}"), expression("v", "1"), false);

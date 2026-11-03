@@ -84,7 +84,7 @@ class DateComponentEqAnyFunction implements FeelFunction {
 
   private static ZonedDateTime toUtcDateTime(FleakData valueFd) {
     if (valueFd instanceof NumberPrimitiveFleakData) {
-      return Instant.ofEpochMilli((long) valueFd.getNumberValue()).atZone(ZoneOffset.UTC);
+      return Instant.ofEpochMilli(valueFd.getLongValue()).atZone(ZoneOffset.UTC);
     }
     if (valueFd instanceof StringPrimitiveFleakData) {
       String str = valueFd.getStringValue().trim();

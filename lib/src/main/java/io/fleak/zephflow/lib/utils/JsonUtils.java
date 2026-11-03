@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.utils;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -159,17 +160,20 @@ public abstract class JsonUtils {
   }
 
   public static NumberPrimitiveFleakData fromJsonNumber(NumericNode numericNode) {
+    JsonParser.NumberType jsonType = numericNode.numberType();
+    if (jsonType == JsonParser.NumberType.INT || jsonType == JsonParser.NumberType.LONG) {
+      return new NumberPrimitiveFleakData(
+          numericNode.longValue(), NumberPrimitiveFleakData.NumberType.LONG);
+    }
     double numberValue = numericNode.numberValue().doubleValue();
     NumberPrimitiveFleakData.NumberType numberType =
-        switch (numericNode.numberType()) {
-          case INT, LONG -> NumberPrimitiveFleakData.NumberType.LONG;
+        switch (jsonType) {
           case FLOAT, DOUBLE, BIG_INTEGER, BIG_DECIMAL ->
               NumberPrimitiveFleakData.NumberType.DOUBLE;
           default ->
               throw new RuntimeException(
                   String.format(
-                      "value (%s) is unsupported Json number Type (%s) ",
-                      numberValue, numericNode.numberType()));
+                      "value (%s) is unsupported Json number Type (%s) ", numberValue, jsonType));
         };
     return new NumberPrimitiveFleakData(numberValue, numberType);
   }
@@ -223,10 +227,9 @@ public abstract class JsonUtils {
   }
 
   static NumericNode toJsonNumber(NumberPrimitiveFleakData data) {
-    double value = data.getNumberValue();
     return switch (data.getNumberType()) {
-      case LONG -> LongNode.valueOf((long) value);
-      case DOUBLE -> DoubleNode.valueOf(value);
+      case LONG -> LongNode.valueOf(data.getLongValue());
+      case DOUBLE -> DoubleNode.valueOf(data.getNumberValue());
     };
   }
 

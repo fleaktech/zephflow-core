@@ -42,6 +42,9 @@ class FloorFunction implements FeelFunction {
               + (arg != null ? arg.getClass().getSimpleName() : "null"));
     }
 
+    if (arg.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG) {
+      return arg;
+    }
     double value = arg.getNumberValue();
     long floorValue = (long) Math.floor(value);
     return new NumberPrimitiveFleakData(floorValue, NumberPrimitiveFleakData.NumberType.LONG);

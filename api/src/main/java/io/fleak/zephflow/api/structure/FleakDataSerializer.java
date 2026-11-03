@@ -57,7 +57,7 @@ public class FleakDataSerializer extends StdSerializer<FleakData> {
       gen.writeString(s.getStringValue());
     } else if (value instanceof NumberPrimitiveFleakData n) {
       if (n.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG) {
-        gen.writeNumber((long) n.getNumberValue());
+        gen.writeNumber(n.getLongValue());
       } else {
         gen.writeNumber(n.getNumberValue());
       }
