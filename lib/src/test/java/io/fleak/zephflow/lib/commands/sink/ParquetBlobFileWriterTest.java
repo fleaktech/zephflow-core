@@ -17,14 +17,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.parquet.ParquetTestReader;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.parquet.example.data.Group;
-import org.apache.parquet.hadoop.ParquetReader;
-import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -134,10 +133,8 @@ class ParquetBlobFileWriterTest {
             (RecordFleakData) FleakData.wrap(Map.of("id", 3)));
     List<File> files = mapWriter.writeToTempFiles(records, tempDir);
     assertEquals(1, files.size());
-    try (ParquetReader<Group> reader =
-        ParquetReader.builder(
-                new GroupReadSupport(), new org.apache.hadoop.fs.Path(files.getFirst().toURI()))
-            .build()) {
+    {
+      var reader = ParquetTestReader.rows(files.getFirst());
       Group first = reader.read();
       assertEquals(1, first.getInteger("id", 0));
       Group entry = first.getGroup("attributes", 0).getGroup("key_value", 0);

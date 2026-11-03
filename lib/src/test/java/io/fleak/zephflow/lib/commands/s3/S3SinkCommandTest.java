@@ -21,14 +21,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import io.delta.kernel.data.ColumnarBatch;
-import io.delta.kernel.defaults.engine.DefaultEngine;
-import io.delta.kernel.engine.Engine;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
-import io.delta.kernel.utils.CloseableIterator;
-import io.delta.kernel.utils.FileStatus;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.ScalarSinkCommand;
@@ -40,6 +35,7 @@ import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.S3DlqWriterTest;
+import io.fleak.zephflow.lib.parquet.ParquetTestReader;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
@@ -48,7 +44,7 @@ import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.*;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.example.data.Group;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -392,51 +388,15 @@ public class S3SinkCommandTest {
 
   private List<Map<String, Object>> readParquetRecords(File parquetFile, StructType schema)
       throws Exception {
-    Configuration hadoopConf = new Configuration();
-    Engine engine = DefaultEngine.create(hadoopConf);
-
-    String filePath = parquetFile.toURI().toString();
-    FileStatus fileStatus =
-        FileStatus.of(filePath, parquetFile.length(), parquetFile.lastModified());
-
     List<Map<String, Object>> records = new ArrayList<>();
-    List<FileStatus> fileStatuses = List.of(fileStatus);
-
-    CloseableIterator<FileStatus> fileStatusIterator =
-        new CloseableIterator<>() {
-          private final Iterator<FileStatus> iter = fileStatuses.iterator();
-
-          @Override
-          public boolean hasNext() {
-            return iter.hasNext();
-          }
-
-          @Override
-          public FileStatus next() {
-            return iter.next();
-          }
-
-          @Override
-          public void close() {}
-        };
-
-    try (CloseableIterator<ColumnarBatch> batches =
-        engine.getParquetHandler().readParquetFiles(fileStatusIterator, schema, Optional.empty())) {
-      while (batches.hasNext()) {
-        ColumnarBatch batch = batches.next();
-        int numRows = batch.getSize();
-        for (int row = 0; row < numRows; row++) {
-          Map<String, Object> record = new LinkedHashMap<>();
-          for (int col = 0; col < schema.length(); col++) {
-            String fieldName = schema.at(col).getName();
-            var columnVector = batch.getColumnVector(col);
-            if (!columnVector.isNullAt(row)) {
-              record.put(fieldName, columnVector.getString(row));
-            }
-          }
-          records.add(record);
+    for (Group row : ParquetTestReader.readGroups(List.of(parquetFile))) {
+      Map<String, Object> record = new LinkedHashMap<>();
+      for (String field : schema.fieldNames()) {
+        if (row.getFieldRepetitionCount(field) > 0) {
+          record.put(field, row.getString(field, 0));
         }
       }
+      records.add(record);
     }
     return records;
   }

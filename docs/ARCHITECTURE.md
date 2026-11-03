@@ -67,7 +67,7 @@ DAG compilation and execution engine. Depends on `lib/` (and transitively `api/`
 All concrete command implementations. Depends on `api/` only.
 
 Commands are organized by type — sources (Kafka, Kinesis, Splunk, file, stdin),
-sinks (Kafka, S3, ClickHouse, Delta Lake, Databricks, Kinesis, stdout), and
+sinks (Kafka, S3, ClickHouse, Databricks, Kinesis, stdout), and
 intermediate commands (eval, assertion/filter, parser). Browse `lib/` for
 the full set.
 

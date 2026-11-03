@@ -177,6 +177,28 @@ class ParquetDecodeTest {
     assertEquals(List.of(new Ok(json(everyTypeJson(id)), 1, null)), decode(PARQUET, file));
   }
 
+  private static final MessageType MIXED =
+      MessageTypeParser.parseMessageType(
+          "message m { required int64 n; optional binary s (STRING); required boolean b; }");
+
+  private static List<Object> mixedDecoded(int count) {
+    return IntStream.range(0, count)
+        .mapToObj(
+            i ->
+                (Object)
+                    new Ok(
+                        json(
+                            "{\"n\":"
+                                + i * 3
+                                + (i % 5 != 0 ? ",\"s\":\"v" + (i % 7) + "\"" : "")
+                                + ",\"b\":"
+                                + (i % 3 == 0)
+                                + "}"),
+                        i + 1,
+                        null))
+        .toList();
+  }
+
   @Test
   void int64ValuesAndMapKeysAbove2Pow53KeepAllDigits() {
     MessageType schema =
@@ -207,30 +229,17 @@ class ParquetDecodeTest {
 
   @Test
   void everyCodecAndPageVersionDecodes() {
-    MessageType schema =
-        MessageTypeParser.parseMessageType(
-            "message m { required int64 n; optional binary s (STRING); required boolean b; }");
+    MessageType schema = MIXED;
     SimpleGroupFactory rows = new SimpleGroupFactory(schema);
     List<Group> written = new ArrayList<>();
-    List<Object> expected = new ArrayList<>();
     for (int i = 0; i < 3000; i++) {
       Group row = rows.newGroup().append("n", (long) i * 3).append("b", i % 3 == 0);
       if (i % 5 != 0) {
         row.append("s", "v" + (i % 7));
       }
       written.add(row);
-      expected.add(
-          new Ok(
-              json(
-                  "{\"n\":"
-                      + i * 3
-                      + (i % 5 != 0 ? ",\"s\":\"v" + (i % 7) + "\"" : "")
-                      + ",\"b\":"
-                      + (i % 3 == 0)
-                      + "}"),
-              i + 1,
-              null));
     }
+    List<Object> expected = mixedDecoded(3000);
     for (CompressionCodecName codec :
         List.of(
             CompressionCodecName.UNCOMPRESSED,
@@ -254,6 +263,40 @@ class ParquetDecodeTest {
           assertEquals(expected, decode(PARQUET, file), codec + " " + version + " " + dictionary);
         }
       }
+    }
+  }
+
+  /** Written by parquet's own Hadoop codecs before Hadoop was dropped, 300 rows of MIXED each. */
+  @Test
+  void filesFromParquetsOwnCodecsDecode() throws IOException {
+    for (String name :
+        List.of(
+            "snappy-v1",
+            "snappy-v2",
+            "lz4-v1",
+            "lz4-v2",
+            "gzip-v1",
+            "gzip-v2",
+            "zstd-v1",
+            "zstd-v2")) {
+      byte[] file;
+      try (InputStream in =
+          getClass().getResourceAsStream("/parquet/codecs/" + name + ".parquet")) {
+        file = in.readAllBytes();
+      }
+      CompressionCodecName codec =
+          CompressionCodecName.valueOf(name.substring(0, name.indexOf('-')).toUpperCase());
+      for (RowGroup group : footer(file).getRow_groups()) {
+        group
+            .getColumns()
+            .forEach(
+                column ->
+                    assertEquals(
+                        codec.getParquetCompressionCodec(),
+                        column.getMeta_data().getCodec(),
+                        name));
+      }
+      assertEquals(mixedDecoded(300), decode(PARQUET, file), name);
     }
   }
 

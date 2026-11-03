@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.serdes.decode;
 
+import io.fleak.zephflow.lib.parquet.TestParquetCodecs;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -26,7 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.conf.PlainParquetConfiguration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.format.ColumnChunk;
 import org.apache.parquet.format.ColumnMetaData;
@@ -82,7 +83,8 @@ final class ParquetTestFiles {
     ExampleParquetWriter.Builder builder =
         ExampleParquetWriter.builder(new StreamOutputFile(out))
             .withType(schema)
-            .withConf(new Configuration(false));
+            .withConf(new PlainParquetConfiguration())
+            .withCodecFactory(TestParquetCodecs.INSTANCE);
     options.accept(builder);
     try (ParquetWriter<Group> writer = builder.build()) {
       for (Group row : rows) {

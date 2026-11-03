@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.deltalakesink;
+package io.fleak.zephflow.lib.parquet;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,7 +25,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class DeltaLakeDataConverterTest {
+class ColumnarBatchConverterTest {
 
   @Test
   void partitionColumnProjectionPreservesOriginalAndRemainingColumnOrder() {
@@ -35,7 +35,7 @@ class DeltaLakeDataConverterTest {
             .add("partition", StringType.STRING, false)
             .add("value", DoubleType.DOUBLE, true);
     var original =
-        DeltaLakeDataConverter.convertSingleBatch(
+        ColumnarBatchConverter.convertSingleBatch(
                 List.of(Map.of("id", 7, "partition", "west", "value", 2.5)), schema)
             .getData();
     var projected = original.withDeletedColumnAt(1);
@@ -64,7 +64,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals(
         "Cannot convert value 'invalid' to integer for field 'age'", exception.getMessage());
@@ -79,7 +79,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals(
         "Cannot convert value 'not_a_number' to long for field 'id'", exception.getMessage());
@@ -94,7 +94,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals("Cannot convert value 'abc' to double for field 'price'", exception.getMessage());
   }
@@ -109,7 +109,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals(
         "Cannot convert value 'invalid_timestamp' to timestamp for field 'created_at'",
@@ -127,7 +127,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals("Expected array for field 'tags' but got String", exception.getMessage());
   }
@@ -143,7 +143,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals("Expected map/struct for field 'address' but got String", exception.getMessage());
   }
@@ -158,7 +158,7 @@ class DeltaLakeDataConverterTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> DeltaLakeDataConverter.convertToColumnarBatch(data, schema));
+            () -> ColumnarBatchConverter.convertToColumnarBatch(data, schema));
 
     assertEquals(
         "Cannot convert value 'not_an_integer' to integer for field 'count'",
@@ -178,7 +178,7 @@ class DeltaLakeDataConverterTest {
 
     assertDoesNotThrow(
         () -> {
-          var batch = DeltaLakeDataConverter.convertToColumnarBatch(data, schema);
+          var batch = ColumnarBatchConverter.convertToColumnarBatch(data, schema);
           assertTrue(batch.hasNext());
           var filteredBatch = batch.next();
           assertEquals(2, filteredBatch.getData().getSize());
@@ -188,7 +188,7 @@ class DeltaLakeDataConverterTest {
   private static ColumnVector column(DataType type, Object value) {
     Map<String, Object> record = new HashMap<>();
     record.put("value", value);
-    return DeltaLakeDataConverter.convertSingleBatch(
+    return ColumnarBatchConverter.convertSingleBatch(
             List.of(record), new StructType().add("value", type, true))
         .getData()
         .getColumnVector(0);
@@ -306,7 +306,7 @@ class DeltaLakeDataConverterTest {
     RuntimeException ordinal = assertThrows(RuntimeException.class, () -> struct.getChild(9));
     assertFalse(ordinal instanceof InvalidRecordException);
     assertThrows(
-        IllegalArgumentException.class, () -> DeltaLakeDataConverter.inferSchema(List.of()));
+        IllegalArgumentException.class, () -> ColumnarBatchConverter.inferSchema(List.of()));
   }
 
   @Test
@@ -314,7 +314,7 @@ class DeltaLakeDataConverterTest {
     StructType required = new StructType().add("required", StringType.STRING, false);
     assertThrows(
         InvalidRecordException.class,
-        () -> DeltaLakeDataConverter.convertSingleBatch(List.of(Map.of()), required));
+        () -> ColumnarBatchConverter.convertSingleBatch(List.of(Map.of()), required));
     for (DataType type :
         List.of(BinaryType.BINARY, BooleanType.BOOLEAN, new ArrayType(LongType.LONG, true))) {
       StructType struct = new StructType().add("nested", type, true);

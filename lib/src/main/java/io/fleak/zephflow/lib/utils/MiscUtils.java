@@ -92,7 +92,6 @@ public interface MiscUtils {
   String COMMAND_NAME_SPLUNK_SOURCE = "splunksource";
 
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";
-  String COMMAND_NAME_DELTA_LAKE_SINK = "deltalakesink";
   String COMMAND_NAME_DATABRICKS_SINK = "databrickssink";
   String COMMAND_NAME_ZEROBUS_SINK = "zerobussink";
   String COMMAND_NAME_SYSLOG_UDP = "syslogudp";

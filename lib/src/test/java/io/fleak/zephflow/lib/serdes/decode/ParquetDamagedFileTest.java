@@ -493,9 +493,7 @@ class ParquetDamagedFileTest {
             new Ok(json("{\"n\":2}"), 5, null),
             new Ok(json("{\"n\":3}"), 6, null));
     assertEquals(
-        List.of(
-            terminal(
-                "MalformedParquetException: parquet codec LZ4_RAW is not supported by parquet 1.12.3")),
+        List.of(terminal("MalformedParquetException: parquet codec LZ4_RAW is not supported")),
         decode(
             PARQUET,
             hostileThenIntact(

@@ -25,6 +25,7 @@ import io.fleak.zephflow.lib.commands.NodeExecutionException;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.parquet.TestParquetCodecs;
 import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -55,7 +56,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.conf.PlainParquetConfiguration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
 import org.apache.parquet.hadoop.ParquetWriter;
@@ -347,7 +348,8 @@ class S3RealtimeRawDataConverterTest {
     try (ParquetWriter<Group> writer =
         ExampleParquetWriter.builder(new MemoryOutputFile(parquet))
             .withType(schema)
-            .withConf(new Configuration(false))
+            .withConf(new PlainParquetConfiguration())
+            .withCodecFactory(TestParquetCodecs.INSTANCE)
             .build()) {
       writer.write(rows.newGroup().append("n", 1L));
       writer.write(rows.newGroup().append("n", 2L));

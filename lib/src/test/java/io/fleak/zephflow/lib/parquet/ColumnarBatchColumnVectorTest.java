@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.deltalakesink;
+package io.fleak.zephflow.lib.parquet;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
  * should return Optional values but our implementation returns null, causing "Cannot invoke
  * Optional.isPresent() because <local2> is null"
  */
-class DeltaLakeColumnVectorParquetBugTest {
+class ColumnarBatchColumnVectorTest {
 
   @Test
   void testColumnVectorShouldNotReturnNullForParquetWriter() {
@@ -36,7 +36,7 @@ class DeltaLakeColumnVectorParquetBugTest {
     // Delta Kernel's Parquet writer expects consistent null handling
 
     // Create a string column vector with test data (including null values)
-    var columnVector = new DeltaLakeDataConverter.StringColumnVector(StringType.STRING, 4);
+    var columnVector = new ColumnarBatchConverter.StringColumnVector(StringType.STRING, 4);
     columnVector.set(0, "test1");
     columnVector.set(1, "test2");
     columnVector.setNull(2); // null value
@@ -69,7 +69,7 @@ class DeltaLakeColumnVectorParquetBugTest {
     // Test that our StringColumnVector implements all methods that Delta Kernel's Parquet writer
     // expects
 
-    var columnVector = new DeltaLakeDataConverter.StringColumnVector(StringType.STRING, 3);
+    var columnVector = new ColumnarBatchConverter.StringColumnVector(StringType.STRING, 3);
     columnVector.set(0, "value1");
     columnVector.setNull(1);
     columnVector.set(2, "value3");
@@ -112,7 +112,7 @@ class DeltaLakeColumnVectorParquetBugTest {
 
     // Create test data using optimized StringColumnVector
     var stringVector =
-        new DeltaLakeDataConverter.StringColumnVector(io.delta.kernel.types.StringType.STRING, 2);
+        new ColumnarBatchConverter.StringColumnVector(io.delta.kernel.types.StringType.STRING, 2);
     stringVector.set(0, "test1");
     stringVector.set(1, "test2");
 
@@ -126,10 +126,10 @@ class DeltaLakeColumnVectorParquetBugTest {
     Map<String, io.delta.kernel.data.ColumnVector> columnVectors =
         Map.of("testField", stringVector);
 
-    var columnarBatch = new DeltaLakeDataConverter.SimpleColumnarBatch(schema, columnVectors, 2);
+    var columnarBatch = new ColumnarBatchConverter.SimpleColumnarBatch(schema, columnVectors, 2);
 
     // Use AllTrueColumnVector - the optimized selection vector implementation
-    var selectionColumnVector = new DeltaLakeDataConverter.AllTrueColumnVector(2);
+    var selectionColumnVector = new ColumnarBatchConverter.AllTrueColumnVector(2);
 
     var filteredBatch =
         new io.delta.kernel.data.FilteredColumnarBatch(
@@ -155,7 +155,7 @@ class DeltaLakeColumnVectorParquetBugTest {
     // Create array column vector using ObjectColumnVector (which handles complex types)
     var arrayType =
         new io.delta.kernel.types.ArrayType(io.delta.kernel.types.StringType.STRING, true);
-    var arrayColumnVector = new DeltaLakeDataConverter.ObjectColumnVector(arrayType, 1);
+    var arrayColumnVector = new ColumnarBatchConverter.ObjectColumnVector(arrayType, 1);
     arrayColumnVector.set(0, List.of("item1", "item2")); // Array field with list values
 
     // The bug: getArray() should be implemented for array types, but throws

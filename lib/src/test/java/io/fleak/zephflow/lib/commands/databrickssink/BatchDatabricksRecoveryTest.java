@@ -24,9 +24,10 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.CopyIntoStats;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSqlExecutor.StatementExecutionException;
-import io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.parquet.InvalidRecordException;
+import io.fleak.zephflow.lib.parquet.ParquetTestReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -36,8 +37,6 @@ import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.parquet.example.data.Group;
-import org.apache.parquet.hadoop.ParquetReader;
-import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -89,10 +88,8 @@ class BatchDatabricksRecoveryTest {
               invocation -> {
                 File file = invocation.getArgument(0);
                 fixture.recordUpload(file, invocation.getArgument(1));
-                try (ParquetReader<Group> reader =
-                    ParquetReader.builder(
-                            new GroupReadSupport(), new org.apache.hadoop.fs.Path(file.toURI()))
-                        .build()) {
+                {
+                  var reader = ParquetTestReader.rows(file);
                   Group row;
                   while ((row = reader.read()) != null) {
                     Group map = row.getGroup("attributes", 0);
@@ -150,10 +147,8 @@ class BatchDatabricksRecoveryTest {
               invocation -> {
                 File file = invocation.getArgument(0);
                 fixture.recordUpload(file, invocation.getArgument(1));
-                try (ParquetReader<Group> reader =
-                    ParquetReader.builder(
-                            new GroupReadSupport(), new org.apache.hadoop.fs.Path(file.toURI()))
-                        .build()) {
+                {
+                  var reader = ParquetTestReader.rows(file);
                   Group row;
                   while ((row = reader.read()) != null) {
                     Group value = row.getGroup("value", 0);
@@ -192,10 +187,8 @@ class BatchDatabricksRecoveryTest {
               invocation -> {
                 File file = invocation.getArgument(0);
                 fixture.recordUpload(file, invocation.getArgument(1));
-                try (ParquetReader<Group> reader =
-                    ParquetReader.builder(
-                            new GroupReadSupport(), new org.apache.hadoop.fs.Path(file.toURI()))
-                        .build()) {
+                {
+                  var reader = ParquetTestReader.rows(file);
                   Group row;
                   while ((row = reader.read()) != null) {
                     long unscaled =
@@ -247,10 +240,8 @@ class BatchDatabricksRecoveryTest {
               invocation -> {
                 File file = invocation.getArgument(0);
                 fixture.recordUpload(file, invocation.getArgument(1));
-                try (ParquetReader<Group> reader =
-                    ParquetReader.builder(
-                            new GroupReadSupport(), new org.apache.hadoop.fs.Path(file.toURI()))
-                        .build()) {
+                {
+                  var reader = ParquetTestReader.rows(file);
                   Group row;
                   while ((row = reader.read()) != null) {
                     Group value = row.getGroup("value", 0).getGroup("inner", 0);
@@ -762,9 +753,8 @@ class BatchDatabricksRecoveryTest {
 
   private static List<Integer> readIds(File file) throws IOException {
     List<Integer> ids = new ArrayList<>();
-    try (ParquetReader<Group> reader =
-        ParquetReader.builder(new GroupReadSupport(), new org.apache.hadoop.fs.Path(file.toURI()))
-            .build()) {
+    {
+      var reader = ParquetTestReader.rows(file);
       Group row;
       while ((row = reader.read()) != null) ids.add(row.getInteger("id", 0));
     }

@@ -46,7 +46,7 @@ httpclient5 = "5.6.4"
 lz4 = "1.11.3"
 zstdJni = "1.5.6-10"
 xz = "1.10"
-parquet = "1.12.3"
+parquet = "1.18.1"
 snappyJava = "1.1.10.7"
 splunk = "1.9.5"
 gcs = "2.49.0"
@@ -128,8 +128,6 @@ graalvm-polyglot = { module = "org.graalvm.polyglot:polyglot", version.ref = "gr
 graalvm-polyglot-python = { module = "org.graalvm.polyglot:python", version.ref = "graalvm" }
 
 hadoop-common = { module = "org.apache.hadoop:hadoop-common", version.ref = "hadoop" }
-hadoop-client = { module = "org.apache.hadoop:hadoop-client", version.ref = "hadoop" }
-hadoop-aws = { module = "org.apache.hadoop:hadoop-aws", version.ref = "hadoop" }
 
 databricks-sdk = { module = "com.databricks:databricks-sdk-java", version.ref = "databricksSdk" }
 zerobus-ingest-sdk = { module = "com.databricks:zerobus-ingest-sdk", version.ref = "zerobusSdk" }
@@ -138,7 +136,6 @@ protobuf-java-util = { module = "com.google.protobuf:protobuf-java-util", versio
 opentelemetry-proto = { module = "io.opentelemetry.proto:opentelemetry-proto", version.ref = "opentelemetryProto" }
 
 delta-kernel-api = { module = "io.delta:delta-kernel-api", version.ref = "deltaKernel" }
-delta-kernel-defaults = { module = "io.delta:delta-kernel-defaults", version.ref = "deltaKernel" }
 
 splunk = { module = "com.splunk:splunk", version.ref = "splunk" }
 

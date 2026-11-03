@@ -17,7 +17,7 @@ import io.delta.kernel.types.StructType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksParquetWriter;
-import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
+import io.fleak.zephflow.lib.parquet.ColumnarBatchConverter;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
@@ -25,8 +25,8 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * BlobFileWriter implementation for Parquet format. Uses Delta Kernel to write Parquet files with
- * specified Avro schema.
+ * BlobFileWriter implementation for Parquet format. Writes Parquet files with the specified Avro
+ * schema.
  */
 @Slf4j
 public class ParquetBlobFileWriter implements BlobFileWriter<RecordFleakData> {
@@ -63,7 +63,7 @@ public class ParquetBlobFileWriter implements BlobFileWriter<RecordFleakData> {
       throw new IllegalArgumentException("Record cannot be null");
     }
     try (var batch =
-        DeltaLakeDataConverter.convertToColumnarBatch(List.of(record.unwrap()), schema)) {
+        ColumnarBatchConverter.convertToColumnarBatch(List.of(record.unwrap()), schema)) {
       while (batch.hasNext()) {
         batch.next();
       }

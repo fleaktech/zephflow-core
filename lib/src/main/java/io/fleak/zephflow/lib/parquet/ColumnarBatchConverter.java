@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.commands.deltalakesink;
+package io.fleak.zephflow.lib.parquet;
 
 import io.delta.kernel.data.ArrayValue;
 import io.delta.kernel.data.ColumnVector;
@@ -37,12 +37,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Utility class for converting Map-based data to Delta Lake ColumnarBatch format. Uses optimized
+ * Utility class for converting Map-based data to Delta kernel ColumnarBatch format. Uses optimized
  * type-specific ColumnVector implementations with primitive arrays to minimize boxing overhead and
  * GC pressure.
  */
 @Slf4j
-public class DeltaLakeDataConverter {
+public class ColumnarBatchConverter {
 
   /** Convert a list of Map data to FilteredColumnarBatch iterator using single-pass allocation */
   public static CloseableIterator<FilteredColumnarBatch> convertToColumnarBatch(

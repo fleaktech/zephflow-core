@@ -194,8 +194,7 @@ class BatchDatabricksFlusherTest {
             call -> {
               List<Map<String, Object>> values = call.getArgument(0);
               if (values.stream().anyMatch(value -> value.get("id") instanceof String))
-                throw new io.fleak.zephflow.lib.commands.deltalakesink.InvalidRecordException(
-                    "private-row-id");
+                throw new io.fleak.zephflow.lib.parquet.InvalidRecordException("private-row-id");
               Path file =
                   java.nio.file.Files.createTempFile(
                       call.getArgument(1, Path.class), "valid-", ".parquet");

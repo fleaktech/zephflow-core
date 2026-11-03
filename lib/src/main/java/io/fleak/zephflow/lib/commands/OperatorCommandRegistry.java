@@ -27,7 +27,6 @@ import io.fleak.zephflow.lib.commands.azuremonitorsink.AzureMonitorSinkCommandFa
 import io.fleak.zephflow.lib.commands.azuremonitorsource.AzureMonitorSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.clickhousesink.ClickHouseSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.databrickssink.DatabricksSinkCommandFactory;
-import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.elasticsearchsink.ElasticsearchSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.elasticsearchsource.ElasticsearchSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.eval.EvalCommandFactory;
@@ -86,7 +85,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_FS_SOURCE, new FsSourceCommandFactory())
           .put(COMMAND_NAME_SPLUNK_SOURCE, new SplunkSourceCommandFactory())
           .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
-          .put(COMMAND_NAME_DELTA_LAKE_SINK, new DeltaLakeSinkCommandFactory())
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .put(COMMAND_NAME_ZEROBUS_SINK, new ZerobusSinkCommandFactory())
           .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())

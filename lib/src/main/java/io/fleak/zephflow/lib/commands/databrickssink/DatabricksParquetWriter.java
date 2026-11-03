@@ -14,37 +14,27 @@
 package io.fleak.zephflow.lib.commands.databrickssink;
 
 import com.google.common.collect.Lists;
-import io.delta.kernel.data.FilteredColumnarBatch;
-import io.delta.kernel.defaults.engine.DefaultEngine;
-import io.delta.kernel.engine.Engine;
-import io.delta.kernel.expressions.Column;
 import io.delta.kernel.types.StructType;
-import io.delta.kernel.utils.CloseableIterator;
-import io.delta.kernel.utils.DataFileStatus;
-import io.fleak.zephflow.lib.commands.deltalakesink.DeltaLakeDataConverter;
+import io.fleak.zephflow.lib.parquet.ColumnarBatchConverter;
+import io.fleak.zephflow.lib.parquet.ColumnarBatchParquetWriter;
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.conf.Configuration;
 
 @Slf4j
 public class DatabricksParquetWriter {
   private static final int CHUNK_SIZE = 1000;
 
-  private final Engine engine;
   private final StructType schema;
+  private final ColumnarBatchParquetWriter writer;
 
   public DatabricksParquetWriter(StructType schema) {
-    Configuration hadoopConf = new Configuration();
-    this.engine = DefaultEngine.create(hadoopConf);
     this.schema = schema;
+    this.writer = new ColumnarBatchParquetWriter(schema);
   }
 
   public List<File> writeParquetFiles(List<Map<String, Object>> data, Path tempDirectory)
@@ -52,50 +42,14 @@ public class DatabricksParquetWriter {
     if (data.isEmpty()) {
       return Collections.emptyList();
     }
-
-    List<List<Map<String, Object>>> partitions = Lists.partition(data, CHUNK_SIZE);
-    Iterator<FilteredColumnarBatch> batchIterator =
-        partitions.stream()
-            .map(chunk -> DeltaLakeDataConverter.convertSingleBatch(chunk, schema))
-            .iterator();
-
-    try (var chunkedBatch =
-        new CloseableIterator<FilteredColumnarBatch>() {
-          @Override
-          public boolean hasNext() {
-            return batchIterator.hasNext();
-          }
-
-          @Override
-          public FilteredColumnarBatch next() {
-            return batchIterator.next();
-          }
-
-          @Override
-          public void close() {}
-        }) {
-      String targetDir = tempDirectory.toAbsolutePath().toString();
-      List<Column> statsColumns = Collections.emptyList();
-
-      List<File> generatedFiles = new ArrayList<>();
-
-      try (CloseableIterator<DataFileStatus> fileStatusIter =
-          engine.getParquetHandler().writeParquetFiles(targetDir, chunkedBatch, statsColumns)) {
-
-        while (fileStatusIter.hasNext()) {
-          DataFileStatus fileStatus = fileStatusIter.next();
-          String path = fileStatus.getPath();
-          if (path.startsWith("file:")) {
-            path = URI.create(path).getPath();
-          }
-          File file = new File(path);
-          generatedFiles.add(file);
-          log.debug("Generated Parquet file: {} ({} bytes)", file.getName(), fileStatus.getSize());
-        }
-      }
-
-      log.info("Generated {} Parquet files in {}", generatedFiles.size(), targetDir);
-      return generatedFiles;
-    }
+    Path directory = tempDirectory.toAbsolutePath();
+    List<File> files =
+        writer.write(
+            Lists.partition(data, CHUNK_SIZE).stream()
+                .map(chunk -> ColumnarBatchConverter.convertSingleBatch(chunk, schema))
+                .iterator(),
+            directory);
+    log.info("Generated {} Parquet files in {}", files.size(), directory);
+    return files;
   }
 }
