@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.utils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.structure.*;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -220,5 +221,73 @@ public class FleakDataSerializationTest {
     // Finally convert back to native Java objects and compare
     Object convertedBack = roundTripData.unwrap();
     assertEquals(rawData.size(), ((Map<?, ?>) convertedBack).size());
+  }
+
+  private static final String[] LARGE_INTEGER_JSON = {
+    "{\"id\":9007199254740993}", "{\"Keywords\":-9223372036854775792}"
+  };
+
+  @Test
+  public void testWrapKeepsIntegersAbove2Pow53() throws Exception {
+    for (String json : LARGE_INTEGER_JSON) {
+      Map<String, Object> parsed =
+          JsonUtils.OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
+      assertEquals(json, JsonUtils.toJsonString(FleakData.wrap(parsed)));
+    }
+  }
+
+  @Test
+  public void testDeserializeKeepsIntegersAbove2Pow53() {
+    for (String json : LARGE_INTEGER_JSON) {
+      assertEquals(json, JsonUtils.toJsonString(JsonUtils.loadFleakDataFromJsonString(json)));
+    }
+  }
+
+  @Test
+  public void testJacksonDeserializerKeepsIntegersAbove2Pow53() throws Exception {
+    for (String json : LARGE_INTEGER_JSON) {
+      FleakData data = JsonUtils.OBJECT_MAPPER.readValue(json, FleakData.class);
+      assertEquals(json, JsonUtils.toJsonString(data));
+    }
+  }
+
+  @Test
+  public void testShortNodeStaysLong() {
+    FleakData data =
+        JsonUtils.fromJsonNode(JsonUtils.OBJECT_MAPPER.createObjectNode().put("port", (short) 443));
+    assertEquals(Map.of("port", 443L), data.unwrap());
+  }
+
+  @Test
+  public void testMixedLongAndDoubleCompareByValue() {
+    FleakData one = FleakData.wrap(1L);
+    FleakData oneDouble = FleakData.wrap(1.0d);
+    assertEquals(one, oneDouble);
+    assertEquals(oneDouble, one);
+    assertEquals(0, one.compareTo(oneDouble));
+    assertTrue(FleakData.wrap(2.5d).compareTo(one) > 0);
+  }
+
+  @Test
+  public void testJsonNodeKeepsIntegersAbove2Pow53() throws Exception {
+    for (String json : LARGE_INTEGER_JSON) {
+      FleakData data = JsonUtils.fromJsonNode(JsonUtils.OBJECT_MAPPER.readTree(json));
+      assertEquals(json, JsonUtils.toJsonNode(data).toString());
+    }
+  }
+
+  @Test
+  public void testUnwrapKeepsIntegersAbove2Pow53() {
+    assertEquals(9007199254740993L, FleakData.wrap(9007199254740993L).unwrap());
+    assertEquals(Long.MIN_VALUE + 16, FleakData.wrap(Long.MIN_VALUE + 16).unwrap());
+  }
+
+  @Test
+  public void testEqualsAndCompareDistinguishIntegersAbove2Pow53() {
+    FleakData a = FleakData.wrap(9007199254740993L);
+    FleakData b = FleakData.wrap(9007199254740992L);
+    assertNotEquals(a, b);
+    assertTrue(a.compareTo(b) > 0);
+    assertEquals(a, FleakData.wrap(9007199254740993L));
   }
 }

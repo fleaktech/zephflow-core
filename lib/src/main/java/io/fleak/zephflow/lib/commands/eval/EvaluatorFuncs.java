@@ -13,12 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.eval;
 
+import static io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.bothLong;
 import static io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.getPromotedType;
 
 import com.google.common.collect.ImmutableMap;
 import io.fleak.zephflow.api.structure.*;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.LongBinaryOperator;
 
 /** Created by bolei on 10/19/24 */
 public interface EvaluatorFuncs {
@@ -87,7 +89,13 @@ public interface EvaluatorFuncs {
       new ValueUnaryEvaluator() {
         @Override
         protected FleakData doEvaluate(FleakData o) {
-          return new NumberPrimitiveFleakData(o.getNumberValue() * -1, o.getNumberType());
+          if (o.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG
+              && o.getLongValue() != Long.MIN_VALUE) {
+            return new NumberPrimitiveFleakData(
+                -o.getLongValue(), NumberPrimitiveFleakData.NumberType.LONG);
+          }
+          return new NumberPrimitiveFleakData(
+              o.getNumberValue() * -1, NumberPrimitiveFleakData.NumberType.DOUBLE);
         }
 
         @Override
@@ -127,11 +135,12 @@ public interface EvaluatorFuncs {
             return new StringPrimitiveFleakData(l.getStringValue() + r.getStringValue());
           }
 
-          // Handle numbers
-          double sum = l.getNumberValue() + r.getNumberValue();
-          NumberPrimitiveFleakData.NumberType promotedType =
-              getPromotedType(l.getNumberType(), r.getNumberType());
-          return new NumberPrimitiveFleakData(sum, promotedType);
+          FleakData exact = exactLong(l, r, Math::addExact);
+          if (exact != null) {
+            return exact;
+          }
+          return new NumberPrimitiveFleakData(
+              l.getNumberValue() + r.getNumberValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
         }
       };
 
@@ -144,10 +153,12 @@ public interface EvaluatorFuncs {
 
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
-          double minus = l.getNumberValue() - r.getNumberValue();
-          NumberPrimitiveFleakData.NumberType promotedType =
-              getPromotedType(l.getNumberType(), r.getNumberType());
-          return new NumberPrimitiveFleakData(minus, promotedType);
+          FleakData exact = exactLong(l, r, Math::subtractExact);
+          if (exact != null) {
+            return exact;
+          }
+          return new NumberPrimitiveFleakData(
+              l.getNumberValue() - r.getNumberValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
         }
       };
 
@@ -160,10 +171,12 @@ public interface EvaluatorFuncs {
 
         @Override
         FleakData doEvaluate(FleakData l, FleakData r) {
-          double timesResult = l.getNumberValue() * r.getNumberValue();
-          NumberPrimitiveFleakData.NumberType promotedType =
-              getPromotedType(l.getNumberType(), r.getNumberType());
-          return new NumberPrimitiveFleakData(timesResult, promotedType);
+          FleakData exact = exactLong(l, r, Math::multiplyExact);
+          if (exact != null) {
+            return exact;
+          }
+          return new NumberPrimitiveFleakData(
+              l.getNumberValue() * r.getNumberValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
         }
       };
 
@@ -197,12 +210,30 @@ public interface EvaluatorFuncs {
           if (r.getNumberValue() == 0) {
             throw new IllegalArgumentException("mod by zero");
           }
+          if (bothLong(l, r)) {
+            return new NumberPrimitiveFleakData(
+                l.getLongValue() % r.getLongValue(), NumberPrimitiveFleakData.NumberType.LONG);
+          }
           double modResult = l.getNumberValue() % r.getNumberValue();
           NumberPrimitiveFleakData.NumberType promotedType =
               getPromotedType(l.getNumberType(), r.getNumberType());
           return new NumberPrimitiveFleakData(modResult, promotedType);
         }
       };
+
+  // Long-only result, or null when the caller must use double math (mixed types or overflow)
+  static FleakData exactLong(FleakData l, FleakData r, LongBinaryOperator op) {
+    if (!bothLong(l, r)) {
+      return null;
+    }
+    try {
+      return new NumberPrimitiveFleakData(
+          op.applyAsLong(l.getLongValue(), r.getLongValue()),
+          NumberPrimitiveFleakData.NumberType.LONG);
+    } catch (ArithmeticException overflow) {
+      return null;
+    }
+  }
 
   // Binary Comparison Operators
   abstract class ComparisonValueBinaryEvaluator extends ValueBinaryEvaluator {

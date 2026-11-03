@@ -16,18 +16,13 @@ package io.fleak.zephflow.api.structure;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
  * Represents a numeric primitive value in Fleak. JSON serialization will output just the number
  * value.
  */
-@Data
-@Builder
-@AllArgsConstructor
 @NoArgsConstructor
 @JsonSerialize(using = FleakDataSerializer.class)
 @JsonDeserialize(using = FleakDataDeserializer.class)
@@ -35,8 +30,36 @@ public class NumberPrimitiveFleakData implements PrimitiveFleakData {
 
   public static final double DOUBLE_COMPARE_DELTA = 0.000001d;
 
-  private double numberValue;
-  private NumberType numberType;
+  @Getter private NumberType numberType;
+  // The long itself for LONG, raw double bits for DOUBLE; a double holds only 53 integer bits
+  private long bits;
+
+  public NumberPrimitiveFleakData(double numberValue, NumberType numberType) {
+    this.numberType = numberType;
+    this.bits =
+        numberType == NumberType.LONG
+            ? (long) numberValue
+            : Double.doubleToRawLongBits(numberValue);
+  }
+
+  public NumberPrimitiveFleakData(long longValue, NumberType numberType) {
+    this.numberType = numberType;
+    this.bits = numberType == NumberType.LONG ? longValue : Double.doubleToRawLongBits(longValue);
+  }
+
+  @Override
+  public double getNumberValue() {
+    return numberType == NumberType.LONG ? (double) bits : Double.longBitsToDouble(bits);
+  }
+
+  @Override
+  public long getLongValue() {
+    return numberType == NumberType.LONG ? bits : (long) Double.longBitsToDouble(bits);
+  }
+
+  public static boolean bothLong(FleakData l, FleakData r) {
+    return l.getNumberType() == NumberType.LONG && r.getNumberType() == NumberType.LONG;
+  }
 
   /**
    * Determines the resulting numeric type based on standard promotion rules. The type with the
@@ -56,16 +79,34 @@ public class NumberPrimitiveFleakData implements PrimitiveFleakData {
 
   @Override
   public boolean equals(Object that) {
-    if (!(that instanceof NumberPrimitiveFleakData)) {
+    if (!(that instanceof NumberPrimitiveFleakData other)) {
       return false;
     }
-    return Math.abs(this.numberValue - ((NumberPrimitiveFleakData) that).numberValue)
-        <= DOUBLE_COMPARE_DELTA;
+    if (bothLong(this, other)) {
+      return bits == other.bits;
+    }
+    return Math.abs(getNumberValue() - other.getNumberValue()) <= DOUBLE_COMPARE_DELTA;
+  }
+
+  int compareNumber(NumberPrimitiveFleakData other) {
+    if (bothLong(this, other)) {
+      return Long.compare(bits, other.bits);
+    }
+    return Double.compare(getNumberValue(), other.getNumberValue());
   }
 
   @Override
   public int hashCode() {
-    return Double.hashCode(this.numberValue);
+    return Double.hashCode(getNumberValue());
+  }
+
+  @Override
+  public String toString() {
+    return "NumberPrimitiveFleakData(numberValue="
+        + getNumberValue()
+        + ", numberType="
+        + numberType
+        + ")";
   }
 
   @Override
@@ -73,9 +114,9 @@ public class NumberPrimitiveFleakData implements PrimitiveFleakData {
   public Number unwrap() {
 
     if (numberType == NumberType.LONG) {
-      return (long) numberValue;
+      return bits;
     }
-    return numberValue;
+    return getNumberValue();
   }
 
   public enum NumberType {

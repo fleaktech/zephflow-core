@@ -53,7 +53,7 @@ class EpochToTsStrFunction implements FeelFunction {
         "epoch_to_ts_str: timestamp field to be parsed is not a number: %s",
         epochFd);
 
-    long epoch = (long) epochFd.getNumberValue();
+    long epoch = epochFd.getLongValue();
     FleakData patternFd = evaluatedArgs.get(1);
     Preconditions.checkArgument(
         patternFd instanceof StringPrimitiveFleakData,

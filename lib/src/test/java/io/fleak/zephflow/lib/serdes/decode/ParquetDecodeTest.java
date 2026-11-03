@@ -200,6 +200,34 @@ class ParquetDecodeTest {
   }
 
   @Test
+  void int64ValuesAndMapKeysAbove2Pow53KeepAllDigits() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType(
+            """
+            message m {
+              required int64 n;
+              optional group byId (MAP) {
+                repeated group key_value {
+                  required int64 key;
+                  required binary value (STRING);
+                }
+              }
+            }
+            """);
+    Group row = new SimpleGroupFactory(schema).newGroup().append("n", 9007199254740993L);
+    row.addGroup("byId")
+        .addGroup("key_value")
+        .append("key", 9007199254740993L)
+        .append("value", "x");
+    byte[] file = ParquetTestFiles.write(schema, List.of(row), options -> {});
+    assertEquals(
+        List.of(
+            new Ok(
+                json("{\"n\":9007199254740993,\"byId\":{\"9007199254740993\":\"x\"}}"), 1, null)),
+        decode(PARQUET, file));
+  }
+
+  @Test
   void everyCodecAndPageVersionDecodes() {
     MessageType schema = MIXED;
     SimpleGroupFactory rows = new SimpleGroupFactory(schema);

@@ -133,7 +133,7 @@ public class InfluxDbSinkMessageProcessor
     switch (value) {
       case NumberPrimitiveFleakData n -> {
         if (n.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG) {
-          point.addField(name, (long) n.getNumberValue());
+          point.addField(name, n.getLongValue());
         } else {
           point.addField(name, n.getNumberValue());
         }
@@ -168,7 +168,7 @@ public class InfluxDbSinkMessageProcessor
     switch (value) {
       case NumberPrimitiveFleakData n ->
           // numeric epoch already expressed in the configured precision
-          point.time((long) n.getNumberValue(), precision);
+          point.time(n.getLongValue(), precision);
       case StringPrimitiveFleakData s -> point.time(Instant.parse(s.getStringValue()), precision);
       default ->
           throw new IllegalArgumentException(

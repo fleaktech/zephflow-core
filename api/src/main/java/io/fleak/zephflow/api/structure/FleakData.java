@@ -44,7 +44,12 @@ public interface FleakData extends Comparable<FleakData> {
     throw new UnsupportedOperationException();
   }
 
+  /** Lossy above 2^53 for LONG values; use {@link #getLongValue()} when the type is LONG. */
   default double getNumberValue() {
+    throw new UnsupportedOperationException();
+  }
+
+  default long getLongValue() {
     throw new UnsupportedOperationException();
   }
 
@@ -72,7 +77,7 @@ public interface FleakData extends Comparable<FleakData> {
     return switch (this) {
       case StringPrimitiveFleakData s -> this.getStringValue().compareTo(o.getStringValue());
       case BooleanPrimitiveFleakData b -> Boolean.compare(this.isTrueValue(), o.isTrueValue());
-      case NumberPrimitiveFleakData n -> Double.compare(this.getNumberValue(), o.getNumberValue());
+      case NumberPrimitiveFleakData n -> n.compareNumber((NumberPrimitiveFleakData) o);
       default ->
           throw new RuntimeException(
               String.format("cannot compare this (%s) and that (%s)", this, o));
@@ -107,9 +112,9 @@ public interface FleakData extends Comparable<FleakData> {
       case ObjectNode n -> wrap(OBJECT_MAPPER.convertValue(n, new TypeReference<>() {}));
       case Collection<?> l -> new ArrayFleakData(l.stream().map(FleakData::wrap).toList());
       case Integer n ->
-          new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
+          new NumberPrimitiveFleakData(n.longValue(), NumberPrimitiveFleakData.NumberType.LONG);
       case Long n ->
-          new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.LONG);
+          new NumberPrimitiveFleakData(n.longValue(), NumberPrimitiveFleakData.NumberType.LONG);
       case Float n ->
           new NumberPrimitiveFleakData(n.doubleValue(), NumberPrimitiveFleakData.NumberType.DOUBLE);
       case Number n ->
