@@ -13,7 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.eval;
 
+import static io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.bothLong;
+
 import com.google.common.base.Preconditions;
+import com.google.common.primitives.Longs;
 import io.fleak.zephflow.api.structure.*;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
@@ -53,32 +56,58 @@ class NumCompareAnyFunction implements FeelFunction {
         operandFd);
 
     return new BooleanPrimitiveFleakData(
-        satisfiesAny(evaluatedArgs.getFirst(), opFd.getStringValue(), operandFd.getNumberValue()));
+        satisfiesAny(evaluatedArgs.getFirst(), opFd.getStringValue(), operandFd));
   }
 
-  private static boolean satisfiesAny(FleakData value, String op, double operand) {
+  private static boolean satisfiesAny(FleakData value, String op, FleakData operandFd) {
     if (value == null) {
       return false;
     }
     if (value instanceof ArrayFleakData array) {
       for (FleakData element : array.getArrayPayload()) {
-        if (satisfiesAny(element, op, operand)) {
+        if (satisfiesAny(element, op, operandFd)) {
           return true;
         }
       }
       return false;
     }
-    Double number = toNumber(value);
-    if (number == null) {
+    Integer cmp = compare(value, operandFd);
+    if (cmp == null) {
       return false;
     }
     return switch (op) {
-      case "lt" -> number < operand;
-      case "lte" -> number <= operand;
-      case "gt" -> number > operand;
-      case "gte" -> number >= operand;
+      case "lt" -> cmp < 0;
+      case "lte" -> cmp <= 0;
+      case "gt" -> cmp > 0;
+      case "gte" -> cmp >= 0;
       default -> throw new IllegalArgumentException("num_compare_any: unknown operator: " + op);
     };
+  }
+
+  // null when value is not numeric or the comparison is unordered (NaN)
+  private static Integer compare(FleakData value, FleakData operandFd) {
+    if (value instanceof NumberPrimitiveFleakData n && bothLong(n, operandFd)) {
+      return Long.compare(n.getLongValue(), operandFd.getLongValue());
+    }
+    if (operandFd.getNumberType() == NumberPrimitiveFleakData.NumberType.LONG
+        && value instanceof StringPrimitiveFleakData s) {
+      Long exact = Longs.tryParse(s.getStringValue().trim());
+      if (exact != null) {
+        return Long.compare(exact, operandFd.getLongValue());
+      }
+    }
+    Double number = toNumber(value);
+    if (number == null) {
+      return null;
+    }
+    double operand = operandFd.getNumberValue();
+    if (number < operand) {
+      return -1;
+    }
+    if (number > operand) {
+      return 1;
+    }
+    return number == operand ? 0 : null;
   }
 
   private static Double toNumber(FleakData value) {

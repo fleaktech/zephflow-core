@@ -366,7 +366,7 @@ final class ParquetRecords extends RecordMaterializer<RecordFleakData> {
   private static String mapKey(FleakData key, PrimitiveTypeName type) {
     return switch (key) {
       case NumberPrimitiveFleakData n when n.getNumberType() == NumberType.LONG ->
-          Long.toString((long) n.getNumberValue());
+          Long.toString(n.getLongValue());
       case NumberPrimitiveFleakData n when type == PrimitiveTypeName.FLOAT ->
           Float.toString((float) n.getNumberValue());
       case NumberPrimitiveFleakData n -> Double.toString(n.getNumberValue());
