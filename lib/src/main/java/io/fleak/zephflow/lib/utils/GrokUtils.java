@@ -29,7 +29,7 @@ public class GrokUtils {
 
   private static final long MATCH_TIMEOUT_MILLIS = 1_000;
   private static final long WATCHDOG_CHECK_INTERVAL_MILLIS = 100;
-  private static final int EXPANSION_ATTEMPTS = 2;
+  private static final int EXPANSION_ATTEMPTS_TOLERATING_ONE_JVM_STALL = 2;
 
   // The built-in definition nests "+" inside "*" inside "+", which is exponential on a failed
   // match. This one matches the same text in the same backtracking order, but has no numbered
@@ -52,8 +52,7 @@ public class GrokUtils {
           (delay, command) -> WATCHDOG_SCHEDULER.schedule(command, delay, TimeUnit.MILLISECONDS));
 
   public static Grok compile(String grokPattern, Consumer<String> logCallback) {
-    // One attempt can overrun because of a JVM stall; a truly expensive expression overruns twice.
-    for (int attempt = 0; attempt < EXPANSION_ATTEMPTS; attempt++) {
+    for (int attempt = 0; attempt < EXPANSION_ATTEMPTS_TOLERATING_ONE_JVM_STALL; attempt++) {
       var watchdog = new ExpansionCheckingWatchdog();
       Grok grok = new Grok(PATTERN_BANK, grokPattern, watchdog, logCallback);
       if (!watchdog.finishExpansion()) {
