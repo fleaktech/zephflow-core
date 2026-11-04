@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.parser.extractions.WindowsMultilineExtractio
 import io.fleak.zephflow.lib.parser.extractions.*;
 import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionConfig;
 import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionRule;
+import io.fleak.zephflow.lib.utils.GrokUtils;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -58,8 +59,7 @@ public class ParserConfigCompiler {
 
   private ExtractionRule compileExtractionConfig(ExtractionConfig extractionConfig) {
     if (extractionConfig instanceof GrokExtractionConfig grokExtractionConfig) {
-      Grok grok =
-          new Grok(Grok.BUILTIN_PATTERNS, grokExtractionConfig.getGrokExpression(), log::warn);
+      Grok grok = GrokUtils.compile(grokExtractionConfig.getGrokExpression(), log::warn);
       return new GrokExtractionRule(grokExtractionConfig.getGrokExpression(), grok);
     }
     if (extractionConfig

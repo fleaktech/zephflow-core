@@ -1,0 +1,1 @@
+{"error":"failed to parse input: failed to parse message:\n/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa x\nrule:\n%{UNIXPATH:path} END","input":{"__raw__":"/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa x"}}

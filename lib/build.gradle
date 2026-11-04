@@ -169,6 +169,7 @@ tasks.register('goldenTest', Test) {
     if (System.getProperty(k) != null) systemProperty k, System.getProperty(k)
   }
   outputs.upToDateWhen { false }   // fixtures are inputs; never skip
+  timeout = java.time.Duration.ofMinutes(10)
   testLogging { exceptionFormat 'full'; events 'failed' }
 }
 

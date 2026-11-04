@@ -1,0 +1,7 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "grok",
+    "grokExpression": "%{GREEDYDATA:a} %{GREEDYDATA:b} %{GREEDYDATA:c} %{GREEDYDATA:d} %{GREEDYDATA:e} END"
+  }
+}

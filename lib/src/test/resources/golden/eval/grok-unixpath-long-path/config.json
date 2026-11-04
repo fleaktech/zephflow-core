@@ -1,0 +1,3 @@
+{
+  "expression": "grok($.__raw__, \"%{UNIXPATH:path} END\")"
+}
