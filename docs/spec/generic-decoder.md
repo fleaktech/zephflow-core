@@ -212,9 +212,25 @@ classification is never repeated in a format.
 
 Every codec follows the same rules: concatenated streams are all read, bytes after the last stream
 that do not start another one are `CORRUPT_COMPRESSION`, and input with no bytes decodes to nothing.
+
 gzip and deflate hand on everything they decoded before damaged data. The other codecs are read at
 most 256 bytes at a time, because a library that fails drops what it decoded in that call, so up to
 255 bytes decoded just before the damage can be lost.
+
+`csv` and `text` read any bytes as characters, so with an empty `compression` they would turn
+compressed data into garbage records. They refuse input that starts with a compression signature:
+one terminal `MALFORMED` outcome and no records. The signatures are those of `gzip`, `zstd`, `xz`,
+`bzip2` (with a data block or empty), `lz4`, `snappy` framing, a skippable frame of `zstd` or `lz4`,
+and `deflate` with the zlib headers `78 9c` and `78 da`. Text that starts with one of them is
+refused too, more easily in a single-byte or UTF-16 charset; set `compression` to `auto` to read it.
+
+Only the codecs of this table are recognized, so other binary input is still read as characters:
+zip, legacy lz4 frames, avro or parquet files. So are `deflate` with the headers `78 01` and `78 5e`
+(text can start with them), raw blocks, anything but gzip when `compression` is `auto`, and input
+that a source re-encoded as text before decoding, such as StdIn or an ActiveMQ `TextMessage`. Other
+formats usually report failures on compressed data, but `auto` format frames the input first and
+can also emit `unrecognized_text` records, and protobuf keeps unknown fields, so bytes that happen
+to parse can give a record.
 
 Compression inside avro and parquet belongs to those formats and is not configured here.
 

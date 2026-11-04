@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
+import java.util.zip.GZIPOutputStream;
 import org.apache.avro.Schema;
 import org.apache.avro.file.CodecFactory;
 import org.apache.avro.file.DataFileWriter;
@@ -208,6 +209,36 @@ class FsSourceDecodingConfigTest {
                         e.lastLine(),
                         e.nodeId()))
             .toList());
+  }
+
+  @Test
+  void aGzipFileReadAsTextWithNoCompressionIsRefused() throws Exception {
+    ByteArrayOutputStream gzipped = new ByteArrayOutputStream();
+    try (GZIPOutputStream out = new GZIPOutputStream(gzipped)) {
+      out.write("a\nb\n".getBytes(StandardCharsets.UTF_8));
+    }
+    file("logs.gz", gzipped.toByteArray());
+
+    run(
+        "{\"compression\":[],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}",
+        Map.of());
+
+    assertEquals(
+        List.of(
+            List.of(
+                "",
+                Map.of(METADATA_FS_SOURCE_URN, urn("logs.gz")),
+                "MALFORMED text file: UndeclaredCompressionException",
+                "Action: check that the file is text as the source's encodingType or decoding says,"
+                    + " or fix the listed records where the file is written; "
+                    + RENAME,
+                "file "
+                    + urn("logs.gz")
+                    + "; 1 outcome; recordIndex 1; the file ended at recordIndex 1")),
+        dlq.stream()
+            .map(e -> List.of(e.value(), e.metadata(), e.firstLine(), e.action(), e.lastLine()))
+            .toList());
+    assertEquals(List.of(), records);
   }
 
   @Test
