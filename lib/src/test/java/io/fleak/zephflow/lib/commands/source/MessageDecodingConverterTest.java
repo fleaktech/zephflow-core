@@ -749,11 +749,24 @@ class MessageDecodingConverterTest {
             MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, false),
             MessageDecodingConverter.Unit.MESSAGE);
 
-    ConvertedResult<SerializedEvent> result =
-        converter.convert(new SerializedEvent(null, gzip("x"), null), context);
+    SerializedEvent message = new SerializedEvent(null, gzip("x"), null);
 
+    ConvertedResult<SerializedEvent> result = converter.convert(message, context);
+
+    Throwable cause = result.error().getCause();
     assertEquals(
-        "MALFORMED text message: UndeclaredCompressionException", result.error().getMessage());
+        new Failure(
+            cause,
+            "MALFORMED text message: UndeclaredCompressionException\n"
+                + "Action: check that the message is text as the source's encodingType or decoding"
+                + " says, and that its compression is set when the message is compressed, or fix"
+                + " the producer that wrote it; "
+                + RESEND
+                + "\n"
+                + trace(cause)
+                + "\nrecordIndex 1",
+            message),
+        Failure.of(result));
   }
 
   @Test

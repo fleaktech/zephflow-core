@@ -222,12 +222,15 @@ compressed data into garbage records. They refuse input that starts with a compr
 one terminal `MALFORMED` outcome and no records. The signatures are those of `gzip`, `zstd`, `xz`,
 `bzip2` (with a data block or empty), `lz4`, `snappy` framing, a skippable frame of `zstd` or `lz4`,
 and `deflate` with the zlib headers `78 9c` and `78 da`. Text that starts with one of them is
-refused too.
+refused too, more easily in a single-byte or UTF-16 charset; set `compression` to `auto` to read it.
 
-Some compressed data is still read as characters: `deflate` with the headers `78 01` and `78 5e`
-(text can start with them), raw blocks, and anything but gzip when `compression` is `auto`. Other
-formats report failures on compressed data, though `auto` format frames the input first and can
-also emit `unrecognized_text` records.
+Only the codecs of this table are recognized, so other binary input is still read as characters:
+zip, legacy lz4 frames, avro or parquet files. So are `deflate` with the headers `78 01` and `78 5e`
+(text can start with them), raw blocks, anything but gzip when `compression` is `auto`, and input
+that a source re-encoded as text before decoding, such as StdIn or an ActiveMQ `TextMessage`. Other
+formats usually report failures on compressed data, but `auto` format frames the input first and
+can also emit `unrecognized_text` records, and protobuf keeps unknown fields, so bytes that happen
+to parse can give a record.
 
 Compression inside avro and parquet belongs to those formats and is not configured here.
 

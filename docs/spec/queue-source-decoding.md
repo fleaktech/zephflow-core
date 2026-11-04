@@ -166,7 +166,8 @@ main after PR 2, with approval.
 - **SQS and Pub/Sub:** validator tests (valid and invalid `decoding`, both set, neither set). With
   only `decoding` set, the converter that `createExecutionContext` builds (client factory mocked)
   decodes a message; with `encodingType`, a body that starts with the gzip magic bytes is not
-  gunzipped: it is decoded as it is, or refused for csv and text (4.1 item 8). A bad message reaches a mocked `DlqWriter` as the body alone, with the
+  gunzipped: it is decoded as it is, or refused for csv and text (4.1 item 8). A bad message
+  reaches a mocked `DlqWriter` as the body alone, with the
   new text.
 - **IoT Hub:** a differential test runs the same events through `IotHubRawDataConverter` (with
   the `encodingType`'s legacy deserializer) and `IotHubMessageConverter` (with that
@@ -176,7 +177,7 @@ main after PR 2, with approval.
   Because both sides share `buildEnvelope`, the envelope is also pinned by expected records written
   out in full. As for SQS: validator tests, a decode with only `decoding` through the converter
   `createExecutionContext` builds (client factory mocked), and a gzip-magic body with `encodingType`
-  decoded as it is. A bad message reaches a mocked `DlqWriter` with its key, value and metadata
+  not gunzipped. A bad message reaches a mocked `DlqWriter` with its key, value and metadata
   unchanged and the new text. `AzureIotHubSourceIntegrationTest` (Event Hubs emulator) stays green.
 - **Integration (SQS):** `sqssource → kafkasink` on a real task runner with LocalStack SQS and an S3
   DLQ, the source with only `decoding` (json objects) and a visibility timeout longer than the test:

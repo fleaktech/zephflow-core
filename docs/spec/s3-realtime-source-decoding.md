@@ -301,6 +301,10 @@ parquet is available through `decoding`.
 `skipBlank: false` and `ignoreSurroundingSpaces: true` keep the legacy output: STRING_LINE emits
 blank lines, and legacy CSV trims spaces around names and values.
 
+A `decoding` with an empty compression that reads csv or text refuses a compressed object (generic
+decoder spec 4.1): one `MALFORMED` summary entry and no records. A legacy configuration reads with
+`auto` and is not affected: gzip is decompressed, and other codecs still give garbage records.
+
 ### 4.2 Behavior changes for legacy configurations
 
 Compared with feeding the same bytes to both paths (committed as `LegacyDifferentialTest`, 8). With

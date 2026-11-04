@@ -329,23 +329,33 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void aGzipObjectReadAsTextWithNoCompressionGivesNoRecords() {
+  void aGzipObjectReadAsTextWithNoCompressionIsRefused() {
     stub("data.log.gz", gzip(utf8("a\nb\n")));
 
-    assertEquals(
-        List.of(),
+    TestEmitter emitter =
         emit(
-                converter(
-                    new S3Decoding(
-                        null,
-                        null,
-                        new DecodingConfig(
-                            List.of(), new TextFormatConfig(null, new FramingConfig.Line(null))),
-                        false),
-                    HEAP,
-                    4 * MIB),
-                message("data.log.gz"))
-            .records());
+            converter(
+                new S3Decoding(
+                    null,
+                    null,
+                    new DecodingConfig(
+                        List.of(), new TextFormatConfig(null, new FramingConfig.Line(null))),
+                    false),
+                HEAP,
+                4 * MIB),
+            message("data.log.gz"));
+
+    assertEquals(List.of(), emitter.records());
+    assertEquals(
+        List.of(
+            new Entry(
+                NOTIFICATION,
+                "MALFORMED text object: UndeclaredCompressionException",
+                malformedAction("text"),
+                "object s3://b/data.log.gz version v1; 1 outcome; recordIndex 1; the object ended"
+                    + " at recordIndex 1",
+                "node")),
+        dlq);
   }
 
   @Test

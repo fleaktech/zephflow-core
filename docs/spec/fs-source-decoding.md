@@ -258,6 +258,9 @@ file. `PARQUET` as an `encodingType` is still rejected; parquet is available thr
 Existing configurations still validate and run. These behaviors change, with no switch to keep the
 old ones:
 
+0. **A compressed csv or text file with an empty `decoding` compression** fails as `MALFORMED`
+   (generic decoder spec 4.1) instead of giving garbage records. `encodingType` reads with `auto`
+   and is not affected.
 1. **An oversized line or CSV record no longer drops the file.** It becomes an `OVERSIZED` summary,
    and the rest of the file is read; the records before it are emitted.
    - Line formats and CSV check each record against the limit, with no read-ahead slack. The old

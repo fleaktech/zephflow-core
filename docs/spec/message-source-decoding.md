@@ -225,9 +225,11 @@ These behaviors change, with no switch to keep the old ones:
      line, the text or the first header name); JSON_OBJECT_LINE with a byte-order mark now decodes.
 7. **Compressed value read as csv or text:** with an empty compression list, which includes
    `encodingType` on every source here but Kafka, a value that starts with a compression signature
-   fails as `MALFORMED`. Before, it gave garbage records. If every message fails this way, the
-   source commits nothing, as with any message that fails to decode (see Known limitations), so
-   the messages can be delivered and dead-lettered again.
+   fails as `MALFORMED`. Before, it gave garbage records. StdIn and an ActiveMQ `TextMessage`
+   re-encode the bytes first, so they rarely start with a signature and mostly still give garbage
+   records. If every message fails this way, the source commits nothing, as with any message that
+   fails to decode (see Known limitations), so the messages can be delivered and dead-lettered
+   again.
 
 ## 5. Compatibility
 
@@ -280,8 +282,8 @@ PR 4, with approval.
   end; MQTT, ActiveMQ and Event Hubs through `createExecutionContext` with their injected client
   factories mocked; Kinesis in its LocalStack test, since it has no client seam. For each source, a
   test with `encodingType` and a value that starts with the gzip magic bytes pins the compression
-  of 3.2: Kafka gunzips it, the other six decode the bytes as they are, or refuse them for csv and
-  text (4.1 item 7). StdIn's test feeds the bytes
+  of 3.2: Kafka gunzips it, the other six decode the bytes as they are. The refusal of 4.1 item 7
+  is pinned on the shared converter. StdIn's test feeds the bytes
   to the converter its `createExecutionContext` builds, since stdin re-encodes text.
 - **Existing tests:** the Testcontainers tests (Kafka, ActiveMQ, Event Hubs, Kinesis on LocalStack)
   stay green, and Kafka's adds a `decoding` config and a bad message that reaches a mocked
