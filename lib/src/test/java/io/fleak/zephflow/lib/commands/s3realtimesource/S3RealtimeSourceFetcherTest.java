@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.util.List;
 import java.util.Map;
@@ -34,11 +35,20 @@ class S3RealtimeSourceFetcherTest {
   private static final String QUEUE_URL =
       "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue";
   private static final int MAX_RETRIES = 3;
+  private static final String PLAIN_JSON =
+      "{\"event_id\":1,\"user\":\"alice\",\"action\":\"login\"}";
+  private static final String NOT_S3_ERROR =
+      "NOT_S3_NOTIFICATION sqs message\nAction: this queue receives messages that are not S3 event"
+          + " notifications: to read ordinary events from it use the AWS SQS source instead; for S3"
+          + " events routed through EventBridge, send S3 event notifications to this queue directly"
+          + " or through SNS; otherwise stop whatever sends them here\nnot an S3 event"
+          + " notification: no \"Records\" array";
 
   private SqsClient sqsClient;
   private S3Client s3Client;
   private S3RegionalClientProvider s3Clients;
   private DlqWriter dlqWriter;
+  private FleakCounter deserializeFailureCounter;
   private Queue<String> confirmed;
   private S3RealtimeSourceFetcher fetcher;
 
@@ -48,13 +58,24 @@ class S3RealtimeSourceFetcherTest {
     s3Client = mock(S3Client.class);
     s3Clients = new S3RegionalClientProvider(region -> s3Client);
     dlqWriter = mock(DlqWriter.class);
+    deserializeFailureCounter = mock(FleakCounter.class);
     confirmed = new ConcurrentLinkedQueue<>();
     fetcher = newFetcher(dlqWriter);
   }
 
   private S3RealtimeSourceFetcher newFetcher(DlqWriter dlq) {
     return new S3RealtimeSourceFetcher(
-        sqsClient, s3Clients, QUEUE_URL, 10, 20, 30, MAX_RETRIES, dlq, "nodeId", confirmed);
+        sqsClient,
+        s3Clients,
+        QUEUE_URL,
+        10,
+        20,
+        30,
+        MAX_RETRIES,
+        dlq,
+        "nodeId",
+        deserializeFailureCounter,
+        confirmed);
   }
 
   private static Message message(String id, String receipt, int receiveCount, String body) {
@@ -108,7 +129,23 @@ class S3RealtimeSourceFetcherTest {
 
     assertTrue(result.isEmpty());
     verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
-    verifyNoInteractions(dlqWriter);
+    verifyNoInteractions(dlqWriter, deserializeFailureCounter);
+  }
+
+  @Test
+  void fetch_objectRemovedDeletedAndNotCounted() {
+    stubReceive(
+        message(
+            "msg-1",
+            "receipt-1",
+            1,
+            "{\"Records\":[{\"eventName\":\"ObjectRemoved:Delete\",\"s3\":{\"bucket\":{\"name\":\"b\"},\"object\":{\"key\":\"k\"}}}]}"));
+
+    List<S3EventMessage> result = fetcher.fetch();
+
+    assertTrue(result.isEmpty());
+    verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
+    verifyNoInteractions(dlqWriter, deserializeFailureCounter);
   }
 
   @Test
@@ -133,6 +170,7 @@ class S3RealtimeSourceFetcherTest {
                     + MAX_RETRIES),
             eq("nodeId"));
     verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
+    verifyNoInteractions(deserializeFailureCounter);
   }
 
   @Test
@@ -144,6 +182,7 @@ class S3RealtimeSourceFetcherTest {
 
     assertTrue(result.isEmpty());
     verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
+    verifyNoInteractions(deserializeFailureCounter);
   }
 
   @Test
@@ -163,6 +202,61 @@ class S3RealtimeSourceFetcherTest {
                     + "\nfailed to parse S3 event notification: malformed S3 event notification"),
             eq("nodeId"));
     verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
+    verify(deserializeFailureCounter).increase(Map.of());
+  }
+
+  @Test
+  void fetch_malformedMessageWithoutDlqKeptAndCounted() {
+    fetcher = newFetcher(null);
+    stubReceive(message("msg-1", "receipt-1", 1, "not-json"));
+
+    List<S3EventMessage> result = fetcher.fetch();
+
+    assertTrue(result.isEmpty());
+    verify(sqsClient, never()).deleteMessage(any(DeleteMessageRequest.class));
+    verify(deserializeFailureCounter).increase(Map.of());
+  }
+
+  @Test
+  void fetch_plainJsonDeadLetteredDeletedAndCounted() {
+    stubReceive(message("msg-1", "receipt-1", 1, PLAIN_JSON));
+
+    List<S3EventMessage> result = fetcher.fetch();
+
+    assertTrue(result.isEmpty());
+    verify(dlqWriter).writeToDlq(anyLong(), any(), eq(NOT_S3_ERROR), eq("nodeId"));
+    verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
+    verify(deserializeFailureCounter).increase(Map.of());
+  }
+
+  @Test
+  void fetch_plainJsonWithoutDlqKeptInQueueAndCounted() {
+    fetcher = newFetcher(null);
+    Message[] messages = new Message[10];
+    for (int i = 0; i < messages.length; i++) {
+      messages[i] = message("msg-" + i, "receipt-" + i, 1, "{\"event_id\":" + i + "}");
+    }
+    stubReceive(messages);
+
+    List<S3EventMessage> result = fetcher.fetch();
+
+    assertTrue(result.isEmpty());
+    verify(sqsClient, never()).deleteMessage(any(DeleteMessageRequest.class));
+    verify(deserializeFailureCounter, times(10)).increase(Map.of());
+  }
+
+  @Test
+  void fetch_plainJsonDoesNotBlockValidSiblings() {
+    stubReceive(
+        message("msg-1", "receipt-1", 1, PLAIN_JSON),
+        message("msg-2", "receipt-2", 1, objectCreated("b", "k.json")));
+
+    List<S3EventMessage> result = fetcher.fetch();
+
+    assertEquals(1, result.size());
+    assertEquals("msg-2", result.getFirst().messageId());
+    verify(sqsClient).deleteMessage(deleteFor("receipt-1"));
+    verify(sqsClient, never()).deleteMessage(deleteFor("receipt-2"));
   }
 
   @Test

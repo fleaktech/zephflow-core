@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
+import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
@@ -21,6 +22,7 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -48,6 +50,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
   private final int maxRetries;
   private final DlqWriter dlqWriter;
   private final String nodeId;
+  private final FleakCounter deserializeFailureCounter;
 
   // Receipt handles of messages whose records were successfully converted+emitted. The converter
   // adds to this queue on success; the committer drains it. Failed messages are never added, so
@@ -64,6 +67,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
       int maxRetries,
       DlqWriter dlqWriter,
       String nodeId,
+      FleakCounter deserializeFailureCounter,
       Queue<String> confirmedReceiptHandles) {
     this.sqsClient = sqsClient;
     this.s3Clients = s3Clients;
@@ -74,6 +78,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
     this.maxRetries = maxRetries;
     this.dlqWriter = dlqWriter;
     this.nodeId = nodeId;
+    this.deserializeFailureCounter = deserializeFailureCounter;
     this.confirmedReceiptHandles = confirmedReceiptHandles;
   }
 
@@ -99,15 +104,22 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
       List<S3ObjectRef> refs;
       try {
         refs = S3EventNotificationParser.parse(message.body());
+      } catch (S3EventNotificationParser.NotS3NotificationException e) {
+        reject(
+            message,
+            "NOT_S3_NOTIFICATION sqs message\nAction: this queue receives messages that are not S3"
+                + " event notifications: to read ordinary events from it use the AWS SQS source"
+                + " instead; for S3 events routed through EventBridge, send S3 event notifications"
+                + " to this queue directly or through SNS; otherwise stop whatever sends them here\n"
+                + e.getMessage());
+        continue;
       } catch (Exception e) {
-        // Malformed envelope can never succeed; dead-letter and remove it.
-        deadLetter(
+        reject(
             message,
             "MALFORMED s3 notification\nAction: check that only S3 event notifications in S3's JSON format are sent to"
                 + " this queue, and fix what sends the others\nfailed to parse S3 event"
                 + " notification: "
                 + e.getMessage());
-        deleteMessage(message.receiptHandle());
         continue;
       }
 
@@ -119,8 +131,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
       }
 
       if (receiveCount(message) > maxRetries) {
-        deadLetter(
-            message,
+        String retriesError =
             "RETRIES_EXCEEDED s3 notification\nAction: the message was received more than"
                 + " maxRetries times without finishing: check this source's earlier DLQ entries"
                 + " and logs for why, raise visibilityTimeoutSeconds so a whole receive finishes"
@@ -128,7 +139,11 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
                 + " notification again\nreceived "
                 + receiveCount(message)
                 + " times, over maxRetries="
-                + maxRetries);
+                + maxRetries;
+        if (!deadLetter(message, retriesError)) {
+          log.warn(
+              "dropping SQS message {} (no DLQ configured): {}", message.messageId(), retriesError);
+        }
         deleteMessage(message.receiptHandle());
         continue;
       }
@@ -201,10 +216,23 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
     }
   }
 
-  private void deadLetter(Message message, String errorMsg) {
+  // Counted so the panel shows an error; without a DLQ the message stays queued for redelivery.
+  private void reject(Message message, String errorMsg) {
+    deserializeFailureCounter.increase(Map.of());
+    if (deadLetter(message, errorMsg)) {
+      log.warn("dead-lettered SQS message {}: {}", message.messageId(), errorMsg);
+      deleteMessage(message.receiptHandle());
+    } else {
+      log.warn(
+          "keeping SQS message {} in the queue (no DLQ configured): {}",
+          message.messageId(),
+          errorMsg);
+    }
+  }
+
+  private boolean deadLetter(Message message, String errorMsg) {
     if (dlqWriter == null) {
-      log.warn("dropping SQS message {} (no DLQ configured): {}", message.messageId(), errorMsg);
-      return;
+      return false;
     }
     SerializedEvent raw =
         new SerializedEvent(
@@ -214,6 +242,7 @@ public class S3RealtimeSourceFetcher implements Fetcher<S3EventMessage> {
             message.body().getBytes(StandardCharsets.UTF_8),
             null);
     dlqWriter.writeToDlq(System.currentTimeMillis(), raw, errorMsg, nodeId);
+    return true;
   }
 
   private void deleteMessage(String receiptHandle) {
