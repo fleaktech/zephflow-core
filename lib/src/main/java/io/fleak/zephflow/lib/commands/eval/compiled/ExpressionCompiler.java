@@ -52,8 +52,7 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
    * Scope-binding spec for the array functions that introduce a loop variable. {@code arrayArg} is
    * compiled in the current scope, {@code nameArg} supplies the binding name (via {@code
    * getText()}, not a definedness-checked reference), and {@code bodyArgs} are compiled in a child
-   * scope that can see the binding. This table is the cross-repo contract mirrored by the webapp
-   * editor.
+   * scope that can see the binding. Editors that check expressions mirror this table.
    */
   private record BinderSpec(int arity, int arrayArg, int nameArg, int[] bodyArgs) {}
 

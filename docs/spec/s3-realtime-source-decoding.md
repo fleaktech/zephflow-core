@@ -25,19 +25,16 @@ traces), no zstd or other codecs, no CSV options.
 - Memory bounded by fixed limits, not by object size: an object is downloaded to local disk, read
   from there as a stream, and its records are emitted in bounded batches.
 - Every format, codec and framing the generic decoder supports, through a new `decoding` field.
-- Existing configurations (`encodingType`, `compressionType`) keep working without change, so the
-  webapp form, data assets and dynamicapi stay as they are. They are translated into a
-  `DecodingConfig`.
+- Existing configurations (`encodingType`, `compressionType`) keep working without change, so
+  nothing that writes them has to move. They are translated into a `DecodingConfig`.
 - Bad records no longer cost the whole object: each one is dead-lettered on its own, and the good
   records of the object are emitted.
-- One public entry point decodes one S3 object, so dynamicapi's sampler can preview what a pipeline
-  would emit (5).
+- One public entry point decodes one S3 object, so a sampler can preview what a pipeline would
+  emit (5).
 
 **Non-goals**
 - Other sources. FsSource and the message sources move over in their own changes.
-- The webapp and dynamicapi. The sampler (`S3RealtimeDataSampler`) moves to the entry point of 5 in
-  a follow-up there after this ships in a release; self-healing's handling of undecodable DLQ
-  entries is FLE-3136 (6). Until the webapp follows, `decoding` is for API and SDK users (6).
+- Callers outside this repository, including samplers and tools that read DLQ entries (6).
 - Configurable limits. They are fixed (3.4); fields can be added when a pipeline needs them.
 - Copying legacy quirks. Where the decoder behaves differently, the difference is listed in 4.2.
 - Extending the SQS visibility timeout while an object is processed.
@@ -47,8 +44,8 @@ traces), no zstd or other codecs, no CSV options.
 ### 3.1 Per message
 
 `SimpleSourceCommand` gains an additive path for converters that emit their own batches. It applies
-only to such a converter, so every other source, including those in zephflow-plus, runs exactly as
-before. On this path the fetched messages are sampled to the raw-data sampler as today, then handled
+only to such a converter, so every other source, including those outside this repository, runs
+exactly as before. On this path the fetched messages are sampled to the raw-data sampler as today, then handled
 one at a time: a message's objects are decoded and emitted, and the message is committed (deleted
 from SQS) before the next one starts. `SimpleSourceCommand` decides when a message is done and
 acknowledges it to the converter; the converter queues its receipt handle only then, never while
@@ -139,8 +136,8 @@ shape of today, and a failed DLQ write ends the source, as it does on the other 
 Every outcome other than `Decoded` is counted in `deserializeFailureCount`. A failed batch is not:
 the runner already counts the failing node's records, as today.
 
-dynamicapi groups DLQ entries by the first line of their error text and the node id, and its repair
-agent sees only that line, so the first line of a source entry is a fixed template per kind that
+A DLQ reader can group entries by the first line of their error text and the node id, and may see
+only that line, so the first line of a source entry is a fixed template per kind that
 names the cause's exception class (for `OVERSIZED`, the limit), and everything that varies (the
 decoder's message, the object, sizes, counts, indexes) comes after it:
 
@@ -188,8 +185,7 @@ two entries carry an action too.
 | `RETRIES_EXCEEDED s3 notification` | Check the source's earlier DLQ entries and logs, raise `visibilityTimeoutSeconds` so a receive finishes in time (or lower `maxNumberOfMessages`), or raise `maxRetries`; then send the notification again |
 
 - A **record entry**'s value is the record's bytes, whole. Unlike FsSource's entries, it has no
-  metadata, because dynamicapi's replay merges an entry's metadata into the replayed record's
-  fields. Its error text is the first line, the action, the decoder error's stack trace, and a line
+  metadata, because a replay can merge an entry's metadata into the replayed record's fields. Its error text is the first line, the action, the decoder error's stack trace, and a line
   naming the object, the `recordIndex` when it is at least 1, and the span when there is one. Its
   node id is the source's.
 - An **object summary** is one entry per object and outcome kind, written when the object ends. It
@@ -212,8 +208,8 @@ two entries carry an action too.
   again, which emits the object's other records again too. With a DLQ configured, the runner throws
   only after the whole batch ran (siblings of a failing record still reach the sinks), so going on
   with the next batch loses nothing else, as today. Storing the failed batch's records as JSON
-  (generic-decoder Appendix A) is deferred: it needs a format marker that dynamicapi,
-  zephflow-plus's replay and the DLQ schema understand first.
+  (generic-decoder Appendix A) is deferred: it needs a format marker that DLQ readers, replay and
+  the DLQ schema understand first.
 
 Without a configured DLQ, failures are logged and dropped, as today.
 
@@ -374,8 +370,8 @@ no limits hit, the records of valid input are the same, except:
 
 ## 5. Shared entry point
 
-`S3ObjectDecoder` (public, in the source's package) decodes one S3 object; the source and, in the
-follow-up, dynamicapi's sampler both use it:
+`S3ObjectDecoder` (public, in the source's package) decodes one S3 object, for the source and for a
+sampler:
 
 - It is built from `S3Decoding`, a record of only the decoding inputs (`encodingType`,
   `compressionType`, `decoding`, `addS3Metadata`), not the source `Config`, whose queue fields are
@@ -385,10 +381,9 @@ follow-up, dynamicapi's sampler both use it:
   knows the pipeline's `TASK_MAX_MEMORY`), so a preview hits the pipeline's limits when the pipeline
   runs with the default; one that runs with a different `TASK_MAX_MEMORY` gets different limits.
   Parquet is the other exception: the decoder sizes its budget from the heap of the JVM it runs in,
-  so a sampler with a different heap can accept or skip a row group the pipeline would not. The
-  sampler's own heap (1 GiB in dynamicapi) is smaller than a 2 GiB pipeline's, so a tree document at
-  the pipeline's limit can take more of it than 3.4 allows; that is no worse than today's sampler,
-  which reads the whole object.
+  so a sampler with a different heap can accept or skip a row group the pipeline would not. A
+  sampler with a smaller heap than the pipeline's can spend more of it on a tree document at the
+  pipeline's limit than 3.4 allows; that is no worse than reading the whole object.
 - `decode(S3Client, S3ObjectRef, maxObjectSizeBytes, spoolDir, visitor)` downloads the object as in
   3.2 and hands each `DecodeOutcome` to the visitor until the visitor asks to stop or the object
   ends, then deletes the local file, whatever the outcome. The caller owns `spoolDir`: the source
@@ -409,30 +404,22 @@ follow-up, dynamicapi's sampler both use it:
 - Every public class of `lib.commands.source` (`SimpleSourceCommand`, its fetcher, converter,
   encoder and commit-strategy types), of `lib.serdes.des` (the legacy deserializers the other
   sources keep using), `S3EventNotificationParser`, `S3ObjectRef`, `S3RegionalClientProvider` and
-  `DecodeLimits`'s two-argument constructor keep their signatures; dynamicapi and zephflow-plus
-  import them. `DecodeOutcome.Failed` and `Oversized` gain components (PR 3b); no code outside core
+  `DecodeLimits`'s two-argument constructor keep their signatures; code outside this repository
+  imports them. `DecodeOutcome.Failed` and `Oversized` gain components (PR 3b); no code outside core
   uses the decoder yet. No code outside core uses `S3RealtimeSourceDto`, `S3RealtimeRawDataConverter` or
   `S3RealtimeSourceCommand`.
 - DLQ values were never guaranteed to decode: message sources dead-letter a message they cannot
   deserialize with its raw bytes (`BytesRawDataConverter`, `SimpleSourceCommand`), and FsSource
-  dead-letters each bad record's bytes. S3 realtime record entries do the same. Self-healing replay
-  and zephflow-plus's `dlqsource` decode a value with the source's `encodingType` and the legacy
-  deserializers; a value the live decoder rejected mostly fails again and is skipped, but some
-  replay differently: a JSON_OBJECT_LINE array line is flattened into records (D1), a line with
-  invalid UTF-8 gets U+FFFD, and a CSV row is read as a header line and gives no records. dynamicapi
-  also decodes entry values with `JSON_OBJECT` when there is no `encodingType` (so for `decoding`
-  configurations), and its self-healing preprocessing discards the whole DLQ sample of an analysis
-  when one entry fails to decode. That affects every source today and is fixed in dynamicapi
-  (FLE-3136), not here. Object and downstream summaries keep today's notification value, recovered
+  dead-letters each bad record's bytes. S3 realtime record entries do the same. A reader that decodes
+  a value with the source's `encodingType` and the legacy deserializers mostly fails again on a value
+  the live decoder rejected, but some replay differently: a JSON_OBJECT_LINE array line is flattened
+  into records (D1), a line with invalid UTF-8 gets U+FFFD, and a CSV row is read as a header line
+  and gives no records. Object and downstream summaries keep today's notification value, recovered
   by sending the notification again. One object can now give several such entries (one per kind
   and per failing node) with the same key, the message id, where legacy wrote at most one per
   object; nothing deduplicates them, so whoever resends notifications has to send each message id
-  once. Self-healing replay through zephflow-plus's `dlqsource` decodes a notification value as a
-  record instead of reading the object, once per entry (FLE-3137).
-- `decoding` is for API and SDK users until the webapp follows. The webapp's inline-connection
-  deploy rebuilds the node from `encodingType` (defaulting to `JSON_OBJECT`) and keeps the other
-  fields, so a node with `decoding` gets both and fails validation; its test-data preview samples
-  with `encodingType` only.
+  once. A replay that decodes a notification value reads it as a record instead of reading the
+  object, once per entry.
 
 ## 7. Delivery
 
@@ -517,8 +504,8 @@ Small PRs into the integration branch `feature/s3rt-decoder`; the user merges it
   take most of the heap, and the first downstream node that copies it needs as much again; such
   objects need a larger `TASK_MAX_MEMORY`.
 - A file with many bad records that carry bytes writes one DLQ entry per record, as FsSource does.
-  When most of a DLQ batch of 100 are records near 128 KiB, its file passes 10 MB, and dynamicapi's
-  self-healing skips DLQ files over 10 MB with every entry in them.
+  When most of a DLQ batch of 100 are records near 128 KiB, its file passes 10 MB, which a reader
+  with a file size limit may skip with every entry in it.
 - A downstream failure cannot be recovered record by record: the notification is sent again and
   the whole object runs again (3.3).
 - The DLQ writer's memory (about 100 MiB at the default batch of 100, 3.4) is a tenth of grid's
