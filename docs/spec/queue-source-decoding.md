@@ -81,8 +81,7 @@ compiles and the command uses. With `encodingType`, nothing is decompressed, as 
 decompressor was built with no codecs). With `decoding`, its `compression` applies.
 
 An empty compression list refuses csv and text input that starts with a compression signature
-(generic decoder spec 4.1), so a compressed message on these sources is now a `MALFORMED` failure
-with either setting, where it used to give garbage records.
+(generic decoder spec 4.1). See 4.1 item 8.
 
 ### 3.3 Outcomes, DLQ and commit
 
@@ -131,6 +130,9 @@ the old ones:
    (a `NullPointerException`).
 7. **No value:** an IoT Hub event with no body gives no records, as in the message-source spec 4.1
    item 4. Before, it ended the source. SQS and Pub/Sub bodies are never null.
+8. **Compressed value read as csv or text:** as in the message-source spec 4.1 item 7, with
+   `encodingType` or an empty `decoding` compression. An SQS body is text, so it reaches this only
+   if its characters happen to start with a signature.
 
 ## 5. Compatibility
 
@@ -163,8 +165,8 @@ main after PR 2, with approval.
   record; the error log line has the first line and the description.
 - **SQS and Pub/Sub:** validator tests (valid and invalid `decoding`, both set, neither set). With
   only `decoding` set, the converter that `createExecutionContext` builds (client factory mocked)
-  decodes a message; with `encodingType`, a body that starts with the gzip magic bytes is decoded
-  as it is, not gunzipped. A bad message reaches a mocked `DlqWriter` as the body alone, with the
+  decodes a message; with `encodingType`, a body that starts with the gzip magic bytes is not
+  gunzipped: it is decoded as it is, or refused for csv and text (4.1 item 8). A bad message reaches a mocked `DlqWriter` as the body alone, with the
   new text.
 - **IoT Hub:** a differential test runs the same events through `IotHubRawDataConverter` (with
   the `encodingType`'s legacy deserializer) and `IotHubMessageConverter` (with that

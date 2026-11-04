@@ -213,15 +213,21 @@ classification is never repeated in a format.
 Every codec follows the same rules: concatenated streams are all read, bytes after the last stream
 that do not start another one are `CORRUPT_COMPRESSION`, and input with no bytes decodes to nothing.
 
-`csv` and `text` read any bytes as characters, so with an empty `compression` they would turn
-compressed data into garbage records. They refuse input that starts with the signature of `gzip`,
-`zstd`, `xz`, `bzip2`, `lz4` or `snappy`: one terminal `MALFORMED` outcome and no records.
-`deflate` and raw blocks have no reliable signature and are not recognized, and `auto` keeps
-passing through anything but gzip. Other formats already fail on such input. A `csv` or `text` input in a single-byte or UTF-16 charset that really starts
-with those bytes must be read with another format.
 gzip and deflate hand on everything they decoded before damaged data. The other codecs are read at
 most 256 bytes at a time, because a library that fails drops what it decoded in that call, so up to
 255 bytes decoded just before the damage can be lost.
+
+`csv` and `text` read any bytes as characters, so with an empty `compression` they would turn
+compressed data into garbage records. They refuse input that starts with a compression signature:
+one terminal `MALFORMED` outcome and no records. The signatures are those of `gzip`, `zstd`, `xz`,
+`bzip2` (with a data block or empty), `lz4`, `snappy` framing, a skippable frame of `zstd` or `lz4`,
+and `deflate` with the zlib headers `78 9c` and `78 da`. Text that starts with one of them is
+refused too.
+
+Some compressed data is still read as characters: `deflate` with the headers `78 01` and `78 5e`
+(text can start with them), raw blocks, and anything but gzip when `compression` is `auto`. Other
+formats report failures on compressed data, though `auto` format frames the input first and can
+also emit `unrecognized_text` records.
 
 Compression inside avro and parquet belongs to those formats and is not configured here.
 

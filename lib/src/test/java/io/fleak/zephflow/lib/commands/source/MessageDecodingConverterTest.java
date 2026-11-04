@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_RAW;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -762,10 +763,11 @@ class MessageDecodingConverterTest {
             MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, true),
             MessageDecodingConverter.Unit.MESSAGE);
 
-    ConvertedResult<SerializedEvent> result =
-        converter.convert(new SerializedEvent(null, gzip("x"), null), context);
+    SerializedEvent message = new SerializedEvent(null, gzip("x"), null);
 
-    assertNull(result.error());
+    assertEquals(
+        ConvertedResult.success(List.of(record(Map.of(FIELD_NAME_RAW, "x"))), message),
+        converter.convert(message, context));
   }
 
   private static byte[] gzip(String text) throws IOException {

@@ -453,7 +453,9 @@ The first plan is the version of this design that was agreed before implementati
   rewritten. The error log and `read_error` show it. When no other file of the run finishes (3.1),
   the run fails. If the runner retries a failed run, each attempt emits the batches decoded
   before the failure again and writes its record entries again. The old code did the same for its
-  read errors.
+  read errors. A csv or text file with no compression configured that starts with a compression
+  signature is different: it fails as `MALFORMED`, gets a summary entry and is done, so correcting
+  the compression does not read it again. It must be uploaded under a new name.
 - A run killed while copying can leave one copy of up to `localSpoolMaxBytes`. A copy in the
   working directory is removed only by a runner that deletes the task's working directory; a copy
   under `java.io.tmpdir` is never removed (6.1).

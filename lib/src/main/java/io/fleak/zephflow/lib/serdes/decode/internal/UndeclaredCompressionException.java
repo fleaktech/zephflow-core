@@ -19,8 +19,6 @@ public final class UndeclaredCompressionException extends RuntimeException {
     super(
         "The data starts with a "
             + codec
-            + " signature, but no compression is configured. Set compression to \""
-            + codec
-            + "\".");
+            + " signature, but no compression is configured. Set the compression the data uses.");
   }
 }

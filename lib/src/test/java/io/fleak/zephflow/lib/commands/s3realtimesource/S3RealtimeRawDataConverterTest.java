@@ -38,6 +38,8 @@ import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -323,6 +325,26 @@ class S3RealtimeRawDataConverterTest {
                     HEAP,
                     4 * MIB),
                 message("data.jsonl.gz"))
+            .records());
+  }
+
+  @Test
+  void aGzipObjectReadAsTextWithNoCompressionGivesNoRecords() {
+    stub("data.log.gz", gzip(utf8("a\nb\n")));
+
+    assertEquals(
+        List.of(),
+        emit(
+                converter(
+                    new S3Decoding(
+                        null,
+                        null,
+                        new DecodingConfig(
+                            List.of(), new TextFormatConfig(null, new FramingConfig.Line(null))),
+                        false),
+                    HEAP,
+                    4 * MIB),
+                message("data.log.gz"))
             .records());
   }
 

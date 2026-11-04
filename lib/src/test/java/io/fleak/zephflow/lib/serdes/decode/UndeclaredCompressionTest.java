@@ -25,6 +25,8 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.stream.Stream;
+import java.util.zip.Deflater;
+import java.util.zip.DeflaterOutputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorOutputStream;
 import org.apache.commons.compress.compressors.snappy.FramedSnappyCompressorOutputStream;
@@ -42,6 +44,7 @@ class UndeclaredCompressionTest {
   private static final String TEXT_MULTILINE =
       "{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"^a\"}}";
   private static final String CSV = "{\"type\":\"csv\"}";
+  private static final byte[] SKIPPABLE_FRAME = {0x50, 0x2a, 0x4d, 0x18, 1, 0, 0, 0, 0};
 
   @FunctionalInterface
   private interface Compressor {
@@ -69,7 +72,19 @@ class UndeclaredCompressionTest {
             Arguments.of("xz", compress(out -> new XZOutputStream(out, new LZMA2Options(6)))),
             Arguments.of("bzip2", compress(BZip2CompressorOutputStream::new)),
             Arguments.of("lz4", compress(FramedLZ4CompressorOutputStream::new)),
-            Arguments.of("snappy", compress(FramedSnappyCompressorOutputStream::new)))
+            Arguments.of("snappy", compress(FramedSnappyCompressorOutputStream::new)),
+            Arguments.of("deflate", compress(DeflaterOutputStream::new)),
+            Arguments.of(
+                "deflate",
+                compress(
+                    out -> new DeflaterOutputStream(out, new Deflater(Deflater.BEST_COMPRESSION)))),
+            Arguments.of(
+                "bzip2",
+                new byte[] {'B', 'Z', 'h', '9', 0x17, 0x72, 0x45, 0x38, 0x50, (byte) 0x90}),
+            Arguments.of("zstd or lz4", concat(SKIPPABLE_FRAME, Zstd.compress(utf8("a,b\n1,2\n")))),
+            Arguments.of(
+                "zstd or lz4",
+                concat(SKIPPABLE_FRAME, compress(FramedLZ4CompressorOutputStream::new))))
         .flatMap(
             codec ->
                 Stream.of(TEXT_LINE, TEXT_WHOLE, TEXT_MULTILINE, CSV)
@@ -88,9 +103,8 @@ class UndeclaredCompressionTest {
                 RawSpan.toEnd(0),
                 "UndeclaredCompressionException: The data starts with a "
                     + codec
-                    + " signature, but no compression is configured. Set compression to \""
-                    + codec
-                    + "\".",
+                    + " signature, but no compression is configured. Set the compression the data"
+                    + " uses.",
                 true)),
         decode(config("[]", format), bytes));
   }
@@ -105,7 +119,7 @@ class UndeclaredCompressionTest {
                 1,
                 RawSpan.toEnd(0),
                 "UndeclaredCompressionException: The data starts with a gzip signature, but no"
-                    + " compression is configured. Set compression to \"gzip\".",
+                    + " compression is configured. Set the compression the data uses.",
                 true)),
         decode("{\"format\":" + TEXT_LINE + "}", gzip("x\n")));
   }
@@ -132,6 +146,24 @@ class UndeclaredCompressionTest {
   }
 
   @Test
+  void textThatStartsLikeAWeakZlibHeaderIsRead() {
+    assertEquals(
+        List.of(new Ok(raw("x^2 + 1"), 1, new RawSpan(0, 7))),
+        decode(config("[]", TEXT_LINE), utf8("x^2 + 1\n")));
+  }
+
+  @Test
+  void aLineThatStartsLikeBzip2IsNotHeldBack() throws SourceReadException {
+    try (RecordCursor cursor =
+        decoder(config("[]", TEXT_LINE))
+            .open(() -> oneChunkThenBlocks("BZh\n"), DecodeLimits.UNLIMITED)) {
+      assertEquals(
+          new Ok(raw("BZh"), 1, new RawSpan(0, 3)),
+          view(assertInstanceOf(DecodeOutcome.Decoded.class, cursor.next())));
+    }
+  }
+
+  @Test
   void inputShorterThanASignatureIsRead() {
     assertEquals(
         List.of(new Ok(raw("BZ"), 1, new RawSpan(0, 2))),
@@ -145,33 +177,35 @@ class UndeclaredCompressionTest {
 
   @Test
   void readsNoMoreThanItNeedsToDecide() throws SourceReadException {
-    InputStream oneLineThenBlocks =
-        new InputStream() {
-          private boolean served;
-
-          @Override
-          public int read() {
-            throw new AssertionError("read past the first chunk");
-          }
-
-          @Override
-          public int read(byte[] b, int off, int len) {
-            if (served) {
-              throw new AssertionError("read past the first chunk");
-            }
-            served = true;
-            b[off] = 'a';
-            b[off + 1] = '\n';
-            return 2;
-          }
-        };
-
     try (RecordCursor cursor =
-        decoder(config("[]", TEXT_LINE)).open(() -> oneLineThenBlocks, DecodeLimits.UNLIMITED)) {
+        decoder(config("[]", TEXT_LINE))
+            .open(() -> oneChunkThenBlocks("a\n"), DecodeLimits.UNLIMITED)) {
       assertEquals(
           new Ok(raw("a"), 1, new RawSpan(0, 1)),
           view(assertInstanceOf(DecodeOutcome.Decoded.class, cursor.next())));
     }
+  }
+
+  private static InputStream oneChunkThenBlocks(String chunk) {
+    byte[] bytes = utf8(chunk);
+    return new InputStream() {
+      private boolean served;
+
+      @Override
+      public int read() {
+        throw new AssertionError("read past the first chunk");
+      }
+
+      @Override
+      public int read(byte[] b, int off, int len) {
+        if (served) {
+          throw new AssertionError("read past the first chunk");
+        }
+        served = true;
+        System.arraycopy(bytes, 0, b, off, bytes.length);
+        return bytes.length;
+      }
+    };
   }
 
   @Test
