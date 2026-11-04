@@ -80,6 +80,10 @@ Each command has a static `decodingConfig(config)` that returns
 compiles and the command uses. With `encodingType`, nothing is decompressed, as today (IoT Hub's
 decompressor was built with no codecs). With `decoding`, its `compression` applies.
 
+An empty compression list refuses csv and text input that starts with a compression signature
+(generic decoder spec 4.1), so a compressed message on these sources is now a `MALFORMED` failure
+with either setting, where it used to give garbage records.
+
 ### 3.3 Outcomes, DLQ and commit
 
 As in the message-source spec 3.3, unit `message`: the same first lines, `Action:` lines,

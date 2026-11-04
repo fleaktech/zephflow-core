@@ -212,6 +212,13 @@ classification is never repeated in a format.
 
 Every codec follows the same rules: concatenated streams are all read, bytes after the last stream
 that do not start another one are `CORRUPT_COMPRESSION`, and input with no bytes decodes to nothing.
+
+`csv` and `text` read any bytes as characters, so with an empty `compression` they would turn
+compressed data into garbage records. They refuse input that starts with the signature of `gzip`,
+`zstd`, `xz`, `bzip2`, `lz4` or `snappy`: one terminal `MALFORMED` outcome and no records.
+`deflate` and raw blocks have no reliable signature and are not recognized, and `auto` keeps
+passing through anything but gzip. Other formats already fail on such input. A `csv` or `text` input in a single-byte or UTF-16 charset that really starts
+with those bytes must be read with another format.
 gzip and deflate hand on everything they decoded before damaged data. The other codecs are read at
 most 256 bytes at a time, because a library that fails drops what it decoded in that call, so up to
 255 bytes decoded just before the damage can be lost.

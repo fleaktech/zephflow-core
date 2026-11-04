@@ -78,6 +78,9 @@ FileSource reads its whole file as one message, as today. Its files are assumed 
   only yields `AUTO` or `GZIP`, so for the six the source builds
   `new DecodingConfig(List.of(), <the mapped format>)`: an empty compression list decompresses
   nothing.
+  It also refuses csv and text input that starts with a compression signature (generic decoder
+  spec 4.1). `AUTO` is not an empty list, so a Kafka value compressed with anything but gzip still
+  passes through.
 
 Kinesis's `compressionTypes` is not carried over. Its validator rejects a non-empty
 `compressionTypes` and says to set `decoding` with the compression instead.

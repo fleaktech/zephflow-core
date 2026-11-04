@@ -741,6 +741,33 @@ class MessageDecodingConverterTest {
     };
   }
 
+  @Test
+  void aLegacyTextSourceWithoutDetectionRefusesAGzipMessage() throws IOException {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, false),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    ConvertedResult<SerializedEvent> result =
+        converter.convert(new SerializedEvent(null, gzip("x"), null), context);
+
+    assertEquals(
+        "MALFORMED text message: UndeclaredCompressionException", result.error().getMessage());
+  }
+
+  @Test
+  void aLegacyTextSourceWithDetectionStillReadsAGzipMessage() throws IOException {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, true),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    ConvertedResult<SerializedEvent> result =
+        converter.convert(new SerializedEvent(null, gzip("x"), null), context);
+
+    assertNull(result.error());
+  }
+
   private static byte[] gzip(String text) throws IOException {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     try (GZIPOutputStream gzip = new GZIPOutputStream(out)) {
