@@ -37,7 +37,7 @@ public class S3SinkConfigValidator implements ConfigValidator {
       new WriterCapability(
           COMMAND_NAME_S3_SINK,
           Unit.MANY_RECORDS,
-          Set.of("csv", "json", "kv", "parquet"),
+          Set.of("csv", "json", "kv", "parquet", "text"),
           Set.of(JsonFormatConfig.Mode.ARRAY, JsonFormatConfig.Mode.LINES),
           false,
           Set.of(DecompressionCodec.GZIP));
