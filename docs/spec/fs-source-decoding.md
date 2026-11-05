@@ -52,9 +52,10 @@ start of a chunk, not from the start of the file.
 ### 3.1 Per file
 
 A run lists, filters and selects files as before. It checks whether it was told to terminate
-before each file, as before, and does not itself stop a file part way. `terminate()` also closes
-the lister, the backend reader, the checkpoint client and the DLQ writer, as before, so a file
-being read at that moment can fail. The selected files are handled one at a time, in order:
+before each file, as before, and does not itself stop a file part way. `requestStop()` stops before
+the next file and lets the file being read finish. `terminate()` calls it and also closes the
+lister, the backend reader, the checkpoint client and the DLQ writer, as before, so a file being
+read at that moment can fail. The selected files are handled one at a time, in order:
 
 1. The file's bytes are made available (3.2). A failure here is a read failure (3.3).
 2. The compiled `RecordDecoder` decodes the bytes, with the limits of 3.4.
