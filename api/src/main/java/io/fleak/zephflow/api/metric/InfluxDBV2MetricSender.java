@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.Data;
+import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -241,7 +242,7 @@ public class InfluxDBV2MetricSender implements AutoCloseable {
     private String org;
     private String bucket;
     private String measurement;
-    private String token;
+    @ToString.Exclude private String token;
 
     private int batchSize = 5000;
     private int flushInterval = 500;

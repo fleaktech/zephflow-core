@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import lombok.Builder;
 import lombok.Data;
+import lombok.ToString;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,7 +46,7 @@ public final class SplunkMetricSender implements AutoCloseable {
   @Builder
   public static class SplunkConfig {
     String hecUrl;
-    String token;
+    @ToString.Exclude String token;
     String source;
     String index;
 
