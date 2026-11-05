@@ -147,7 +147,13 @@ decoder's message, the object, sizes, counts, indexes) comes after it:
 | Object summary | `<MALFORMED or CORRUPT_COMPRESSION> <format> object: <exception class>`, `OVERSIZED <format> object: <limit>`, or `READ_FAILURE s3 object: <exception class>` |
 | Object over `maxObjectSizeBytes` | `OBJECT_TOO_LARGE s3 object` |
 | Notification that does not parse (the fetcher) | `MALFORMED s3 notification` |
+| JSON message that is not an S3 event notification (the fetcher) | `NOT_S3_NOTIFICATION sqs message` |
 | Message received more than `maxRetries` times (the fetcher) | `RETRIES_EXCEEDED s3 notification` |
+
+The fetcher treats a message as an S3 event notification when it is a JSON object (directly or as an
+SNS `Notification`'s `Message`) with a `Records` array whose every record has an `s3` object. It
+acknowledges `s3:TestEvent`, S3 events other than `ObjectCreated:*`, and SNS
+`SubscriptionConfirmation` / `UnsubscribeConfirmation` messages without an entry.
 | Downstream summary | Today's: the first line of the `NodeExecutionException`'s stack trace, which carries the failing node's error |
 
 `<format>` is the decoding format's type (`json`, `csv`, `text`, ...). The exception class is the
@@ -164,7 +170,7 @@ task's heap (3.4), so where more memory raises a limit the action says so, with 
 the heap when it is known ("1/128 of the task's heap, so give the task a heap of at least 128 times
 the record's size"); where nothing raises it, the action says how to write the file. Every object
 summary's action ends "then re-upload the object or send this notification again". The fetcher's
-two entries carry an action too.
+three entries carry an action too.
 
 | Entry | Action |
 |---|---|
@@ -182,6 +188,7 @@ two entries carry an action too.
 | `zstd native memory` | The worker ran out of memory outside the Java heap: give the worker more memory or run fewer tasks on it, or retry if it was momentary |
 | `format maximum` | Write smaller pieces (avro blocks, protobuf messages, a smaller parquet footer); no setting raises it |
 | `MALFORMED s3 notification` | Check that only S3 event notifications in S3's JSON format are sent to the queue |
+| `NOT_S3_NOTIFICATION sqs message` | To read ordinary events from the queue, use the AWS SQS source instead; for S3 events routed through EventBridge, send S3 event notifications to the queue directly or through SNS; otherwise stop whatever sends them |
 | `RETRIES_EXCEEDED s3 notification` | Check the source's earlier DLQ entries and logs, raise `visibilityTimeoutSeconds` so a receive finishes in time (or lower `maxNumberOfMessages`), or raise `maxRetries`; then send the notification again |
 
 - A **record entry**'s value is the record's bytes, whole. Unlike FsSource's entries, it has no
@@ -211,7 +218,12 @@ two entries carry an action too.
   (generic-decoder Appendix A) is deferred: it needs a format marker that DLQ readers, replay and
   the DLQ schema understand first.
 
-Without a configured DLQ, failures are logged and dropped, as today.
+Without a configured DLQ, failures are logged and dropped, as today, with one exception: a
+`MALFORMED s3 notification` or `NOT_S3_NOTIFICATION sqs message` is logged at WARN and left in the
+queue, so SQS redelivers it after `visibilityTimeoutSeconds` until the queue's retention or redrive
+policy removes it. Both are counted in `deserializeFailureCount` on every receive, with or without a
+DLQ, so a source pointed at a queue that does not carry S3 notifications shows errors instead of
+draining the queue.
 
 ### 3.4 Limits and memory
 
@@ -353,7 +365,9 @@ no limits hit, the records of valid input are the same, except:
   which follow on the next lines, after an `Action:` line. Downstream entries keep today's first
   line. The fetcher's two entries, which legacy wrote as `failed to parse S3 event notification:
   <message>` and `exceeded maxRetries=<n>`, now start with `MALFORMED s3 notification` and
-  `RETRIES_EXCEEDED s3 notification`, with that text after the action.
+  `RETRIES_EXCEEDED s3 notification`, with that text after the action. A JSON message that is not an
+  S3 notification, which legacy acknowledged and deleted with no entry, now becomes
+  `NOT_S3_NOTIFICATION sqs message`.
 - **A failed DLQ write of a downstream summary is logged and the message acknowledged** (D12), as
   for the converter's other entries. Legacy wrote downstream entries through the framework, where a
   write that throws ended the source and SQS delivered the message again. `S3DlqWriter` logs failed
