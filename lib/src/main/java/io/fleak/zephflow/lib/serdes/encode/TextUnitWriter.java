@@ -22,7 +22,6 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-/** Writes each record's {@code __raw__} text unchanged; a file ends every record with LF. */
 record TextUnitWriter(boolean lineFeedAfterEachRecord) implements UnitWriter {
 
   @Override
