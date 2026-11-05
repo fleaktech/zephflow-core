@@ -20,9 +20,10 @@ import com.google.pubsub.v1.PubsubMessage;
 import com.google.pubsub.v1.PullRequest;
 import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
+import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
-import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +34,8 @@ import lombok.extern.slf4j.Slf4j;
 public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
 
   private static final int ACK_CHUNK_SIZE = 1000;
+  // Acks handled messages in one request per second at most, and at the end of each pull.
+  private static final CommitStrategy COMMIT_STRATEGY = BatchCommitStrategy.ofInterval(1000);
 
   private final SubscriberStub subscriberStub;
   private final String subscriptionPath;
@@ -40,6 +43,7 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
   private final boolean returnImmediately;
   private final int ackDeadlineExtensionSeconds;
   private final ConcurrentLinkedQueue<String> pendingAckIds = new ConcurrentLinkedQueue<>();
+  private final FetchProgress<String> progress = new FetchProgress<>();
 
   public PubSubSourceFetcher(
       SubscriberStub subscriberStub,
@@ -68,6 +72,7 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
 
     if (received.isEmpty()) {
       log.debug("No messages received from Pub/Sub subscription: {}", subscriptionPath);
+      pendingAckIds.addAll(progress.next(List.of()));
       return List.of();
     }
 
@@ -97,8 +102,8 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
       result.add(
           new PubSubReceivedMessage(
               message.getData().toByteArray(), message.getMessageId(), rm.getAckId()));
-      pendingAckIds.add(rm.getAckId());
     }
+    pendingAckIds.addAll(progress.next(received.stream().map(ReceivedMessage::getAckId).toList()));
 
     log.debug("Fetched {} messages from Pub/Sub subscription: {}", result.size(), subscriptionPath);
     return result;
@@ -111,20 +116,34 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
 
   @Override
   public Committer committer() {
-    return () -> {
-      List<String> ackIds = new ArrayList<>();
-      String ackId;
-      while ((ackId = pendingAckIds.poll()) != null) {
-        ackIds.add(ackId);
-        if (ackIds.size() >= ACK_CHUNK_SIZE) {
-          ackChunk(ackIds);
-          ackIds.clear();
-        }
+    return new Committer() {
+      @Override
+      public void commit() {
+        pendingAckIds.addAll(progress.rest());
+        ackPending();
       }
-      if (!ackIds.isEmpty()) {
-        ackChunk(ackIds);
+
+      @Override
+      public void commitThrough(int handledRecords) {
+        pendingAckIds.addAll(progress.through(handledRecords));
+        ackPending();
       }
     };
+  }
+
+  private void ackPending() {
+    List<String> ackIds = new ArrayList<>();
+    String ackId;
+    while ((ackId = pendingAckIds.poll()) != null) {
+      ackIds.add(ackId);
+      if (ackIds.size() >= ACK_CHUNK_SIZE) {
+        ackChunk(ackIds);
+        ackIds.clear();
+      }
+    }
+    if (!ackIds.isEmpty()) {
+      ackChunk(ackIds);
+    }
   }
 
   private void ackChunk(List<String> ackIds) {
@@ -147,7 +166,7 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
 
   @Override
   public CommitStrategy commitStrategy() {
-    return PerRecordCommitStrategy.INSTANCE;
+    return COMMIT_STRATEGY;
   }
 
   @Override

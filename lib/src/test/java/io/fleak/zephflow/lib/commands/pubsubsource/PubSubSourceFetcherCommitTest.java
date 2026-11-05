@@ -28,6 +28,10 @@ import com.google.pubsub.v1.PullRequest;
 import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -133,5 +137,68 @@ class PubSubSourceFetcherCommitTest {
 
     assertDoesNotThrow(() -> fetcher.committer().commit());
     verify(ackCallable).call(any(AcknowledgeRequest.class));
+  }
+
+  @Test
+  void commitThroughAcknowledgesOnlyHandledMessages() throws Exception {
+    PubSubSourceFetcher fetcher = new PubSubSourceFetcher(stub, SUBSCRIPTION_PATH, 10, false, 0);
+    List<List<String>> acked = new ArrayList<>();
+    when(ackCallable.call(any(AcknowledgeRequest.class)))
+        .thenAnswer(
+            call -> {
+              acked.add(List.copyOf(call.<AcknowledgeRequest>getArgument(0).getAckIdsList()));
+              return Empty.getDefaultInstance();
+            });
+    when(pullCallable.call(any(PullRequest.class)))
+        .thenReturn(
+            PullResponse.newBuilder()
+                .addReceivedMessages(rm("a-1", "m-1"))
+                .addReceivedMessages(rm("a-2", "m-2"))
+                .addReceivedMessages(rm("a-3", "m-3"))
+                .build())
+        .thenReturn(PullResponse.newBuilder().addReceivedMessages(rm("a-4", "m-4")).build());
+    Fetcher.Committer committer = fetcher.committer();
+
+    fetcher.fetch();
+    committer.commitThrough(1);
+    committer.commitThrough(2);
+    fetcher.fetch();
+    committer.commitThrough(1);
+
+    assertEquals(List.of(List.of("a-1"), List.of("a-2"), List.of("a-3", "a-4")), acked);
+  }
+
+  @Test
+  void theLoopAcksEveryHandledMessageByTheEndOfThePull() {
+    List<List<String>> acked = recordAcks();
+    PubSubSourceFetcher fetcher = pulling("a-1", "a-2", "a-3");
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> record == 3),
+        mock(DlqWriter.class));
+
+    assertEquals(List.of("a-1", "a-2", "a-3"), acked.stream().flatMap(List::stream).toList());
+  }
+
+  private List<List<String>> recordAcks() {
+    List<List<String>> acked = new ArrayList<>();
+    when(ackCallable.call(any(AcknowledgeRequest.class)))
+        .thenAnswer(
+            call -> {
+              acked.add(List.copyOf(call.<AcknowledgeRequest>getArgument(0).getAckIdsList()));
+              return Empty.getDefaultInstance();
+            });
+    return acked;
+  }
+
+  private PubSubSourceFetcher pulling(String... ackIds) {
+    PullResponse.Builder response = PullResponse.newBuilder();
+    for (String ackId : ackIds) {
+      response.addReceivedMessages(rm(ackId, "m-" + ackId));
+    }
+    when(pullCallable.call(any(PullRequest.class))).thenReturn(response.build());
+    return new PubSubSourceFetcher(stub, SUBSCRIPTION_PATH, 10, false, 0);
   }
 }
