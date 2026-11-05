@@ -386,7 +386,8 @@ class SimpleSourceCommandBatchEmittingTest {
     }
 
     @Override
-    RawDataSampler<String> createRawDataSampler(RawDataEncoder<String> encoder) {
+    RawDataSampler<String> createRawDataSampler(
+        RawDataEncoder<String> encoder, RawDataConverter<String> converter) {
       return sampler;
     }
   }
