@@ -63,8 +63,6 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
   private final FetchProgress<ShardRecord> progress = new FetchProgress<>();
   private final Map<String, ShardRecord> latestHandledByShard = new LinkedHashMap<>();
-  // Read by the shard processors on KCL threads.
-  private final Map<String, ShardRecord> lastCheckpointedByShard = new ConcurrentHashMap<>();
   // For each event of the latest fetch, the number of drained records up to and including its own.
   private int[] drainedThroughEvent = new int[0];
 
@@ -93,7 +91,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
         AwsClientFactory.getCloudWatchAsyncClient(
             region, config.getCloudWatchEndpoint(), credentialsProvider);
 
-    var recordProcessorFactory = new RecordProcessorFactory(recordQueue, lastCheckpointedByShard);
+    var recordProcessorFactory = new RecordProcessorFactory(recordQueue);
     ConfigsBuilder configsBuilder =
         new ConfigsBuilder(
             config.getStreamName(),
@@ -128,7 +126,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   KinesisSourceFetcher() {}
 
   ShardRecordProcessor newShardRecordProcessor() {
-    return new ZephflowShardRecordProcessor(recordQueue, lastCheckpointedByShard);
+    return new ZephflowShardRecordProcessor(recordQueue);
   }
 
   public void start() {
@@ -274,7 +272,6 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
         handled
             .checkpointer()
             .checkpoint(handled.record().sequenceNumber(), handled.record().subSequenceNumber());
-        lastCheckpointedByShard.put(handled.shardId(), handled);
       } catch (Exception e) {
         log.error("Failed to checkpoint shard {}", handled.shardId(), e);
       }
@@ -305,12 +302,8 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
     private final BlockingQueue<ShardRecord> records;
 
-    private final Map<String, ShardRecord> lastCheckpointedByShard;
-
-    private RecordProcessorFactory(
-        BlockingQueue<ShardRecord> records, Map<String, ShardRecord> lastCheckpointedByShard) {
+    private RecordProcessorFactory(BlockingQueue<ShardRecord> records) {
       this.records = records;
-      this.lastCheckpointedByShard = lastCheckpointedByShard;
     }
 
     @Override
@@ -320,7 +313,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
     @Override
     public ShardRecordProcessor shardRecordProcessor() {
-      return new ZephflowShardRecordProcessor(records, lastCheckpointedByShard);
+      return new ZephflowShardRecordProcessor(records);
     }
   }
 
@@ -330,13 +323,9 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     private final BlockingQueue<ShardRecord> records;
     private String shardId;
 
-    private final Map<String, ShardRecord> lastCheckpointedByShard;
-
-    private ZephflowShardRecordProcessor(
-        BlockingQueue<ShardRecord> records, Map<String, ShardRecord> lastCheckpointedByShard) {
+    private ZephflowShardRecordProcessor(BlockingQueue<ShardRecord> records) {
       log.info("Starting ZephflowShardRecordProcessor processor");
       this.records = records;
-      this.lastCheckpointedByShard = lastCheckpointedByShard;
     }
 
     @Override
@@ -382,20 +371,8 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
     @Override
     public void shutdownRequested(ShutdownRequestedInput shutdownRequestedInput) {
+      // Records still queued here are not handled yet; the source checkpoints what it handles.
       log.info("Shutdown requested: {}", shutdownRequestedInput);
-      // Queued records may not be handled yet, so only the source's last checkpoint is repeated.
-      ShardRecord checkpointed = lastCheckpointedByShard.get(shardId);
-      if (checkpointed == null) {
-        return;
-      }
-      try {
-        shutdownRequestedInput
-            .checkpointer()
-            .checkpoint(
-                checkpointed.record().sequenceNumber(), checkpointed.record().subSequenceNumber());
-      } catch (Exception e) {
-        log.error("Error checkpointing at shutdown requested: {}", e, e);
-      }
     }
   }
 }

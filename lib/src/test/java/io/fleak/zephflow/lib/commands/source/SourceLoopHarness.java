@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.IntPredicate;
 
-/** Runs the real {@link SimpleSourceCommand} loop over the first fetch of a fetcher. */
+/** Runs the real {@link SimpleSourceCommand} loop over the first fetches of a fetcher. */
 public final class SourceLoopHarness {
 
   private static final Map<String, Object> CONFIG = Map.of("k", "v");

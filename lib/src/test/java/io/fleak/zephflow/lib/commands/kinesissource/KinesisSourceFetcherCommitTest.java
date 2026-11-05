@@ -150,18 +150,4 @@ class KinesisSourceFetcherCommitTest {
 
     assertEquals(List.of(List.of("shard-1@1"), List.of("shard-1@2", "shard-2@10")), perCommit);
   }
-
-  @Test
-  void aShutdownRequestRepeatsOnlyTheLastCheckpointOfItsShard() throws Exception {
-    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
-    RecordProcessorCheckpointer shard1 = checkpointer("shard-1");
-    ShardRecordProcessor processor =
-        deliver(fetcher, "shard-1", shard1, record("1"), record("2"), record("3"));
-    fetcher.fetch();
-    fetcher.committer().commitThrough(1);
-
-    processor.shutdownRequested(ShutdownRequestedInput.builder().checkpointer(shard1).build());
-
-    assertEquals(List.of("shard-1@1", "shard-1@1"), checkpoints);
-  }
 }
