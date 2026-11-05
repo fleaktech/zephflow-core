@@ -28,8 +28,11 @@ import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.KvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.OtlpFormatConfig;
@@ -124,7 +127,7 @@ public final class EncodingCompiler {
       case AvroFormatConfig f -> throw unwritable(capability, f);
       case OtlpFormatConfig f -> throw unwritable(capability, f);
       case ProtobufFormatConfig f -> throw unwritable(capability, f);
-      case TextFormatConfig f -> throw unwritable(capability, f);
+      case TextFormatConfig text -> text(text, config, capability);
       case XmlFormatConfig f -> throw unwritable(capability, f);
       case YamlFormatConfig f -> throw unwritable(capability, f);
     };
@@ -324,6 +327,34 @@ public final class EncodingCompiler {
         new KvUnitWriter(fields, pairDelimiter, Boolean.TRUE.equals(kv.cleanFields())),
         "raw",
         gzip);
+  }
+
+  private static Plan text(
+      TextFormatConfig text, EncodingConfig config, WriterCapability capability) {
+    String sink = capability.sink();
+    requireFormat(capability, text);
+    boolean gzip = gzipped(config.compression(), capability);
+    if (text.charset() != null && !isUtf8(text.charset())) {
+      throw new IllegalArgumentException(
+          sink
+              + ": text option charset "
+              + text.charset()
+              + " cannot be used when writing; text is written as UTF-8");
+    }
+    try {
+      DecodingConfigCompiler.compile(new DecodingConfig(null, text));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(sink + ": " + e.getMessage(), e);
+    }
+    boolean manyRecords = capability.unit() == Unit.MANY_RECORDS;
+    if (manyRecords && text.framing() instanceof FramingConfig.Whole) {
+      throw new IllegalArgumentException(
+          sink
+              + ": text framing whole holds one record and "
+              + sink
+              + " writes many records per unit; use framing line or multiline");
+    }
+    return new Text(new TextUnitWriter(manyRecords), "txt", gzip);
   }
 
   private static Plan parquet(
