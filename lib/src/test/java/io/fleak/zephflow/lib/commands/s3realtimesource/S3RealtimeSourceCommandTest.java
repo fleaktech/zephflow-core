@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_DESER_ERR_COUNT;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -167,6 +168,45 @@ class S3RealtimeSourceCommandTest {
     verify(sqs).close();
     verify(europe).close();
     verify(west).close();
+  }
+
+  @Test
+  void notS3MessageCountsAsDeserializeFailureOnThePanelCounter() throws Exception {
+    AwsClientFactory factory = mock(AwsClientFactory.class);
+    SqsClient sqs = mock(SqsClient.class);
+    when(factory.createSqsClient(any(), any())).thenReturn(sqs);
+    when(sqs.receiveMessage(any(ReceiveMessageRequest.class)))
+        .thenReturn(
+            ReceiveMessageResponse.builder()
+                .messages(
+                    Message.builder()
+                        .messageId("m")
+                        .receiptHandle("r")
+                        .body("{\"event_id\":1}")
+                        .build())
+                .build());
+    FleakCounter deserFailures = mock(FleakCounter.class);
+    FleakCounter other = mock(FleakCounter.class);
+    MetricClientProvider metrics = mock(MetricClientProvider.class);
+    when(metrics.counter(anyString(), anyMap())).thenReturn(other);
+    when(metrics.counter(eq(METRIC_NAME_INPUT_DESER_ERR_COUNT), anyMap()))
+        .thenReturn(deserFailures);
+    S3RealtimeSourceCommand command =
+        new S3RealtimeSourceCommand(
+            "node",
+            TestUtils.buildJobContext(new HashMap<>()),
+            new JsonConfigParser<>(S3RealtimeSourceDto.Config.class),
+            new S3RealtimeSourceConfigValidator(),
+            factory);
+    command.parseAndValidateArg(config());
+    command.initialize(metrics);
+    INITIALIZED.add(command);
+
+    assertTrue(context(command).fetcher().fetch().isEmpty());
+
+    verify(deserFailures).increase(Map.of());
+    verifyNoInteractions(other);
+    verify(sqs, never()).deleteMessage(any(DeleteMessageRequest.class));
   }
 
   @Test

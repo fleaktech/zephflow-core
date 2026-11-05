@@ -129,6 +129,7 @@ public class S3RealtimeSourceCommand extends SimpleSourceCommand<S3EventMessage>
             orDefault(config.getMaxRetries(), S3RealtimeSourceDto.DEFAULT_MAX_RETRIES),
             dlqWriter,
             nodeId,
+            deserializeFailureCounter,
             confirmedReceiptHandles);
 
     // The converter dead-letters its own failures, downstream ones included; the framework writes

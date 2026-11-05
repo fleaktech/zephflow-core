@@ -99,7 +99,70 @@ class S3EventNotificationParserTest {
 
   @Test
   void parse_malformedThrows() {
-    assertThrows(IllegalArgumentException.class, () -> parse("not json"));
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> parse("not json"));
+    assertFalse(e instanceof S3EventNotificationParser.NotS3NotificationException);
+  }
+
+  @Test
+  void parse_snsWrappedTestEventReturnsEmpty() {
+    String inner = "{\"Service\":\"Amazon S3\",\"Event\":\"s3:TestEvent\",\"Bucket\":\"b\"}";
+    assertEquals(List.of(), parse("{\"Type\":\"Notification\",\"Message\":" + quote(inner) + "}"));
+  }
+
+  @Test
+  void parse_snsSubscriptionHandshakeReturnsEmpty() {
+    for (String type : List.of("SubscriptionConfirmation", "UnsubscribeConfirmation")) {
+      String body =
+          "{\"Type\":\""
+              + type
+              + "\",\"TopicArn\":\"arn:aws:sns:us-east-1:123:topic\",\"Message\":\"You have chosen"
+              + " to subscribe\",\"SubscribeURL\":\"https://sns.us-east-1.amazonaws.com/?Action=x\"}";
+      assertEquals(List.of(), parse(body), type);
+    }
+  }
+
+  @Test
+  void parse_eventBridgeS3EventIsNotS3() {
+    assertThrows(
+        S3EventNotificationParser.NotS3NotificationException.class,
+        () ->
+            parse(
+                "{\"version\":\"0\",\"source\":\"aws.s3\",\"detail-type\":\"Object Created\","
+                    + "\"detail\":{\"bucket\":{\"name\":\"b\"},\"object\":{\"key\":\"k\"}}}"));
+  }
+
+  @Test
+  void parse_ordinaryJsonEventIsNotS3() {
+    S3EventNotificationParser.NotS3NotificationException e =
+        assertThrows(
+            S3EventNotificationParser.NotS3NotificationException.class,
+            () -> parse("{\"event_id\":1,\"user\":\"alice\",\"action\":\"login\"}"));
+    assertEquals("not an S3 event notification: no \"Records\" array", e.getMessage());
+  }
+
+  @Test
+  void parse_nonObjectJsonIsNotS3() {
+    for (String body : List.of("[1,2]", "42", "\"text\"", "null")) {
+      assertThrows(
+          S3EventNotificationParser.NotS3NotificationException.class, () -> parse(body), body);
+    }
+  }
+
+  @Test
+  void parse_recordsWithoutS3ObjectAreNotS3() {
+    S3EventNotificationParser.NotS3NotificationException e =
+        assertThrows(
+            S3EventNotificationParser.NotS3NotificationException.class,
+            () -> parse("{\"Records\":[{\"id\":1},{\"id\":2}]}"));
+    assertEquals("not an S3 event notification: a record has no \"s3\" object", e.getMessage());
+  }
+
+  @Test
+  void parse_snsWrappedOrdinaryJsonIsNotS3() {
+    assertThrows(
+        S3EventNotificationParser.NotS3NotificationException.class,
+        () -> parse("{\"Type\":\"Notification\",\"Message\":" + quote("{\"a\":1}") + "}"));
   }
 
   @Test
