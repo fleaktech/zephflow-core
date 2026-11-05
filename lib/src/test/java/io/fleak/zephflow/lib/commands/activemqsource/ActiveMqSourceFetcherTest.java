@@ -241,4 +241,31 @@ class ActiveMqSourceFetcherTest {
     verify(mockSession).close();
     verify(mockConnection).close();
   }
+
+  @Test
+  void commitThroughCommitsTheSessionOnlyOnceTheWholeFetchIsHandled() throws Exception {
+    MessageConsumer consumer = mock(MessageConsumer.class);
+    Session session = mock(Session.class);
+    TextMessage message = mock(TextMessage.class);
+    when(message.getText()).thenReturn("{}");
+    when(consumer.receive(1000L)).thenReturn(message);
+    when(consumer.receiveNoWait()).thenReturn(message, message, null);
+    ActiveMqSourceFetcher fetcher =
+        new ActiveMqSourceFetcher(
+            mock(Connection.class),
+            session,
+            consumer,
+            1000L,
+            500,
+            BatchCommitStrategy.ofBatchSize(1));
+    var committer = fetcher.committer();
+
+    assertEquals(3, fetcher.fetch().size());
+    committer.commitThrough(1);
+    committer.commitThrough(2);
+    verify(session, never()).commit();
+
+    committer.commitThrough(3);
+    verify(session).commit();
+  }
 }

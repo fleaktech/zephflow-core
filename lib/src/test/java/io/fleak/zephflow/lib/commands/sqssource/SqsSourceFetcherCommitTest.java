@@ -13,10 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.sqssource;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -116,5 +119,59 @@ class SqsSourceFetcherCommitTest {
     committer.commit();
 
     verify(sqsClient, times(2)).deleteMessage(any(DeleteMessageRequest.class));
+  }
+
+  @Test
+  void commitThroughDeletesOnlyHandledMessages() throws Exception {
+    List<String> deleted = new ArrayList<>();
+    when(sqsClient.deleteMessage(any(DeleteMessageRequest.class)))
+        .thenAnswer(
+            call -> {
+              deleted.add(call.<DeleteMessageRequest>getArgument(0).receiptHandle());
+              return DeleteMessageResponse.builder().build();
+            });
+    when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+        .thenReturn(received("r1", "r2", "r3"))
+        .thenReturn(received("r4", "r5"))
+        .thenReturn(received());
+    Fetcher.Committer committer = fetcher.committer();
+    List<List<String>> deletedPerCommit = new ArrayList<>();
+
+    fetcher.fetch();
+    committer.commitThrough(1);
+    deletedPerCommit.add(drain(deleted));
+    fetcher.fetch();
+    committer.commitThrough(1);
+    deletedPerCommit.add(drain(deleted));
+    committer.commitThrough(2);
+    deletedPerCommit.add(drain(deleted));
+    fetcher.fetch();
+    committer.commit();
+    deletedPerCommit.add(drain(deleted));
+
+    assertEquals(
+        List.of(List.of("r1"), List.of("r2", "r3", "r4"), List.of("r5"), List.of()),
+        deletedPerCommit);
+  }
+
+  private static ReceiveMessageResponse received(String... receiptHandles) {
+    return ReceiveMessageResponse.builder()
+        .messages(
+            Arrays.stream(receiptHandles)
+                .map(
+                    handle ->
+                        Message.builder()
+                            .body("{}")
+                            .messageId(handle)
+                            .receiptHandle(handle)
+                            .build())
+                .toList())
+        .build();
+  }
+
+  private static List<String> drain(List<String> values) {
+    List<String> drained = List.copyOf(values);
+    values.clear();
+    return drained;
   }
 }

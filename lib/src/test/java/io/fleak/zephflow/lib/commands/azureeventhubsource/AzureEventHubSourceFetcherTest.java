@@ -25,6 +25,7 @@ import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -182,5 +183,48 @@ class AzureEventHubSourceFetcherTest {
     fetcher.close();
 
     verify(processorClient).stop(any(Duration.class));
+  }
+
+  @Test
+  void commitThroughCheckpointsOnlyHandledEvents() throws Exception {
+    List<String> checkpointed = new ArrayList<>();
+    EventContext p0a = checkpointRecording(eventContext("0", "a"), "a", checkpointed);
+    EventContext p1b = checkpointRecording(eventContext("1", "b"), "b", checkpointed);
+    EventContext p0c = checkpointRecording(eventContext("0", "c"), "c", checkpointed);
+    EventContext p1d = checkpointRecording(eventContext("1", "d"), "d", checkpointed);
+    BlockingQueue<EventContext> queue = new LinkedBlockingQueue<>(List.of(p0a, p1b, p0c));
+    AzureEventHubSourceFetcher fetcher =
+        new AzureEventHubSourceFetcher(
+            mock(EventProcessorClient.class),
+            queue,
+            500,
+            SHORT_POLL,
+            PerRecordCommitStrategy.INSTANCE);
+    Fetcher.Committer committer = fetcher.committer();
+    List<List<String>> perCommit = new ArrayList<>();
+
+    fetcher.fetch();
+    committer.commitThrough(1);
+    perCommit.add(drain(checkpointed));
+    committer.commitThrough(2);
+    perCommit.add(drain(checkpointed));
+    queue.add(p1d);
+    fetcher.fetch();
+    committer.commitThrough(1);
+    perCommit.add(drain(checkpointed));
+
+    assertEquals(List.of(List.of("a"), List.of("b"), List.of("c", "d")), perCommit);
+  }
+
+  private static EventContext checkpointRecording(
+      EventContext context, String name, List<String> checkpointed) {
+    doAnswer(call -> checkpointed.add(name)).when(context).updateCheckpoint();
+    return context;
+  }
+
+  private static List<String> drain(List<String> values) {
+    List<String> drained = List.copyOf(values);
+    values.clear();
+    return drained;
   }
 }
