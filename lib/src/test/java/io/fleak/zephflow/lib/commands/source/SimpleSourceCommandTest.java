@@ -339,4 +339,14 @@ class SimpleSourceCommandTest {
     verify(mockSourceEventAcceptor).accept(Collections.singletonList(RECORD));
     verify(mockSourceEventAcceptor).terminate();
   }
+
+  @Test
+  void aBatchEmittingConverterSamplesOneItemPerInterval() {
+    RawDataConverter<SerializedEvent> plain = mock();
+    BatchEmittingConverter<SerializedEvent> batching = mock();
+
+    assertEquals(
+        RawDataSampler.SAMPLES_PER_INTERVAL, SimpleSourceCommand.samplesPerInterval(plain));
+    assertEquals(1, SimpleSourceCommand.samplesPerInterval(batching));
+  }
 }
