@@ -23,6 +23,7 @@ import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
@@ -68,7 +69,12 @@ public class SplunkHecSinkMessageProcessor
   private static LineEncoder lineEncoder(EncodingConfig encoding) {
     RecordEncoder encoder =
         EncodingCompiler.recordEncoder(encoding, SplunkHecSinkConfigValidator.CAPABILITY);
-    return encoding.format() instanceof JsonFormatConfig ? null : line(encoder);
+    return switch (encoding.format()) {
+      case JsonFormatConfig json -> null;
+      case TextFormatConfig text ->
+          event -> new String(encoder.encode(event), StandardCharsets.UTF_8);
+      default -> line(encoder);
+    };
   }
 
   private static LineEncoder lineEncoder(SplunkHecSinkDto.Config config) {

@@ -15,12 +15,16 @@ package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
+import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.File;
@@ -29,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -114,13 +119,39 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
   @Override
   protected SimpleSinkCommand.FlushResult doFlushWithRetry(
       List<Pair<RecordFleakData, RecordFleakData>> batch) throws Exception {
-    List<RecordFleakData> records = batch.stream().map(Pair::getRight).toList();
-
-    List<File> tempFiles = fileWriter.writeToTempFiles(records, tempDirectory);
+    List<Pair<RecordFleakData, RecordFleakData>> valid = batch;
+    List<ErrorOutput> rejected = new ArrayList<>();
+    List<File> tempFiles;
+    try {
+      tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+    } catch (Exception e) {
+      valid = validRecords(batch, rejected);
+      if (rejected.isEmpty()) {
+        throw e;
+      }
+      if (valid.isEmpty()) {
+        return withRejected(
+            new SimpleSinkCommand.FlushResult(0, 0, List.of()), rejected, batch.size());
+      }
+      tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+    }
     String baseKey = generateS3KeyBase();
 
     try {
-      return uploadWithRetry(tempFiles, baseKey, records.size());
+      return withRejected(
+          uploadWithRetry(tempFiles, baseKey, valid.size()), rejected, batch.size());
+    } catch (ExecutionStoppedException stopped) {
+      if (boundedHooks == null || rejected.isEmpty()) {
+        throw stopped;
+      }
+      throw new BoundedFlushException(unsent(valid.size(), rejected), stopped);
+    } catch (RuntimeException failure) {
+      if (boundedHooks == null || rejected.isEmpty()) {
+        throw failure;
+      }
+      List<ErrorOutput> errors = new ArrayList<>(rejected);
+      valid.forEach(pair -> errors.add(new ErrorOutput(pair.getLeft(), failure.getMessage())));
+      return unsent(valid.size(), errors, rejected.size());
     } finally {
       for (File tempFile : tempFiles) {
         if (!tempFile.delete()) {
@@ -128,6 +159,58 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
         }
       }
     }
+  }
+
+  private static List<RecordFleakData> rights(List<Pair<RecordFleakData, RecordFleakData>> pairs) {
+    return pairs.stream().map(Pair::getRight).toList();
+  }
+
+  private static SimpleSinkCommand.FlushResult unsent(int validCount, List<ErrorOutput> rejected) {
+    return unsent(validCount, rejected, rejected.size());
+  }
+
+  private static SimpleSinkCommand.FlushResult unsent(
+      int validCount, List<ErrorOutput> errors, int rejectedCount) {
+    return new SimpleSinkCommand.FlushResult(
+        0,
+        0,
+        errors,
+        EffectOutcome.counted(
+            validCount, 0, rejectedCount, validCount, rejectedCount, "s3_record_validation"));
+  }
+
+  private List<Pair<RecordFleakData, RecordFleakData>> validRecords(
+      List<Pair<RecordFleakData, RecordFleakData>> batch, List<ErrorOutput> rejected) {
+    List<Pair<RecordFleakData, RecordFleakData>> valid = new ArrayList<>();
+    for (Pair<RecordFleakData, RecordFleakData> pair : batch) {
+      try {
+        fileWriter.validateRecord(pair.getRight());
+        valid.add(pair);
+      } catch (Exception e) {
+        rejected.add(
+            new ErrorOutput(pair.getLeft(), "Record validation failed: " + e.getMessage()));
+      }
+    }
+    return valid;
+  }
+
+  private SimpleSinkCommand.FlushResult withRejected(
+      SimpleSinkCommand.FlushResult uploaded, List<ErrorOutput> rejected, int attempted) {
+    if (rejected.isEmpty()) {
+      return uploaded;
+    }
+    EffectOutcome outcome =
+        boundedHooks == null
+            ? null
+            : EffectOutcome.counted(
+                attempted - rejected.size(),
+                uploaded.successCount(),
+                rejected.size(),
+                0,
+                rejected.size(),
+                "s3_record_validation");
+    return new SimpleSinkCommand.FlushResult(
+        uploaded.successCount(), uploaded.flushedDataSize(), rejected, outcome);
   }
 
   private SimpleSinkCommand.FlushResult uploadWithRetry(

@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.format;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -292,5 +293,57 @@ class SplunkHecSinkMessageProcessorTest {
             .kvFields(fields)
             .build();
     return SplunkHecSinkMessageProcessor.fromConfig(config);
+  }
+
+  private static SplunkHecSinkMessageProcessor textProcessor(String framing) {
+    SplunkHecSinkDto.Config config =
+        SplunkHecSinkDto.Config.builder()
+            .hecUrl("https://splunk:8088")
+            .credentialId("c")
+            .index("netfw")
+            .sourcetype("cisco:asa")
+            .encoding(format("{\"type\":\"text\",\"framing\":" + framing + "}"))
+            .build();
+    return SplunkHecSinkMessageProcessor.fromConfig(config);
+  }
+
+  private static RecordFleakData raw(String text) {
+    return new RecordFleakData(Map.of("__raw__", new StringPrimitiveFleakData(text)));
+  }
+
+  private static String ndjson(SplunkHecSinkMessageProcessor processor, RecordFleakData record)
+      throws Exception {
+    return new String(
+        processor.preprocess(record, 0L).preEncodedNdjsonLine(), StandardCharsets.UTF_8);
+  }
+
+  @Test
+  void preprocess_text_eventIsTheRawLineUnchanged() throws Exception {
+    assertEquals(
+        "{\"event\":\"%ASA-6-302013: Built inbound TCP connection 1 for outside:10.0.0.1/443\","
+            + "\"sourcetype\":\"cisco:asa\",\"index\":\"netfw\"}\n",
+        ndjson(
+            textProcessor("{\"type\":\"line\"}"),
+            raw("%ASA-6-302013: Built inbound TCP connection 1 for outside:10.0.0.1/443")));
+  }
+
+  @Test
+  void preprocess_text_keepsEveryCrlfIncludingTheTrailingOne() throws Exception {
+    assertEquals(
+        "{\"event\":\"<Event>\\r\\n  <System/>\\r\\n</Event>\\r\\n\","
+            + "\"sourcetype\":\"cisco:asa\",\"index\":\"netfw\"}\n",
+        ndjson(
+            textProcessor("{\"type\":\"multiline\",\"startPattern\":\"^<Event\"}"),
+            raw("<Event>\r\n  <System/>\r\n</Event>\r\n")));
+  }
+
+  @Test
+  void preprocess_text_refusesARecordWithoutRawText() {
+    SplunkHecSinkMessageProcessor processor = textProcessor("{\"type\":\"line\"}");
+    assertEquals(
+        "record has no string __raw__ field to write as text",
+        assertThrows(
+                IllegalArgumentException.class, () -> processor.preprocess(firewallRecord(), 0L))
+            .getMessage());
   }
 }

@@ -342,6 +342,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
           }
         });
     if (preparedInputEvents.rawAndPreparedList.isEmpty()) {
+      countSinkErrors(sinkContext.sinkErrorCounter(), errorOutputs, callingUserTag);
       return new SinkResult(batch.size(), 0, errorOutputs);
     }
     SinkStoreForward storeForward = sinkContext.storeForward();

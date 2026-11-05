@@ -13,16 +13,23 @@
  */
 package io.fleak.zephflow.lib.commands.s3;
 
+import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.EffectOutcome;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
@@ -30,17 +37,31 @@ import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.transfer.s3.S3TransferManager;
+import software.amazon.awssdk.transfer.s3.model.FileUpload;
+import software.amazon.awssdk.transfer.s3.model.UploadFileRequest;
 
 @Testcontainers
 class BatchS3FlusherTest {
@@ -388,6 +409,251 @@ class BatchS3FlusherTest {
     List<String> objectKeys = listS3Objects();
     assertEquals(1, objectKeys.size());
     assertTrue(objectKeys.get(0).endsWith(".parquet"));
+  }
+
+  private static final String TEXT_LINE = "{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}";
+  private static final String MISSING_RAW =
+      "Record validation failed: record has no string __raw__ field to write as text";
+
+  private BatchS3Flusher createTextFlusher(String compression, int batchSize) {
+    return new BatchS3Flusher(
+        createS3TransferResources(),
+        BUCKET_NAME,
+        KEY_NAME,
+        EncodingCompiler.fileWriter(
+            encoding(compression, TEXT_LINE), S3SinkConfigValidator.CAPABILITY),
+        batchSize,
+        60000,
+        null,
+        null,
+        null,
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter);
+  }
+
+  private static RecordFleakData raw(String text) {
+    return (RecordFleakData) FleakData.wrap(Map.of("__raw__", text));
+  }
+
+  private static List<String> asaLines(int count) {
+    List<String> lines = new ArrayList<>();
+    for (int i = 0; i < count; i++) {
+      lines.add("%ASA-6-302013: Built inbound TCP connection " + i + " for outside:10.0.0.1/443");
+    }
+    return lines;
+  }
+
+  private static SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events(
+      List<RecordFleakData> records) {
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    records.forEach(record -> events.add(record, record));
+    return events;
+  }
+
+  private byte[] readObject(String key) {
+    return testS3Client.getObjectAsBytes(b -> b.bucket(BUCKET_NAME).key(key)).asByteArray();
+  }
+
+  @Test
+  void textLinesUploadAsOneTxtObject() throws Exception {
+    List<String> lines = asaLines(3);
+    flusher = createTextFlusher("[]", 3);
+    flusher.initialize();
+
+    SimpleSinkCommand.FlushResult result =
+        flusher.flush(events(lines.stream().map(BatchS3FlusherTest::raw).toList()), Map.of());
+
+    String content = String.join("\n", lines) + "\n";
+    List<String> keys = listS3Objects();
+    assertEquals(
+        List.of(
+            new SimpleSinkCommand.FlushResult(3, content.length(), List.of()), 1, true, content),
+        List.of(
+            result,
+            keys.size(),
+            keys.getFirst().endsWith(".txt"),
+            new String(readObject(keys.getFirst()), StandardCharsets.UTF_8)));
+  }
+
+  @Test
+  void gzippedTextUploadsAsTxtGz() throws Exception {
+    List<String> lines = asaLines(2);
+    flusher = createTextFlusher("[\"gzip\"]", 2);
+    flusher.initialize();
+
+    flusher.flush(events(lines.stream().map(BatchS3FlusherTest::raw).toList()), Map.of());
+
+    String key = listS3Objects().getFirst();
+    try (GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(readObject(key)))) {
+      assertEquals(
+          List.of(true, String.join("\n", lines) + "\n"),
+          List.of(key.endsWith(".txt.gz"), new String(in.readAllBytes(), StandardCharsets.UTF_8)));
+    }
+  }
+
+  @Test
+  void aRecordWithoutRawTextFailsAloneAndTheOthersUpload() throws Exception {
+    List<String> lines = asaLines(9);
+    List<RecordFleakData> records =
+        new ArrayList<>(lines.stream().map(BatchS3FlusherTest::raw).toList());
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+    records.add(4, bad);
+    flusher = createTextFlusher("[]", 10);
+    flusher.initialize();
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events(records), Map.of());
+
+    String content = String.join("\n", lines) + "\n";
+    List<String> keys = listS3Objects();
+    assertEquals(
+        List.of(
+            new SimpleSinkCommand.FlushResult(
+                9, content.length(), List.of(new ErrorOutput(bad, MISSING_RAW))),
+            1,
+            content),
+        List.of(
+            result, keys.size(), new String(readObject(keys.getFirst()), StandardCharsets.UTF_8)));
+  }
+
+  @Test
+  void aBatchWithNoRawTextUploadsNothing() throws Exception {
+    List<RecordFleakData> records =
+        List.of(
+            (RecordFleakData) FleakData.wrap(Map.of("a", 1)),
+            (RecordFleakData) FleakData.wrap(Map.of("__raw__", 2)));
+    flusher = createTextFlusher("[]", 2);
+    flusher.initialize();
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events(records), Map.of());
+
+    assertEquals(
+        List.of(
+            new SimpleSinkCommand.FlushResult(
+                0,
+                0,
+                List.of(
+                    new ErrorOutput(records.get(0), MISSING_RAW),
+                    new ErrorOutput(records.get(1), MISSING_RAW))),
+            List.of()),
+        List.of(result, listS3Objects()));
+  }
+
+  private static final ExecutionHooks BOUNDED_HOOKS =
+      new ExecutionHooks(
+          () -> {},
+          new ExecutionHooks.Effects() {
+            public long started() {
+              return 1;
+            }
+
+            public void finished(long id, EffectOutcome outcome) {}
+          },
+          Runnable::run);
+
+  private SimpleSinkCommand.FlushResult flushBoundedText(
+      S3TransferManager manager, List<RecordFleakData> records) throws Exception {
+    BatchS3Flusher sink =
+        new BatchS3Flusher(
+            new AwsClientFactory.S3TransferResources(mock(S3AsyncClient.class), manager),
+            BUCKET_NAME,
+            KEY_NAME,
+            EncodingCompiler.fileWriter(
+                encoding("[]", TEXT_LINE), S3SinkConfigValidator.CAPABILITY),
+            100,
+            60000,
+            null,
+            JobContext.builder().executionHooks(BOUNDED_HOOKS).build(),
+            "s3",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    sink.initialize();
+    try {
+      return sink.flushBounded(events(records), Map.of(), BOUNDED_HOOKS);
+    } finally {
+      sink.abort();
+    }
+  }
+
+  private static List<RecordFleakData> nineLinesAndOneBad(RecordFleakData bad) {
+    List<RecordFleakData> records =
+        new ArrayList<>(asaLines(9).stream().map(BatchS3FlusherTest::raw).toList());
+    records.add(bad);
+    return records;
+  }
+
+  @Test
+  void boundedRunReportsABadRecordAsADefiniteFailure() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    AtomicReference<String> uploaded = new AtomicReference<>();
+    when(manager.uploadFile(any(UploadFileRequest.class)))
+        .thenAnswer(
+            call -> {
+              UploadFileRequest request = call.getArgument(0);
+              uploaded.set(Files.readString(request.source()));
+              return upload;
+            });
+    when(upload.completionFuture()).thenReturn(CompletableFuture.completedFuture(null));
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+
+    SimpleSinkCommand.FlushResult result = flushBoundedText(manager, nineLinesAndOneBad(bad));
+
+    String content = String.join("\n", asaLines(9)) + "\n";
+    assertEquals(
+        List.of(
+            new SimpleSinkCommand.FlushResult(
+                9,
+                content.length(),
+                List.of(new ErrorOutput(bad, MISSING_RAW)),
+                EffectOutcome.counted(9, 9, 1, 0, 1, "s3_record_validation")),
+            content),
+        List.of(result, uploaded.get()));
+  }
+
+  @Test
+  void boundedStopDuringUploadKeepsTheRejectedRecordAsADefiniteFailure() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    ExecutionStoppedException stop = new ExecutionStoppedException("run stopped");
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenThrow(stop);
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+
+    BoundedFlushException thrown =
+        assertThrows(
+            BoundedFlushException.class, () -> flushBoundedText(manager, nineLinesAndOneBad(bad)));
+
+    assertEquals(
+        List.of(
+            new SimpleSinkCommand.FlushResult(
+                0,
+                0,
+                List.of(new ErrorOutput(bad, MISSING_RAW)),
+                EffectOutcome.counted(9, 0, 1, 9, 1, "s3_record_validation")),
+            stop),
+        List.of(thrown.result(), thrown.getCause()));
+  }
+
+  @Test
+  void boundedUploadFailureKeepsTheRejectedRecordAsADefiniteFailure() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenReturn(upload);
+    when(upload.completionFuture())
+        .thenReturn(CompletableFuture.failedFuture(new IOException("upload down")));
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+    List<RecordFleakData> records = nineLinesAndOneBad(bad);
+
+    SimpleSinkCommand.FlushResult result = flushBoundedText(manager, records);
+
+    String uploadError = new CompletionException(new IOException("upload down")).getMessage();
+    List<ErrorOutput> errors = new ArrayList<>(List.of(new ErrorOutput(bad, MISSING_RAW)));
+    records.subList(0, 9).forEach(record -> errors.add(new ErrorOutput(record, uploadError)));
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors, EffectOutcome.counted(9, 0, 1, 9, 1, "s3_record_validation")),
+        result);
   }
 
   private List<String> listS3Objects() {

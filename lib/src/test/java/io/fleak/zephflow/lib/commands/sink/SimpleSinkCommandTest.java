@@ -176,6 +176,8 @@ class SimpleSinkCommandTest {
     assertEquals(expected, sinkResult);
     verify(errorCounter, times(2)).increase(any());
     verify(outputSizeCounter, never()).increase(anyLong(), any());
+    verify(sinkErrorCounter).increase(eq(2L), any());
+    verify(sinkErrorCounter).recordErrorSample("process error");
   }
 
   @Test

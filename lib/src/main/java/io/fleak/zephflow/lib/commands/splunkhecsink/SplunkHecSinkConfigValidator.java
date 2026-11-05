@@ -41,7 +41,7 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
       new WriterCapability(
           COMMAND_NAME_SPLUNK_HEC_SINK,
           Unit.ONE_RECORD,
-          Set.of("json", "csv", "kv"),
+          Set.of("json", "csv", "kv", "text"),
           Set.of(JsonFormatConfig.Mode.OBJECT),
           true,
           Set.of());

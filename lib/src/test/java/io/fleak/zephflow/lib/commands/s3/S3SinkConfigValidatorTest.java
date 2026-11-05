@@ -123,6 +123,33 @@ class S3SinkConfigValidatorTest {
   }
 
   @Test
+  void validateEncodingConfig_textLineAndMultilineAreAccepted() {
+    for (Map<String, Object> framing :
+        List.of(
+            Map.<String, Object>of("type", "line"),
+            Map.<String, Object>of("type", "multiline", "startPattern", "^<Event"))) {
+      S3SinkDto.Config config =
+          configParser.parseConfig(
+              encodingConfig(
+                  Map.of(
+                      "compression",
+                      List.of("gzip"),
+                      "format",
+                      Map.of("type", "text", "framing", framing))));
+      assertDoesNotThrow(() -> validator.validateConfig(config, "abc", JOB_CONTEXT));
+    }
+  }
+
+  @Test
+  void validateEncodingConfig_textWholeIsRefused() {
+    assertRefused(
+        encodingConfig(
+            Map.of("format", Map.of("type", "text", "framing", Map.of("type", "whole")))),
+        "s3sink: text framing whole holds one record and s3sink writes many records per unit;"
+            + " use framing line or multiline");
+  }
+
+  @Test
   void validateEncodingConfig_parquetWithGzipIsRefused() {
     Map<String, Object> configMap =
         encodingConfig(

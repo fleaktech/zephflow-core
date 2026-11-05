@@ -21,7 +21,7 @@ import java.util.Set;
  * What one sink can write, declared next to its config validator.
  *
  * @param sink the command name used in error messages
- * @param formats the format type names it writes, among csv, json, kv and parquet
+ * @param formats the format type names it writes, among csv, json, kv, parquet and text
  * @param jsonModes the json modes it writes
  * @param csvHeaderOffWithColumns csv only with header false and columns set
  * @param compression the codecs it accepts besides none

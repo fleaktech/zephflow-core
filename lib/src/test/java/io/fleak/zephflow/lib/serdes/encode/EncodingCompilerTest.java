@@ -50,6 +50,10 @@ class EncodingCompilerTest {
           false,
           Set.of(DecompressionCodec.GZIP));
 
+  private static final WriterCapability TEXT_FILES =
+      new WriterCapability(
+          "textsink", Unit.MANY_RECORDS, Set.of("text"), Set.of(), false, Set.of());
+
   private static final String KV_DELIMITER_RULE =
       " must not contain letters, digits, '_', '.', ':', '/', '-', '=', '\"', '\\' or line breaks";
 
@@ -87,10 +91,32 @@ class EncodingCompilerTest {
             format("{\"type\":\"xml\",\"mode\":\"document\"}"),
             "kafkasink: format xml cannot be written"),
         refusal(
-            "text",
-            S3,
+            "text not in capability",
+            KAFKA,
             format("{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}"),
-            "s3sink: format text cannot be written"),
+            "kafkasink cannot write text"),
+        refusal(
+            "text without framing",
+            TEXT_FILES,
+            format("{\"type\":\"text\"}"),
+            "textsink: text format needs a framing: line, multiline or whole"),
+        refusal(
+            "text multiline without a pattern",
+            TEXT_FILES,
+            format("{\"type\":\"text\",\"framing\":{\"type\":\"multiline\"}}"),
+            "textsink: multiline framing needs exactly one of startPattern and continuePattern"),
+        refusal(
+            "text whole on a many-records sink",
+            TEXT_FILES,
+            format("{\"type\":\"text\",\"framing\":{\"type\":\"whole\"}}"),
+            "textsink: text framing whole holds one record and textsink writes many records per"
+                + " unit; use framing line or multiline"),
+        refusal(
+            "text charset other than utf-8",
+            TEXT_FILES,
+            format("{\"type\":\"text\",\"charset\":\"UTF-16\",\"framing\":{\"type\":\"line\"}}"),
+            "textsink: text option charset UTF-16 cannot be used when writing; text is written as"
+                + " UTF-8"),
         refusal(
             "otlp",
             S3,
@@ -349,7 +375,12 @@ class EncodingCompilerTest {
             new Accepted(KAFKA, format("{\"type\":\"json\",\"mode\":\"object\"}")),
             new Accepted(KAFKA, csv(",\"delimiter\":\"|\",\"quote\":\"'\",\"escape\":\"\\\\\"")),
             new Accepted(SPLUNK, csv(",\"header\":false,\"columns\":[\"a\",\"b\"]")),
-            new Accepted(SQS, format("{\"type\":\"json\",\"mode\":\"object\"}")));
+            new Accepted(SQS, format("{\"type\":\"json\",\"mode\":\"object\"}")),
+            new Accepted(
+                TEXT_FILES,
+                format(
+                    "{\"type\":\"text\",\"charset\":\"utf-8\",\"framing\":{\"type\":\"multiline\","
+                        + "\"continuePattern\":\"^\\\\s\",\"maxLines\":50}}")));
     List<String> refused = new ArrayList<>();
     for (Accepted a : accepted) {
       try {
