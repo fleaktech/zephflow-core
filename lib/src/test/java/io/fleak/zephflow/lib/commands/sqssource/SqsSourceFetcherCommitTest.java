@@ -14,10 +14,14 @@
 package io.fleak.zephflow.lib.commands.sqssource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -173,5 +177,64 @@ class SqsSourceFetcherCommitTest {
     List<String> drained = List.copyOf(values);
     values.clear();
     return drained;
+  }
+
+  @Test
+  void aProcessKilledMidFetchDeletesOnlyTheHandledMessages() {
+    List<String> deleted = recordDeletes();
+    when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+        .thenReturn(received("r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10"));
+
+    assertThrows(
+        ProcessKilled.class,
+        () ->
+            SourceLoopHarness.run(
+                fetcher,
+                SourceLoopHarness.oneEventPerRecord(),
+                SourceLoopHarness.killedAt(2),
+                null));
+
+    assertEquals(List.of("r1"), deleted);
+  }
+
+  @Test
+  void failedMessagesAfterAHandledOneAreDeletedWhenTheFetchEnds() {
+    List<String> deleted = recordDeletes();
+    when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+        .thenReturn(received("r1", "r2", "r3"));
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> record > 1),
+        mock(DlqWriter.class));
+
+    assertEquals(List.of("r1", "r2", "r3"), deleted);
+  }
+
+  @Test
+  void aFetchInWhichEveryMessageFailsIsNotDeleted() {
+    List<String> deleted = recordDeletes();
+    when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+        .thenReturn(received("r1", "r2"));
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> true),
+        mock(DlqWriter.class));
+
+    assertEquals(List.of(), deleted);
+  }
+
+  private List<String> recordDeletes() {
+    List<String> deleted = new ArrayList<>();
+    when(sqsClient.deleteMessage(any(DeleteMessageRequest.class)))
+        .thenAnswer(
+            call -> {
+              deleted.add(call.<DeleteMessageRequest>getArgument(0).receiptHandle());
+              return DeleteMessageResponse.builder().build();
+            });
+    return deleted;
   }
 }

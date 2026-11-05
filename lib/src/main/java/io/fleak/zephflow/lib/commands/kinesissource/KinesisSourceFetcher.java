@@ -16,6 +16,8 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
+import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -48,6 +50,9 @@ import software.amazon.kinesis.retrieval.KinesisClientRecord;
 
 @Slf4j
 public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
+
+  // Checkpoints handled records once a second at most, and at the end of each fetch.
+  private static final CommitStrategy COMMIT_STRATEGY = BatchCommitStrategy.ofInterval(1000);
 
   private final AtomicBoolean started = new AtomicBoolean(false);
   private final AtomicBoolean schedulerRunning = new AtomicBoolean(false);
@@ -230,6 +235,11 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     }
 
     return new SerializedEvent(key, value, metadata);
+  }
+
+  @Override
+  public CommitStrategy commitStrategy() {
+    return COMMIT_STRATEGY;
   }
 
   @Override

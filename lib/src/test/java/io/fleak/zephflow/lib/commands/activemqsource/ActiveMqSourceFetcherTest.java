@@ -20,6 +20,9 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import jakarta.jms.*;
@@ -267,5 +270,46 @@ class ActiveMqSourceFetcherTest {
 
     committer.commitThrough(3);
     verify(session).commit();
+  }
+
+  @Test
+  void theLoopCommitsAFetchWhoseRecordsAfterASkippedCommitPointAllFail() throws Exception {
+    Session session = mock(Session.class);
+    ActiveMqSourceFetcher fetcher = threeMessageFetcher(session);
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> record > 1),
+        mock(DlqWriter.class));
+
+    verify(session).commit();
+  }
+
+  @Test
+  void theLoopDoesNotCommitAFetchCutShortByAKilledProcess() throws Exception {
+    Session session = mock(Session.class);
+    ActiveMqSourceFetcher fetcher = threeMessageFetcher(session);
+
+    assertThrows(
+        ProcessKilled.class,
+        () ->
+            SourceLoopHarness.run(
+                fetcher,
+                SourceLoopHarness.oneEventPerRecord(),
+                SourceLoopHarness.killedAt(2),
+                null));
+
+    verify(session, never()).commit();
+  }
+
+  private static ActiveMqSourceFetcher threeMessageFetcher(Session session) throws Exception {
+    MessageConsumer consumer = mock(MessageConsumer.class);
+    TextMessage message = mock(TextMessage.class);
+    when(message.getText()).thenReturn("{}");
+    when(consumer.receive(1000L)).thenReturn(message);
+    when(consumer.receiveNoWait()).thenReturn(message, message, null);
+    return new ActiveMqSourceFetcher(
+        mock(Connection.class), session, consumer, 1000L, 500, BatchCommitStrategy.ofBatchSize(1));
   }
 }

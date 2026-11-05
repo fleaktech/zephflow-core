@@ -28,6 +28,9 @@ import com.google.pubsub.v1.PullRequest;
 import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
+import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -164,5 +167,56 @@ class PubSubSourceFetcherCommitTest {
     committer.commitThrough(1);
 
     assertEquals(List.of(List.of("a-1"), List.of("a-2"), List.of("a-3", "a-4")), acked);
+  }
+
+  @Test
+  void theLoopAcksHandledMessagesTogetherNotOneRequestPerMessage() {
+    List<List<String>> acked = recordAcks();
+    PubSubSourceFetcher fetcher = pulling("a-1", "a-2", "a-3");
+
+    assertThrows(
+        ProcessKilled.class,
+        () ->
+            SourceLoopHarness.run(
+                fetcher,
+                SourceLoopHarness.oneEventPerRecord(),
+                SourceLoopHarness.killedAt(3),
+                null));
+
+    assertEquals(List.of(), acked);
+  }
+
+  @Test
+  void theLoopAcksEveryHandledMessageByTheEndOfThePull() {
+    List<List<String>> acked = recordAcks();
+    PubSubSourceFetcher fetcher = pulling("a-1", "a-2", "a-3");
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> record == 3),
+        mock(DlqWriter.class));
+
+    assertEquals(List.of("a-1", "a-2", "a-3"), acked.stream().flatMap(List::stream).toList());
+  }
+
+  private List<List<String>> recordAcks() {
+    List<List<String>> acked = new ArrayList<>();
+    when(ackCallable.call(any(AcknowledgeRequest.class)))
+        .thenAnswer(
+            call -> {
+              acked.add(List.copyOf(call.<AcknowledgeRequest>getArgument(0).getAckIdsList()));
+              return Empty.getDefaultInstance();
+            });
+    return acked;
+  }
+
+  private PubSubSourceFetcher pulling(String... ackIds) {
+    PullResponse.Builder response = PullResponse.newBuilder();
+    for (String ackId : ackIds) {
+      response.addReceivedMessages(rm(ackId, "m-" + ackId));
+    }
+    when(pullCallable.call(any(PullRequest.class))).thenReturn(response.build());
+    return new PubSubSourceFetcher(stub, SUBSCRIPTION_PATH, 10, false, 0);
   }
 }

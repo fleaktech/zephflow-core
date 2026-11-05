@@ -20,10 +20,10 @@ import com.google.pubsub.v1.PubsubMessage;
 import com.google.pubsub.v1.PullRequest;
 import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
-import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,6 +34,8 @@ import lombok.extern.slf4j.Slf4j;
 public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
 
   private static final int ACK_CHUNK_SIZE = 1000;
+  // Acks handled messages in one request per second at most, and at the end of each pull.
+  private static final CommitStrategy COMMIT_STRATEGY = BatchCommitStrategy.ofInterval(1000);
 
   private final SubscriberStub subscriberStub;
   private final String subscriptionPath;
@@ -164,7 +166,7 @@ public class PubSubSourceFetcher implements Fetcher<PubSubReceivedMessage> {
 
   @Override
   public CommitStrategy commitStrategy() {
-    return PerRecordCommitStrategy.INSTANCE;
+    return COMMIT_STRATEGY;
   }
 
   @Override

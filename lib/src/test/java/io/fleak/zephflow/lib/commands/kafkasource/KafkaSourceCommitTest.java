@@ -18,19 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.api.ConfigParser;
-import io.fleak.zephflow.api.ConfigValidator;
-import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.api.SourceEventAcceptor;
-import io.fleak.zephflow.api.metric.MetricClientProvider;
-import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
-import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
-import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
-import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -47,9 +37,6 @@ import org.mockito.ArgumentCaptor;
 class KafkaSourceCommitTest {
 
   private static final TopicPartition PARTITION = new TopicPartition("topic", 0);
-  private static final Map<String, Object> CONFIG = Map.of("k", "v");
-
-  private static class ProcessKilled extends Error {}
 
   @Test
   void aProcessKilledMidPollLeavesTheUnprocessedRecordsUncommitted() {
@@ -63,30 +50,21 @@ class KafkaSourceCommitTest {
                         PARTITION.partition(),
                         i,
                         "k".getBytes(),
-                        ("{\"i\":" + i + "}").getBytes()))
+                        "v".getBytes()))
             .toList();
     when(consumer.poll(Duration.ofMillis(1000)))
         .thenReturn(new ConsumerRecords<>(Map.of(PARTITION, polled)));
     KafkaSourceFetcher fetcher =
         new KafkaSourceFetcher(consumer, null, BatchCommitStrategy.ofBatchSize(100));
-    SourceExecutionContext<SerializedEvent> context =
-        new SourceExecutionContext<>(
-            fetcher,
-            new MessageDecodingConverter(
-                MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, false),
-                MessageDecodingConverter.Unit.MESSAGE),
-            mock(),
-            mock(),
-            mock(),
-            mock(),
-            null);
-    ConfigParser parser = mock();
-    when(parser.parseConfig(CONFIG)).thenReturn(mock(CommandConfig.class));
-    TestKafkaSource source = new TestKafkaSource(parser, context);
-    source.parseAndValidateArg(CONFIG);
-    source.initialize(mock(MetricClientProvider.class));
 
-    assertThrows(ProcessKilled.class, () -> source.execute("user", killedAtRecord(201)));
+    assertThrows(
+        ProcessKilled.class,
+        () ->
+            SourceLoopHarness.run(
+                fetcher,
+                SourceLoopHarness.oneEventPerRecord(),
+                SourceLoopHarness.killedAt(201),
+                null));
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> committed =
@@ -98,49 +76,5 @@ class KafkaSourceCommitTest {
             Map.of(PARTITION, new OffsetAndMetadata(200))),
         committed.getAllValues());
     verify(consumer, never()).commitAsync(any(OffsetCommitCallback.class));
-  }
-
-  private static SourceEventAcceptor killedAtRecord(int record) {
-    return new SourceEventAcceptor() {
-      private int accepted;
-
-      @Override
-      public void accept(List<RecordFleakData> records) {
-        if (++accepted == record) {
-          throw new ProcessKilled();
-        }
-      }
-
-      @Override
-      public void terminate() {}
-    };
-  }
-
-  private static class TestKafkaSource extends SimpleSourceCommand<SerializedEvent> {
-    private final SourceExecutionContext<SerializedEvent> context;
-
-    TestKafkaSource(ConfigParser parser, SourceExecutionContext<SerializedEvent> context) {
-      super("source", mock(JobContext.class), parser, mock(ConfigValidator.class));
-      this.context = context;
-    }
-
-    @Override
-    public SourceType sourceType() {
-      return SourceType.STREAMING;
-    }
-
-    @Override
-    public String commandName() {
-      return "kafkasource";
-    }
-
-    @Override
-    protected SourceExecutionContext<SerializedEvent> createExecutionContext(
-        MetricClientProvider metricClientProvider,
-        JobContext jobContext,
-        CommandConfig commandConfig,
-        String nodeId) {
-      return context;
-    }
   }
 }

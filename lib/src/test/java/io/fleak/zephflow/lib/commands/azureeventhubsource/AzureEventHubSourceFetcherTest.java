@@ -21,8 +21,11 @@ import com.azure.messaging.eventhubs.EventData;
 import com.azure.messaging.eventhubs.EventProcessorClient;
 import com.azure.messaging.eventhubs.models.EventContext;
 import com.azure.messaging.eventhubs.models.PartitionContext;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -226,5 +229,34 @@ class AzureEventHubSourceFetcherTest {
     List<String> drained = List.copyOf(values);
     values.clear();
     return drained;
+  }
+
+  @Test
+  void theLoopCheckpointsOnlyEventsHandledBeforeAKilledProcess() {
+    List<String> checkpointed = new ArrayList<>();
+    BlockingQueue<EventContext> queue =
+        new LinkedBlockingQueue<>(
+            List.of(
+                checkpointRecording(eventContext("0", "a"), "a", checkpointed),
+                checkpointRecording(eventContext("0", "b"), "b", checkpointed),
+                checkpointRecording(eventContext("0", "c"), "c", checkpointed)));
+    AzureEventHubSourceFetcher fetcher =
+        new AzureEventHubSourceFetcher(
+            mock(EventProcessorClient.class),
+            queue,
+            500,
+            SHORT_POLL,
+            BatchCommitStrategy.ofBatchSize(1));
+
+    assertThrows(
+        ProcessKilled.class,
+        () ->
+            SourceLoopHarness.run(
+                fetcher,
+                SourceLoopHarness.oneEventPerRecord(),
+                SourceLoopHarness.killedAt(2),
+                null));
+
+    assertEquals(List.of("a"), checkpointed);
   }
 }

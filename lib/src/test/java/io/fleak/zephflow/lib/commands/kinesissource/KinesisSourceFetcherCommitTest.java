@@ -15,11 +15,14 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -109,5 +112,36 @@ class KinesisSourceFetcherCommitTest {
         .subSequenceNumber(0)
         .partitionKey("pk")
         .build();
+  }
+
+  @Test
+  void theLoopDoesNotCheckpointEveryRecord() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"), record("2"), record("3"));
+
+    assertThrows(
+        ProcessKilled.class,
+        () ->
+            SourceLoopHarness.run(
+                fetcher,
+                SourceLoopHarness.oneEventPerRecord(),
+                SourceLoopHarness.killedAt(3),
+                null));
+
+    assertEquals(List.of(), checkpoints);
+  }
+
+  @Test
+  void theLoopCheckpointsTheLastHandledRecordByTheEndOfTheFetch() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"), record("2"), record("3"));
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> false),
+        null);
+
+    assertEquals("shard-1@3", checkpoints.getLast());
   }
 }
