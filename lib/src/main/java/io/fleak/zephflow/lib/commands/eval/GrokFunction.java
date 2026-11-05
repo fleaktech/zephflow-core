@@ -17,6 +17,7 @@ import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.structure.*;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
+import io.fleak.zephflow.lib.utils.GrokUtils;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.graalvm.polyglot.*;
@@ -65,7 +66,7 @@ class GrokFunction implements FeelFunction {
   }
 
   private Grok getOrCreateGrok(String pattern) {
-    return grokCache.computeIfAbsent(pattern, k -> new Grok(Grok.BUILTIN_PATTERNS, k, log::debug));
+    return grokCache.computeIfAbsent(pattern, k -> GrokUtils.compile(k, log::debug));
   }
 
   @Override

@@ -1,0 +1,7 @@
+{
+  "targetField": "__raw__",
+  "extractionConfig": {
+    "type": "grok",
+    "grokExpression": "%{UNIXPATH:path} END"
+  }
+}

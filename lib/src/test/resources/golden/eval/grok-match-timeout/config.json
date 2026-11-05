@@ -1,0 +1,3 @@
+{
+  "expression": "grok($.__raw__, \"%{GREEDYDATA:a} %{GREEDYDATA:b} %{GREEDYDATA:c} %{GREEDYDATA:d} %{GREEDYDATA:e} END\")"
+}
