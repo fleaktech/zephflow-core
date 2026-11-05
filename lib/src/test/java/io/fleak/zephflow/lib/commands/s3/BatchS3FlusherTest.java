@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.ErrorOutput;
+import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.execution.EffectOutcome;
 import io.fleak.zephflow.api.execution.ExecutionHooks;
 import io.fleak.zephflow.api.metric.FleakCounter;
@@ -51,6 +52,7 @@ import org.junit.jupiter.api.*;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.transfer.s3.S3TransferManager;
@@ -560,8 +562,7 @@ class BatchS3FlusherTest {
             Runnable::run);
     BatchS3Flusher sink =
         new BatchS3Flusher(
-            new AwsClientFactory.S3TransferResources(
-                mock(software.amazon.awssdk.services.s3.S3AsyncClient.class), manager),
+            new AwsClientFactory.S3TransferResources(mock(S3AsyncClient.class), manager),
             BUCKET_NAME,
             KEY_NAME,
             EncodingCompiler.fileWriter(
@@ -569,7 +570,7 @@ class BatchS3FlusherTest {
             100,
             60000,
             null,
-            io.fleak.zephflow.api.JobContext.builder().executionHooks(hooks).build(),
+            JobContext.builder().executionHooks(hooks).build(),
             "s3",
             sinkOutputCounter,
             outputSizeCounter,
@@ -595,7 +596,7 @@ class BatchS3FlusherTest {
                 9,
                 content.length(),
                 List.of(new ErrorOutput(bad, MISSING_RAW)),
-                EffectOutcome.counted(10, 9, 1, 0, 0, "s3_record_validation")),
+                EffectOutcome.counted(9, 9, 1, 0, 1, "s3_record_validation")),
             content),
         List.of(result, uploaded.get()));
   }

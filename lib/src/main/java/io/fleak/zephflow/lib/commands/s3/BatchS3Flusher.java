@@ -171,7 +171,12 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
         boundedHooks == null
             ? null
             : EffectOutcome.counted(
-                attempted, uploaded.successCount(), rejected.size(), 0, 0, "s3_record_validation");
+                attempted - rejected.size(),
+                uploaded.successCount(),
+                rejected.size(),
+                0,
+                rejected.size(),
+                "s3_record_validation");
     return new SimpleSinkCommand.FlushResult(
         uploaded.successCount(), uploaded.flushedDataSize(), rejected, outcome);
   }
