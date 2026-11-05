@@ -233,7 +233,10 @@ class SplunkHecSinkConfigValidatorTest {
         List.of(
             "{\"type\":\"json\",\"mode\":\"object\"}",
             "{\"type\":\"csv\",\"header\":false,\"columns\":[\"a\",\"b\"]}",
-            "{\"type\":\"kv\",\"fields\":[\"a\"],\"pairDelimiter\":\"|\"}")) {
+            "{\"type\":\"kv\",\"fields\":[\"a\"],\"pairDelimiter\":\"|\"}",
+            "{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}",
+            "{\"type\":\"text\",\"framing\":{\"type\":\"multiline\",\"startPattern\":\"^<Event\"}}",
+            "{\"type\":\"text\",\"charset\":\"UTF-8\",\"framing\":{\"type\":\"whole\"}}")) {
       SplunkHecSinkDto.Config c = validConfig();
       c.setEncoding(format(formatJson));
       assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT), formatJson);
@@ -260,6 +263,21 @@ class SplunkHecSinkConfigValidatorTest {
     SplunkHecSinkDto.Config c = validConfig();
     c.setEncoding(format("{\"type\":\"csv\",\"columns\":[\"a\",\"b\"]}"));
     assertEquals("splunkhecsink writes csv only with header false and columns set", refusal(c));
+  }
+
+  @Test
+  void validateConfig_textNeedsFramingAndUtf8() {
+    SplunkHecSinkDto.Config noFraming = validConfig();
+    noFraming.setEncoding(format("{\"type\":\"text\"}"));
+    SplunkHecSinkDto.Config utf16 = validConfig();
+    utf16.setEncoding(
+        format("{\"type\":\"text\",\"charset\":\"UTF-16\",\"framing\":{\"type\":\"line\"}}"));
+    assertEquals(
+        List.of(
+            "splunkhecsink: text format needs a framing: line, multiline or whole",
+            "splunkhecsink: text option charset UTF-16 cannot be used when writing; text is"
+                + " written as UTF-8"),
+        List.of(refusal(noFraming), refusal(utf16)));
   }
 
   private String refusal(SplunkHecSinkDto.Config c) {
