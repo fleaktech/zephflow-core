@@ -26,6 +26,7 @@ import com.google.pubsub.v1.PubsubMessage;
 import com.google.pubsub.v1.PullRequest;
 import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -154,10 +155,8 @@ class PubSubSourceFetcherTest {
   }
 
   @Test
-  void testCommitStrategyIsPerRecord() {
+  void testCommitStrategyAcksAtMostOncePerSecond() {
     PubSubSourceFetcher fetcher = new PubSubSourceFetcher(stub, SUBSCRIPTION_PATH, 10, false, 0);
-    assertEquals(
-        io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy.INSTANCE,
-        fetcher.commitStrategy());
+    assertEquals(BatchCommitStrategy.ofInterval(1000), fetcher.commitStrategy());
   }
 }

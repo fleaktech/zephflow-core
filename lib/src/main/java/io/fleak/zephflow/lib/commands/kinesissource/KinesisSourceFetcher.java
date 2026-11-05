@@ -16,6 +16,9 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
+import io.fleak.zephflow.lib.commands.source.CommitStrategy;
+import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
@@ -48,14 +51,20 @@ import software.amazon.kinesis.retrieval.KinesisClientRecord;
 @Slf4j
 public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
+  // Checkpoints handled records once a second at most, and at the end of each fetch.
+  private static final CommitStrategy COMMIT_STRATEGY = BatchCommitStrategy.ofInterval(1000);
+
   private final AtomicBoolean started = new AtomicBoolean(false);
   private final AtomicBoolean schedulerRunning = new AtomicBoolean(false);
   private final AtomicReference<Exception> schedulerError = new AtomicReference<>();
 
-  private final ArrayBlockingQueue<KinesisClientRecord> recordQueue = new ArrayBlockingQueue<>(500);
-  private final AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer =
-      new AtomicReference<>();
+  private final ArrayBlockingQueue<ShardRecord> recordQueue = new ArrayBlockingQueue<>(500);
   private final AtomicReference<Scheduler> schedulerRef = new AtomicReference<>();
+
+  private final FetchProgress<ShardRecord> progress = new FetchProgress<>();
+  private final Map<String, ShardRecord> latestHandledByShard = new LinkedHashMap<>();
+  // For each event of the latest fetch, the number of drained records up to and including its own.
+  private int[] drainedThroughEvent = new int[0];
 
   private final ExecutorService EXECUTOR =
       Executors.newSingleThreadExecutor(
@@ -82,7 +91,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
         AwsClientFactory.getCloudWatchAsyncClient(
             region, config.getCloudWatchEndpoint(), credentialsProvider);
 
-    var recordProcessorFactory = new RecordProcessorFactory(lastSeenCheckpointer, recordQueue);
+    var recordProcessorFactory = new RecordProcessorFactory(recordQueue);
     ConfigsBuilder configsBuilder =
         new ConfigsBuilder(
             config.getStreamName(),
@@ -111,6 +120,13 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
             new ProcessorConfig(recordProcessorFactory),
             retrievalConfig);
     schedulerRef.set(scheduler);
+  }
+
+  /** A fetcher with no scheduler; records reach it through {@link #newShardRecordProcessor()}. */
+  KinesisSourceFetcher() {}
+
+  ShardRecordProcessor newShardRecordProcessor() {
+    return new ZephflowShardRecordProcessor(recordQueue);
   }
 
   public void start() {
@@ -154,17 +170,22 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @Override
   public List<SerializedEvent> fetch() {
     log.trace("KinesisSource: fetch()");
-    var recordEvents = new ArrayList<KinesisClientRecord>();
-    recordQueue.drainTo(recordEvents, 500);
+    var drained = new ArrayList<ShardRecord>();
+    recordQueue.drainTo(drained, 500);
 
-    var events = new ArrayList<SerializedEvent>(recordEvents.size());
-    log.debug("Got record: {}", recordEvents.size());
+    var events = new ArrayList<SerializedEvent>(drained.size());
+    var drainedThrough = new int[drained.size()];
+    log.debug("Got record: {}", drained.size());
 
-    for (var r : recordEvents) {
+    for (int i = 0; i < drained.size(); i++) {
+      var r = drained.get(i).record();
       var serializedEvent = getSerializedEvent(r, getMetadata(r));
       if (serializedEvent == null) continue;
+      drainedThrough[events.size()] = i + 1;
       events.add(serializedEvent);
     }
+    drainedThroughEvent = Arrays.copyOf(drainedThrough, events.size());
+    markHandled(progress.next(drained));
 
     if (events.isEmpty()) {
       checkSchedulerIsRunning();
@@ -217,18 +238,49 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   }
 
   @Override
+  public CommitStrategy commitStrategy() {
+    return COMMIT_STRATEGY;
+  }
+
+  @Override
   public Committer committer() {
-    return () -> {
-      RecordProcessorCheckpointer checkpointer = lastSeenCheckpointer.get();
-      if (checkpointer != null) {
-        try {
-          checkpointer.checkpoint();
-        } catch (Exception e) {
-          log.error("Commiter failed: ", e);
-        }
+    return new Committer() {
+      @Override
+      public void commit() {
+        markHandled(progress.rest());
+        checkpointHandled();
+      }
+
+      @Override
+      public void commitThrough(int handledRecords) {
+        int events = Math.min(handledRecords, drainedThroughEvent.length);
+        markHandled(progress.through(events == 0 ? 0 : drainedThroughEvent[events - 1]));
+        checkpointHandled();
       }
     };
   }
+
+  private void markHandled(List<ShardRecord> handled) {
+    for (ShardRecord shardRecord : handled) {
+      latestHandledByShard.put(shardRecord.shardId(), shardRecord);
+    }
+  }
+
+  private void checkpointHandled() {
+    for (ShardRecord handled : latestHandledByShard.values()) {
+      try {
+        handled
+            .checkpointer()
+            .checkpoint(handled.record().sequenceNumber(), handled.record().subSequenceNumber());
+      } catch (Exception e) {
+        log.error("Failed to checkpoint shard {}", handled.shardId(), e);
+      }
+    }
+    latestHandledByShard.clear();
+  }
+
+  record ShardRecord(
+      String shardId, RecordProcessorCheckpointer checkpointer, KinesisClientRecord record) {}
 
   @SneakyThrows
   @Override
@@ -248,13 +300,9 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @Slf4j
   public static class RecordProcessorFactory implements ShardRecordProcessorFactory {
 
-    private final BlockingQueue<KinesisClientRecord> records;
-    AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer;
+    private final BlockingQueue<ShardRecord> records;
 
-    private RecordProcessorFactory(
-        AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer,
-        BlockingQueue<KinesisClientRecord> records) {
-      this.lastSeenCheckpointer = lastSeenCheckpointer;
+    private RecordProcessorFactory(BlockingQueue<ShardRecord> records) {
       this.records = records;
     }
 
@@ -265,27 +313,25 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
     @Override
     public ShardRecordProcessor shardRecordProcessor() {
-      return new ZephflowShardRecordProcessor(lastSeenCheckpointer, records);
+      return new ZephflowShardRecordProcessor(records);
     }
   }
 
   @Slf4j
   public static class ZephflowShardRecordProcessor implements ShardRecordProcessor {
 
-    private final BlockingQueue<KinesisClientRecord> records;
-    AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer;
+    private final BlockingQueue<ShardRecord> records;
+    private String shardId;
 
-    private ZephflowShardRecordProcessor(
-        AtomicReference<RecordProcessorCheckpointer> lastSeenCheckpointer,
-        BlockingQueue<KinesisClientRecord> records) {
+    private ZephflowShardRecordProcessor(BlockingQueue<ShardRecord> records) {
       log.info("Starting ZephflowShardRecordProcessor processor");
-      this.lastSeenCheckpointer = lastSeenCheckpointer;
       this.records = records;
     }
 
     @Override
     public void initialize(InitializationInput initializationInput) {
       log.info("Initializing KinesisSourceFetcher: {}", initializationInput.toString());
+      shardId = initializationInput.shardId();
     }
 
     @SneakyThrows
@@ -295,11 +341,11 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       // pull based.
       // To bridge this we push data to a blocking queue which Zephflow will pull from as it
       // processes the records.
-      lastSeenCheckpointer.set(processRecordsInput.checkpointer());
+      var checkpointer = processRecordsInput.checkpointer();
       for (var record : processRecordsInput.records()) {
         try {
           log.debug("Got record: {}", record);
-          records.put(record);
+          records.put(new ShardRecord(shardId, checkpointer, record));
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           log.warn("Interrupted while adding to queue", e);
@@ -325,12 +371,8 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
     @Override
     public void shutdownRequested(ShutdownRequestedInput shutdownRequestedInput) {
+      // Records still queued here are not handled yet; the source checkpoints what it handles.
       log.info("Shutdown requested: {}", shutdownRequestedInput);
-      try {
-        shutdownRequestedInput.checkpointer().checkpoint();
-      } catch (Exception e) {
-        log.error("Error checkpointing at shutdown requested: {}", e, e);
-      }
     }
   }
 }

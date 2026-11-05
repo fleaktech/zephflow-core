@@ -17,6 +17,7 @@ import com.azure.messaging.eventhubs.EventData;
 import com.azure.messaging.eventhubs.EventProcessorClient;
 import com.azure.messaging.eventhubs.models.EventContext;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
+import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.nio.charset.StandardCharsets;
@@ -39,12 +40,11 @@ import lombok.extern.slf4j.Slf4j;
  * backpressure back to Event Hub. {@link #fetch()} drains that queue on the single source polling
  * thread.
  *
- * <p>Checkpointing mirrors the Kafka source's {@code commitAsync} semantics: {@link #committer()}
- * persists the offset of the <i>latest event drained per partition</i> since the previous commit.
- * Because the queue only ever hands the polling thread events it has actually dequeued, we never
- * checkpoint ahead of what was returned to the pipeline. The per-partition map is confined to the
- * polling thread (mutated only in {@link #fetch()}, read/cleared only in {@link #committer()}), so
- * it needs no synchronization; the {@code queue} is the sole cross-thread boundary.
+ * <p>{@link #committer()} checkpoints, per partition, the latest event the pipeline has handled:
+ * the first {@code handledRecords} events of the latest fetch, and every event of earlier fetches.
+ * The checkpoint state is confined to the polling thread (changed only in {@link #fetch()} and
+ * {@link #committer()}), so it needs no synchronization; the {@code queue} is the sole cross-thread
+ * boundary.
  */
 @Slf4j
 public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
@@ -59,6 +59,7 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
   private final Function<EventContext, Map<String, String>> metadataExtractor;
 
   private final Map<String, EventContext> latestCheckpointByPartition = new LinkedHashMap<>();
+  private final FetchProgress<EventContext> progress = new FetchProgress<>();
 
   public AzureEventHubSourceFetcher(
       EventProcessorClient processorClient,
@@ -87,32 +88,33 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
   @Override
   public List<SerializedEvent> fetch() {
     List<SerializedEvent> rawEvents = new ArrayList<>();
+    List<EventContext> drained = new ArrayList<>();
     try {
       // Block briefly for the first event so an idle source doesn't spin; the SimpleSourceCommand
       // loop adds its own backoff sleep when we return empty.
       EventContext first = queue.poll(pollTimeout.toMillis(), TimeUnit.MILLISECONDS);
-      if (first == null) {
-        return rawEvents;
-      }
-      accept(first, rawEvents);
-      // Drain whatever else is immediately available, up to the batch cap.
-      while (rawEvents.size() < maxEventsPerFetch) {
-        EventContext next = queue.poll();
-        if (next == null) {
-          break;
+      if (first != null) {
+        accept(first, drained, rawEvents);
+        // Drain whatever else is immediately available, up to the batch cap.
+        while (rawEvents.size() < maxEventsPerFetch) {
+          EventContext next = queue.poll();
+          if (next == null) {
+            break;
+          }
+          accept(next, drained, rawEvents);
         }
-        accept(next, rawEvents);
       }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       log.debug("AzureEventHubSourceFetcher interrupted while polling", e);
     }
+    markHandled(progress.next(drained));
     return rawEvents;
   }
 
-  private void accept(EventContext eventContext, List<SerializedEvent> rawEvents) {
-    latestCheckpointByPartition.put(
-        eventContext.getPartitionContext().getPartitionId(), eventContext);
+  private void accept(
+      EventContext eventContext, List<EventContext> drained, List<SerializedEvent> rawEvents) {
+    drained.add(eventContext);
     EventData eventData = eventContext.getEventData();
     byte[] key =
         eventData.getPartitionKey() == null
@@ -124,12 +126,33 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
 
   @Override
   public Committer committer() {
-    return () -> {
-      for (EventContext eventContext : latestCheckpointByPartition.values()) {
-        eventContext.updateCheckpoint();
+    return new Committer() {
+      @Override
+      public void commit() {
+        markHandled(progress.rest());
+        checkpointHandled();
       }
-      latestCheckpointByPartition.clear();
+
+      @Override
+      public void commitThrough(int handledRecords) {
+        markHandled(progress.through(handledRecords));
+        checkpointHandled();
+      }
     };
+  }
+
+  private void markHandled(List<EventContext> handled) {
+    for (EventContext eventContext : handled) {
+      latestCheckpointByPartition.put(
+          eventContext.getPartitionContext().getPartitionId(), eventContext);
+    }
+  }
+
+  private void checkpointHandled() {
+    for (EventContext eventContext : latestCheckpointByPartition.values()) {
+      eventContext.updateCheckpoint();
+    }
+    latestCheckpointByPartition.clear();
   }
 
   @Override

@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.sqssource;
 
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
+import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
 import java.io.IOException;
@@ -36,6 +37,7 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
   private final int waitTimeSeconds;
   private final int visibilityTimeoutSeconds;
   private final ConcurrentLinkedQueue<String> pendingReceiptHandles = new ConcurrentLinkedQueue<>();
+  private final FetchProgress<String> progress = new FetchProgress<>();
 
   public SqsSourceFetcher(
       SqsClient sqsClient,
@@ -65,19 +67,23 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
 
     if (messages == null || messages.isEmpty()) {
       log.debug("No messages received from SQS queue: {}", queueUrl);
+      pendingReceiptHandles.addAll(progress.next(List.of()));
       return List.of();
     }
 
     List<SqsReceivedMessage> result = new ArrayList<>(messages.size());
+    List<String> receiptHandles = new ArrayList<>(messages.size());
     for (Message message : messages) {
       SqsReceivedMessage receivedMessage =
           new SqsReceivedMessage(
               message.body().getBytes(StandardCharsets.UTF_8),
               message.messageId(),
               message.receiptHandle());
-      pendingReceiptHandles.add(message.receiptHandle());
+      receiptHandles.add(message.receiptHandle());
       result.add(receivedMessage);
     }
+
+    pendingReceiptHandles.addAll(progress.next(receiptHandles));
 
     log.debug("Fetched {} messages from SQS queue: {}", result.size(), queueUrl);
     return result;
@@ -90,21 +96,32 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
 
   @Override
   public Committer committer() {
-    return () -> {
-      String receiptHandle;
-      while ((receiptHandle = pendingReceiptHandles.poll()) != null) {
-        try {
-          DeleteMessageRequest deleteRequest =
-              DeleteMessageRequest.builder()
-                  .queueUrl(queueUrl)
-                  .receiptHandle(receiptHandle)
-                  .build();
-          sqsClient.deleteMessage(deleteRequest);
-        } catch (Exception e) {
-          log.error("Failed to delete SQS message with receiptHandle: {}", receiptHandle, e);
-        }
+    return new Committer() {
+      @Override
+      public void commit() {
+        pendingReceiptHandles.addAll(progress.rest());
+        deletePending();
+      }
+
+      @Override
+      public void commitThrough(int handledRecords) {
+        pendingReceiptHandles.addAll(progress.through(handledRecords));
+        deletePending();
       }
     };
+  }
+
+  private void deletePending() {
+    String receiptHandle;
+    while ((receiptHandle = pendingReceiptHandles.poll()) != null) {
+      try {
+        DeleteMessageRequest deleteRequest =
+            DeleteMessageRequest.builder().queueUrl(queueUrl).receiptHandle(receiptHandle).build();
+        sqsClient.deleteMessage(deleteRequest);
+      } catch (Exception e) {
+        log.error("Failed to delete SQS message with receiptHandle: {}", receiptHandle, e);
+      }
+    }
   }
 
   @Override

@@ -54,7 +54,8 @@ public interface Fetcher<T> extends Closeable {
 
     /**
      * Commits the read position just past the first {@code handledRecords} records of the latest
-     * fetch. The default commits everything fetched so far.
+     * fetch; records of earlier fetches have all been handled. The default commits everything
+     * fetched so far, so a fetcher that returns more than one record per fetch must override it.
      */
     default void commitThrough(int handledRecords) throws Exception {
       commit();

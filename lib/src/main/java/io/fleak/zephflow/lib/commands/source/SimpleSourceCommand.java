@@ -213,6 +213,8 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     commitStrategy.onBatchStart();
     int recordCount = 0;
     int handledRecords = 0;
+    int committedThrough = 0;
+    boolean anySucceeded = false;
     long lastCommitTime = System.currentTimeMillis();
 
     for (ConvertedResult<T> convertedResult : convertedResults) {
@@ -241,6 +243,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         continue;
       }
       recordCount++;
+      anySucceeded = true;
 
       long currentTime = System.currentTimeMillis();
       long timeSinceLastCommit = currentTime - lastCommitTime;
@@ -249,6 +252,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
         sourceEventAcceptor.beforeCommit();
         try {
           committer.commitThrough(handledRecords);
+          committedThrough = handledRecords;
           recordCount = 0;
           lastCommitTime = currentTime;
           log.debug("Committed batch of records after {} ms", timeSinceLastCommit);
@@ -258,10 +262,12 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       }
     }
 
-    // Final commit for any remaining records
+    // Final commit for the records after the last commit, failed ones included, when any record of
+    // the fetch succeeded; a fetch in which every record fails stays uncommitted.
     if (committer != null
-        && recordCount > 0
-        && commitStrategy.getCommitMode() == CommitStrategy.CommitMode.BATCH) {
+        && anySucceeded
+        && handledRecords > committedThrough
+        && commitStrategy.getCommitMode() != CommitStrategy.CommitMode.NONE) {
       sourceEventAcceptor.beforeCommit();
       try {
         committer.commitThrough(handledRecords);

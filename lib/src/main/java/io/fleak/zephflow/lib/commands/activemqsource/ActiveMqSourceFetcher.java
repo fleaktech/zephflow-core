@@ -21,21 +21,30 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Reads from a transacted session. A session commit acknowledges every message received so far, so
+ * the fetcher commits only once the whole latest fetch has been handled.
+ */
 @Slf4j
-public record ActiveMqSourceFetcher(
-    Connection connection,
-    Session session,
-    MessageConsumer consumer,
-    long receiveTimeoutMs,
-    int maxBatchSize,
-    CommitStrategy commitStrategy)
-    implements Fetcher<SerializedEvent> {
+@RequiredArgsConstructor
+public final class ActiveMqSourceFetcher implements Fetcher<SerializedEvent> {
+
+  private final Connection connection;
+  private final Session session;
+  private final MessageConsumer consumer;
+  private final long receiveTimeoutMs;
+  private final int maxBatchSize;
+  private final CommitStrategy commitStrategy;
+
+  private int fetchedCount;
 
   @Override
   public List<SerializedEvent> fetch() {
     List<SerializedEvent> events = new ArrayList<>();
+    fetchedCount = 0;
     try {
       // Block on first receive to wait for messages
       Message message = consumer.receive(receiveTimeoutMs);
@@ -55,17 +64,28 @@ public record ActiveMqSourceFetcher(
     } catch (JMSException e) {
       log.error("Error fetching from ActiveMQ", e);
     }
+    fetchedCount = events.size();
     log.debug("Fetched {} messages from ActiveMQ", events.size());
     return events;
   }
 
   @Override
   public Committer committer() {
-    return () -> {
-      try {
-        session.commit();
-      } catch (JMSException e) {
-        throw new IOException("Failed to commit JMS session", e);
+    return new Committer() {
+      @Override
+      public void commit() throws IOException {
+        try {
+          session.commit();
+        } catch (JMSException e) {
+          throw new IOException("Failed to commit JMS session", e);
+        }
+      }
+
+      @Override
+      public void commitThrough(int handledRecords) throws IOException {
+        if (handledRecords >= fetchedCount) {
+          commit();
+        }
       }
     };
   }
