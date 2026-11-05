@@ -22,12 +22,14 @@ import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.execution.EffectOutcome;
 import io.fleak.zephflow.api.execution.ExecutionHooks;
+import io.fleak.zephflow.api.execution.ExecutionStoppedException;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
@@ -38,6 +40,7 @@ import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -45,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
@@ -536,6 +540,50 @@ class BatchS3FlusherTest {
         List.of(result, listS3Objects()));
   }
 
+  private static final ExecutionHooks BOUNDED_HOOKS =
+      new ExecutionHooks(
+          () -> {},
+          new ExecutionHooks.Effects() {
+            public long started() {
+              return 1;
+            }
+
+            public void finished(long id, EffectOutcome outcome) {}
+          },
+          Runnable::run);
+
+  private SimpleSinkCommand.FlushResult flushBoundedText(
+      S3TransferManager manager, List<RecordFleakData> records) throws Exception {
+    BatchS3Flusher sink =
+        new BatchS3Flusher(
+            new AwsClientFactory.S3TransferResources(mock(S3AsyncClient.class), manager),
+            BUCKET_NAME,
+            KEY_NAME,
+            EncodingCompiler.fileWriter(
+                encoding("[]", TEXT_LINE), S3SinkConfigValidator.CAPABILITY),
+            100,
+            60000,
+            null,
+            JobContext.builder().executionHooks(BOUNDED_HOOKS).build(),
+            "s3",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    sink.initialize();
+    try {
+      return sink.flushBounded(events(records), Map.of(), BOUNDED_HOOKS);
+    } finally {
+      sink.abort();
+    }
+  }
+
+  private static List<RecordFleakData> nineLinesAndOneBad(RecordFleakData bad) {
+    List<RecordFleakData> records =
+        new ArrayList<>(asaLines(9).stream().map(BatchS3FlusherTest::raw).toList());
+    records.add(bad);
+    return records;
+  }
+
   @Test
   void boundedRunReportsABadRecordAsADefiniteFailure() throws Exception {
     S3TransferManager manager = mock(S3TransferManager.class);
@@ -549,47 +597,11 @@ class BatchS3FlusherTest {
               return upload;
             });
     when(upload.completionFuture()).thenReturn(CompletableFuture.completedFuture(null));
-    ExecutionHooks hooks =
-        new ExecutionHooks(
-            () -> {},
-            new ExecutionHooks.Effects() {
-              public long started() {
-                return 1;
-              }
-
-              public void finished(long id, EffectOutcome outcome) {}
-            },
-            Runnable::run);
-    BatchS3Flusher sink =
-        new BatchS3Flusher(
-            new AwsClientFactory.S3TransferResources(mock(S3AsyncClient.class), manager),
-            BUCKET_NAME,
-            KEY_NAME,
-            EncodingCompiler.fileWriter(
-                encoding("[]", TEXT_LINE), S3SinkConfigValidator.CAPABILITY),
-            100,
-            60000,
-            null,
-            JobContext.builder().executionHooks(hooks).build(),
-            "s3",
-            sinkOutputCounter,
-            outputSizeCounter,
-            sinkErrorCounter);
-    sink.initialize();
-    List<String> lines = asaLines(9);
-    List<RecordFleakData> records =
-        new ArrayList<>(lines.stream().map(BatchS3FlusherTest::raw).toList());
     RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
-    records.add(bad);
 
-    SimpleSinkCommand.FlushResult result;
-    try {
-      result = sink.flushBounded(events(records), Map.of(), hooks);
-    } finally {
-      sink.abort();
-    }
+    SimpleSinkCommand.FlushResult result = flushBoundedText(manager, nineLinesAndOneBad(bad));
 
-    String content = String.join("\n", lines) + "\n";
+    String content = String.join("\n", asaLines(9)) + "\n";
     assertEquals(
         List.of(
             new SimpleSinkCommand.FlushResult(
@@ -599,6 +611,49 @@ class BatchS3FlusherTest {
                 EffectOutcome.counted(9, 9, 1, 0, 1, "s3_record_validation")),
             content),
         List.of(result, uploaded.get()));
+  }
+
+  @Test
+  void boundedStopDuringUploadKeepsTheRejectedRecordAsADefiniteFailure() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    ExecutionStoppedException stop = new ExecutionStoppedException("run stopped");
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenThrow(stop);
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+
+    BoundedFlushException thrown =
+        assertThrows(
+            BoundedFlushException.class, () -> flushBoundedText(manager, nineLinesAndOneBad(bad)));
+
+    assertEquals(
+        List.of(
+            new SimpleSinkCommand.FlushResult(
+                0,
+                0,
+                List.of(new ErrorOutput(bad, MISSING_RAW)),
+                EffectOutcome.counted(9, 0, 1, 9, 1, "s3_record_validation")),
+            stop),
+        List.of(thrown.result(), thrown.getCause()));
+  }
+
+  @Test
+  void boundedUploadFailureKeepsTheRejectedRecordAsADefiniteFailure() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenReturn(upload);
+    when(upload.completionFuture())
+        .thenReturn(CompletableFuture.failedFuture(new IOException("upload down")));
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+    List<RecordFleakData> records = nineLinesAndOneBad(bad);
+
+    SimpleSinkCommand.FlushResult result = flushBoundedText(manager, records);
+
+    String uploadError = new CompletionException(new IOException("upload down")).getMessage();
+    List<ErrorOutput> errors = new ArrayList<>(List.of(new ErrorOutput(bad, MISSING_RAW)));
+    records.subList(0, 9).forEach(record -> errors.add(new ErrorOutput(record, uploadError)));
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors, EffectOutcome.counted(9, 0, 1, 9, 1, "s3_record_validation")),
+        result);
   }
 
   private List<String> listS3Objects() {
