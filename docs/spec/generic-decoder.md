@@ -351,8 +351,7 @@ attributes as plain maps, and the schema URLs. 64-bit integers are strings, each
 `*Millis` companion for times; `severityNumber` stays a number; other enums are names; trace and
 span ids are hex and other bytes base64; attribute lists become maps. A value at its proto3 default
 is omitted, as OTLP/JSON omits it, and a metric without data has no records. The records are the
-ones `OtlpRecords.fromJson` makes from the same request in OTLP/JSON, which zephflow-plus
-`otel_source` produces from JSON input. Records are built one at a time as they are pulled. A
+ones `OtlpRecords.fromJson` makes from the same request in OTLP/JSON. Records are built one at a time as they are pulled. A
 message that does not parse is a terminal `MALFORMED`, and a record whose own serialized size is
 over `maxRecordBytes` is `Oversized` with a preview of those bytes and loses only itself. An empty
 input has no records. Bytes of another signal are not detected: they parse into meaningless records
@@ -607,6 +606,6 @@ P51–P54 and P58–P60 describe PR8's own reader, which PR9 replaced (section 1
 
 | # | Note |
 |---|---|
-| P67 | Each leaf is turned into its OTLP/JSON map (`OtlpJsonMaps`) and then into a record by the walkers moved from zephflow-plus `otel_source`, so one implementation decides the record shape for JSON and protobuf input. Tests compare the format's records with those of the same message printed by protobuf's `JsonFormat` (enums as numbers, ids as hex) |
+| P67 | Each leaf is turned into its OTLP/JSON map (`OtlpJsonMaps`) and then into a record by the walkers `OtlpRecords.fromJson` uses, so one implementation decides the record shape for JSON and protobuf input. Tests compare the format's records with those of the same message printed by protobuf's `JsonFormat` (enums as numbers, ids as hex) |
 | P68 | `opentelemetry-proto` 1.11.1-alpha is built with protobuf 4.36.2, which became the project's protobuf version |
 | P69 | A leaf's resource and scope maps are built once per scope and shared by its records until each record is wrapped; the message itself is held until the cursor ends |
