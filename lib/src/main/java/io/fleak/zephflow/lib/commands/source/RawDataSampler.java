@@ -16,29 +16,46 @@ package io.fleak.zephflow.lib.commands.source;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.Closeable;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.random.RandomGenerator;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class RawDataSampler<T> implements Closeable {
 
+  static final int SAMPLES_PER_INTERVAL = 10;
+
+  static final RandomGenerator THREAD_LOCAL_RANDOM = () -> ThreadLocalRandom.current().nextLong();
+
   private final RawDataEncoder<T> encoder;
   private final DlqWriter sampleWriter;
   private final String nodeId;
   private final long intervalMs;
-  private final AtomicBoolean shouldSample = new AtomicBoolean(true);
+  private final int perInterval;
+  private final RandomGenerator random;
+  private final AtomicInteger remaining;
   private ScheduledExecutorService scheduler;
 
   RawDataSampler(
-      RawDataEncoder<T> encoder, DlqWriter sampleWriter, String nodeId, long intervalMs) {
+      RawDataEncoder<T> encoder,
+      DlqWriter sampleWriter,
+      String nodeId,
+      long intervalMs,
+      int perInterval,
+      RandomGenerator random) {
     this.encoder = encoder;
     this.sampleWriter = sampleWriter;
     this.nodeId = nodeId;
     this.intervalMs = intervalMs;
+    this.perInterval = perInterval;
+    this.random = random;
+    this.remaining = new AtomicInteger(perInterval);
   }
 
   public void open() {
@@ -51,19 +68,39 @@ public class RawDataSampler<T> implements Closeable {
               return t;
             });
     scheduler.scheduleAtFixedRate(
-        () -> shouldSample.set(true), intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        () -> remaining.set(perInterval), intervalMs, intervalMs, TimeUnit.MILLISECONDS);
   }
 
   public void maybeSample(List<T> batch) {
-    if (batch.isEmpty() || !shouldSample.compareAndSet(true, false)) {
+    if (batch.isEmpty()) {
       return;
     }
-    try {
-      SerializedEvent serializedEvent = encoder.serialize(batch.getFirst());
-      sampleWriter.writeToDlq(System.currentTimeMillis(), serializedEvent, "", nodeId);
-    } catch (Exception e) {
-      log.debug("failed to sample raw data", e);
+    int take = Math.min(remaining.getAndUpdate(n -> Math.max(0, n - batch.size())), batch.size());
+    if (take == 0) {
+      return;
     }
+    for (int index : distinctRandomIndexes(batch.size(), take)) {
+      try {
+        SerializedEvent serializedEvent = encoder.serialize(batch.get(index));
+        sampleWriter.writeToDlq(System.currentTimeMillis(), serializedEvent, "", nodeId);
+      } catch (Exception e) {
+        log.debug("failed to sample raw data", e);
+      }
+    }
+  }
+
+  private int[] distinctRandomIndexes(int size, int count) {
+    int[] indexes = new int[size];
+    for (int i = 0; i < size; i++) {
+      indexes[i] = i;
+    }
+    for (int i = 0; i < count; i++) {
+      int j = i + random.nextInt(size - i);
+      int swap = indexes[i];
+      indexes[i] = indexes[j];
+      indexes[j] = swap;
+    }
+    return Arrays.copyOf(indexes, count);
   }
 
   @Override
@@ -89,7 +126,7 @@ public class RawDataSampler<T> implements Closeable {
 
   private static class NoOpRawDataSampler<T> extends RawDataSampler<T> {
     NoOpRawDataSampler() {
-      super(null, null, null, 0);
+      super(null, null, null, 0, 0, null);
     }
 
     @Override
