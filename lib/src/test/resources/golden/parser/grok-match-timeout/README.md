@@ -6,4 +6,4 @@
 
 **Time:** the match limit runs on the real clock because `MatcherWatchdog` takes no injected clock and this command is not `ClockAware`, so `_t` / `_advance` cannot apply. This fixture takes about 1 second.
 
-**Expected reviewed by:** pending
+**Expected reviewed by:** Claude, at Bo Lei's request, on 2026-11-04

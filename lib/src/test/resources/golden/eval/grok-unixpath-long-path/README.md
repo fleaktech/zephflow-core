@@ -4,4 +4,4 @@
 
 **Source of input:** same hand-written paths as `parser/grok-unixpath-long-path`.
 
-**Expected reviewed by:** pending
+**Expected reviewed by:** Claude, at Bo Lei's request, on 2026-11-04
