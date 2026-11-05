@@ -52,9 +52,10 @@ start of a chunk, not from the start of the file.
 ### 3.1 Per file
 
 A run lists, filters and selects files as before. It checks whether it was told to terminate
-before each file, as before, and does not itself stop a file part way. `terminate()` also closes
-the lister, the backend reader, the checkpoint client and the DLQ writer, as before, so a file
-being read at that moment can fail. The selected files are handled one at a time, in order:
+before each file, as before, and does not itself stop a file part way. `requestStop()` stops before
+the next file and lets the file being read finish. `terminate()` calls it and also closes the
+lister, the backend reader, the checkpoint client and the DLQ writer, as before, so a file being
+read at that moment can fail. The selected files are handled one at a time, in order:
 
 1. The file's bytes are made available (3.2). A failure here is a read failure (3.3).
 2. The compiled `RecordDecoder` decodes the bytes, with the limits of 3.4.
@@ -329,6 +330,9 @@ old ones:
     whose records have no spans, 0 for a file without records). For a file that ends early (3.1),
     it is the end of the last emitted record's span. Before, it was every decompressed byte read.
 
+13. **A compressed csv or text file with an empty `decoding` compression** fails as `MALFORMED`
+   (generic decoder spec 4.1) instead of giving garbage records. `encodingType` reads with `auto`
+   and is not affected.
 ## 5. Compatibility
 
 - No code outside this repository uses the `fssource` classes, so removing `FsPayloadReader` and
@@ -453,7 +457,9 @@ The first plan is the version of this design that was agreed before implementati
   rewritten. The error log and `read_error` show it. When no other file of the run finishes (3.1),
   the run fails. If the runner retries a failed run, each attempt emits the batches decoded
   before the failure again and writes its record entries again. The old code did the same for its
-  read errors.
+  read errors. A csv or text file with no compression configured that starts with a compression
+  signature is different: it fails as `MALFORMED`, gets a summary entry and is done, so correcting
+  the compression does not read it again. It must be uploaded under a new name.
 - A run killed while copying can leave one copy of up to `localSpoolMaxBytes`. A copy in the
   working directory is removed only by a runner that deletes the task's working directory; a copy
   under `java.io.tmpdir` is never removed (6.1).

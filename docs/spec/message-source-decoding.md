@@ -78,6 +78,9 @@ FileSource reads its whole file as one message, as today. Its files are assumed 
   only yields `AUTO` or `GZIP`, so for the six the source builds
   `new DecodingConfig(List.of(), <the mapped format>)`: an empty compression list decompresses
   nothing.
+  It also refuses csv and text input that starts with a compression signature (generic decoder
+  spec 4.1). `AUTO` is not an empty list, so a Kafka value compressed with anything but gzip still
+  passes through. See 4.1 item 7.
 
 Kinesis's `compressionTypes` is not carried over. Its validator rejects a non-empty
 `compressionTypes` and says to set `decoding` with the compression instead.
@@ -220,6 +223,13 @@ These behaviors change, with no switch to keep the old ones:
    - XML: an element with more than 1,021 attributes now decodes (legacy: failed);
    - a leading byte-order mark is removed in STRING_LINE, TEXT and CSV (legacy kept it in the first
      line, the text or the first header name); JSON_OBJECT_LINE with a byte-order mark now decodes.
+7. **Compressed value read as csv or text:** with an empty compression list, which includes
+   `encodingType` on every source here but Kafka, a value that starts with a compression signature
+   fails as `MALFORMED`. Before, it gave garbage records. StdIn and an ActiveMQ `TextMessage`
+   re-encode the bytes first, so they rarely start with a signature and mostly still give garbage
+   records. If every message fails this way, the source commits nothing, as with any message that
+   fails to decode (see Known limitations), so the messages can be delivered and dead-lettered
+   again.
 
 ## 5. Compatibility
 
@@ -272,7 +282,8 @@ PR 4, with approval.
   end; MQTT, ActiveMQ and Event Hubs through `createExecutionContext` with their injected client
   factories mocked; Kinesis in its LocalStack test, since it has no client seam. For each source, a
   test with `encodingType` and a value that starts with the gzip magic bytes pins the compression
-  of 3.2: Kafka gunzips it, the other six decode the bytes as they are. StdIn's test feeds the bytes
+  of 3.2: Kafka gunzips it, the other six decode the bytes as they are. The refusal of 4.1 item 7
+  is pinned on the shared converter. StdIn's test feeds the bytes
   to the converter its `createExecutionContext` builds, since stdin re-encodes text.
 - **Existing tests:** the Testcontainers tests (Kafka, ActiveMQ, Event Hubs, Kinesis on LocalStack)
   stay green, and Kafka's adds a `decoding` config and a bad message that reaches a mocked

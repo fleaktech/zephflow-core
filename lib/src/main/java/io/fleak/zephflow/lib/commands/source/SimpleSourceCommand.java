@@ -59,7 +59,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     Fetcher.Committer committer = fetcher.committer();
 
     DlqWriter dlqWriter = sourceInitializedConfig.dlqWriter();
-    RawDataSampler<T> rawDataSampler = createRawDataSampler(encoder);
+    RawDataSampler<T> rawDataSampler = createRawDataSampler(encoder, converter);
     try {
       rawDataSampler.open();
       int sleep = SLEEP_INIT;
@@ -317,7 +317,11 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     super.terminate();
   }
 
-  RawDataSampler<T> createRawDataSampler(RawDataEncoder<T> encoder) {
+  static int samplesPerInterval(RawDataConverter<?> converter) {
+    return converter instanceof BatchEmittingConverter<?> ? 1 : RawDataSampler.SAMPLES_PER_INTERVAL;
+  }
+
+  RawDataSampler<T> createRawDataSampler(RawDataEncoder<T> encoder, RawDataConverter<T> converter) {
     JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
     if (dlqConfig == null) {
       return RawDataSampler.noOp();
@@ -325,7 +329,13 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
     long sampleIntervalMs = getSampleIntervalMs(dlqConfig);
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
     DlqWriter sampleWriter = DlqWriterFactory.createSampleWriter(dlqConfig, keyPrefix);
-    return new RawDataSampler<>(encoder, sampleWriter, nodeId, sampleIntervalMs);
+    return new RawDataSampler<>(
+        encoder,
+        sampleWriter,
+        nodeId,
+        sampleIntervalMs,
+        samplesPerInterval(converter),
+        RawDataSampler.THREAD_LOCAL_RANDOM);
   }
 
   private static long getSampleIntervalMs(JobContext.DlqConfig dlqConfig) {

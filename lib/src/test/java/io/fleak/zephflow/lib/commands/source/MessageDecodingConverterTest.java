@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_RAW;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -739,6 +740,47 @@ class MessageDecodingConverterTest {
         return result;
       }
     };
+  }
+
+  @Test
+  void aLegacyTextSourceWithoutDetectionRefusesAGzipMessage() throws IOException {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, false),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    SerializedEvent message = new SerializedEvent(null, gzip("x"), null);
+
+    ConvertedResult<SerializedEvent> result = converter.convert(message, context);
+
+    Throwable cause = result.error().getCause();
+    assertEquals(
+        new Failure(
+            cause,
+            "MALFORMED text message: UndeclaredCompressionException\n"
+                + "Action: check that the message is text as the source's encodingType or decoding"
+                + " says, and that its compression is set when the message is compressed, or fix"
+                + " the producer that wrote it; "
+                + RESEND
+                + "\n"
+                + trace(cause)
+                + "\nrecordIndex 1",
+            message),
+        Failure.of(result));
+  }
+
+  @Test
+  void aLegacyTextSourceWithDetectionStillReadsAGzipMessage() throws IOException {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, true),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    SerializedEvent message = new SerializedEvent(null, gzip("x"), null);
+
+    assertEquals(
+        ConvertedResult.success(List.of(record(Map.of(FIELD_NAME_RAW, "x"))), message),
+        converter.convert(message, context));
   }
 
   private static byte[] gzip(String text) throws IOException {

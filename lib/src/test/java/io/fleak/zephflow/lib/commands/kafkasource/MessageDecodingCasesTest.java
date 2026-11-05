@@ -24,8 +24,11 @@ import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -460,6 +463,46 @@ class MessageDecodingCasesTest {
         converter.convert(new SerializedEvent(null, gzip(JSON_LINES), null), context());
 
     assertEquals("MALFORMED json message: JsonParseException", result.error().getMessage());
+  }
+
+  @Test
+  void textWithNoCompressionRefusesAGzipMessage() {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            KafkaSourceCommand.decodingConfig(
+                KafkaSourceDto.Config.builder()
+                    .decoding(
+                        new DecodingConfig(
+                            List.of(), new TextFormatConfig(null, new FramingConfig.Line(null))))
+                    .build()),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    ConvertedResult<SerializedEvent> result =
+        converter.convert(new SerializedEvent(null, gzip(JSON_LINES), null), context());
+
+    assertEquals(
+        "MALFORMED text message: UndeclaredCompressionException", result.error().getMessage());
+  }
+
+  @Test
+  void csvWithNoCompressionRefusesAGzipMessage() {
+    MessageDecodingConverter converter =
+        new MessageDecodingConverter(
+            KafkaSourceCommand.decodingConfig(
+                KafkaSourceDto.Config.builder()
+                    .decoding(
+                        new DecodingConfig(
+                            List.of(),
+                            new CsvFormatConfig(
+                                null, null, null, null, null, null, null, null, null)))
+                    .build()),
+            MessageDecodingConverter.Unit.MESSAGE);
+
+    ConvertedResult<SerializedEvent> result =
+        converter.convert(new SerializedEvent(null, gzip(JSON_LINES), null), context());
+
+    assertEquals(
+        "MALFORMED csv message: UndeclaredCompressionException", result.error().getMessage());
   }
 
   private static Arguments decodes(

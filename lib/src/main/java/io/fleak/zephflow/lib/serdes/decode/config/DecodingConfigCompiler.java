@@ -29,6 +29,7 @@ import io.fleak.zephflow.lib.serdes.decode.csv.CsvFormat;
 import io.fleak.zephflow.lib.serdes.decode.internal.CompiledDecoder;
 import io.fleak.zephflow.lib.serdes.decode.internal.FormatFactory;
 import io.fleak.zephflow.lib.serdes.decode.internal.RandomAccessDecoder;
+import io.fleak.zephflow.lib.serdes.decode.internal.UndeclaredCompression;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonArrayFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonLinesFormat;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonObjectFormat;
@@ -96,14 +97,14 @@ public final class DecodingConfigCompiler {
       case AutoFormatConfig auto ->
           streamed(codecs, (in, limits, flags) -> new AutoFormatCursor(in, limits, flags, unit));
       case AvroFormatConfig avro -> streamed(codecs, avro(avro));
-      case CsvFormatConfig csv -> streamed(codecs, csv(csv));
+      case CsvFormatConfig csv -> characters(codecs, csv(csv));
       case JsonFormatConfig json -> streamed(codecs, json(json));
       case KvFormatConfig kv ->
           throw new IllegalArgumentException("kv cannot be read: no source decodes kv");
       case OtlpFormatConfig otlp -> streamed(codecs, otlp(otlp));
       case ParquetFormatConfig parquet -> parquet(codecs);
       case ProtobufFormatConfig protobuf -> streamed(codecs, protobuf(protobuf));
-      case TextFormatConfig text -> streamed(codecs, text(text));
+      case TextFormatConfig text -> characters(codecs, text(text));
       case XmlFormatConfig xml -> streamed(codecs, xml(xml));
       case YamlFormatConfig yaml -> streamed(codecs, yaml(yaml));
     };
@@ -111,6 +112,10 @@ public final class DecodingConfigCompiler {
 
   private static RecordDecoder streamed(List<DecompressionCodec> codecs, FormatFactory format) {
     return new CompiledDecoder(codecs, format);
+  }
+
+  private static RecordDecoder characters(List<DecompressionCodec> codecs, FormatFactory format) {
+    return streamed(codecs, codecs.isEmpty() ? UndeclaredCompression.refusing(format) : format);
   }
 
   private static RecordDecoder parquet(List<DecompressionCodec> codecs) {

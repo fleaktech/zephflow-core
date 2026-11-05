@@ -212,9 +212,25 @@ classification is never repeated in a format.
 
 Every codec follows the same rules: concatenated streams are all read, bytes after the last stream
 that do not start another one are `CORRUPT_COMPRESSION`, and input with no bytes decodes to nothing.
+
 gzip and deflate hand on everything they decoded before damaged data. The other codecs are read at
 most 256 bytes at a time, because a library that fails drops what it decoded in that call, so up to
 255 bytes decoded just before the damage can be lost.
+
+`csv` and `text` read any bytes as characters, so with an empty `compression` they would turn
+compressed data into garbage records. They refuse input that starts with a compression signature:
+one terminal `MALFORMED` outcome and no records. The signatures are those of `gzip`, `zstd`, `xz`,
+`bzip2` (with a data block or empty), `lz4`, `snappy` framing, a skippable frame of `zstd` or `lz4`,
+and `deflate` with the zlib headers `78 9c` and `78 da`. Text that starts with one of them is
+refused too, more easily in a single-byte or UTF-16 charset; set `compression` to `auto` to read it.
+
+Only the codecs of this table are recognized, so other binary input is still read as characters:
+zip, legacy lz4 frames, avro or parquet files. So are `deflate` with the headers `78 01` and `78 5e`
+(text can start with them), raw blocks, anything but gzip when `compression` is `auto`, and input
+that a source re-encoded as text before decoding, such as StdIn or an ActiveMQ `TextMessage`. Other
+formats usually report failures on compressed data, but `auto` format frames the input first and
+can also emit `unrecognized_text` records, and protobuf keeps unknown fields, so bytes that happen
+to parse can give a record.
 
 Compression inside avro and parquet belongs to those formats and is not configured here.
 
@@ -335,8 +351,7 @@ attributes as plain maps, and the schema URLs. 64-bit integers are strings, each
 `*Millis` companion for times; `severityNumber` stays a number; other enums are names; trace and
 span ids are hex and other bytes base64; attribute lists become maps. A value at its proto3 default
 is omitted, as OTLP/JSON omits it, and a metric without data has no records. The records are the
-ones `OtlpRecords.fromJson` makes from the same request in OTLP/JSON, which zephflow-plus
-`otel_source` produces from JSON input. Records are built one at a time as they are pulled. A
+ones `OtlpRecords.fromJson` makes from the same request in OTLP/JSON. Records are built one at a time as they are pulled. A
 message that does not parse is a terminal `MALFORMED`, and a record whose own serialized size is
 over `maxRecordBytes` is `Oversized` with a preview of those bytes and loses only itself. An empty
 input has no records. Bytes of another signal are not detected: they parse into meaningless records
@@ -591,6 +606,6 @@ P51–P54 and P58–P60 describe PR8's own reader, which PR9 replaced (section 1
 
 | # | Note |
 |---|---|
-| P67 | Each leaf is turned into its OTLP/JSON map (`OtlpJsonMaps`) and then into a record by the walkers moved from zephflow-plus `otel_source`, so one implementation decides the record shape for JSON and protobuf input. Tests compare the format's records with those of the same message printed by protobuf's `JsonFormat` (enums as numbers, ids as hex) |
+| P67 | Each leaf is turned into its OTLP/JSON map (`OtlpJsonMaps`) and then into a record by the walkers `OtlpRecords.fromJson` uses, so one implementation decides the record shape for JSON and protobuf input. Tests compare the format's records with those of the same message printed by protobuf's `JsonFormat` (enums as numbers, ids as hex) |
 | P68 | `opentelemetry-proto` 1.11.1-alpha is built with protobuf 4.36.2, which became the project's protobuf version |
 | P69 | A leaf's resource and scope maps are built once per scope and shared by its records until each record is wrapped; the message itself is held until the cursor ends |
