@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import lombok.Data;
+import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.influxdb.InfluxDB;
 import org.influxdb.dto.BatchPoints;
@@ -171,7 +172,7 @@ public class InfluxDBMetricSender implements AutoCloseable {
     private String database;
     private String measurement;
     private String username;
-    private String password;
+    @ToString.Exclude private String password;
     private String retentionPolicy;
   }
 }
