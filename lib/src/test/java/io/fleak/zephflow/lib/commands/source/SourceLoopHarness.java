@@ -86,9 +86,28 @@ public final class SourceLoopHarness {
       RawDataConverter<T> converter,
       SourceEventAcceptor acceptor,
       DlqWriter dlqWriter) {
+    run(fetcher, 1, converter, acceptor, dlqWriter);
+  }
+
+  /**
+   * Handles the first {@code fetches} fetches, with failed records going to {@code dlqWriter}. The
+   * acceptor counts records across fetches.
+   */
+  public static <T> void run(
+      Fetcher<T> fetcher,
+      int fetches,
+      RawDataConverter<T> converter,
+      SourceEventAcceptor acceptor,
+      DlqWriter dlqWriter) {
     SourceExecutionContext<T> context =
         new SourceExecutionContext<>(
-            new FirstFetchOnly<>(fetcher), converter, mock(), mock(), mock(), mock(), dlqWriter);
+            new LimitedFetches<>(fetcher, fetches),
+            converter,
+            mock(),
+            mock(),
+            mock(),
+            mock(),
+            dlqWriter);
     ConfigParser parser = mock();
     when(parser.parseConfig(CONFIG)).thenReturn(mock(CommandConfig.class));
     SimpleSourceCommand<T> source =
@@ -117,15 +136,25 @@ public final class SourceLoopHarness {
     source.execute("user", acceptor);
   }
 
-  private record FirstFetchOnly<T>(Fetcher<T> fetcher) implements Fetcher<T> {
+  private static final class LimitedFetches<T> implements Fetcher<T> {
+    private final Fetcher<T> fetcher;
+    private final int fetches;
+    private int fetched;
+
+    LimitedFetches(Fetcher<T> fetcher, int fetches) {
+      this.fetcher = fetcher;
+      this.fetches = fetches;
+    }
+
     @Override
     public List<T> fetch() {
+      fetched++;
       return fetcher.fetch();
     }
 
     @Override
     public boolean isExhausted() {
-      return true;
+      return fetched >= fetches;
     }
 
     @Override

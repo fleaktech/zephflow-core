@@ -19,6 +19,7 @@ import static org.mockito.Mockito.*;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
+import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
@@ -311,5 +312,31 @@ class ActiveMqSourceFetcherTest {
     when(consumer.receiveNoWait()).thenReturn(message, message, null);
     return new ActiveMqSourceFetcher(
         mock(Connection.class), session, consumer, 1000L, 500, BatchCommitStrategy.ofBatchSize(1));
+  }
+
+  @Test
+  void perRecordCommitsTheSessionOnlyAtTheLastRecordOfTheFetch() throws Exception {
+    Session session = mock(Session.class);
+    MessageConsumer consumer = mock(MessageConsumer.class);
+    TextMessage message = mock(TextMessage.class);
+    when(message.getText()).thenReturn("{}");
+    when(consumer.receive(1000L)).thenReturn(message);
+    when(consumer.receiveNoWait()).thenReturn(message, message, null);
+    ActiveMqSourceFetcher fetcher =
+        new ActiveMqSourceFetcher(
+            mock(Connection.class),
+            session,
+            consumer,
+            1000L,
+            500,
+            PerRecordCommitStrategy.INSTANCE);
+
+    SourceLoopHarness.run(
+        fetcher,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> false),
+        null);
+
+    verify(session, times(1)).commit();
   }
 }

@@ -237,4 +237,21 @@ class SqsSourceFetcherCommitTest {
             });
     return deleted;
   }
+
+  @Test
+  void aFailedFetchIsDeletedWithTheNextFetchThatHasAHandledMessage() {
+    List<String> deleted = recordDeletes();
+    when(sqsClient.receiveMessage(any(ReceiveMessageRequest.class)))
+        .thenReturn(received("r1", "r2"))
+        .thenReturn(received("r3", "r4"));
+
+    SourceLoopHarness.run(
+        fetcher,
+        2,
+        SourceLoopHarness.oneEventPerRecord(),
+        SourceLoopHarness.failing(record -> record <= 2),
+        mock(DlqWriter.class));
+
+    assertEquals(List.of("r1", "r2", "r3", "r4"), deleted);
+  }
 }

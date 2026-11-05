@@ -15,14 +15,13 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
-import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -115,23 +114,6 @@ class KinesisSourceFetcherCommitTest {
   }
 
   @Test
-  void theLoopDoesNotCheckpointEveryRecord() throws Exception {
-    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
-    deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"), record("2"), record("3"));
-
-    assertThrows(
-        ProcessKilled.class,
-        () ->
-            SourceLoopHarness.run(
-                fetcher,
-                SourceLoopHarness.oneEventPerRecord(),
-                SourceLoopHarness.killedAt(3),
-                null));
-
-    assertEquals(List.of(), checkpoints);
-  }
-
-  @Test
   void theLoopCheckpointsTheLastHandledRecordByTheEndOfTheFetch() throws Exception {
     KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
     deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"), record("2"), record("3"));
@@ -143,5 +125,43 @@ class KinesisSourceFetcherCommitTest {
         null);
 
     assertEquals("shard-1@3", checkpoints.getLast());
+  }
+
+  @Test
+  void checkpointsAtMostOncePerSecondAndAtTheEndOfEachFetch() {
+    assertEquals(BatchCommitStrategy.ofInterval(1000), new KinesisSourceFetcher().commitStrategy());
+  }
+
+  @Test
+  void recordsLeftAfterTheLastCommitAreCheckpointedWithTheNextFetch() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    RecordProcessorCheckpointer shard1 = checkpointer("shard-1");
+    deliver(fetcher, "shard-1", shard1, record("1"), noData("2"));
+    Fetcher.Committer committer = fetcher.committer();
+    List<List<String>> perCommit = new ArrayList<>();
+
+    assertEquals(1, fetcher.fetch().size());
+    committer.commitThrough(1);
+    perCommit.add(drainCheckpoints());
+    deliver(fetcher, "shard-2", checkpointer("shard-2"), record("10"));
+    assertEquals(1, fetcher.fetch().size());
+    committer.commitThrough(1);
+    perCommit.add(drainCheckpoints());
+
+    assertEquals(List.of(List.of("shard-1@1"), List.of("shard-1@2", "shard-2@10")), perCommit);
+  }
+
+  @Test
+  void aShutdownRequestRepeatsOnlyTheLastCheckpointOfItsShard() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    RecordProcessorCheckpointer shard1 = checkpointer("shard-1");
+    ShardRecordProcessor processor =
+        deliver(fetcher, "shard-1", shard1, record("1"), record("2"), record("3"));
+    fetcher.fetch();
+    fetcher.committer().commitThrough(1);
+
+    processor.shutdownRequested(ShutdownRequestedInput.builder().checkpointer(shard1).build());
+
+    assertEquals(List.of("shard-1@1", "shard-1@1"), checkpoints);
   }
 }

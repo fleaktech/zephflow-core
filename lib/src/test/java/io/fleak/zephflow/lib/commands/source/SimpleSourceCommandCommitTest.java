@@ -172,6 +172,58 @@ class SimpleSourceCommandCommitTest {
     assertEquals(List.of(4, 7, 8), committedThrough);
   }
 
+  @Test
+  void theFinalCommitCoversFailedRecordsAfterTheLastCommitPoint() throws Exception {
+    assertEquals(List.of(2, 4), committedThrough(4, BatchCommitStrategy.ofBatchSize(2), 3, 4));
+  }
+
+  @Test
+  void perRecordCommitsAFailedTailWhenTheFetchEnds() throws Exception {
+    assertEquals(List.of(1, 2, 4), committedThrough(4, PerRecordCommitStrategy.INSTANCE, 3, 4));
+  }
+
+  @Test
+  void aFetchInWhichEveryRecordFailsIsNotCommitted() throws Exception {
+    assertEquals(List.of(), committedThrough(3, BatchCommitStrategy.ofBatchSize(1), 1, 2, 3));
+  }
+
+  @Test
+  void noCommitStrategyNeverCommitsAFailedTail() throws Exception {
+    assertEquals(List.of(), committedThrough(3, NoCommitStrategy.INSTANCE, 3));
+  }
+
+  private List<Integer> committedThrough(int records, CommitStrategy strategy, Integer... failing)
+      throws Exception {
+    List<Integer> committed = new ArrayList<>();
+    mockCommitter =
+        new Fetcher.Committer() {
+          @Override
+          public void commit() {
+            throw new AssertionError("expected a bounded commit");
+          }
+
+          @Override
+          public void commitThrough(int handledRecords) {
+            committed.add(handledRecords);
+          }
+        };
+    List<Integer> failingRecords = List.of(failing);
+    AtomicInteger accepted = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              if (failingRecords.contains(accepted.incrementAndGet())) {
+                throw new IllegalStateException("downstream failure");
+              }
+              return null;
+            })
+        .when(sourceEventAcceptor)
+        .accept(any());
+
+    new TestSourceCommand().testProcessFetchedData(createTestData(records), strategy);
+
+    return committed;
+  }
+
   private static SourceEventAcceptor recordingAcceptor(
       List<String> calls, RuntimeException beforeCommitFailure) {
     return new SourceEventAcceptor() {

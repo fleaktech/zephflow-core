@@ -29,7 +29,6 @@ import com.google.pubsub.v1.PullResponse;
 import com.google.pubsub.v1.ReceivedMessage;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
-import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -167,23 +166,6 @@ class PubSubSourceFetcherCommitTest {
     committer.commitThrough(1);
 
     assertEquals(List.of(List.of("a-1"), List.of("a-2"), List.of("a-3", "a-4")), acked);
-  }
-
-  @Test
-  void theLoopAcksHandledMessagesTogetherNotOneRequestPerMessage() {
-    List<List<String>> acked = recordAcks();
-    PubSubSourceFetcher fetcher = pulling("a-1", "a-2", "a-3");
-
-    assertThrows(
-        ProcessKilled.class,
-        () ->
-            SourceLoopHarness.run(
-                fetcher,
-                SourceLoopHarness.oneEventPerRecord(),
-                SourceLoopHarness.killedAt(3),
-                null));
-
-    assertEquals(List.of(), acked);
   }
 
   @Test
