@@ -47,5 +47,20 @@ public interface S3SinkDto {
     private Boolean kvCleanFields;
 
     private EncodingConfig encoding;
+
+    /**
+     * Store-and-forward: when enabled, a batch that fails because of the destination is kept in a
+     * local durable queue and uploaded once the destination accepts it again, instead of dropped.
+     */
+    @Builder.Default private boolean storeAndForwardEnabled = false;
+
+    /** Directory for the local store-and-forward queue. Defaults to a temp dir keyed by node id. */
+    private String localStorePath;
+
+    /** Hard cap on local store size; once reached, incoming records are dropped. */
+    @Builder.Default private long localStoreMaxBytes = 1_073_741_824L; // 1 GiB
+
+    /** How often the background forwarder retries draining the local queue during an outage. */
+    @Builder.Default private long forwardRetryIntervalMillis = 5_000L;
   }
 }

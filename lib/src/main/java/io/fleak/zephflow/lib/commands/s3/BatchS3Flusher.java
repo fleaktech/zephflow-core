@@ -25,6 +25,7 @@ import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
+import io.fleak.zephflow.lib.commands.sink.DestinationFailureException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.File;
@@ -127,13 +128,17 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     } catch (Exception e) {
       valid = validRecords(batch, rejected);
       if (rejected.isEmpty()) {
-        throw e;
+        throw tempFileFailure(e);
       }
       if (valid.isEmpty()) {
         return withRejected(
             new SimpleSinkCommand.FlushResult(0, 0, List.of()), rejected, batch.size());
       }
-      tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+      try {
+        tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+      } catch (Exception retryFailure) {
+        throw tempFileFailure(retryFailure);
+      }
     }
     String baseKey = generateS3KeyBase();
 
@@ -146,8 +151,11 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       }
       throw new BoundedFlushException(unsent(valid.size(), rejected), stopped);
     } catch (RuntimeException failure) {
-      if (boundedHooks == null || rejected.isEmpty()) {
+      if (rejected.isEmpty()) {
         throw failure;
+      }
+      if (boundedHooks == null) {
+        throw new DestinationFailureException(failure, rejected);
       }
       List<ErrorOutput> errors = new ArrayList<>(rejected);
       valid.forEach(pair -> errors.add(new ErrorOutput(pair.getLeft(), failure.getMessage())));
@@ -159,6 +167,17 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
         }
       }
     }
+  }
+
+  /** A failure writing the local temp file; never a destination problem. */
+  static final class TempFileWriteException extends Exception {
+    TempFileWriteException(Throwable cause) {
+      super(cause.getMessage(), cause);
+    }
+  }
+
+  private Exception tempFileFailure(Exception e) {
+    return boundedHooks == null ? new TempFileWriteException(e) : e;
   }
 
   private static List<RecordFleakData> rights(List<Pair<RecordFleakData, RecordFleakData>> pairs) {

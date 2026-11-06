@@ -30,8 +30,11 @@ import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
+import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
+import io.fleak.zephflow.lib.commands.sink.DestinationFailureException;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -43,6 +46,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -53,6 +57,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -654,6 +659,122 @@ class BatchS3FlusherTest {
         new SimpleSinkCommand.FlushResult(
             0, 0, errors, EffectOutcome.counted(9, 0, 1, 9, 1, "s3_record_validation")),
         result);
+  }
+
+  private BatchS3Flusher unboundedFlusher(
+      S3TransferManager manager, BlobFileWriter<RecordFleakData> fileWriter) {
+    BatchS3Flusher sink =
+        new BatchS3Flusher(
+            new AwsClientFactory.S3TransferResources(mock(S3AsyncClient.class), manager),
+            BUCKET_NAME,
+            KEY_NAME,
+            fileWriter,
+            100,
+            60000,
+            null,
+            JobContext.builder().build(),
+            "s3",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    sink.enableStoreForward(SinkStoreForward.noop(), new S3DestinationFailureClassifier());
+    sink.initialize();
+    return sink;
+  }
+
+  @Test
+  void uploadFailureWithARejectedRecordThrowsADestinationFailureCarryingIt() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenReturn(upload);
+    IOException uploadDown = new IOException("upload down");
+    when(upload.completionFuture()).thenReturn(CompletableFuture.failedFuture(uploadDown));
+    RecordFleakData bad = (RecordFleakData) FleakData.wrap(Map.of("message", "no raw"));
+    BatchS3Flusher sink =
+        unboundedFlusher(
+            manager,
+            EncodingCompiler.fileWriter(
+                encoding("[]", TEXT_LINE), S3SinkConfigValidator.CAPABILITY));
+
+    try {
+      DestinationFailureException thrown =
+          assertThrows(
+              DestinationFailureException.class,
+              () -> sink.flushNow(events(nineLinesAndOneBad(bad)), Map.of()));
+      assertEquals(
+          List.of(List.of(new ErrorOutput(bad, MISSING_RAW)), uploadDown),
+          List.of(thrown.getRecordErrors(), thrown.getCause().getCause()));
+    } finally {
+      sink.abort();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void tempFileFailureIsARecordErrorNotADestinationFailure() throws Exception {
+    BlobFileWriter<RecordFleakData> fileWriter = mock(BlobFileWriter.class);
+    when(fileWriter.writeToTempFiles(anyList(), any()))
+        .thenThrow(new IOException("No space left on device"));
+    S3TransferManager manager = mock(S3TransferManager.class);
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    BatchS3Flusher sink = unboundedFlusher(manager, fileWriter);
+
+    try {
+      SimpleSinkCommand.FlushResult result = sink.flushNow(events(List.of(record)), Map.of());
+      assertEquals(
+          new SimpleSinkCommand.FlushResult(
+              0, 0, List.of(new ErrorOutput(record, "No space left on device"))),
+          result);
+      verify(manager, never()).uploadFile(any(UploadFileRequest.class));
+    } finally {
+      sink.abort();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  void tempFileFailureOnATimerFlushIsCountedAndNotStored(@TempDir Path storeDir) throws Exception {
+    BlobFileWriter<RecordFleakData> fileWriter = mock(BlobFileWriter.class);
+    when(fileWriter.writeToTempFiles(anyList(), any()))
+        .thenThrow(new IOException("No space left on device"));
+    FleakCounter bufferedCounter = mock(FleakCounter.class);
+    ChronicleStoreForward store =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(storeDir, 1 << 20, 100, 100, "s3"),
+            new S3DestinationFailureClassifier()::isDestinationFailure,
+            bufferedCounter,
+            mock(FleakCounter.class),
+            mock(FleakCounter.class));
+    BatchS3Flusher sink =
+        new BatchS3Flusher(
+            new AwsClientFactory.S3TransferResources(
+                mock(S3AsyncClient.class), mock(S3TransferManager.class)),
+            BUCKET_NAME,
+            KEY_NAME,
+            fileWriter,
+            100,
+            60000,
+            null,
+            JobContext.builder().build(),
+            "s3",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+    sink.enableStoreForward(store, new S3DestinationFailureClassifier());
+    sink.initialize();
+    store.start(records -> {});
+    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+
+    try {
+      sink.flush(events(List.of(record)), Map.of());
+      sink.executeScheduledFlush();
+      assertFalse(store.isBuffering());
+      verify(sinkErrorCounter).increase(1L, Map.of());
+      verify(bufferedCounter, never()).increase(anyLong(), anyMap());
+    } finally {
+      sink.abort();
+      store.close();
+    }
   }
 
   private List<String> listS3Objects() {
