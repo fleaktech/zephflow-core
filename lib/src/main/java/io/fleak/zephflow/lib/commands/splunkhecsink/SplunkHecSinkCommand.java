@@ -24,14 +24,15 @@ import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
+import java.net.Socket;
 import java.net.http.HttpClient;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.X509ExtendedTrustManager;
 
 public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEvent> {
 
@@ -150,28 +151,39 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
       return builder.build();
     }
     try {
-      TrustManager[] trustAll =
-          new TrustManager[] {
-            new X509TrustManager() {
-              @Override
-              public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-
-              @Override
-              public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-
-              @Override
-              public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-              }
-            }
-          };
+      // An X509ExtendedTrustManager: for a plain X509TrustManager the JDK still checks the host
+      // name itself, and HttpClient ignores an empty endpoint identification algorithm.
+      TrustManager[] trustAll = new TrustManager[] {new TrustAllManager()};
       SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
       sslContext.init(null, trustAll, new SecureRandom());
-      SSLParameters sslParameters = new SSLParameters();
-      sslParameters.setEndpointIdentificationAlgorithm("");
-      return builder.sslContext(sslContext).sslParameters(sslParameters).build();
+      return builder.sslContext(sslContext).build();
     } catch (Exception e) {
       throw new RuntimeException("Failed to build trust-all HttpClient", e);
+    }
+  }
+
+  static final class TrustAllManager extends X509ExtendedTrustManager {
+    @Override
+    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+
+    @Override
+    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+
+    @Override
+    public void checkClientTrusted(X509Certificate[] chain, String authType, Socket socket) {}
+
+    @Override
+    public void checkServerTrusted(X509Certificate[] chain, String authType, Socket socket) {}
+
+    @Override
+    public void checkClientTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+
+    @Override
+    public void checkServerTrusted(X509Certificate[] chain, String authType, SSLEngine engine) {}
+
+    @Override
+    public X509Certificate[] getAcceptedIssuers() {
+      return new X509Certificate[0];
     }
   }
 }
