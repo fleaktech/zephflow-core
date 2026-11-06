@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.sink;
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.execution.EffectOutcome;
@@ -25,9 +26,14 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
+import java.io.InterruptedIOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -56,6 +62,8 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   protected final FleakCounter sinkErrorCounter;
 
   private BufferedWriter<Pair<RecordFleakData, T>> bufferedWriter;
+  private volatile SinkStoreForward storeForward = SinkStoreForward.noop();
+  private volatile DestinationFailureClassifier destinationFailureClassifier;
 
   protected AbstractBufferedFlusher(
       DlqWriter dlqWriter,
@@ -74,6 +82,20 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
         jobContext != null
             && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
     // BufferedWriter will be initialized lazily on first use to allow subclass to set batchSize
+  }
+
+  /**
+   * Keeps records whose send fails because of the destination in {@code store} instead of dropping
+   * them. Pass {@link SinkStoreForward#noop()} to only classify failures. Call before first use.
+   */
+  public final void enableStoreForward(
+      SinkStoreForward store, DestinationFailureClassifier classifier) {
+    this.storeForward = store;
+    this.destinationFailureClassifier = classifier;
+  }
+
+  final DestinationFailureClassifier destinationFailureClassifier() {
+    return destinationFailureClassifier;
   }
 
   protected final boolean isSyncMode() {
@@ -285,6 +307,92 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   }
 
   @Override
+  public final SimpleSinkCommand.FlushResult flushNow(
+      SimpleSinkCommand.PreparedInputEvents<T> events, Map<String, String> metricTags)
+      throws Exception {
+    beforeFlush();
+    int successCount = 0;
+    long flushedDataSize = 0;
+    List<ErrorOutput> errors = new ArrayList<>();
+    for (List<Pair<RecordFleakData, T>> slice :
+        Lists.partition(events.rawAndPreparedList(), getBatchSize())) {
+      SimpleSinkCommand.FlushResult result;
+      beforeWrite();
+      try {
+        result = doFlushWithRetry(slice);
+      } catch (Exception e) {
+        if (keepsForReplay(e)) {
+          throw e;
+        }
+        result = createCompleteFailureResult(slice, getExceptionMessage(e));
+      } finally {
+        afterWrite();
+      }
+      successCount += result.successCount();
+      flushedDataSize += result.flushedDataSize();
+      errors.addAll(result.errorOutputList());
+    }
+    return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, errors);
+  }
+
+  /**
+   * Whether a failure of {@link #flushNow} must leave the replayed records in the store: a
+   * destination problem, a shutdown interrupt, or a failure the subclass retries on replay.
+   */
+  public final boolean keepsForReplay(Throwable failure) {
+    return isDestinationFailure(failure) || isInterrupt(failure) || retryOnReplay(failure);
+  }
+
+  /** Failures that are not destination problems but must not drop replayed records. */
+  protected boolean retryOnReplay(Throwable failure) {
+    return false;
+  }
+
+  private static boolean isInterrupt(Throwable failure) {
+    if (Thread.currentThread().isInterrupted()) {
+      return true;
+    }
+    Throwable current = failure;
+    for (int depth = 0; current != null && depth < 32; depth++) {
+      if (current instanceof InterruptedException
+          || current instanceof ClosedByInterruptException
+          || current instanceof InterruptedIOException) {
+        return true;
+      }
+      current = current.getCause() == current ? null : current.getCause();
+    }
+    return false;
+  }
+
+  @Override
+  public final void moveBufferedToStore() {
+    if (!storesFailures()) {
+      return;
+    }
+    List<Pair<RecordFleakData, T>> pending = swapBufferIfNotEmpty();
+    if (!pending.isEmpty()) {
+      handleOutOfBandFlushErrors(storeBatch(pending, List.of()));
+    }
+  }
+
+  public final SinkStoreForward.ReplayTarget replayTarget(
+      SimpleSinkCommand.SinkMessagePreProcessor<T> preprocessor,
+      FleakCounter sinkOutputCounter,
+      FleakCounter outputSizeCounter,
+      FleakCounter sinkErrorCounter,
+      FleakCounter errorCounter) {
+    return records ->
+        SimpleSinkCommand.replay(
+            records,
+            this,
+            preprocessor,
+            errorCounter,
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter);
+  }
+
+  @Override
   public final SimpleSinkCommand.FlushResult flushBounded(
       SimpleSinkCommand.PreparedInputEvents<T> events,
       Map<String, String> tags,
@@ -416,6 +524,10 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
       return new SimpleSinkCommand.FlushResult(0, 0, List.of());
     }
 
+    if (storesFailures() && storeForward.isBuffering()) {
+      return storeBatch(batch, List.of());
+    }
+
     log.info("Flushing {} records", batch.size());
 
     beforeWrite();
@@ -501,9 +613,59 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     try {
       return doFlushWithRetry(batch);
     } catch (Exception e) {
-      log.warn("Batch write failed, entering recovery mode: {}", getExceptionMessage(e));
-      return filterAndFlush(batch);
+      return storeOnDestinationFailure(batch, e)
+          .orElseGet(
+              () -> {
+                log.warn("Batch write failed, entering recovery mode: {}", getExceptionMessage(e));
+                return filterAndFlush(batch);
+              });
     }
+  }
+
+  protected final Optional<SimpleSinkCommand.FlushResult> storeOnDestinationFailure(
+      List<Pair<RecordFleakData, T>> batch, Exception failure) {
+    if (!storesFailures() || !isDestinationFailure(failure)) {
+      return Optional.empty();
+    }
+    log.warn(
+        "Sink {} cannot reach its destination; storing {} records locally: {}",
+        nodeId,
+        batch.size(),
+        getExceptionMessage(failure));
+    List<ErrorOutput> recordErrors =
+        failure instanceof DestinationFailureException destinationFailure
+            ? destinationFailure.getRecordErrors()
+            : List.of();
+    return Optional.of(storeBatch(batch, recordErrors));
+  }
+
+  private boolean storesFailures() {
+    return boundedHooks == null && storeForward != SinkStoreForward.noop();
+  }
+
+  private boolean isDestinationFailure(Throwable failure) {
+    DestinationFailureClassifier classifier = destinationFailureClassifier;
+    return failure instanceof DestinationFailureException
+        || classifier == null
+        || classifier.isDestinationFailure(failure);
+  }
+
+  protected final SimpleSinkCommand.FlushResult storeBatch(
+      List<Pair<RecordFleakData, T>> batch, List<ErrorOutput> recordErrors) {
+    List<RecordFleakData> raws;
+    if (recordErrors.isEmpty()) {
+      raws = batch.stream().map(Pair::getLeft).toList();
+    } else {
+      Set<RecordFleakData> rejected =
+          recordErrors.stream().map(ErrorOutput::inputEvent).collect(Collectors.toSet());
+      raws = batch.stream().map(Pair::getLeft).filter(raw -> !rejected.contains(raw)).toList();
+    }
+    int stored = storeForward.offer(raws);
+    List<ErrorOutput> errors = new ArrayList<>(recordErrors);
+    for (int i = stored; i < raws.size(); i++) {
+      errors.add(new ErrorOutput(raws.get(i), SimpleSinkCommand.STORE_FORWARD_FULL_MSG));
+    }
+    return new SimpleSinkCommand.FlushResult(0, 0, errors);
   }
 
   /**

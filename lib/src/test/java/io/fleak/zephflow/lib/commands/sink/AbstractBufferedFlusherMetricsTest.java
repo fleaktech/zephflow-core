@@ -18,11 +18,14 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.*;
 
+import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.execution.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.tuple.Pair;
@@ -60,6 +63,8 @@ class AbstractBufferedFlusherMetricsTest {
   private static class TestFlusher extends AbstractBufferedFlusher<RecordFleakData> {
     private final int batchSize;
     private boolean failWrites;
+    private Exception sendFailure;
+    private final List<List<RecordFleakData>> sent = new ArrayList<>();
 
     TestFlusher(
         int batchSize,
@@ -92,8 +97,18 @@ class AbstractBufferedFlusherMetricsTest {
     }
 
     @Override
+    protected SimpleSinkCommand.FlushResult doFlushWithRetry(
+        List<Pair<RecordFleakData, RecordFleakData>> batch) throws Exception {
+      return doFlush(batch);
+    }
+
+    @Override
     protected SimpleSinkCommand.FlushResult doFlush(
-        List<Pair<RecordFleakData, RecordFleakData>> batch) {
+        List<Pair<RecordFleakData, RecordFleakData>> batch) throws Exception {
+      if (sendFailure != null) {
+        throw sendFailure;
+      }
+      sent.add(batch.stream().map(Pair::getRight).toList());
       return new SimpleSinkCommand.FlushResult(
           batch.size(), batch.size() * BYTES_PER_RECORD, List.of());
     }
@@ -108,11 +123,91 @@ class AbstractBufferedFlusherMetricsTest {
   }
 
   private static SimpleSinkCommand.PreparedInputEvents<RecordFleakData> oneEvent() {
-    RecordFleakData record = (RecordFleakData) FleakData.wrap(Map.of("id", 1));
+    return events(1);
+  }
+
+  private static RecordFleakData record(int id) {
+    return (RecordFleakData) FleakData.wrap(Map.of("id", id));
+  }
+
+  private static SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events(int count) {
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
         new SimpleSinkCommand.PreparedInputEvents<>();
-    events.add(record, record);
+    for (int i = 1; i <= count; i++) {
+      events.add(record(i), record(i));
+    }
     return events;
+  }
+
+  private static final DestinationFailureClassifier IO_IS_DESTINATION =
+      t -> t instanceof IOException;
+
+  @Test
+  void flushNowSendsOneRequestPerSlice() throws Exception {
+    try (TestFlusher flusher = newFlusher(2)) {
+      flusher.initialize();
+
+      SimpleSinkCommand.FlushResult result = flusher.flushNow(events(5), Map.of());
+
+      assertEquals(new SimpleSinkCommand.FlushResult(5, 5 * BYTES_PER_RECORD, List.of()), result);
+      assertEquals(
+          List.of(List.of(record(1), record(2)), List.of(record(3), record(4)), List.of(record(5))),
+          flusher.sent);
+    }
+  }
+
+  @Test
+  void flushNowSendsWithoutTheMemoryBuffer() throws Exception {
+    try (TestFlusher flusher = newFlusher(10)) {
+      flusher.initialize();
+
+      SimpleSinkCommand.FlushResult result = flusher.flushNow(oneEvent(), Map.of());
+
+      assertEquals(new SimpleSinkCommand.FlushResult(1, BYTES_PER_RECORD, List.of()), result);
+      assertEquals(List.of(List.of(record(1))), flusher.sent);
+      assertEquals(0, flusher.getBufferSize());
+      verifyNoInteractions(sinkOutputCounter, outputSizeCounter, sinkErrorCounter);
+    }
+  }
+
+  @Test
+  void flushNowReturnsRecordProblemsAsErrors() throws Exception {
+    try (TestFlusher flusher = newFlusher(10)) {
+      flusher.enableStoreForward(SinkStoreForward.noop(), IO_IS_DESTINATION);
+      flusher.sendFailure = new IllegalArgumentException("bad record");
+
+      SimpleSinkCommand.FlushResult result = flusher.flushNow(events(2), Map.of());
+
+      assertEquals(
+          new SimpleSinkCommand.FlushResult(
+              0,
+              0,
+              List.of(
+                  new ErrorOutput(record(1), "bad record"),
+                  new ErrorOutput(record(2), "bad record"))),
+          result);
+    }
+  }
+
+  @Test
+  void flushNowThrowsOnADestinationProblem() {
+    try (TestFlusher flusher = newFlusher(10)) {
+      flusher.enableStoreForward(SinkStoreForward.noop(), IO_IS_DESTINATION);
+      IOException down = new IOException("connection refused");
+      flusher.sendFailure = down;
+
+      assertSame(
+          down, assertThrows(IOException.class, () -> flusher.flushNow(events(2), Map.of())));
+    }
+  }
+
+  @Test
+  void flushNowWithoutAClassifierThrowsEveryFailure() {
+    try (TestFlusher flusher = newFlusher(10)) {
+      flusher.sendFailure = new IllegalArgumentException("bad record");
+
+      assertThrows(IllegalArgumentException.class, () -> flusher.flushNow(events(2), Map.of()));
+    }
   }
 
   @Test

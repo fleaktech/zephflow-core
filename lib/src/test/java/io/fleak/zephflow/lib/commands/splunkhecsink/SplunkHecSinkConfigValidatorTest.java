@@ -104,6 +104,27 @@ class SplunkHecSinkConfigValidatorTest {
   }
 
   @Test
+  void validateConfig_storeAndForwardNeedsPositiveLimits() {
+    SplunkHecSinkDto.Config noBytes = validConfig();
+    noBytes.setStoreAndForwardEnabled(true);
+    noBytes.setLocalStoreMaxBytes(0);
+    SplunkHecSinkDto.Config noInterval = validConfig();
+    noInterval.setStoreAndForwardEnabled(true);
+    noInterval.setForwardRetryIntervalMillis(0);
+    SplunkHecSinkDto.Config storeOff = validConfig();
+    storeOff.setLocalStoreMaxBytes(0);
+    storeOff.setForwardRetryIntervalMillis(0);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(noBytes, "node", TEST_JOB_CONTEXT));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> validator.validateConfig(noInterval, "node", TEST_JOB_CONTEXT));
+    assertDoesNotThrow(() -> validator.validateConfig(storeOff, "node", TEST_JOB_CONTEXT));
+  }
+
+  @Test
   void validateConfig_batchSizeOne_isValid() {
     SplunkHecSinkDto.Config c = validConfig();
     c.setBatchSize(1);

@@ -59,6 +59,7 @@ public record SinkExecutionContext<T>(
   @Override
   public void abort() throws IOException {
     try {
+      stopReplay();
       if (flusher != null) flusher.abort();
     } finally {
       if (storeForward != null) storeForward.close();
@@ -68,9 +69,14 @@ public record SinkExecutionContext<T>(
   @Override
   public void close() throws IOException {
     try {
+      stopReplay();
       if (flusher != null) flusher.close();
     } finally {
       if (storeForward != null) storeForward.close();
     }
+  }
+
+  private void stopReplay() {
+    if (storeForward != null) storeForward.stopReplay();
   }
 }

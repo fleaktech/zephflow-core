@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.s3;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
-
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.execution.EffectOutcome;
@@ -25,6 +23,7 @@ import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.AbstractBufferedFlusher;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
+import io.fleak.zephflow.lib.commands.sink.DestinationFailureException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.File;
@@ -37,6 +36,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -123,7 +124,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     List<ErrorOutput> rejected = new ArrayList<>();
     List<File> tempFiles;
     try {
-      tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+      tempFiles = writeTempFiles(valid);
     } catch (Exception e) {
       valid = validRecords(batch, rejected);
       if (rejected.isEmpty()) {
@@ -133,7 +134,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
         return withRejected(
             new SimpleSinkCommand.FlushResult(0, 0, List.of()), rejected, batch.size());
       }
-      tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+      tempFiles = writeTempFiles(valid);
     }
     String baseKey = generateS3KeyBase();
 
@@ -146,8 +147,11 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
       }
       throw new BoundedFlushException(unsent(valid.size(), rejected), stopped);
     } catch (RuntimeException failure) {
-      if (boundedHooks == null || rejected.isEmpty()) {
+      if (rejected.isEmpty()) {
         throw failure;
+      }
+      if (boundedHooks == null) {
+        throw new DestinationFailureException(failure, rejected);
       }
       List<ErrorOutput> errors = new ArrayList<>(rejected);
       valid.forEach(pair -> errors.add(new ErrorOutput(pair.getLeft(), failure.getMessage())));
@@ -158,6 +162,26 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
           log.warn("Failed to delete temp file: {}", tempFile);
         }
       }
+    }
+  }
+
+  @Override
+  protected boolean retryOnReplay(Throwable failure) {
+    return failure instanceof TempFileWriteException;
+  }
+
+  static final class TempFileWriteException extends Exception {
+    TempFileWriteException(Throwable cause) {
+      super(cause.getMessage(), cause);
+    }
+  }
+
+  private List<File> writeTempFiles(List<Pair<RecordFleakData, RecordFleakData>> pairs)
+      throws Exception {
+    try {
+      return fileWriter.writeToTempFiles(rights(pairs), tempDirectory);
+    } catch (Exception e) {
+      throw boundedHooks == null ? new TempFileWriteException(e) : e;
     }
   }
 
@@ -239,7 +263,9 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             bucketName);
         return new SimpleSinkCommand.FlushResult(recordCount, totalSize, List.of());
       } catch (Exception e) {
-        if (boundedHooks != null || attempt >= MAX_WRITE_RETRIES) {
+        if (boundedHooks != null
+            || attempt >= MAX_WRITE_RETRIES
+            || Thread.currentThread().isInterrupted()) {
           throw e;
         }
         log.warn(
@@ -248,7 +274,12 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             MAX_WRITE_RETRIES,
             retryDelayMs,
             e.getMessage());
-        threadSleep(retryDelayMs);
+        try {
+          Thread.sleep(retryDelayMs);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw e;
+        }
         retryDelayMs *= 2;
       }
     }
@@ -274,7 +305,15 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             .build();
 
     FileUpload upload = s3TransferResources.transferManager().uploadFile(uploadRequest);
-    upload.completionFuture().join();
+    try {
+      upload.completionFuture().get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      upload.completionFuture().cancel(true);
+      throw new CompletionException("S3 upload interrupted", e);
+    } catch (ExecutionException e) {
+      throw new CompletionException(e.getCause());
+    }
   }
 
   public void close() {

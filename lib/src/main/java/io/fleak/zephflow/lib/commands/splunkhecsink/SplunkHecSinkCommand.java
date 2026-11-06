@@ -17,8 +17,10 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -80,14 +82,40 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
             counters.sinkErrorCounter());
-    flusher.initialize();
-
     SimpleSinkCommand.SinkMessagePreProcessor<SplunkHecOutboundEvent> messagePreProcessor =
         SplunkHecSinkMessageProcessor.fromConfig(config);
+
+    HecDestinationFailureClassifier classifier = new HecDestinationFailureClassifier();
+    SinkStoreForward storeForward =
+        storeAndForwardEnabled(config.isStoreAndForwardEnabled(), jobContext)
+            ? newStoreForward(
+                metricClientProvider,
+                jobContext,
+                config.getLocalStorePath(),
+                config.getLocalStoreMaxBytes(),
+                config.getForwardRetryIntervalMillis(),
+                batchSize,
+                ChronicleStoreForward.Config.UNLIMITED_RETRIES,
+                flusher::keepsForReplay)
+            : SinkStoreForward.noop();
+    closeStoreOnFailure(
+        storeForward,
+        () -> {
+          flusher.enableStoreForward(storeForward, classifier);
+          flusher.initialize();
+          storeForward.start(
+              flusher.replayTarget(
+                  messagePreProcessor,
+                  counters.sinkOutputCounter(),
+                  counters.outputSizeCounter(),
+                  counters.sinkErrorCounter(),
+                  counters.errorCounter()));
+        });
 
     return new SinkExecutionContext<>(
         flusher,
         messagePreProcessor,
+        storeForward,
         counters.inputMessageCounter(),
         counters.errorCounter(),
         counters.sinkOutputCounter(),

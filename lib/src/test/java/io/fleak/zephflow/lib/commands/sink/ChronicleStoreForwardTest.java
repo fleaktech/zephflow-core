@@ -268,10 +268,7 @@ class ChronicleStoreForwardTest {
   void closeReleasesAWaitingSpill(@TempDir Path dir) throws Exception {
     ChronicleStoreForward sf =
         new ChronicleStoreForward(config(dir, 30, 10), IO_IS_CONNECTION, null, null, null);
-    sf.start(
-        records -> {
-          throw new IOException("down");
-        });
+    sf.start(records -> new CountDownLatch(1).await());
 
     CompletableFuture<Integer> stored =
         CompletableFuture.supplyAsync(
@@ -287,10 +284,7 @@ class ChronicleStoreForwardTest {
   void interruptReleasesAWaitingSpill(@TempDir Path dir) throws Exception {
     ChronicleStoreForward sf =
         new ChronicleStoreForward(config(dir, 30, 10), IO_IS_CONNECTION, null, null, null);
-    sf.start(
-        records -> {
-          throw new IOException("down");
-        });
+    sf.start(records -> new CountDownLatch(1).await());
 
     AtomicInteger stored = new AtomicInteger(-1);
     AtomicBoolean interruptKept = new AtomicBoolean(false);
@@ -310,6 +304,191 @@ class ChronicleStoreForwardTest {
     assertTrue(interruptKept.get());
     sf.close();
   }
+
+  @Test
+  void stopReplayRewindsAnInterruptedDeliveryForTheNextInstance(@TempDir Path dir)
+      throws Exception {
+    CountingCounter replayed = new CountingCounter();
+    CountingCounter dropped = new CountingCounter();
+    CountDownLatch delivering = new CountDownLatch(1);
+    AtomicBoolean deliveryEnded = new AtomicBoolean(false);
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(
+            config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, replayed, dropped);
+    first.start(
+        records -> {
+          delivering.countDown();
+          try {
+            new CountDownLatch(1).await();
+          } finally {
+            deliveryEnded.set(true);
+          }
+        });
+    first.offer(List.of(record("a"), record("b")));
+    assertTrue(delivering.await(10, TimeUnit.SECONDS));
+
+    first.stopReplay();
+    assertEquals(
+        new Stopped(true, new Counts(0, 0, 0)),
+        new Stopped(deliveryEnded.get(), new Counts(0, replayed.total(), dropped.total())));
+    first.close();
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("a", "b"), values(delivered));
+    second.close();
+  }
+
+  @Test
+  void offerAfterStopReplayIsKeptForTheNextInstance(@TempDir Path dir) throws Exception {
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    first.start(records -> {});
+
+    first.stopReplay();
+    assertEquals(1, first.offer(List.of(record("late"))));
+    first.close();
+    first.close();
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("late"), values(delivered));
+    second.close();
+  }
+
+  @Test
+  void closingAContextMidReplayKeepsUnconfirmedRecordsOnDisk(@TempDir Path dir) throws Exception {
+    CountDownLatch delivering = new CountDownLatch(1);
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    first.start(
+        records -> {
+          delivering.countDown();
+          Thread.sleep(60_000);
+        });
+    first.offer(List.of(record("a"), record("b")));
+    assertTrue(delivering.await(10, TimeUnit.SECONDS));
+    SinkExecutionContext<RecordFleakData> context =
+        new SinkExecutionContext<>(
+            new SimpleSinkCommand.Flusher<RecordFleakData>() {
+              @Override
+              public SimpleSinkCommand.FlushResult flush(
+                  SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events,
+                  Map<String, String> tags) {
+                return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+              }
+
+              @Override
+              public void close() {
+                first.offer(List.of(record("c")));
+              }
+            },
+            (event, ts) -> event,
+            first,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    CompletableFuture.runAsync(
+            () -> {
+              try {
+                context.close();
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            })
+        .get(10, TimeUnit.SECONDS);
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("a", "b", "c"), values(delivered));
+    second.close();
+  }
+
+  @Test
+  void spillStopsWaitingForSpaceOnceReplayFails(@TempDir Path dir) throws Exception {
+    CountingCounter buffered = new CountingCounter();
+    CountingCounter replayed = new CountingCounter();
+    CountingCounter dropped = new CountingCounter();
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(
+            config(dir, 30, 10), IO_IS_CONNECTION, buffered, replayed, dropped);
+    sf.start(
+        records -> {
+          throw new IOException("down");
+        });
+
+    try {
+      int stored =
+          CompletableFuture.supplyAsync(
+                  () -> sf.spill(List.of(record("a"), record("b"), record("c"))))
+              .get(10, TimeUnit.SECONDS);
+
+      assertEquals(
+          new Spilled(2, new Counts(2, 0, 1)),
+          new Spilled(stored, new Counts(buffered.total(), replayed.total(), dropped.total())));
+    } finally {
+      sf.close();
+    }
+  }
+
+  @Test
+  void stopReplayGivesUpOnAWorkerThatIgnoresInterruptsAndCloseReleasesTheDir(@TempDir Path dir)
+      throws Exception {
+    CountDownLatch delivering = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch deliveryEnded = new CountDownLatch(1);
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    first.stopReplayTimeoutMillis = 200;
+    first.start(
+        records -> {
+          delivering.countDown();
+          while (true) {
+            try {
+              release.await();
+              break;
+            } catch (InterruptedException ignored) {
+            }
+          }
+          deliveryEnded.countDown();
+        });
+    first.offer(List.of(record("a"), record("b")));
+    assertTrue(delivering.await(10, TimeUnit.SECONDS));
+
+    ChronicleStoreForward second;
+    try {
+      CompletableFuture.runAsync(first::close).get(10, TimeUnit.SECONDS);
+      second =
+          new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    } finally {
+      release.countDown();
+    }
+    assertTrue(deliveryEnded.await(10, TimeUnit.SECONDS));
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("a", "b"), values(delivered));
+    second.close();
+  }
+
+  private record Counts(long buffered, long replayed, long dropped) {}
+
+  private record Spilled(int stored, Counts counts) {}
+
+  private record Stopped(boolean deliveryEnded, Counts counts) {}
 
   @Test
   void spillDefaultsToOffer() {

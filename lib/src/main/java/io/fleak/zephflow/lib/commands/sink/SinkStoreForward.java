@@ -62,6 +62,12 @@ public interface SinkStoreForward extends Closeable {
    */
   void start(ReplayTarget target);
 
+  /**
+   * Stops the background forwarder and waits for it to exit, keeping undelivered records on disk.
+   * {@link #offer} still accepts records afterwards.
+   */
+  default void stopReplay() {}
+
   /** Re-delivers a chunk of buffered records to the remote sink. */
   @FunctionalInterface
   interface ReplayTarget {

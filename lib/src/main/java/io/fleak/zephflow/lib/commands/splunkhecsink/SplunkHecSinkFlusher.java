@@ -34,6 +34,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -90,20 +92,22 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
   protected SimpleSinkCommand.FlushResult doFlushWithRecovery(
       List<Pair<RecordFleakData, SplunkHecOutboundEvent>> batch) {
     List<SimpleSinkCommand.FlushResult> results = new ArrayList<>();
+    boolean storeRestToKeepOrder = false;
     for (List<Pair<RecordFleakData, SplunkHecOutboundEvent>> slice :
         Lists.partition(batch, batchSize)) {
-      results.add(flushSlice(slice));
+      if (storeRestToKeepOrder) {
+        results.add(storeBatch(slice, List.of()));
+        continue;
+      }
+      try {
+        results.add(doFlushWithRetry(slice));
+      } catch (Exception e) {
+        Optional<SimpleSinkCommand.FlushResult> stored = storeOnDestinationFailure(slice, e);
+        storeRestToKeepOrder = stored.isPresent();
+        results.add(stored.orElseGet(() -> createCompleteFailureResult(slice, failureMessage(e))));
+      }
     }
     return merge(results);
-  }
-
-  private SimpleSinkCommand.FlushResult flushSlice(
-      List<Pair<RecordFleakData, SplunkHecOutboundEvent>> slice) {
-    try {
-      return doFlushWithRetry(slice);
-    } catch (Exception e) {
-      return createCompleteFailureResult(slice, failureMessage(e));
-    }
   }
 
   private static SimpleSinkCommand.FlushResult merge(List<SimpleSinkCommand.FlushResult> results) {
@@ -129,8 +133,9 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
         }
         try {
           return doFlush(slice);
-        } catch (RetryableHecException | IOException e) {
-          if (attempt >= MAX_WRITE_RETRIES) {
+        } catch (HecResponseException | IOException e) {
+          if (attempt >= MAX_WRITE_RETRIES
+              || e instanceof HecResponseException hec && !hec.isRetryable()) {
             throw e;
           }
           log.warn(
@@ -175,8 +180,8 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
       return new SimpleSinkCommand.FlushResult(slice.size(), bodyBytes.length, List.of());
     }
 
-    String body = response.body() == null ? "" : response.body();
-    String reason = "Splunk HEC error " + status + ": " + extractHecErrorText(body);
+    HecResponseException failure = HecResponseException.fromResponse(status, response.body());
+    String reason = failure.getMessage();
     if (boundedHooks != null) {
       boolean rejected = status >= 400 && status < 500 && status != 408;
       return new SimpleSinkCommand.FlushResult(
@@ -191,25 +196,10 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
               0,
               "hec_http_" + status));
     }
-    if (status == 429 || status >= 500) {
-      throw new RetryableHecException(reason);
+    if (!failure.isRetryable()) {
+      log.error("Splunk HEC returned status {}: {}", status, response.body());
     }
-    log.error("Splunk HEC returned status {}: {}", status, body);
-    throw new NonRetryableHecException(reason);
-  }
-
-  /** Returns the HEC `text` field from a JSON error body, or a truncated raw body fallback. */
-  private static String extractHecErrorText(String body) {
-    try {
-      JsonNode node = OBJECT_MAPPER.readTree(body);
-      JsonNode text = node.get("text");
-      if (text != null && text.isTextual()) {
-        return text.asText();
-      }
-    } catch (Exception ignore) {
-      // Not JSON or not the expected shape — fall through to raw body.
-    }
-    return body.length() > MAX_BODY_SNIPPET ? body.substring(0, MAX_BODY_SNIPPET) : body;
+    throw failure;
   }
 
   private static String failureMessage(Exception e) {
@@ -228,15 +218,40 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
     }
   }
 
-  private static class RetryableHecException extends Exception {
-    RetryableHecException(String message) {
-      super(message);
-    }
-  }
+  /** A non-200 HEC response, keeping the HTTP status and the HEC {@code code} of its body. */
+  @Getter
+  static final class HecResponseException extends Exception {
+    private final int status;
+    private final Integer hecCode;
 
-  private static class NonRetryableHecException extends Exception {
-    NonRetryableHecException(String message) {
+    private HecResponseException(int status, Integer hecCode, String message) {
       super(message);
+      this.status = status;
+      this.hecCode = hecCode;
+    }
+
+    static HecResponseException fromResponse(int status, String body) {
+      String text = body == null ? "" : body;
+      String reason = text.length() > MAX_BODY_SNIPPET ? text.substring(0, MAX_BODY_SNIPPET) : text;
+      Integer hecCode = null;
+      try {
+        JsonNode node = OBJECT_MAPPER.readTree(text);
+        JsonNode textNode = node.path("text");
+        if (textNode.isTextual()) {
+          reason = textNode.asText();
+        }
+        JsonNode codeNode = node.path("code");
+        if (codeNode.isInt()) {
+          hecCode = codeNode.asInt();
+        }
+      } catch (Exception ignore) {
+      }
+      return new HecResponseException(
+          status, hecCode, "Splunk HEC error " + status + ": " + reason);
+    }
+
+    boolean isRetryable() {
+      return status == 429 || status >= 500;
     }
   }
 }

@@ -17,11 +17,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import java.io.IOException;
@@ -29,6 +32,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,18 +43,27 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SplunkHecSinkFlusherTest {
 
   private static final String SUCCESS = "{\"text\":\"Success\",\"code\":0}";
 
   private FakeHec hec;
+  private ChronicleStoreForward store;
+
+  @TempDir Path storeDir;
 
   @AfterEach
   void tearDown() {
+    if (store != null) {
+      store.close();
+    }
     if (hec != null) {
       hec.close();
     }
@@ -576,5 +589,177 @@ class SplunkHecSinkFlusherTest {
     assertEquals(1, hec.requests().size());
     assertTrue(interruptedAfter.get());
     assertEquals(1, results.getFirst().errorOutputList().size());
+  }
+
+  private final RecordingCounter buffered = new RecordingCounter();
+  private final RecordingCounter replayed = new RecordingCounter();
+  private final RecordingCounter dropped = new RecordingCounter();
+  private final RecordingCounter preprocessErrors = new RecordingCounter();
+
+  private record Counts(
+      long buffered, long replayed, long dropped, long sinkOutput, long sinkError) {}
+
+  private Counts counts() {
+    return new Counts(
+        buffered.total.get(),
+        replayed.total.get(),
+        dropped.total.get(),
+        sinkOutputCounter.total.get(),
+        sinkErrorCounter.total.get());
+  }
+
+  private ChronicleStoreForward enableStore(SplunkHecSinkFlusher flusher) {
+    HecDestinationFailureClassifier classifier = new HecDestinationFailureClassifier();
+    store =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(storeDir, 1 << 20, 20, 2, "splunkNode"),
+            classifier::isDestinationFailure,
+            buffered,
+            replayed,
+            dropped);
+    flusher.enableStoreForward(store, classifier);
+    return store;
+  }
+
+  private void startReplay(SplunkHecSinkFlusher flusher) {
+    store.start(
+        flusher.replayTarget(
+            new SplunkHecSinkMessageProcessor(null, null, null),
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter,
+            preprocessErrors));
+  }
+
+  private static void await(BooleanSupplier condition) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!condition.getAsBoolean()) {
+      if (System.nanoTime() > deadline) {
+        fail("condition not met within 10s");
+      }
+      Thread.sleep(10);
+    }
+  }
+
+  private static List<ErrorOutput> errors(
+      SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events, String message) {
+    return events.rawAndPreparedList().stream()
+        .map(pair -> new ErrorOutput(pair.getLeft(), message))
+        .toList();
+  }
+
+  @Test
+  void forbidden_withStore_storesBatchAndReplayDeliversItOnceHecAccepts() throws Exception {
+    AtomicReference<Reply> reply = new AtomicReference<>(Reply.hec(403, 4, "Invalid token"));
+    hec = FakeHec.replying(lines -> reply.get());
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+    startReplay(flusher);
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events("a", "b"), Map.of());
+
+    assertEquals(new SimpleSinkCommand.FlushResult(0, 0, List.of()), result);
+    assertTrue(store.isBuffering());
+    reply.set(Reply.ok());
+    await(() -> !store.isBuffering());
+    assertEquals(new Counts(2, 2, 0, 2, 0), counts());
+    assertEquals(
+        List.of("{\"event\":{\"msg\":\"a\"}}", "{\"event\":{\"msg\":\"b\"}}"),
+        hec.requests().getLast());
+  }
+
+  @Test
+  void timerFlush_destinationFailure_withStore_storesInsteadOfCountingLost() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.hec(401, 2, "Token is required"));
+    SplunkHecSinkFlusher flusher = flusher(500);
+    enableStore(flusher);
+    flusher.flush(events("a", "b"), Map.of());
+
+    flusher.executeScheduledFlush();
+
+    assertTrue(store.isBuffering());
+    assertEquals(new Counts(2, 0, 0, 0, 0), counts());
+  }
+
+  @Test
+  void destinationFailureOnFirstSlice_storesLaterSlicesWithoutSending() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.hec(403, 4, "Invalid token"));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events("a", "b", "c", "d"), Map.of());
+
+    assertEquals(new SimpleSinkCommand.FlushResult(0, 0, List.of()), result);
+    assertEquals(List.of(2), hec.requestSizes());
+    assertEquals(new Counts(4, 0, 0, 0, 0), counts());
+  }
+
+  @Test
+  void recordProblem_withStore_isFailedAndNotStored() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.hec(400, 6, "Invalid data format"));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+    SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events = events("a", "b");
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors(events, "Splunk HEC error 400: Invalid data format")),
+        result);
+    assertFalse(store.isBuffering());
+    assertEquals(new Counts(0, 0, 0, 0, 0), counts());
+  }
+
+  @Test
+  void recordProblemOnReplay_isCountedAsSinkErrorNotDropped() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.hec(400, 6, "Invalid data format"));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+    startReplay(flusher);
+
+    store.offer(
+        events("a", "b").rawAndPreparedList().stream().map(pair -> pair.getLeft()).toList());
+
+    await(() -> !store.isBuffering());
+    assertEquals(new Counts(2, 2, 0, 0, 2), counts());
+    assertEquals(List.of(2), hec.requestSizes());
+  }
+
+  @Test
+  void forbidden_withNoopStore_failsBatchAsToday() throws Exception {
+    hec = FakeHec.replying(lines -> Reply.hec(403, 4, "Invalid token"));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    flusher.enableStoreForward(SinkStoreForward.noop(), new HecDestinationFailureClassifier());
+    SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events = events("a", "b");
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors(events, "Splunk HEC error 403: Invalid token")),
+        result);
+  }
+
+  @Test
+  void flushNow_throwsOnDestinationFailureAndFailsRecordProblems() throws Exception {
+    AtomicReference<Reply> reply = new AtomicReference<>(Reply.hec(403, 4, "Invalid token"));
+    hec = FakeHec.replying(lines -> reply.get());
+    SplunkHecSinkFlusher flusher = flusher(2);
+    flusher.enableStoreForward(SinkStoreForward.noop(), new HecDestinationFailureClassifier());
+    SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events = events("a", "b");
+
+    SplunkHecSinkFlusher.HecResponseException thrown =
+        assertThrows(
+            SplunkHecSinkFlusher.HecResponseException.class,
+            () -> flusher.flushNow(events, Map.of()));
+    reply.set(Reply.hec(400, 6, "Invalid data format"));
+    SimpleSinkCommand.FlushResult result = flusher.flushNow(events, Map.of());
+
+    assertEquals(403, thrown.getStatus());
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors(events, "Splunk HEC error 400: Invalid data format")),
+        result);
   }
 }

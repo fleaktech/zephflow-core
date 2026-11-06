@@ -20,10 +20,12 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -62,14 +64,40 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     S3SinkDto.Config config = (S3SinkDto.Config) commandConfig;
-    SimpleSinkCommand.Flusher<RecordFleakData> flusher =
-        createS3Flusher(config, jobContext, counters);
+    BatchS3Flusher flusher = createS3Flusher(config, jobContext, counters);
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
+    S3DestinationFailureClassifier classifier = new S3DestinationFailureClassifier();
+    SinkStoreForward storeForward =
+        storeAndForwardEnabled(config.isStoreAndForwardEnabled(), jobContext)
+            ? newStoreForward(
+                metricClientProvider,
+                jobContext,
+                config.getLocalStorePath(),
+                config.getLocalStoreMaxBytes(),
+                config.getForwardRetryIntervalMillis(),
+                config.getBatchSize(),
+                ChronicleStoreForward.Config.UNLIMITED_RETRIES,
+                flusher::keepsForReplay)
+            : SinkStoreForward.noop();
+    closeStoreOnFailure(
+        storeForward,
+        () -> {
+          flusher.enableStoreForward(storeForward, classifier);
+          flusher.initialize();
+          storeForward.start(
+              flusher.replayTarget(
+                  messagePreProcessor,
+                  counters.sinkOutputCounter(),
+                  counters.outputSizeCounter(),
+                  counters.sinkErrorCounter(),
+                  counters.errorCounter()));
+        });
 
     return new SinkExecutionContext<>(
         flusher,
         messagePreProcessor,
+        storeForward,
         counters.inputMessageCounter(),
         counters.errorCounter(),
         counters.sinkOutputCounter(),
@@ -110,7 +138,6 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
             counters.sinkOutputCounter(),
             counters.outputSizeCounter(),
             counters.sinkErrorCounter());
-    flusher.initialize();
     return flusher;
   }
 

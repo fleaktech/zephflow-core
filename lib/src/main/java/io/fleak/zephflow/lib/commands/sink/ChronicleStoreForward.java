@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.sink;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.annotations.VisibleForTesting;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -123,11 +124,15 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private final Object stateLock = new Object();
   private volatile boolean buffering = false;
   private volatile boolean closed = false;
+  private boolean released = false;
   // Set by spill() until the buffer drains: a slow remote must not lose records to a full buffer.
   private boolean waitForSpace = false;
+  // Set when a replay fails until the buffer drains: a remote that is down must not block writers.
+  private boolean replayFailing = false;
 
   private ReplayTarget replayTarget;
   private Thread worker;
+  @VisibleForTesting long stopReplayTimeoutMillis = 60_000;
 
   public ChronicleStoreForward(
       Config config,
@@ -249,6 +254,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
     writeMarker();
     outstandingBytes.set(0);
     waitForSpace = false;
+    replayFailing = false;
   }
 
   /**
@@ -314,11 +320,14 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     int stored = 0;
     synchronized (stateLock) {
+      if (released) {
+        return 0;
+      }
       for (RecordFleakData record : records) {
         if (!ensureQueue(records.size() - stored)) {
           break;
         }
-        if (spill) {
+        if (spill && !replayFailing) {
           waitForSpace = true;
         }
         byte[] payload = encode(record);
@@ -381,7 +390,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
     buffering = true;
     stateLock.notifyAll();
     while (outstandingBytes.get() + need > maxBytes) {
-      if (closed) {
+      if (closed || !waitForSpace) {
         return false;
       }
       try {
@@ -419,22 +428,52 @@ public class ChronicleStoreForward implements SinkStoreForward {
   }
 
   @Override
-  public void close() {
+  public void stopReplay() {
+    Thread drainWorker;
     synchronized (stateLock) {
       closed = true;
       stateLock.notifyAll();
+      drainWorker = worker;
     }
-    if (worker != null) {
+    if (drainWorker == null || drainWorker == Thread.currentThread()) {
+      return;
+    }
+    drainWorker.interrupt();
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(stopReplayTimeoutMillis);
+    boolean interrupted = false;
+    while (drainWorker.isAlive()) {
+      long leftMillis = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+      if (leftMillis <= 0) {
+        log.error(
+            "store-and-forward [{}] replay did not stop within {} ms; closing without it",
+            nodeId,
+            stopReplayTimeoutMillis);
+        break;
+      }
       try {
-        worker.join(TimeUnit.SECONDS.toMillis(30));
+        drainWorker.join(leftMillis);
       } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
+        interrupted = true;
       }
     }
-    // May already be null if the buffer drained back to DIRECT. Never delete files here: a still-
-    // buffering instance shut down must leave its undelivered records + ack for the next instance.
-    if (queue != null) {
-      queue.close();
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  @Override
+  public void close() {
+    stopReplay();
+    synchronized (stateLock) {
+      if (released) {
+        return;
+      }
+      released = true;
+      // May already be null if the buffer drained back to DIRECT. Never delete files here: a
+      // still-buffering instance shut down must leave its undelivered records + ack for the next.
+      if (queue != null) {
+        queue.close();
+      }
     }
     try {
       dirLock.release();
@@ -503,17 +542,26 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     try {
       replayTarget.deliver(chunk.records);
+      clearInterruptIfStopping();
       retriesOfCurrentChunk = 0;
+      if (!ackUnlessReleased()) {
+        return DrainOutcome.CONN_FAILURE;
+      }
       releaseSpace(chunk.bytes);
       inc(replayedCounter, chunk.records.size());
-      advanceAck();
       return DrainOutcome.DELIVERED;
     } catch (Exception e) {
+      if (closed) {
+        clearInterruptIfStopping();
+        tailer.moveToIndex(chunk.startIndex);
+        return DrainOutcome.CONN_FAILURE;
+      }
       boolean retriesLeft =
           maxRetries == Config.UNLIMITED_RETRIES || retriesOfCurrentChunk < maxRetries;
       if (classifier.isConnectionFailure(e) && retriesLeft) {
         retriesOfCurrentChunk++;
         tailer.moveToIndex(chunk.startIndex); // rewind; keep the records for the next attempt
+        stopWaitingForSpace();
         log.warn(
             "store-and-forward [{}] replay hit a connectivity failure, will retry: {}",
             nodeId,
@@ -523,15 +571,44 @@ public class ChronicleStoreForward implements SinkStoreForward {
       // Permanent failure: these records can never be delivered. The tailer has already advanced
       // past them, so account for the drop and advance the watermark so we don't re-read them.
       retriesOfCurrentChunk = 0;
+      if (!ackUnlessReleased()) {
+        return DrainOutcome.CONN_FAILURE;
+      }
       releaseSpace(chunk.bytes);
       inc(droppedCounter, chunk.records.size());
-      advanceAck();
       log.error(
           "store-and-forward [{}] dropping {} records after a replay failure that is not retried",
           nodeId,
           chunk.records.size(),
           e);
       return DrainOutcome.DELIVERED;
+    }
+  }
+
+  /** Records past the cap are dropped while the remote is down instead of blocking writers. */
+  private void stopWaitingForSpace() {
+    synchronized (stateLock) {
+      replayFailing = true;
+      waitForSpace = false;
+      stateLock.notifyAll();
+    }
+  }
+
+  /** A worker that outlived {@link #stopReplay} must not touch a dir another instance may own. */
+  private boolean ackUnlessReleased() {
+    synchronized (stateLock) {
+      if (released) {
+        return false;
+      }
+      advanceAck();
+      return true;
+    }
+  }
+
+  private void clearInterruptIfStopping() {
+    if (closed) {
+      //noinspection ResultOfMethodCallIgnored
+      Thread.interrupted();
     }
   }
 

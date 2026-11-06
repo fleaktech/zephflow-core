@@ -94,6 +94,17 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
       config.validateKvOptions();
     }
 
+    if (config.isStoreAndForwardEnabled()) {
+      Preconditions.checkArgument(
+          config.getLocalStoreMaxBytes() > 0,
+          "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: %s",
+          config.getLocalStoreMaxBytes());
+      Preconditions.checkArgument(
+          config.getForwardRetryIntervalMillis() > 0,
+          "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: %s",
+          config.getForwardRetryIntervalMillis());
+    }
+
     if (enforceCredentials(jobContext)) {
       lookupApiKeyCredential(jobContext, config.getCredentialId());
     }

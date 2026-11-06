@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -39,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
+import org.apache.commons.lang3.tuple.Pair;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -132,6 +134,73 @@ class SimpleSinkSpillTest {
   }
 
   @Test
+  void spilledRecordsOfABufferedFlusherStayQueuedThroughADestinationOutage(@TempDir Path dir)
+      throws Exception {
+    BufferedRecordingFlusher flusher = new BufferedRecordingFlusher(50, 6);
+    flusher.enableStoreForward(SinkStoreForward.noop(), t -> t instanceof IOException);
+    CountingCounter sinkOutput = new CountingCounter();
+    SpillSink sink = new SpillSink(jobContext(dir, "20"), flusher, null, sinkOutput);
+    sink.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    ExecutionContext context = sink.getExecutionContext();
+
+    sink.writeToSink(List.of(record(0)), "user", context);
+    sink.writeToSink(List.of(record(1), record(2)), "user", context);
+
+    await(() -> !storeForward(sink).isBuffering());
+    assertEquals(
+        new Replayed(List.of(record(0), record(1), record(2)), 6, 3),
+        new Replayed(flusher.delivered, flusher.failedSends.get(), sinkOutput.total()));
+    sink.terminate();
+  }
+
+  @Test
+  void recordsInTheMemoryBufferAreStoredAheadOfInputThatArrivesWhileBuffering(@TempDir Path dir)
+      throws Exception {
+    BufferedRecordingFlusher flusher = new BufferedRecordingFlusher(10);
+    ChronicleStoreForward store =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(dir.resolve("own"), 1_000_000, 50, 10, "node"),
+            t -> t instanceof IOException,
+            null,
+            null,
+            null);
+    flusher.enableStoreForward(store, t -> t instanceof IOException);
+    SpillSink sink = new SpillSink(jobContext(dir, null), flusher, store, null);
+    sink.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    CountDownLatch destinationBack = new CountDownLatch(1);
+    CountingCounter counter = new CountingCounter();
+    SinkStoreForward.ReplayTarget target =
+        flusher.replayTarget((event, ts) -> event, counter, counter, counter, counter);
+    store.start(
+        records -> {
+          destinationBack.await();
+          target.deliver(records);
+        });
+    ExecutionContext context = sink.getExecutionContext();
+
+    sink.writeToSink(List.of(record(1), record(2)), "user", context);
+    store.offer(List.of(record(0)));
+    sink.writeToSink(List.of(record(3)), "user", context);
+    destinationBack.countDown();
+
+    await(() -> !store.isBuffering());
+    assertEquals(List.of(record(0), record(1), record(2), record(3)), flusher.delivered);
+    sink.terminate();
+  }
+
+  @Test
+  void flushNowOfAPlainFlusherIsItsFlush() throws Exception {
+    RecordingFlusher flusher = new RecordingFlusher(0);
+    flusher.laterFlushes.countDown();
+    SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    events.add(record(0), record(0));
+
+    assertEquals(flusher.flush(events, Map.of()), flusher.flushNow(events, Map.of()));
+    assertEquals(List.of(record(0), record(0)), flusher.delivered);
+  }
+
+  @Test
   void spilledRecordThatFailsPreprocessingIsCountedAsAnError(@TempDir Path dir) throws Exception {
     RecordingFlusher flusher = new RecordingFlusher(50);
     SpillSink sink = new SpillSink(jobContext(dir, "20"), flusher, null, null);
@@ -218,8 +287,10 @@ class SimpleSinkSpillTest {
     fail("condition not met within timeout");
   }
 
+  private record Replayed(List<RecordFleakData> delivered, int failedSends, long sinkOutput) {}
+
   private static final class SpillSink extends SimpleSinkCommand<RecordFleakData> {
-    private final RecordingFlusher flusher;
+    private final Flusher<RecordFleakData> flusher;
     private final SinkStoreForward ownStoreForward;
     private final FleakCounter sinkOutputCounter;
     final CountingCounter errorCounter = new CountingCounter();
@@ -227,7 +298,7 @@ class SimpleSinkSpillTest {
 
     SpillSink(
         JobContext jobContext,
-        RecordingFlusher flusher,
+        Flusher<RecordFleakData> flusher,
         SinkStoreForward ownStoreForward,
         FleakCounter sinkOutputCounter) {
       super("node", jobContext, null, null);
@@ -244,6 +315,11 @@ class SimpleSinkSpillTest {
     @Override
     public String commandName() {
       return "spill";
+    }
+
+    @Override
+    long spillRetryIntervalMillis() {
+      return 50;
     }
 
     @Override
@@ -298,6 +374,63 @@ class SimpleSinkSpillTest {
 
     @Override
     public void close() {}
+  }
+
+  private static final class BufferedRecordingFlusher
+      extends AbstractBufferedFlusher<RecordFleakData> {
+    private final int batchSize;
+    private final long firstSendDelayMillis;
+    private final AtomicInteger failuresLeft;
+    final List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    final AtomicInteger failedSends = new AtomicInteger();
+
+    BufferedRecordingFlusher(long firstSendDelayMillis, int failures) {
+      this(1, firstSendDelayMillis, failures);
+    }
+
+    BufferedRecordingFlusher(int batchSize) {
+      this(batchSize, 0, 0);
+    }
+
+    private BufferedRecordingFlusher(int batchSize, long firstSendDelayMillis, int failures) {
+      super(
+          null, null, "node", new CountingCounter(), new CountingCounter(), new CountingCounter());
+      this.batchSize = batchSize;
+      this.firstSendDelayMillis = firstSendDelayMillis;
+      this.failuresLeft = new AtomicInteger(failures);
+    }
+
+    @Override
+    protected int getBatchSize() {
+      return batchSize;
+    }
+
+    @Override
+    protected SimpleSinkCommand.FlushResult doFlushWithRetry(
+        List<Pair<RecordFleakData, RecordFleakData>> batch) throws Exception {
+      return doFlush(batch);
+    }
+
+    @Override
+    protected SimpleSinkCommand.FlushResult doFlush(
+        List<Pair<RecordFleakData, RecordFleakData>> batch) throws Exception {
+      if (delivered.isEmpty()) {
+        Thread.sleep(firstSendDelayMillis);
+      } else if (failuresLeft.getAndDecrement() > 0) {
+        failedSends.incrementAndGet();
+        throw new IOException("destination down");
+      }
+      batch.forEach(pair -> delivered.add(pair.getRight()));
+      return new SimpleSinkCommand.FlushResult(batch.size(), 0, List.of());
+    }
+
+    @Override
+    protected void ensureCanWriteRecord(RecordFleakData record) {}
+
+    @Override
+    public void close() {
+      stopFlushTimer();
+    }
   }
 
   private static final class CountingCounter implements FleakCounter {

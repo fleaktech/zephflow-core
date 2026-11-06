@@ -330,6 +330,27 @@ class S3SinkConfigValidatorTest {
         () -> validator.validateConfig(duplicate, "abc", JOB_CONTEXT));
   }
 
+  @Test
+  void validateEncodingConfig_storeAndForwardWithNonPositiveMaxBytesIsRefused() {
+    Map<String, Object> configMap = encodingConfig(Map.of("format", JSON_LINES));
+    configMap.put("storeAndForwardEnabled", true);
+    configMap.put("localStoreMaxBytes", 0);
+
+    assertRefused(
+        configMap, "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: 0");
+  }
+
+  @Test
+  void validateEncodingConfig_storeAndForwardWithNonPositiveRetryIntervalIsRefused() {
+    Map<String, Object> configMap = encodingConfig(Map.of("format", JSON_LINES));
+    configMap.put("storeAndForwardEnabled", true);
+    configMap.put("forwardRetryIntervalMillis", 0);
+
+    assertRefused(
+        configMap,
+        "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: 0");
+  }
+
   private static Map<String, Object> encodingConfig(Map<String, Object> encoding) {
     Map<String, Object> configMap = new HashMap<>();
     configMap.put("regionStr", "us-east-1");
