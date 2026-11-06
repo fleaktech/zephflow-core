@@ -180,7 +180,9 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
       return new SimpleSinkCommand.FlushResult(slice.size(), bodyBytes.length, List.of());
     }
 
-    HecResponseException failure = HecResponseException.fromResponse(status, response.body());
+    HecResponseException failure =
+        HecResponseException.fromResponse(
+            status, response.body(), slice.stream().map(Pair::getLeft).toList());
     String reason = failure.getMessage();
     if (boundedHooks != null) {
       boolean rejected = status >= 400 && status < 500 && status != 408;
@@ -218,22 +220,36 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
     }
   }
 
-  /** A non-200 HEC response, keeping the HTTP status and the HEC {@code code} of its body. */
+  /**
+   * A non-200 HEC response, keeping the HTTP status and the HEC {@code code} of its body. {@code
+   * recordIndexRefused} is set when HEC refused an index that the refused record set itself.
+   */
   @Getter
   static final class HecResponseException extends Exception {
+    private static final int INCORRECT_INDEX = 7;
+
     private final int status;
     private final Integer hecCode;
+    private final boolean recordIndexRefused;
 
-    private HecResponseException(int status, Integer hecCode, String message) {
+    private HecResponseException(
+        int status, Integer hecCode, boolean recordIndexRefused, String message) {
       super(message);
       this.status = status;
       this.hecCode = hecCode;
+      this.recordIndexRefused = recordIndexRefused;
     }
 
     static HecResponseException fromResponse(int status, String body) {
+      return fromResponse(status, body, List.of());
+    }
+
+    static HecResponseException fromResponse(
+        int status, String body, List<RecordFleakData> events) {
       String text = body == null ? "" : body;
       String reason = text.length() > MAX_BODY_SNIPPET ? text.substring(0, MAX_BODY_SNIPPET) : text;
       Integer hecCode = null;
+      Integer invalidEvent = null;
       try {
         JsonNode node = OBJECT_MAPPER.readTree(text);
         JsonNode textNode = node.path("text");
@@ -244,10 +260,33 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
         if (codeNode.isInt()) {
           hecCode = codeNode.asInt();
         }
+        JsonNode eventNode = node.path("invalid-event-number");
+        if (eventNode.isInt()) {
+          invalidEvent = eventNode.asInt();
+        }
       } catch (Exception ignore) {
       }
+      boolean recordIndexRefused =
+          status == 400
+              && Integer.valueOf(INCORRECT_INDEX).equals(hecCode)
+              && refusedEventSetsIndex(events, invalidEvent);
       return new HecResponseException(
-          status, hecCode, "Splunk HEC error " + status + ": " + reason);
+          status, hecCode, recordIndexRefused, "Splunk HEC error " + status + ": " + reason);
+    }
+
+    /**
+     * For code 7, HEC (checked on Splunk 10.4.4) reports {@code invalid-event-number} counting from
+     * 1, while other codes count from 0. Without a usable number, any record that sets its own
+     * index is taken as the cause.
+     */
+    private static boolean refusedEventSetsIndex(
+        List<RecordFleakData> events, Integer invalidEventNumber) {
+      if (invalidEventNumber != null
+          && invalidEventNumber >= 1
+          && invalidEventNumber <= events.size()) {
+        return SplunkHecSinkMessageProcessor.setsIndex(events.get(invalidEventNumber - 1));
+      }
+      return events.stream().anyMatch(SplunkHecSinkMessageProcessor::setsIndex);
     }
 
     boolean isRetryable() {

@@ -155,6 +155,10 @@ public class SplunkHecSinkMessageProcessor
     return new SplunkHecOutboundEvent(json.getBytes(StandardCharsets.UTF_8));
   }
 
+  static boolean setsIndex(RecordFleakData event) {
+    return label(event.getPayload(), FIELD_NAME_INDEX, null) != null;
+  }
+
   private static String label(Map<String, FleakData> payload, String field, String fallback) {
     if (payload.get(field) instanceof StringPrimitiveFleakData s
         && StringUtils.isNotBlank(s.getStringValue())) {

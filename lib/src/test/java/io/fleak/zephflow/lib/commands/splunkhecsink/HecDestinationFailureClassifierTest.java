@@ -13,11 +13,15 @@
  */
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_INDEX;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkFlusher.HecResponseException;
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,14 @@ class HecDestinationFailureClassifierTest {
     failures.put("404", hec(404, 7));
     failures.put("413", hec(413, 27));
     failures.put("400 code 7", hec(400, 7));
+    failures.put(
+        "400 code 7 record index",
+        HecResponseException.fromResponse(
+            400,
+            "{\"text\":\"Incorrect index\",\"code\":7,\"invalid-event-number\":1}",
+            List.of(
+                new RecordFleakData(
+                    Map.of(FIELD_NAME_INDEX, new StringPrimitiveFleakData("mian"))))));
     failures.put("400 code 5", hec(400, 5));
     failures.put("400 code 6", hec(400, 6));
     failures.put("400 code 12", hec(400, 12));
@@ -69,6 +81,7 @@ class HecDestinationFailureClassifierTest {
     expected.put("404", true);
     expected.put("413", false);
     expected.put("400 code 7", true);
+    expected.put("400 code 7 record index", false);
     expected.put("400 code 5", false);
     expected.put("400 code 6", false);
     expected.put("400 code 12", false);
