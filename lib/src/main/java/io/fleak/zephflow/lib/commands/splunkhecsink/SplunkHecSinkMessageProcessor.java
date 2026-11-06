@@ -15,10 +15,18 @@ package io.fleak.zephflow.lib.commands.splunkhecsink;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_HOST;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_INDEX;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_SOURCE;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_SOURCETYPE;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_TS;
 import static io.fleak.zephflow.lib.utils.MiscUtils.parseEnum;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.serdes.EncodingType;
@@ -31,7 +39,11 @@ import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import io.fleak.zephflow.lib.serdes.ser.kv.KvTypedSerializer;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 
 public class SplunkHecSinkMessageProcessor
@@ -41,6 +53,16 @@ public class SplunkHecSinkMessageProcessor
   interface LineEncoder {
     String encode(RecordFleakData event) throws Exception;
   }
+
+  private static final List<String> LABEL_FIELDS =
+      List.of(FIELD_NAME_HOST, FIELD_NAME_SOURCE, FIELD_NAME_SOURCETYPE, FIELD_NAME_INDEX);
+  private static final List<String> LABEL_AND_TIME_FIELDS =
+      List.of(
+          FIELD_NAME_HOST,
+          FIELD_NAME_SOURCE,
+          FIELD_NAME_SOURCETYPE,
+          FIELD_NAME_INDEX,
+          FIELD_NAME_TS);
 
   private final String index;
   private final String sourcetype;
@@ -112,22 +134,60 @@ public class SplunkHecSinkMessageProcessor
 
   @Override
   public SplunkHecOutboundEvent preprocess(RecordFleakData event, long ts) throws Exception {
+    Map<String, FleakData> payload = event.getPayload();
+    String host = label(payload, FIELD_NAME_HOST, null);
+    String eventSourcetype = label(payload, FIELD_NAME_SOURCETYPE, sourcetype);
+    String eventIndex = label(payload, FIELD_NAME_INDEX, index);
+    String eventSource = label(payload, FIELD_NAME_SOURCE, source);
+    BigDecimal time = time(payload.get(FIELD_NAME_TS));
+    RecordFleakData body = withoutLabels(event, time != null);
+
     ObjectNode envelope = OBJECT_MAPPER.createObjectNode();
     if (lineEncoder == null) {
-      envelope.set("event", OBJECT_MAPPER.readTree(toJsonString(event)));
+      envelope.set("event", OBJECT_MAPPER.readTree(toJsonString(body)));
     } else {
-      envelope.put("event", lineEncoder.encode(event));
+      envelope.put("event", lineEncoder.encode(body));
     }
-    if (StringUtils.isNotBlank(sourcetype)) {
-      envelope.put("sourcetype", sourcetype);
-    }
-    if (StringUtils.isNotBlank(index)) {
-      envelope.put("index", index);
-    }
-    if (StringUtils.isNotBlank(source)) {
-      envelope.put("source", source);
+    putIfPresent(envelope, "host", host);
+    putIfPresent(envelope, "sourcetype", eventSourcetype);
+    putIfPresent(envelope, "index", eventIndex);
+    putIfPresent(envelope, "source", eventSource);
+    if (time != null) {
+      envelope.put("time", time);
     }
     String json = OBJECT_MAPPER.writeValueAsString(envelope) + "\n";
     return new SplunkHecOutboundEvent(json.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static String label(Map<String, FleakData> payload, String field, String fallback) {
+    if (payload.get(field) instanceof StringPrimitiveFleakData s
+        && StringUtils.isNotBlank(s.getStringValue())) {
+      return s.getStringValue();
+    }
+    return fallback;
+  }
+
+  private static BigDecimal time(FleakData ts) {
+    if (!(ts instanceof NumberPrimitiveFleakData number)) {
+      return null;
+    }
+    return BigDecimal.valueOf((long) Math.floor(number.getNumberValue()), 3);
+  }
+
+  private static void putIfPresent(ObjectNode envelope, String key, String value) {
+    if (StringUtils.isNotBlank(value)) {
+      envelope.put(key, value);
+    }
+  }
+
+  private static RecordFleakData withoutLabels(RecordFleakData event, boolean dropTs) {
+    Map<String, FleakData> payload = event.getPayload();
+    List<String> sent = dropTs ? LABEL_AND_TIME_FIELDS : LABEL_FIELDS;
+    if (sent.stream().noneMatch(payload::containsKey)) {
+      return event;
+    }
+    Map<String, FleakData> body = new HashMap<>(payload);
+    sent.forEach(body::remove);
+    return new RecordFleakData(body);
   }
 }
