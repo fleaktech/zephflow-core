@@ -14,6 +14,10 @@
 package io.fleak.zephflow.lib.commands.splunksource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_HOST;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_SOURCE;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_SOURCETYPE;
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_TS;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.structure.FleakData;
@@ -21,9 +25,14 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.RawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
 public class MapRawDataConverter implements RawDataConverter<Map<String, String>> {
@@ -32,7 +41,7 @@ public class MapRawDataConverter implements RawDataConverter<Map<String, String>
   public ConvertedResult<Map<String, String>> convert(
       Map<String, String> sourceRecord, SourceExecutionContext<?> sourceInitializedConfig) {
     try {
-      RecordFleakData record = (RecordFleakData) FleakData.wrap(sourceRecord);
+      RecordFleakData record = (RecordFleakData) FleakData.wrap(withLabels(sourceRecord));
 
       Map<String, String> eventTags = getCallingUserTagAndEventTags(null, record);
 
@@ -47,6 +56,39 @@ public class MapRawDataConverter implements RawDataConverter<Map<String, String>
       sourceInitializedConfig.deserializeFailureCounter().increase(Map.of());
       log.error("Failed to convert Splunk event: {}", sourceRecord, e);
       return ConvertedResult.failure(e, sourceRecord);
+    }
+  }
+
+  private static Map<String, Object> withLabels(Map<String, String> result) {
+    Map<String, Object> payload = new HashMap<>(result);
+    copyLabel(result, "host", FIELD_NAME_HOST, payload);
+    copyLabel(result, "source", FIELD_NAME_SOURCE, payload);
+    copyLabel(result, "sourcetype", FIELD_NAME_SOURCETYPE, payload);
+    Long time = epochMillis(result.get("_time"));
+    if (time != null) {
+      payload.putIfAbsent(FIELD_NAME_TS, time);
+    }
+    return payload;
+  }
+
+  private static void copyLabel(
+      Map<String, String> result, String field, String label, Map<String, Object> payload) {
+    String value = result.get(field);
+    if (StringUtils.isNotEmpty(value)) {
+      payload.putIfAbsent(label, value);
+    }
+  }
+
+  private static Long epochMillis(String time) {
+    if (time == null) {
+      return null;
+    }
+    try {
+      return OffsetDateTime.parse(time, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+          .toInstant()
+          .toEpochMilli();
+    } catch (DateTimeParseException e) {
+      return null;
     }
   }
 }
