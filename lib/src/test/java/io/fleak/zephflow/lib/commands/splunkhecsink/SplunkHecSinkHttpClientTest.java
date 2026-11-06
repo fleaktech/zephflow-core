@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -20,13 +22,16 @@ import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.KeyStore;
+import java.security.cert.X509Certificate;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLHandshakeException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,6 +82,26 @@ class SplunkHecSinkHttpClientTest {
   @Test
   void verifySslOff_acceptsACertificateForAnotherHost() throws Exception {
     assertEquals(200, get(SplunkHecSinkCommand.buildHttpClient(false)));
+  }
+
+  @Test
+  void trustAllManager_acceptsAnyChainFromEveryEntryPoint() throws Exception {
+    KeyStore keyStore = KeyStore.getInstance("PKCS12");
+    try (InputStream in = getClass().getResourceAsStream("/splunkhecsink/mismatched-host.p12")) {
+      keyStore.load(in, "changeit".toCharArray());
+    }
+    X509Certificate[] chain = {(X509Certificate) keyStore.getCertificate("hec")};
+    SplunkHecSinkCommand.TrustAllManager manager = new SplunkHecSinkCommand.TrustAllManager();
+    SSLEngine engine = SSLContext.getDefault().createSSLEngine();
+
+    assertAll(
+        () -> manager.checkServerTrusted(chain, "RSA"),
+        () -> manager.checkClientTrusted(chain, "RSA"),
+        () -> manager.checkServerTrusted(chain, "RSA", engine),
+        () -> manager.checkClientTrusted(chain, "RSA", engine),
+        () -> manager.checkServerTrusted(chain, "RSA", (Socket) null),
+        () -> manager.checkClientTrusted(chain, "RSA", (Socket) null),
+        () -> assertArrayEquals(new X509Certificate[0], manager.getAcceptedIssuers()));
   }
 
   @Test

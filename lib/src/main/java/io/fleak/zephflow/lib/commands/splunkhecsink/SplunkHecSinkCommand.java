@@ -162,7 +162,7 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
     }
   }
 
-  private static final class TrustAllManager extends X509ExtendedTrustManager {
+  static final class TrustAllManager extends X509ExtendedTrustManager {
     @Override
     public void checkClientTrusted(X509Certificate[] chain, String authType) {}
 
