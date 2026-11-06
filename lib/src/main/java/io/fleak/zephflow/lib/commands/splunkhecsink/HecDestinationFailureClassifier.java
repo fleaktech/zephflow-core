@@ -19,8 +19,10 @@ import java.util.Set;
 
 /**
  * HEC rejects a whole batch with status 400 and one of these codes when an event in it is
- * malformed, or with 413 when the batch is too large; both are record problems. Every other
- * failure, including ones it cannot classify, counts as a destination problem.
+ * malformed, with 400 code 7 when it refuses an index, or with 413 when the batch is too large.
+ * Malformed events, too-large batches and an index the refused record set itself are record
+ * problems; a refused configured index is a destination problem. Every other failure, including
+ * ones it cannot classify, counts as a destination problem.
  */
 final class HecDestinationFailureClassifier implements DestinationFailureClassifier {
 
@@ -31,6 +33,7 @@ final class HecDestinationFailureClassifier implements DestinationFailureClassif
   public boolean isDestinationFailure(Throwable t) {
     return !(t instanceof HecResponseException hec
         && (hec.getStatus() == PAYLOAD_TOO_LARGE
+            || hec.isRecordIndexRefused()
             || hec.getStatus() == 400
                 && hec.getHecCode() != null
                 && RECORD_PROBLEM_CODES.contains(hec.getHecCode())));

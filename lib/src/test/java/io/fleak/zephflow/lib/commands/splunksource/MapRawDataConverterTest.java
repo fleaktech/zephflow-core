@@ -21,10 +21,15 @@ import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
+import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.NumberType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,12 +80,80 @@ class MapRawDataConverterTest {
     assertNotNull(result.transformedData());
     assertEquals(1, result.transformedData().size());
 
-    RecordFleakData record = result.transformedData().get(0);
-    assertNotNull(record);
-    assertEquals(3, record.getPayload().size());
-    assertEquals("server1", record.getPayload().get("host").unwrap());
-    assertEquals("/var/log/app.log", record.getPayload().get("source").unwrap());
-    assertEquals("Log message", record.getPayload().get("_raw").unwrap());
+    assertEquals(
+        List.of(
+            record(
+                Map.of(
+                    "host", str("server1"),
+                    "source", str("/var/log/app.log"),
+                    "_raw", str("Log message"),
+                    "__host__", str("server1"),
+                    "__source__", str("/var/log/app.log")))),
+        result.transformedData());
+  }
+
+  private static StringPrimitiveFleakData str(String value) {
+    return new StringPrimitiveFleakData(value);
+  }
+
+  private static RecordFleakData record(Map<String, FleakData> payload) {
+    return new RecordFleakData(new HashMap<>(payload));
+  }
+
+  private List<RecordFleakData> convert(Map<String, String> result) {
+    return converter.convert(new HashMap<>(result), mockContext).transformedData();
+  }
+
+  @Test
+  void convert_fullResultGetsLabelsButNoIndex() {
+    assertEquals(
+        List.of(
+            record(
+                Map.of(
+                    "_raw", str("line"),
+                    "_time", str("2024-05-01T10:00:00.250-07:00"),
+                    "host", str("h1"),
+                    "source", str("/var/log/a"),
+                    "sourcetype", str("st"),
+                    "index", str("main"),
+                    "__host__", str("h1"),
+                    "__source__", str("/var/log/a"),
+                    "__sourcetype__", str("st"),
+                    "__ts__", new NumberPrimitiveFleakData(1714582800250L, NumberType.LONG)))),
+        convert(
+            Map.of(
+                "_raw", "line",
+                "_time", "2024-05-01T10:00:00.250-07:00",
+                "host", "h1",
+                "source", "/var/log/a",
+                "sourcetype", "st",
+                "index", "main")));
+  }
+
+  @Test
+  void convert_unparseableTimeLeavesTimestampUnset() {
+    assertEquals(
+        List.of(
+            record(
+                Map.of(
+                    "_time", str("not a time"),
+                    "sourcetype", str("st"),
+                    "__sourcetype__", str("st")))),
+        convert(Map.of("_time", "not a time", "sourcetype", "st")));
+  }
+
+  @Test
+  void convert_missingOrEmptyFieldsLeaveLabelsUnset() {
+    assertEquals(
+        List.of(record(Map.of("_raw", str("line"), "source", str("")))),
+        convert(Map.of("_raw", "line", "source", "")));
+  }
+
+  @Test
+  void convert_keepsALabelTheSearchAlreadyReturned() {
+    assertEquals(
+        List.of(record(Map.of("host", str("h1"), "__host__", str("computed")))),
+        convert(Map.of("host", "h1", "__host__", "computed")));
   }
 
   @Test

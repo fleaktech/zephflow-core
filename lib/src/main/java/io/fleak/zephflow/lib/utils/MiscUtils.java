@@ -48,6 +48,10 @@ public interface MiscUtils {
 
   String FIELD_NAME_RAW = "__raw__";
   String FIELD_NAME_TS = "__ts__";
+  String FIELD_NAME_HOST = "__host__";
+  String FIELD_NAME_SOURCE = "__source__";
+  String FIELD_NAME_SOURCETYPE = "__sourcetype__";
+  String FIELD_NAME_INDEX = "__index__";
 
   String METADATA_PREFIX = "__md_";
   String METADATA_KEY = METADATA_PREFIX + "key";

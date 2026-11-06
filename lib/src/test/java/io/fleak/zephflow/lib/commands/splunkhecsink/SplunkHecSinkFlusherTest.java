@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_INDEX;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -20,6 +21,7 @@ import com.sun.net.httpserver.HttpServer;
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
@@ -709,6 +711,94 @@ class SplunkHecSinkFlusherTest {
         result);
     assertFalse(store.isBuffering());
     assertEquals(new Counts(0, 0, 0, 0, 0), counts());
+  }
+
+  private static Reply incorrectIndex(Integer invalidEvent) {
+    String eventNumber = invalidEvent == null ? "" : ",\"invalid-event-number\":" + invalidEvent;
+    return new Reply(400, "{\"text\":\"Incorrect index\",\"code\":7" + eventNumber + "}");
+  }
+
+  private static SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> withIndexes(
+      String... indexes) {
+    SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events =
+        new SimpleSinkCommand.PreparedInputEvents<>();
+    for (int i = 0; i < indexes.length; i++) {
+      Map<String, FleakData> payload = new HashMap<>();
+      payload.put("msg", new StringPrimitiveFleakData("e" + i));
+      if (indexes[i] != null) {
+        payload.put(FIELD_NAME_INDEX, new StringPrimitiveFleakData(indexes[i]));
+      }
+      String line = "{\"event\":{\"msg\":\"e" + i + "\"}}\n";
+      events.add(
+          new RecordFleakData(payload),
+          new SplunkHecOutboundEvent(line.getBytes(StandardCharsets.UTF_8)));
+    }
+    return events;
+  }
+
+  @Test
+  void refusedRecordIndex_withStore_isFailedAndNotStored() throws Exception {
+    hec = FakeHec.replying(lines -> incorrectIndex(2));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+    SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events =
+        withIndexes(null, "mian");
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors(events, "Splunk HEC error 400: Incorrect index")),
+        result);
+    assertFalse(store.isBuffering());
+    assertEquals(new Counts(0, 0, 0, 0, 0), counts());
+  }
+
+  @Test
+  void refusedConfiguredIndex_withStore_isStored() throws Exception {
+    hec = FakeHec.replying(lines -> incorrectIndex(1));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(withIndexes(null, "main"), Map.of());
+
+    assertEquals(new SimpleSinkCommand.FlushResult(0, 0, List.of()), result);
+    assertTrue(store.isBuffering());
+    assertEquals(new Counts(2, 0, 0, 0, 0), counts());
+  }
+
+  @Test
+  void refusedIndexWithoutEventNumber_isRecordProblemWhenAnyRecordSetsIndex() throws Exception {
+    hec = FakeHec.replying(lines -> incorrectIndex(null));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+    SimpleSinkCommand.PreparedInputEvents<SplunkHecOutboundEvent> events =
+        withIndexes(null, "mian");
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events, Map.of());
+
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(
+            0, 0, errors(events, "Splunk HEC error 400: Incorrect index")),
+        result);
+    assertFalse(store.isBuffering());
+  }
+
+  @Test
+  void refusedRecordIndexOnReplay_isDroppedFromTheStore() throws Exception {
+    hec = FakeHec.replying(lines -> incorrectIndex(1));
+    SplunkHecSinkFlusher flusher = flusher(2);
+    enableStore(flusher);
+    startReplay(flusher);
+
+    store.offer(
+        withIndexes("mian", "mian").rawAndPreparedList().stream()
+            .map(pair -> pair.getLeft())
+            .toList());
+
+    await(() -> !store.isBuffering());
+    assertEquals(new Counts(2, 2, 0, 0, 2), counts());
+    assertEquals(List.of(2), hec.requestSizes());
   }
 
   @Test

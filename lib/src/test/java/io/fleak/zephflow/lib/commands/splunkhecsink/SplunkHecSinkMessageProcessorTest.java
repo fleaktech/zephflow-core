@@ -18,11 +18,16 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
+import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.NumberType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -335,6 +340,147 @@ class SplunkHecSinkMessageProcessorTest {
         ndjson(
             textProcessor("{\"type\":\"multiline\",\"startPattern\":\"^<Event\"}"),
             raw("<Event>\r\n  <System/>\r\n</Event>\r\n")));
+  }
+
+  private static FleakData str(String value) {
+    return new StringPrimitiveFleakData(value);
+  }
+
+  private static JsonNode envelopeOf(
+      SplunkHecSinkMessageProcessor processor, RecordFleakData record) throws Exception {
+    return OBJECT_MAPPER.readTree(ndjson(processor, record));
+  }
+
+  private static JsonNode json(String text) throws Exception {
+    return OBJECT_MAPPER.readTree(text);
+  }
+
+  @Test
+  void preprocess_recordLabelsWinAndConfigFillsTheRest() throws Exception {
+    SplunkHecSinkMessageProcessor processor =
+        new SplunkHecSinkMessageProcessor("cfg_idx", "cfg:st", null);
+    RecordFleakData record =
+        new RecordFleakData(
+            Map.of(
+                "msg", str("hi"),
+                "__host__", str("web01"),
+                "__sourcetype__", str("app:log"),
+                "__ts__", new NumberPrimitiveFleakData(1730800000123L, NumberType.LONG)));
+
+    assertEquals(
+        json(
+            "{\"event\":{\"msg\":\"hi\"},\"host\":\"web01\",\"sourcetype\":\"app:log\","
+                + "\"index\":\"cfg_idx\",\"time\":1730800000.123}"),
+        envelopeOf(processor, record));
+  }
+
+  @Test
+  void preprocess_everyRecordLabelIsSentAndStripped() throws Exception {
+    SplunkHecSinkMessageProcessor processor = new SplunkHecSinkMessageProcessor(null, null, null);
+    RecordFleakData record =
+        new RecordFleakData(
+            Map.of(
+                "msg", str("hi"),
+                "__host__", str("web01"),
+                "__source__", str("/var/log/a"),
+                "__sourcetype__", str("app:log"),
+                "__index__", str("main"),
+                "__md_kafka_topic", str("t")));
+
+    assertEquals(
+        json(
+            "{\"event\":{\"msg\":\"hi\",\"__md_kafka_topic\":\"t\"},\"host\":\"web01\","
+                + "\"sourcetype\":\"app:log\",\"index\":\"main\",\"source\":\"/var/log/a\"}"),
+        envelopeOf(processor, record));
+  }
+
+  @Test
+  void preprocess_stringTimestampIsNotSentAndStaysInTheEvent() throws Exception {
+    SplunkHecSinkMessageProcessor processor = new SplunkHecSinkMessageProcessor(null, null, null);
+    RecordFleakData record =
+        new RecordFleakData(Map.of("msg", str("hi"), "__ts__", str("6/3/2025 7:24:49 AM")));
+
+    assertEquals(
+        json("{\"event\":{\"msg\":\"hi\",\"__ts__\":\"6/3/2025 7:24:49 AM\"}}"),
+        envelopeOf(processor, record));
+  }
+
+  @Test
+  void preprocess_blankOrNonStringLabelFallsBackToConfig() throws Exception {
+    SplunkHecSinkMessageProcessor processor =
+        new SplunkHecSinkMessageProcessor("cfg_idx", null, null);
+    RecordFleakData record =
+        new RecordFleakData(
+            Map.of(
+                "msg", str("hi"),
+                "__host__", str("  "),
+                "__index__", new NumberPrimitiveFleakData(7, NumberType.LONG)));
+
+    assertEquals(
+        json("{\"event\":{\"msg\":\"hi\"},\"index\":\"cfg_idx\"}"), envelopeOf(processor, record));
+  }
+
+  @Test
+  void preprocess_timeIsSecondsWithMillisecondPrecision() throws Exception {
+    SplunkHecSinkMessageProcessor processor = new SplunkHecSinkMessageProcessor(null, null, null);
+
+    assertEquals(
+        json("{\"event\":{\"msg\":\"hi\"},\"time\":1730800000.123}"),
+        envelopeOf(
+            processor,
+            new RecordFleakData(
+                Map.of(
+                    "msg",
+                    str("hi"),
+                    "__ts__",
+                    new NumberPrimitiveFleakData(1730800000123.9, NumberType.DOUBLE)))));
+    JsonNode wholeSecond =
+        envelopeOf(
+            processor,
+            new RecordFleakData(
+                Map.of(
+                    "msg",
+                    str("hi"),
+                    "__ts__",
+                    new NumberPrimitiveFleakData(1730800000000L, NumberType.LONG))));
+    assertEquals(0, new BigDecimal("1730800000").compareTo(wholeSecond.get("time").decimalValue()));
+  }
+
+  @Test
+  void preprocess_labelValuesNeverReachLineEncodings() throws Exception {
+    RecordFleakData record =
+        new RecordFleakData(
+            Map.of(
+                "__raw__", str("raw line"),
+                "action", str("allow"),
+                "__host__", str("web01"),
+                "__ts__", new NumberPrimitiveFleakData(1730800000123L, NumberType.LONG)));
+
+    assertEquals(
+        json("{\"event\":\",allow\",\"host\":\"web01\",\"time\":1730800000.123}"),
+        envelopeOf(csvProcessor(null, null, null, List.of("__host__", "action")), record));
+    assertEquals(
+        json("{\"event\":\"action=allow\",\"host\":\"web01\",\"time\":1730800000.123}"),
+        envelopeOf(kvProcessor(null, null, null, List.of("__host__", "action")), record));
+    assertEquals(
+        json(
+            "{\"event\":\"raw line\",\"host\":\"web01\",\"sourcetype\":\"cisco:asa\","
+                + "\"index\":\"netfw\",\"time\":1730800000.123}"),
+        envelopeOf(textProcessor("{\"type\":\"line\"}"), record));
+  }
+
+  @Test
+  void preprocess_leavesTheInputRecordUnchanged() throws Exception {
+    Map<String, FleakData> payload =
+        Map.of(
+            "msg", str("hi"),
+            "__host__", str("web01"),
+            "__ts__", new NumberPrimitiveFleakData(1730800000123L, NumberType.LONG));
+    RecordFleakData record = new RecordFleakData(new HashMap<>(payload));
+
+    new SplunkHecSinkMessageProcessor(null, null, null).preprocess(record, 0L);
+
+    assertEquals(new RecordFleakData(payload), record);
   }
 
   @Test
