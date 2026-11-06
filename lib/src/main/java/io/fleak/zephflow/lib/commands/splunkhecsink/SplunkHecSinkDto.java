@@ -53,5 +53,20 @@ public interface SplunkHecSinkDto {
     private Boolean kvCleanFields;
 
     private EncodingConfig encoding;
+
+    /**
+     * Store-and-forward: when enabled, a batch that fails because of HEC is kept in a local durable
+     * queue and delivered once HEC accepts it again, instead of being dropped.
+     */
+    @Builder.Default private boolean storeAndForwardEnabled = false;
+
+    /** Directory for the local store-and-forward queue. Defaults to a temp dir keyed by node id. */
+    private String localStorePath;
+
+    /** Hard cap on local store size; once reached, incoming records are dropped. */
+    @Builder.Default private long localStoreMaxBytes = 1_073_741_824L; // 1 GiB
+
+    /** How often the background forwarder retries draining the local queue during an outage. */
+    @Builder.Default private long forwardRetryIntervalMillis = 5_000L;
   }
 }
