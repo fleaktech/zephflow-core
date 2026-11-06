@@ -26,7 +26,6 @@ import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.RawDataConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
@@ -59,11 +58,24 @@ public class MapRawDataConverter implements RawDataConverter<Map<String, String>
     }
   }
 
+  private static final Map<String, String> LABELS =
+      Map.of(
+          "host",
+          FIELD_NAME_HOST,
+          "source",
+          FIELD_NAME_SOURCE,
+          "sourcetype",
+          FIELD_NAME_SOURCETYPE);
+
   private static Map<String, Object> withLabels(Map<String, String> result) {
     Map<String, Object> payload = new HashMap<>(result);
-    copyLabel(result, "host", FIELD_NAME_HOST, payload);
-    copyLabel(result, "source", FIELD_NAME_SOURCE, payload);
-    copyLabel(result, "sourcetype", FIELD_NAME_SOURCETYPE, payload);
+    LABELS.forEach(
+        (field, label) -> {
+          String value = result.get(field);
+          if (StringUtils.isNotEmpty(value)) {
+            payload.putIfAbsent(label, value);
+          }
+        });
     Long time = epochMillis(result.get("_time"));
     if (time != null) {
       payload.putIfAbsent(FIELD_NAME_TS, time);
@@ -71,22 +83,12 @@ public class MapRawDataConverter implements RawDataConverter<Map<String, String>
     return payload;
   }
 
-  private static void copyLabel(
-      Map<String, String> result, String field, String label, Map<String, Object> payload) {
-    String value = result.get(field);
-    if (StringUtils.isNotEmpty(value)) {
-      payload.putIfAbsent(label, value);
-    }
-  }
-
   private static Long epochMillis(String time) {
     if (time == null) {
       return null;
     }
     try {
-      return OffsetDateTime.parse(time, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-          .toInstant()
-          .toEpochMilli();
+      return OffsetDateTime.parse(time).toInstant().toEpochMilli();
     } catch (DateTimeParseException e) {
       return null;
     }

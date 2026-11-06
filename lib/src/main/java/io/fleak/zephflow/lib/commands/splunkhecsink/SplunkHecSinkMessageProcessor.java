@@ -44,6 +44,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.apache.commons.lang3.StringUtils;
 
 public class SplunkHecSinkMessageProcessor
@@ -57,12 +58,7 @@ public class SplunkHecSinkMessageProcessor
   private static final List<String> LABEL_FIELDS =
       List.of(FIELD_NAME_HOST, FIELD_NAME_SOURCE, FIELD_NAME_SOURCETYPE, FIELD_NAME_INDEX);
   private static final List<String> LABEL_AND_TIME_FIELDS =
-      List.of(
-          FIELD_NAME_HOST,
-          FIELD_NAME_SOURCE,
-          FIELD_NAME_SOURCETYPE,
-          FIELD_NAME_INDEX,
-          FIELD_NAME_TS);
+      Stream.concat(LABEL_FIELDS.stream(), Stream.of(FIELD_NAME_TS)).toList();
 
   private final String index;
   private final String sourcetype;
