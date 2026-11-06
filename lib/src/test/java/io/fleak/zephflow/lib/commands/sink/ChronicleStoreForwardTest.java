@@ -312,6 +312,117 @@ class ChronicleStoreForwardTest {
   }
 
   @Test
+  void stopReplayRewindsAnInterruptedDeliveryForTheNextInstance(@TempDir Path dir)
+      throws Exception {
+    CountingCounter replayed = new CountingCounter();
+    CountingCounter dropped = new CountingCounter();
+    CountDownLatch delivering = new CountDownLatch(1);
+    AtomicBoolean deliveryEnded = new AtomicBoolean(false);
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(
+            config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, replayed, dropped);
+    first.start(
+        records -> {
+          delivering.countDown();
+          try {
+            new CountDownLatch(1).await();
+          } finally {
+            deliveryEnded.set(true);
+          }
+        });
+    first.offer(List.of(record("a"), record("b")));
+    assertTrue(delivering.await(10, TimeUnit.SECONDS));
+
+    first.stopReplay();
+    assertTrue(deliveryEnded.get());
+    assertEquals(0, replayed.total());
+    assertEquals(0, dropped.total());
+    first.close();
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("a", "b"), values(delivered));
+    second.close();
+  }
+
+  @Test
+  void offerAfterStopReplayIsKeptForTheNextInstance(@TempDir Path dir) throws Exception {
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    first.start(records -> {});
+
+    first.stopReplay();
+    assertEquals(1, first.offer(List.of(record("late"))));
+    first.close();
+    first.close();
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("late"), values(delivered));
+    second.close();
+  }
+
+  @Test
+  void closingAContextMidReplayKeepsUnconfirmedRecordsOnDisk(@TempDir Path dir) throws Exception {
+    CountDownLatch delivering = new CountDownLatch(1);
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    first.start(
+        records -> {
+          delivering.countDown();
+          Thread.sleep(60_000);
+        });
+    first.offer(List.of(record("a"), record("b")));
+    assertTrue(delivering.await(10, TimeUnit.SECONDS));
+    SinkExecutionContext<RecordFleakData> context =
+        new SinkExecutionContext<>(
+            new SimpleSinkCommand.Flusher<RecordFleakData>() {
+              @Override
+              public SimpleSinkCommand.FlushResult flush(
+                  SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events,
+                  Map<String, String> tags) {
+                return new SimpleSinkCommand.FlushResult(0, 0, List.of());
+              }
+
+              @Override
+              public void close() {
+                first.offer(List.of(record("c")));
+              }
+            },
+            (event, ts) -> event,
+            first,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    CompletableFuture.runAsync(
+            () -> {
+              try {
+                context.close();
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            })
+        .get(10, TimeUnit.SECONDS);
+
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(delivered::addAll);
+    await(() -> !second.isBuffering());
+    assertEquals(List.of("a", "b", "c"), values(delivered));
+    second.close();
+  }
+
+  @Test
   void spillDefaultsToOffer() {
     assertEquals(0, SinkStoreForward.noop().spill(List.of(record("a"))));
   }

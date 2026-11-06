@@ -31,7 +31,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
@@ -123,6 +122,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
   private final Object stateLock = new Object();
   private volatile boolean buffering = false;
   private volatile boolean closed = false;
+  private boolean released = false;
   // Set by spill() until the buffer drains: a slow remote must not lose records to a full buffer.
   private boolean waitForSpace = false;
 
@@ -314,6 +314,9 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     int stored = 0;
     synchronized (stateLock) {
+      if (released) {
+        return 0;
+      }
       for (RecordFleakData record : records) {
         if (!ensureQueue(records.size() - stored)) {
           break;
@@ -419,22 +422,43 @@ public class ChronicleStoreForward implements SinkStoreForward {
   }
 
   @Override
-  public void close() {
+  public void stopReplay() {
+    Thread drainWorker;
     synchronized (stateLock) {
       closed = true;
       stateLock.notifyAll();
+      drainWorker = worker;
     }
-    if (worker != null) {
+    if (drainWorker == null || drainWorker == Thread.currentThread()) {
+      return;
+    }
+    drainWorker.interrupt();
+    boolean interrupted = false;
+    while (drainWorker.isAlive()) {
       try {
-        worker.join(TimeUnit.SECONDS.toMillis(30));
+        drainWorker.join();
       } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
+        interrupted = true;
       }
     }
-    // May already be null if the buffer drained back to DIRECT. Never delete files here: a still-
-    // buffering instance shut down must leave its undelivered records + ack for the next instance.
-    if (queue != null) {
-      queue.close();
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  @Override
+  public void close() {
+    stopReplay();
+    synchronized (stateLock) {
+      if (released) {
+        return;
+      }
+      released = true;
+      // May already be null if the buffer drained back to DIRECT. Never delete files here: a
+      // still-buffering instance shut down must leave its undelivered records + ack for the next.
+      if (queue != null) {
+        queue.close();
+      }
     }
     try {
       dirLock.release();
@@ -503,12 +527,19 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     try {
       replayTarget.deliver(chunk.records);
+      clearInterruptIfStopping();
       retriesOfCurrentChunk = 0;
       releaseSpace(chunk.bytes);
       inc(replayedCounter, chunk.records.size());
       advanceAck();
       return DrainOutcome.DELIVERED;
     } catch (Exception e) {
+      if (closed) {
+        // stopReplay interrupted this delivery: keep the records for the next instance
+        clearInterruptIfStopping();
+        tailer.moveToIndex(chunk.startIndex);
+        return DrainOutcome.CONN_FAILURE;
+      }
       boolean retriesLeft =
           maxRetries == Config.UNLIMITED_RETRIES || retriesOfCurrentChunk < maxRetries;
       if (classifier.isConnectionFailure(e) && retriesLeft) {
@@ -532,6 +563,13 @@ public class ChronicleStoreForward implements SinkStoreForward {
           chunk.records.size(),
           e);
       return DrainOutcome.DELIVERED;
+    }
+  }
+
+  private void clearInterruptIfStopping() {
+    if (closed) {
+      //noinspection ResultOfMethodCallIgnored
+      Thread.interrupted();
     }
   }
 
