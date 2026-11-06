@@ -21,7 +21,6 @@ import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
-import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
 import io.fleak.zephflow.lib.credentials.ApiKeyCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -29,7 +28,6 @@ import java.net.http.HttpClient;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
-import java.util.Map;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManager;
@@ -38,9 +36,6 @@ import javax.net.ssl.X509TrustManager;
 public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEvent> {
 
   static final long FLUSH_INTERVAL_MS = 10_000;
-  private static final String METRIC_NAME_STORE_FORWARD_BUFFERED = "store_forward_buffered_count";
-  private static final String METRIC_NAME_STORE_FORWARD_REPLAYED = "store_forward_replayed_count";
-  private static final String METRIC_NAME_STORE_FORWARD_DROPPED = "store_forward_dropped_count";
 
   protected SplunkHecSinkCommand(
       String nodeId,
@@ -92,19 +87,30 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
 
     HecDestinationFailureClassifier classifier = new HecDestinationFailureClassifier();
     SinkStoreForward storeForward =
-        storeAndForwardEnabled(config, jobContext)
-            ? createStoreForward(
-                metricClientProvider, jobContext, config, nodeId, batchSize, classifier)
+        storeAndForwardEnabled(config.isStoreAndForwardEnabled(), jobContext)
+            ? newStoreForward(
+                metricClientProvider,
+                jobContext,
+                config.getLocalStorePath(),
+                config.getLocalStoreMaxBytes(),
+                config.getForwardRetryIntervalMillis(),
+                batchSize,
+                ChronicleStoreForward.Config.UNLIMITED_RETRIES,
+                flusher::keepsForReplay)
             : SinkStoreForward.noop();
-    flusher.enableStoreForward(storeForward, classifier);
-    flusher.initialize();
-    storeForward.start(
-        flusher.replayTarget(
-            messagePreProcessor,
-            counters.sinkOutputCounter(),
-            counters.outputSizeCounter(),
-            counters.sinkErrorCounter(),
-            counters.errorCounter()));
+    closeStoreOnFailure(
+        storeForward,
+        () -> {
+          flusher.enableStoreForward(storeForward, classifier);
+          flusher.initialize();
+          storeForward.start(
+              flusher.replayTarget(
+                  messagePreProcessor,
+                  counters.sinkOutputCounter(),
+                  counters.outputSizeCounter(),
+                  counters.sinkErrorCounter(),
+                  counters.errorCounter()));
+        });
 
     return new SinkExecutionContext<>(
         flusher,
@@ -115,37 +121,6 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
         counters.sinkOutputCounter(),
         counters.outputSizeCounter(),
         counters.sinkErrorCounter());
-  }
-
-  private static boolean storeAndForwardEnabled(
-      SplunkHecSinkDto.Config config, JobContext jobContext) {
-    boolean bounded = jobContext.getExecutionHooks() != null;
-    boolean testMode =
-        Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
-    return config.isStoreAndForwardEnabled() && !bounded && !testMode;
-  }
-
-  private ChronicleStoreForward createStoreForward(
-      MetricClientProvider metricClientProvider,
-      JobContext jobContext,
-      SplunkHecSinkDto.Config config,
-      String nodeId,
-      int batchSize,
-      HecDestinationFailureClassifier classifier) {
-    Map<String, String> metricTags =
-        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
-    return new ChronicleStoreForward(
-        new ChronicleStoreForward.Config(
-            StoreForwardPaths.resolve(config.getLocalStorePath(), jobContext, nodeId),
-            config.getLocalStoreMaxBytes(),
-            config.getForwardRetryIntervalMillis(),
-            batchSize,
-            nodeId,
-            ChronicleStoreForward.Config.UNLIMITED_RETRIES),
-        classifier::isDestinationFailure,
-        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
-        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
-        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
   }
 
   private static DlqWriter createDlqWriter(JobContext jobContext) {

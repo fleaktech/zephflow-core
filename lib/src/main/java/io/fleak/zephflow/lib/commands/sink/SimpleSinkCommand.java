@@ -22,6 +22,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import java.io.Closeable;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -95,8 +96,6 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
 
   private SinkExecutionContext<T> withSpillBuffer(
       SinkExecutionContext<T> context, MetricClientProvider metricClientProvider) {
-    Map<String, String> metricTags =
-        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
     ConnectionFailureClassifier classifier = RETRY_EVERY_FAILURE;
     int maxRetries = SPILL_MAX_RETRIES;
     int drainChunk = batchSize();
@@ -104,23 +103,20 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
       drainChunk = buffered.getBatchSize();
       DestinationFailureClassifier destinationClassifier = buffered.destinationFailureClassifier();
       if (destinationClassifier != null) {
-        classifier = destinationClassifier::isDestinationFailure;
+        classifier = buffered::keepsForReplay;
         maxRetries = ChronicleStoreForward.Config.UNLIMITED_RETRIES;
       }
     }
     ChronicleStoreForward spillBuffer =
-        new ChronicleStoreForward(
-            new ChronicleStoreForward.Config(
-                StoreForwardPaths.resolve(null, jobContext, nodeId),
-                SPILL_MAX_BYTES,
-                spillRetryIntervalMillis(),
-                drainChunk,
-                nodeId,
-                maxRetries),
-            classifier,
-            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
-            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
-            metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
+        newStoreForward(
+            metricClientProvider,
+            jobContext,
+            null,
+            SPILL_MAX_BYTES,
+            spillRetryIntervalMillis(),
+            drainChunk,
+            maxRetries,
+            classifier);
     spillBuffer.start(records -> replaySpilled(records, context));
     log.info("sink {} spills to disk after a flush slower than {} ms", nodeId, spillAfterMillis);
     return new SinkExecutionContext<>(
@@ -132,6 +128,51 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
         context.sinkOutputCounter(),
         context.outputSizeCounter(),
         context.sinkErrorCounter());
+  }
+
+  protected final ChronicleStoreForward newStoreForward(
+      MetricClientProvider metricClientProvider,
+      JobContext jobContext,
+      String localStorePath,
+      long maxBytes,
+      long retryIntervalMs,
+      int drainChunk,
+      int maxRetries,
+      ConnectionFailureClassifier classifier) {
+    Map<String, String> metricTags =
+        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
+    return new ChronicleStoreForward(
+        new ChronicleStoreForward.Config(
+            StoreForwardPaths.resolve(localStorePath, jobContext, nodeId),
+            maxBytes,
+            retryIntervalMs,
+            drainChunk,
+            nodeId,
+            maxRetries),
+        classifier,
+        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
+        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
+        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
+  }
+
+  /** Runs the setup that follows opening {@code store}, closing the store if it fails. */
+  protected static void closeStoreOnFailure(SinkStoreForward store, Runnable setup) {
+    try {
+      setup.run();
+    } catch (RuntimeException | Error failure) {
+      try {
+        store.close();
+      } catch (IOException | RuntimeException closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
+    }
+  }
+
+  protected static boolean storeAndForwardEnabled(boolean configFlag, JobContext jobContext) {
+    return configFlag
+        && !Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE))
+        && !jobContext.isBoundedExecution();
   }
 
   long spillRetryIntervalMillis() {
@@ -398,6 +439,7 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
     // While store-and-forward is buffering, go straight to disk so we don't reorder ahead of
     // already-queued records.
     if (storeForward.isBuffering()) {
+      sinkContext.flusher().moveBufferedToStore();
       return bufferToDisk(
           batch,
           preparedInputEvents,
@@ -524,6 +566,9 @@ public abstract class SimpleSinkCommand<T> extends ScalarSinkCommand implements 
         throws Exception {
       return flush(events, metricTags);
     }
+
+    /** Moves records held in memory into the store so they stay ahead of newer stored input. */
+    default void moveBufferedToStore() {}
 
     /** Waits for writes that {@link #flush} returned before the target system confirmed. */
     default void awaitDeliveryConfirmation() throws Exception {}

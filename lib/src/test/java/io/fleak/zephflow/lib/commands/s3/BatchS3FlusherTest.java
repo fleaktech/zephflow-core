@@ -33,6 +33,7 @@ import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.DestinationFailureException;
 import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
+import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
@@ -43,7 +44,9 @@ import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +56,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.*;
@@ -65,6 +73,7 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 import software.amazon.awssdk.transfer.s3.S3TransferManager;
+import software.amazon.awssdk.transfer.s3.model.CompletedFileUpload;
 import software.amazon.awssdk.transfer.s3.model.FileUpload;
 import software.amazon.awssdk.transfer.s3.model.UploadFileRequest;
 
@@ -711,7 +720,7 @@ class BatchS3FlusherTest {
 
   @SuppressWarnings("unchecked")
   @Test
-  void tempFileFailureIsARecordErrorNotADestinationFailure() throws Exception {
+  void flushNowRethrowsATempFileFailureSoReplayKeepsTheRecords() throws Exception {
     BlobFileWriter<RecordFleakData> fileWriter = mock(BlobFileWriter.class);
     when(fileWriter.writeToTempFiles(anyList(), any()))
         .thenThrow(new IOException("No space left on device"));
@@ -720,14 +729,201 @@ class BatchS3FlusherTest {
     BatchS3Flusher sink = unboundedFlusher(manager, fileWriter);
 
     try {
-      SimpleSinkCommand.FlushResult result = sink.flushNow(events(List.of(record)), Map.of());
-      assertEquals(
-          new SimpleSinkCommand.FlushResult(
-              0, 0, List.of(new ErrorOutput(record, "No space left on device"))),
-          result);
+      BatchS3Flusher.TempFileWriteException thrown =
+          assertThrows(
+              BatchS3Flusher.TempFileWriteException.class,
+              () -> sink.flushNow(events(List.of(record)), Map.of()));
+      assertEquals("No space left on device", thrown.getMessage());
       verify(manager, never()).uploadFile(any(UploadFileRequest.class));
     } finally {
       sink.abort();
+    }
+  }
+
+  @Test
+  void stoppingReplayDuringATextTempFileWriteKeepsTheChunkOnDisk(@TempDir Path storeDir)
+      throws Exception {
+    BlobFileWriter<RecordFleakData> text = textWriter();
+    CountDownLatch writing = new CountDownLatch(1);
+    BlobFileWriter<RecordFleakData> fileWriter =
+        new DelegatingBlobFileWriter(text) {
+          @Override
+          public List<File> writeToTempFiles(List<RecordFleakData> records, Path dir)
+              throws Exception {
+            writing.countDown();
+            try {
+              new CountDownLatch(1).await();
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              throw new ClosedByInterruptException();
+            }
+            return text.writeToTempFiles(records, dir);
+          }
+        };
+    S3TransferManager manager = mock(S3TransferManager.class);
+    BatchS3Flusher sink = unboundedFlusher(manager, fileWriter);
+    ChronicleStoreForward store = replayStore(storeDir, sink);
+    List<RecordFleakData> records = List.of(raw("line a"), raw("line b"));
+
+    try {
+      store.offer(records);
+      assertTrue(writing.await(10, TimeUnit.SECONDS));
+      store.stopReplay();
+      store.close();
+
+      assertEquals(records, replayedByANewStore(storeDir));
+      verify(manager, never()).uploadFile(any(UploadFileRequest.class));
+    } finally {
+      store.close();
+      sink.abort();
+    }
+  }
+
+  @Test
+  void stoppingReplayDuringAHangingUploadReturnsAndKeepsTheChunkOnDisk(@TempDir Path storeDir)
+      throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    CompletableFuture<CompletedFileUpload> hanging = new CompletableFuture<>();
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenReturn(upload);
+    when(upload.completionFuture()).thenReturn(hanging);
+    BatchS3Flusher sink = unboundedFlusher(manager, textWriter());
+    ChronicleStoreForward store = replayStore(storeDir, sink);
+    List<RecordFleakData> records = List.of(raw("line a"), raw("line b"));
+
+    try {
+      store.offer(records);
+      verify(manager, timeout(10_000)).uploadFile(any(UploadFileRequest.class));
+      CompletableFuture.runAsync(store::stopReplay).get(10, TimeUnit.SECONDS);
+      store.close();
+
+      assertEquals(records, replayedByANewStore(storeDir));
+    } finally {
+      hanging.cancel(true);
+      store.close();
+      sink.abort();
+    }
+  }
+
+  @Test
+  void replayRetriesAChunkAfterATempFileFailure(@TempDir Path storeDir) throws Exception {
+    BlobFileWriter<RecordFleakData> text = textWriter();
+    AtomicInteger writes = new AtomicInteger();
+    BlobFileWriter<RecordFleakData> fileWriter =
+        new DelegatingBlobFileWriter(text) {
+          @Override
+          public List<File> writeToTempFiles(List<RecordFleakData> records, Path dir)
+              throws Exception {
+            if (writes.incrementAndGet() == 1) {
+              throw new IOException("No space left on device");
+            }
+            return text.writeToTempFiles(records, dir);
+          }
+        };
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenReturn(upload);
+    when(upload.completionFuture())
+        .thenReturn(CompletableFuture.completedFuture(mock(CompletedFileUpload.class)));
+    BatchS3Flusher sink = unboundedFlusher(manager, fileWriter);
+    FleakCounter dropped = mock(FleakCounter.class);
+    ChronicleStoreForward store =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(storeDir, 1 << 20, 50, 100, "s3"),
+            sink::keepsForReplay,
+            null,
+            null,
+            dropped);
+    sink.enableStoreForward(store, new S3DestinationFailureClassifier());
+    store.start(replayTarget(sink));
+
+    try {
+      store.offer(List.of(raw("line a"), raw("line b")));
+      verify(manager, timeout(10_000)).uploadFile(any(UploadFileRequest.class));
+      await(() -> !store.isBuffering());
+
+      assertEquals(2, writes.get());
+      verify(dropped, never()).increase(anyLong(), anyMap());
+    } finally {
+      store.close();
+      sink.abort();
+    }
+  }
+
+  private static BlobFileWriter<RecordFleakData> textWriter() {
+    return EncodingCompiler.fileWriter(encoding("[]", TEXT_LINE), S3SinkConfigValidator.CAPABILITY);
+  }
+
+  private ChronicleStoreForward replayStore(Path storeDir, BatchS3Flusher sink) {
+    ChronicleStoreForward store =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(storeDir, 1 << 20, 50, 100, "s3"),
+            new S3DestinationFailureClassifier()::isDestinationFailure,
+            null,
+            null,
+            null);
+    sink.enableStoreForward(store, new S3DestinationFailureClassifier());
+    store.start(replayTarget(sink));
+    return store;
+  }
+
+  private SinkStoreForward.ReplayTarget replayTarget(BatchS3Flusher sink) {
+    return sink.replayTarget(
+        new PassThroughMessagePreProcessor(),
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter,
+        mock(FleakCounter.class));
+  }
+
+  private static List<RecordFleakData> replayedByANewStore(Path storeDir) throws Exception {
+    List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
+    ChronicleStoreForward reopened =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(storeDir, 1 << 20, 50, 100, "s3"),
+            t -> true,
+            null,
+            null,
+            null);
+    try {
+      reopened.start(delivered::addAll);
+      await(() -> !reopened.isBuffering());
+      return delivered;
+    } finally {
+      reopened.close();
+    }
+  }
+
+  private static void await(BooleanSupplier condition) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!condition.getAsBoolean()) {
+      if (System.nanoTime() > deadline) {
+        fail("condition not met within 10s");
+      }
+      Thread.sleep(20);
+    }
+  }
+
+  private static class DelegatingBlobFileWriter implements BlobFileWriter<RecordFleakData> {
+    private final BlobFileWriter<RecordFleakData> delegate;
+
+    DelegatingBlobFileWriter(BlobFileWriter<RecordFleakData> delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public List<File> writeToTempFiles(List<RecordFleakData> records, Path dir) throws Exception {
+      return delegate.writeToTempFiles(records, dir);
+    }
+
+    @Override
+    public String getFileExtension() {
+      return delegate.getFileExtension();
+    }
+
+    @Override
+    public void validateRecord(RecordFleakData record) throws Exception {
+      delegate.validateRecord(record);
     }
   }
 

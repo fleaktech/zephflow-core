@@ -64,7 +64,7 @@ public interface SplunkHecSinkDto {
     private String localStorePath;
 
     /** Hard cap on local store size; once reached, incoming records are dropped. */
-    @Builder.Default private long localStoreMaxBytes = 1_073_741_824L; // 1 GiB
+    @Builder.Default private long localStoreMaxBytes = 1_073_741_824L;
 
     /** How often the background forwarder retries draining the local queue during an outage. */
     @Builder.Default private long forwardRetryIntervalMillis = 5_000L;

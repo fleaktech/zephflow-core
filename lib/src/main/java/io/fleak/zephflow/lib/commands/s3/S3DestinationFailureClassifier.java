@@ -18,11 +18,6 @@ import io.fleak.zephflow.lib.commands.sink.DestinationFailureException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 
-/**
- * Every upload failure (SDK client errors, any S3 status such as NoSuchBucket, 403 or 5xx, and
- * anything unrecognised) is a destination problem. Only a failure writing the local temp file is
- * not: retrying it against the destination cannot help.
- */
 public class S3DestinationFailureClassifier implements DestinationFailureClassifier {
   @Override
   public boolean isDestinationFailure(Throwable t) {

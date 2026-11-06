@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.commands.splunkhecsink;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mockConstruction;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -54,6 +56,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedConstruction;
 
 class SplunkHecSinkCommandTest {
 
@@ -546,6 +549,25 @@ class SplunkHecSinkCommandTest {
       assertSame(SinkStoreForward.noop(), store);
       assertFalse(Files.exists(storeBase()));
       assertEquals(totals(0, 0, 0, 0, 2), metrics.totals(STORE_METRICS));
+    }
+  }
+
+  @Test
+  void storeOn_failureAfterTheStoreIsOpened_releasesTheStoreDir() throws Exception {
+    try (StubHec hec = new StubHec()) {
+      IllegalStateException initFailure = new IllegalStateException("flusher init failed");
+      try (MockedConstruction<SplunkHecSinkFlusher> ignored =
+          mockConstruction(
+              SplunkHecSinkFlusher.class,
+              (flusher, context) -> doThrow(initFailure).when(flusher).initialize())) {
+        IllegalStateException thrown =
+            assertThrows(
+                IllegalStateException.class,
+                () -> command(hec, jobContext(false), true, null, new CapturingMetrics()));
+        assertSame(initFailure, thrown);
+      }
+
+      command(hec, jobContext(false), true, null, new CapturingMetrics()).terminate();
     }
   }
 

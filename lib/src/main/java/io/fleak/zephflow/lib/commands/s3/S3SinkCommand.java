@@ -26,7 +26,6 @@ import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
-import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
 import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -37,15 +36,11 @@ import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
-import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
 public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
   private static final int S3_SINK_BATCH_SIZE = 1_000_000_000;
-  private static final String METRIC_NAME_STORE_FORWARD_BUFFERED = "store_forward_buffered_count";
-  private static final String METRIC_NAME_STORE_FORWARD_REPLAYED = "store_forward_replayed_count";
-  private static final String METRIC_NAME_STORE_FORWARD_DROPPED = "store_forward_dropped_count";
 
   private final AwsClientFactory awsClientFactory;
 
@@ -74,18 +69,30 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
         new PassThroughMessagePreProcessor();
     S3DestinationFailureClassifier classifier = new S3DestinationFailureClassifier();
     SinkStoreForward storeForward =
-        storeAndForwardEnabled(config, jobContext)
-            ? createStoreForward(metricClientProvider, jobContext, config, nodeId, classifier)
+        storeAndForwardEnabled(config.isStoreAndForwardEnabled(), jobContext)
+            ? newStoreForward(
+                metricClientProvider,
+                jobContext,
+                config.getLocalStorePath(),
+                config.getLocalStoreMaxBytes(),
+                config.getForwardRetryIntervalMillis(),
+                config.getBatchSize(),
+                ChronicleStoreForward.Config.UNLIMITED_RETRIES,
+                flusher::keepsForReplay)
             : SinkStoreForward.noop();
-    flusher.enableStoreForward(storeForward, classifier);
-    flusher.initialize();
-    storeForward.start(
-        flusher.replayTarget(
-            messagePreProcessor,
-            counters.sinkOutputCounter(),
-            counters.outputSizeCounter(),
-            counters.sinkErrorCounter(),
-            counters.errorCounter()));
+    closeStoreOnFailure(
+        storeForward,
+        () -> {
+          flusher.enableStoreForward(storeForward, classifier);
+          flusher.initialize();
+          storeForward.start(
+              flusher.replayTarget(
+                  messagePreProcessor,
+                  counters.sinkOutputCounter(),
+                  counters.outputSizeCounter(),
+                  counters.sinkErrorCounter(),
+                  counters.errorCounter()));
+        });
 
     return new SinkExecutionContext<>(
         flusher,
@@ -96,34 +103,6 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
         counters.sinkOutputCounter(),
         counters.outputSizeCounter(),
         counters.sinkErrorCounter());
-  }
-
-  private static boolean storeAndForwardEnabled(S3SinkDto.Config config, JobContext jobContext) {
-    boolean testMode =
-        Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_TEST_MODE));
-    return config.isStoreAndForwardEnabled() && !testMode && !jobContext.isBoundedExecution();
-  }
-
-  private ChronicleStoreForward createStoreForward(
-      MetricClientProvider metricClientProvider,
-      JobContext jobContext,
-      S3SinkDto.Config config,
-      String nodeId,
-      S3DestinationFailureClassifier classifier) {
-    Map<String, String> metricTags =
-        basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId);
-    return new ChronicleStoreForward(
-        new ChronicleStoreForward.Config(
-            StoreForwardPaths.resolve(config.getLocalStorePath(), jobContext, nodeId),
-            config.getLocalStoreMaxBytes(),
-            config.getForwardRetryIntervalMillis(),
-            config.getBatchSize(),
-            nodeId,
-            ChronicleStoreForward.Config.UNLIMITED_RETRIES),
-        classifier::isDestinationFailure,
-        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_BUFFERED, metricTags),
-        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_REPLAYED, metricTags),
-        metricClientProvider.counter(METRIC_NAME_STORE_FORWARD_DROPPED, metricTags));
   }
 
   private BatchS3Flusher createS3Flusher(

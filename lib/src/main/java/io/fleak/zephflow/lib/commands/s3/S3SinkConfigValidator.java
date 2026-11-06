@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.aws.AwsUtils.parseRegion;
 import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
+import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -68,6 +69,17 @@ public class S3SinkConfigValidator implements ConfigValidator {
               "Batch size must be positive when batching is enabled, but found: %d. "
                   + "If omitted, ensure default is applied correctly.",
               config.getBatchSize()));
+    }
+
+    if (config.isStoreAndForwardEnabled()) {
+      Preconditions.checkArgument(
+          config.getLocalStoreMaxBytes() > 0,
+          "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: %s",
+          config.getLocalStoreMaxBytes());
+      Preconditions.checkArgument(
+          config.getForwardRetryIntervalMillis() > 0,
+          "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: %s",
+          config.getForwardRetryIntervalMillis());
     }
 
     if (config.getEncoding() != null) {

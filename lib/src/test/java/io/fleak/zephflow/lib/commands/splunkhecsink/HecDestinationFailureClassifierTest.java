@@ -43,6 +43,7 @@ class HecDestinationFailureClassifierTest {
     failures.put("401", hec(401, 2));
     failures.put("403", hec(403, 4));
     failures.put("404", hec(404, 7));
+    failures.put("413", hec(413, 27));
     failures.put("400 code 7", hec(400, 7));
     failures.put("400 code 5", hec(400, 5));
     failures.put("400 code 6", hec(400, 6));
@@ -66,6 +67,7 @@ class HecDestinationFailureClassifierTest {
     expected.put("401", true);
     expected.put("403", true);
     expected.put("404", true);
+    expected.put("413", false);
     expected.put("400 code 7", true);
     expected.put("400 code 5", false);
     expected.put("400 code 6", false);

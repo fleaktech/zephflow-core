@@ -90,15 +90,13 @@ class AbstractBufferedFlusherStoreForwardTest {
     flusher.flush(events(1, 2), Map.of());
     flusher.executeScheduledFlush();
 
-    assertEquals(2, buffered.total());
-    assertEquals(0, sinkError.total());
+    assertEquals(new Counts(0, 0, 0, 2, 0, 0), counts());
     assertFalse(lostRecordsLogged());
 
     flusher.failure = null;
     await(() -> !store.isBuffering());
     assertEquals(List.of(record(1), record(2)), flusher.sentRecords());
-    assertEquals(2, replayed.total());
-    assertEquals(2, sinkOutput.total());
+    assertEquals(new Counts(2, 22, 0, 2, 2, 0), counts());
     store.close();
     flusher.close();
   }
@@ -117,8 +115,7 @@ class AbstractBufferedFlusherStoreForwardTest {
     new SinkExecutionContext<>(flusher, (event, ts) -> event, store, null, null, null, null, null)
         .close();
 
-    assertEquals(2, buffered.total());
-    assertEquals(0, sinkError.total());
+    assertEquals(new Counts(0, 0, 0, 2, 0, 0), counts());
     assertFalse(lostRecordsLogged());
     List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
     ChronicleStoreForward reopened = store(dir, 1_000_000);
@@ -139,8 +136,7 @@ class AbstractBufferedFlusherStoreForwardTest {
     flusher.flush(events(1, 2), Map.of());
     flusher.executeScheduledFlush();
 
-    assertEquals(2, sinkError.total());
-    assertEquals(0, buffered.total());
+    assertEquals(new Counts(0, 0, 2, 0, 0, 0), counts());
     assertFalse(store.isBuffering());
     assertTrue(lostRecordsLogged());
     store.close();
@@ -167,7 +163,7 @@ class AbstractBufferedFlusherStoreForwardTest {
     flusher.executeScheduledFlush();
 
     assertEquals(1, flusher.sendAttempts.get());
-    assertEquals(4, buffered.total());
+    assertEquals(new Counts(0, 0, 0, 4, 0, 0), counts());
 
     flusher.failure = null;
     destinationBack.countDown();
@@ -191,8 +187,7 @@ class AbstractBufferedFlusherStoreForwardTest {
         new SimpleSinkCommand.FlushResult(
             0, 0, List.of(new ErrorOutput(record(2), SimpleSinkCommand.STORE_FORWARD_FULL_MSG))),
         result);
-    assertEquals(1, buffered.total());
-    assertEquals(1, dropped.total());
+    assertEquals(new Counts(0, 0, 0, 1, 0, 1), counts());
     store.close();
     flusher.close();
   }
@@ -211,7 +206,7 @@ class AbstractBufferedFlusherStoreForwardTest {
     SimpleSinkCommand.FlushResult result = flusher.flush(events(1, 2), Map.of());
 
     assertEquals(new SimpleSinkCommand.FlushResult(0, 0, List.of(rejected)), result);
-    assertEquals(1, buffered.total());
+    assertEquals(new Counts(0, 0, 0, 1, 0, 0), counts());
     flusher.failure = null;
     await(() -> !store.isBuffering());
     assertEquals(List.of(record(2)), flusher.sentRecords());
@@ -227,7 +222,7 @@ class AbstractBufferedFlusherStoreForwardTest {
     flusher.flush(events(1, 2), Map.of());
     flusher.executeScheduledFlush();
 
-    assertEquals(2, sinkError.total());
+    assertEquals(new Counts(0, 0, 2, 0, 0, 0), counts());
     assertTrue(lostRecordsLogged());
     flusher.close();
   }
@@ -244,9 +239,26 @@ class AbstractBufferedFlusherStoreForwardTest {
     flusher.failure = new IOException("connection refused");
 
     assertThrows(IOException.class, () -> target.deliver(List.of(record(4))));
-    assertEquals(
-        List.of(2L, 22L, 1L), List.of(sinkOutput.total(), outputSize.total(), sinkError.total()));
+    assertEquals(new Counts(2, 22, 1, 0, 0, 0), counts());
     flusher.close();
+  }
+
+  private record Counts(
+      long sinkOutput,
+      long outputSize,
+      long sinkError,
+      long buffered,
+      long replayed,
+      long dropped) {}
+
+  private Counts counts() {
+    return new Counts(
+        sinkOutput.total(),
+        outputSize.total(),
+        sinkError.total(),
+        buffered.total(),
+        replayed.total(),
+        dropped.total());
   }
 
   private void enable(FakeFlusher flusher, ChronicleStoreForward store) {

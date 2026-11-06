@@ -147,9 +147,44 @@ class SimpleSinkSpillTest {
     sink.writeToSink(List.of(record(1), record(2)), "user", context);
 
     await(() -> !storeForward(sink).isBuffering());
-    assertEquals(List.of(record(0), record(1), record(2)), flusher.delivered);
-    assertEquals(6, flusher.failedSends.get());
-    assertEquals(3, sinkOutput.total());
+    assertEquals(
+        new Replayed(List.of(record(0), record(1), record(2)), 6, 3),
+        new Replayed(flusher.delivered, flusher.failedSends.get(), sinkOutput.total()));
+    sink.terminate();
+  }
+
+  @Test
+  void recordsInTheMemoryBufferAreStoredAheadOfInputThatArrivesWhileBuffering(@TempDir Path dir)
+      throws Exception {
+    BufferedRecordingFlusher flusher = new BufferedRecordingFlusher(10);
+    ChronicleStoreForward store =
+        new ChronicleStoreForward(
+            new ChronicleStoreForward.Config(dir.resolve("own"), 1_000_000, 50, 10, "node"),
+            t -> t instanceof IOException,
+            null,
+            null,
+            null);
+    flusher.enableStoreForward(store, t -> t instanceof IOException);
+    SpillSink sink = new SpillSink(jobContext(dir, null), flusher, store, null);
+    sink.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    CountDownLatch destinationBack = new CountDownLatch(1);
+    CountingCounter counter = new CountingCounter();
+    SinkStoreForward.ReplayTarget target =
+        flusher.replayTarget((event, ts) -> event, counter, counter, counter, counter);
+    store.start(
+        records -> {
+          destinationBack.await();
+          target.deliver(records);
+        });
+    ExecutionContext context = sink.getExecutionContext();
+
+    sink.writeToSink(List.of(record(1), record(2)), "user", context);
+    store.offer(List.of(record(0)));
+    sink.writeToSink(List.of(record(3)), "user", context);
+    destinationBack.countDown();
+
+    await(() -> !store.isBuffering());
+    assertEquals(List.of(record(0), record(1), record(2), record(3)), flusher.delivered);
     sink.terminate();
   }
 
@@ -252,6 +287,8 @@ class SimpleSinkSpillTest {
     fail("condition not met within timeout");
   }
 
+  private record Replayed(List<RecordFleakData> delivered, int failedSends, long sinkOutput) {}
+
   private static final class SpillSink extends SimpleSinkCommand<RecordFleakData> {
     private final Flusher<RecordFleakData> flusher;
     private final SinkStoreForward ownStoreForward;
@@ -341,21 +378,31 @@ class SimpleSinkSpillTest {
 
   private static final class BufferedRecordingFlusher
       extends AbstractBufferedFlusher<RecordFleakData> {
+    private final int batchSize;
     private final long firstSendDelayMillis;
     private final AtomicInteger failuresLeft;
     final List<RecordFleakData> delivered = new CopyOnWriteArrayList<>();
     final AtomicInteger failedSends = new AtomicInteger();
 
     BufferedRecordingFlusher(long firstSendDelayMillis, int failures) {
+      this(1, firstSendDelayMillis, failures);
+    }
+
+    BufferedRecordingFlusher(int batchSize) {
+      this(batchSize, 0, 0);
+    }
+
+    private BufferedRecordingFlusher(int batchSize, long firstSendDelayMillis, int failures) {
       super(
           null, null, "node", new CountingCounter(), new CountingCounter(), new CountingCounter());
+      this.batchSize = batchSize;
       this.firstSendDelayMillis = firstSendDelayMillis;
       this.failuresLeft = new AtomicInteger(failures);
     }
 
     @Override
     protected int getBatchSize() {
-      return 1;
+      return batchSize;
     }
 
     @Override

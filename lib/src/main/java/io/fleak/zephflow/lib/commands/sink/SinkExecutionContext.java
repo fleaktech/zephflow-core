@@ -66,7 +66,6 @@ public record SinkExecutionContext<T>(
     }
   }
 
-  /** Stops replay first so the forwarder cannot race the flusher's final flush. */
   @Override
   public void close() throws IOException {
     try {

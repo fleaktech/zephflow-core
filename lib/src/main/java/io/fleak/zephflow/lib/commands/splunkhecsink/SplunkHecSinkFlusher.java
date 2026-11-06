@@ -92,25 +92,19 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
   protected SimpleSinkCommand.FlushResult doFlushWithRecovery(
       List<Pair<RecordFleakData, SplunkHecOutboundEvent>> batch) {
     List<SimpleSinkCommand.FlushResult> results = new ArrayList<>();
-    Exception storedFailure = null;
+    boolean storeRestToKeepOrder = false;
     for (List<Pair<RecordFleakData, SplunkHecOutboundEvent>> slice :
         Lists.partition(batch, batchSize)) {
-      // once a slice is stored, store the rest behind it so HEC receives them in order
-      Exception failure = storedFailure;
-      if (failure == null) {
-        try {
-          results.add(doFlushWithRetry(slice));
-          continue;
-        } catch (Exception e) {
-          failure = e;
-        }
+      if (storeRestToKeepOrder) {
+        results.add(storeBatch(slice, List.of()));
+        continue;
       }
-      Optional<SimpleSinkCommand.FlushResult> stored = storeOnDestinationFailure(slice, failure);
-      if (stored.isPresent()) {
-        storedFailure = failure;
-        results.add(stored.get());
-      } else {
-        results.add(createCompleteFailureResult(slice, failureMessage(failure)));
+      try {
+        results.add(doFlushWithRetry(slice));
+      } catch (Exception e) {
+        Optional<SimpleSinkCommand.FlushResult> stored = storeOnDestinationFailure(slice, e);
+        storeRestToKeepOrder = stored.isPresent();
+        results.add(stored.orElseGet(() -> createCompleteFailureResult(slice, failureMessage(e))));
       }
     }
     return merge(results);
@@ -242,14 +236,15 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
       Integer hecCode = null;
       try {
         JsonNode node = OBJECT_MAPPER.readTree(text);
-        if (node != null && node.get("text") != null && node.get("text").isTextual()) {
-          reason = node.get("text").asText();
+        JsonNode textNode = node.path("text");
+        if (textNode.isTextual()) {
+          reason = textNode.asText();
         }
-        if (node != null && node.get("code") != null && node.get("code").isInt()) {
-          hecCode = node.get("code").asInt();
+        JsonNode codeNode = node.path("code");
+        if (codeNode.isInt()) {
+          hecCode = codeNode.asInt();
         }
       } catch (Exception ignore) {
-        // not a HEC JSON body; keep the raw snippet
       }
       return new HecResponseException(
           status, hecCode, "Splunk HEC error " + status + ": " + reason);

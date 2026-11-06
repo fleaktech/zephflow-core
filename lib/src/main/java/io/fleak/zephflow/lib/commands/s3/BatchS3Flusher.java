@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.s3;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
-
 import io.fleak.zephflow.api.ErrorOutput;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.execution.EffectOutcome;
@@ -38,6 +36,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -124,21 +124,17 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     List<ErrorOutput> rejected = new ArrayList<>();
     List<File> tempFiles;
     try {
-      tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
+      tempFiles = writeTempFiles(valid);
     } catch (Exception e) {
       valid = validRecords(batch, rejected);
       if (rejected.isEmpty()) {
-        throw tempFileFailure(e);
+        throw e;
       }
       if (valid.isEmpty()) {
         return withRejected(
             new SimpleSinkCommand.FlushResult(0, 0, List.of()), rejected, batch.size());
       }
-      try {
-        tempFiles = fileWriter.writeToTempFiles(rights(valid), tempDirectory);
-      } catch (Exception retryFailure) {
-        throw tempFileFailure(retryFailure);
-      }
+      tempFiles = writeTempFiles(valid);
     }
     String baseKey = generateS3KeyBase();
 
@@ -169,15 +165,24 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
     }
   }
 
-  /** A failure writing the local temp file; never a destination problem. */
+  @Override
+  protected boolean retryOnReplay(Throwable failure) {
+    return failure instanceof TempFileWriteException;
+  }
+
   static final class TempFileWriteException extends Exception {
     TempFileWriteException(Throwable cause) {
       super(cause.getMessage(), cause);
     }
   }
 
-  private Exception tempFileFailure(Exception e) {
-    return boundedHooks == null ? new TempFileWriteException(e) : e;
+  private List<File> writeTempFiles(List<Pair<RecordFleakData, RecordFleakData>> pairs)
+      throws Exception {
+    try {
+      return fileWriter.writeToTempFiles(rights(pairs), tempDirectory);
+    } catch (Exception e) {
+      throw boundedHooks == null ? new TempFileWriteException(e) : e;
+    }
   }
 
   private static List<RecordFleakData> rights(List<Pair<RecordFleakData, RecordFleakData>> pairs) {
@@ -258,7 +263,9 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             bucketName);
         return new SimpleSinkCommand.FlushResult(recordCount, totalSize, List.of());
       } catch (Exception e) {
-        if (boundedHooks != null || attempt >= MAX_WRITE_RETRIES) {
+        if (boundedHooks != null
+            || attempt >= MAX_WRITE_RETRIES
+            || Thread.currentThread().isInterrupted()) {
           throw e;
         }
         log.warn(
@@ -267,7 +274,12 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             MAX_WRITE_RETRIES,
             retryDelayMs,
             e.getMessage());
-        threadSleep(retryDelayMs);
+        try {
+          Thread.sleep(retryDelayMs);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw e;
+        }
         retryDelayMs *= 2;
       }
     }
@@ -293,7 +305,15 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             .build();
 
     FileUpload upload = s3TransferResources.transferManager().uploadFile(uploadRequest);
-    upload.completionFuture().join();
+    try {
+      upload.completionFuture().get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      upload.completionFuture().cancel(true);
+      throw new CompletionException("S3 upload interrupted", e);
+    } catch (ExecutionException e) {
+      throw new CompletionException(e.getCause());
+    }
   }
 
   public void close() {

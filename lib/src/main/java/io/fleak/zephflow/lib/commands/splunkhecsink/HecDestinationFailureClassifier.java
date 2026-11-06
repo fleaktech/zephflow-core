@@ -19,18 +19,20 @@ import java.util.Set;
 
 /**
  * HEC rejects a whole batch with status 400 and one of these codes when an event in it is
- * malformed; that is a record problem. Every other failure, including ones it cannot classify,
- * counts as a destination problem.
+ * malformed, or with 413 when the batch is too large; both are record problems. Every other
+ * failure, including ones it cannot classify, counts as a destination problem.
  */
 final class HecDestinationFailureClassifier implements DestinationFailureClassifier {
 
+  private static final int PAYLOAD_TOO_LARGE = 413;
   private static final Set<Integer> RECORD_PROBLEM_CODES = Set.of(5, 6, 12, 13, 15);
 
   @Override
   public boolean isDestinationFailure(Throwable t) {
     return !(t instanceof HecResponseException hec
-        && hec.getStatus() == 400
-        && hec.getHecCode() != null
-        && RECORD_PROBLEM_CODES.contains(hec.getHecCode()));
+        && (hec.getStatus() == PAYLOAD_TOO_LARGE
+            || hec.getStatus() == 400
+                && hec.getHecCode() != null
+                && RECORD_PROBLEM_CODES.contains(hec.getHecCode())));
   }
 }
