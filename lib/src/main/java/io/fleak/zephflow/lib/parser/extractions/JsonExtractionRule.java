@@ -21,10 +21,17 @@ import java.util.Map;
 /** Created by bolei on 5/6/25 */
 public record JsonExtractionRule(JsonExtractionConfig jsonExtractionConfig)
     implements ExtractionRule {
+  /** Where the parsed value goes when no output field is named, as the parser UI suggests. */
+  static final String DEFAULT_OUTPUT_FIELD = "parsed_json";
 
   @Override
   public RecordFleakData extract(String raw) throws Exception {
     FleakData fleakData = JsonUtils.loadFleakDataFromJsonString(raw);
-    return new RecordFleakData(Map.of(jsonExtractionConfig.getOutputFieldName(), fleakData));
+    return new RecordFleakData(Map.of(outputFieldName(), fleakData));
+  }
+
+  private String outputFieldName() {
+    String name = jsonExtractionConfig.getOutputFieldName();
+    return name == null || name.isBlank() ? DEFAULT_OUTPUT_FIELD : name;
   }
 }

@@ -31,6 +31,9 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.io.IOUtils;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Created by bolei on 10/14/24 */
 class CompiledRulesTest {
@@ -70,6 +73,21 @@ class CompiledRulesTest {
     assertNotNull(inputEvent);
     RecordFleakData output = parseRule.parse(inputEvent);
     assertEquals(Map.of("my_field", Map.of("a", 100L)), output.unwrap());
+  }
+
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"", "  "})
+  public void testJsonExtractionWithoutOutputFieldNameUsesParsedJson(String outputFieldName) {
+    RecordFleakData inputEvent = (RecordFleakData) FleakData.wrap(Map.of("k", "{\"a\":100}"));
+    ParserConfigs.ParserConfig parserConfig =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("k")
+            .extractionConfig(new JsonExtractionConfig(outputFieldName))
+            .build();
+    CompiledRules.ParseRule parseRule = new ParserConfigCompiler().compile(parserConfig);
+    RecordFleakData output = parseRule.parse(inputEvent);
+    assertEquals(Map.of("k", "{\"a\":100}", "parsed_json", Map.of("a", 100L)), output.unwrap());
   }
 
   @Test
