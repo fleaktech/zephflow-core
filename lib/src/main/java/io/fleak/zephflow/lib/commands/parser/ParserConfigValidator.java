@@ -18,7 +18,6 @@ import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
-import io.fleak.zephflow.lib.parser.extractions.JsonExtractionConfig;
 
 /** Created by bolei on 3/18/25 */
 public class ParserConfigValidator implements ConfigValidator {
@@ -28,26 +27,5 @@ public class ParserConfigValidator implements ConfigValidator {
     Preconditions.checkArgument(parserConfig.getTargetField() != null, "targetField is missing");
     Preconditions.checkArgument(
         parserConfig.getExtractionConfig() != null, "extractionConfig is missing");
-    checkJsonOutputFields(parserConfig);
-  }
-
-  /**
-   * A json extraction puts the parsed value under {@code outputFieldName}; without one every event
-   * fails at runtime, so refuse it here, in dispatched configs too.
-   */
-  private static void checkJsonOutputFields(ParserConfigs.ParserConfig config) {
-    if (config == null) {
-      return;
-    }
-    if (config.getExtractionConfig() instanceof JsonExtractionConfig json) {
-      Preconditions.checkArgument(
-          json.getOutputFieldName() != null && !json.getOutputFieldName().isBlank(),
-          "json extraction needs an outputFieldName");
-    }
-    ParserConfigs.DispatchConfig dispatch = config.getDispatchConfig();
-    if (dispatch != null) {
-      dispatch.getDispatchMap().values().forEach(ParserConfigValidator::checkJsonOutputFields);
-      checkJsonOutputFields(dispatch.getDefaultConfig());
-    }
   }
 }
