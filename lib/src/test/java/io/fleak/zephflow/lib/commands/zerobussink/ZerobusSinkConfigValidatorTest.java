@@ -17,8 +17,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.commands.zerobussink.ZerobusSinkDto.Config;
 import io.fleak.zephflow.lib.credentials.DatabricksCredential;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +63,67 @@ class ZerobusSinkConfigValidatorTest {
         .avroSchema(VALID_AVRO_SCHEMA);
   }
 
+  private Map<String, Object> rawConfig(Map<String, Object> wireProtocolKeys) {
+    when(jobContext.getOtherProperties()).thenReturn(Map.of("test-credential", credential));
+    Map<String, Object> raw = new HashMap<>(wireProtocolKeys);
+    raw.put("databricksCredentialId", "test-credential");
+    raw.put("zerobusEndpoint", ENDPOINT);
+    raw.put("tableName", "catalog.schema.table");
+    raw.put("avroSchema", VALID_AVRO_SCHEMA);
+    return raw;
+  }
+
+  private static Config parse(Map<String, Object> raw) {
+    return new JsonConfigParser<>(Config.class).parseConfig(raw);
+  }
+
+  @Test
+  void wireProtocolKeyParsesAndValidates() {
+    Config config = parse(rawConfig(Map.of("wireProtocol", "json")));
+
+    Config expected = validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_JSON).build();
+    assertEquals(expected, config);
+    assertDoesNotThrow(() -> validator.validateConfig(config, "node", jobContext));
+  }
+
+  @Test
+  void encodingTypeKeyParsesIntoWireProtocol() {
+    Config config = parse(rawConfig(Map.of("encodingType", "protobuf")));
+
+    Config expected = validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_PROTOBUF).build();
+    assertEquals(expected, config);
+    assertDoesNotThrow(() -> validator.validateConfig(config, "node", jobContext));
+  }
+
+  @Test
+  void encodingTypeJsonParsesIntoWireProtocolJson() {
+    Config config = parse(rawConfig(Map.of("encodingType", "json")));
+
+    assertEquals(validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_JSON).build(), config);
+  }
+
+  @Test
+  void noWireProtocolKeyDefaultsToProtobuf() {
+    Config config = parse(rawConfig(Map.of()));
+
+    assertEquals(validConfigBuilder().build(), config);
+    assertDoesNotThrow(() -> validator.validateConfig(config, "node", jobContext));
+  }
+
+  @Test
+  void bothWireProtocolKeysAreRefused() {
+    Config config = parse(rawConfig(Map.of("wireProtocol", "json", "encodingType", "json")));
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "node", jobContext));
+    assertEquals(
+        "Zerobus sink configuration errors: set only one of wireProtocol and encodingType;"
+            + " encodingType is an alias of wireProtocol",
+        e.getMessage());
+  }
+
   @Test
   void validProtobufConfig() {
     Config config = validConfigBuilder().build();
@@ -69,7 +132,7 @@ class ZerobusSinkConfigValidatorTest {
 
   @Test
   void validJsonConfig() {
-    Config config = validConfigBuilder().encodingType(ZerobusSinkDto.ENCODING_JSON).build();
+    Config config = validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_JSON).build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "node", jobContext));
   }
 
@@ -78,7 +141,7 @@ class ZerobusSinkConfigValidatorTest {
     // JSON mode does not use the Avro schema (no protobuf descriptor is built), so a missing
     // schema must not be a config error.
     Config config =
-        validConfigBuilder().encodingType(ZerobusSinkDto.ENCODING_JSON).avroSchema(null).build();
+        validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_JSON).avroSchema(null).build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "node", jobContext));
   }
 
@@ -164,13 +227,15 @@ class ZerobusSinkConfigValidatorTest {
   }
 
   @Test
-  void invalidEncodingType() {
-    Config config = validConfigBuilder().encodingType("avro").build();
+  void invalidWireProtocol() {
+    Config config = validConfigBuilder().wireProtocol("avro").build();
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class,
             () -> validator.validateConfig(config, "node", jobContext));
-    assertTrue(e.getMessage().contains("encodingType"));
+    assertEquals(
+        "Zerobus sink configuration errors: wireProtocol must be 'protobuf' or 'json'. Got: avro",
+        e.getMessage());
   }
 
   @Test

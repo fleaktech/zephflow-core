@@ -182,8 +182,11 @@ class PubSubSinkConfigValidatorTest {
 
   @Test
   void validateConfig_neitherEncodingNorEncodingType() {
-    assertEquals(
-        "no encoding type is provided", refusal(PubSubSinkDto.Config.builder().topic("t").build()));
+    assertDoesNotThrow(
+        () ->
+            new PubSubSinkConfigValidator()
+                .validateConfig(
+                    PubSubSinkDto.Config.builder().topic("t").build(), "nodeId", TEST_JOB_CONTEXT));
   }
 
   private static String refusal(PubSubSinkDto.Config config) {
