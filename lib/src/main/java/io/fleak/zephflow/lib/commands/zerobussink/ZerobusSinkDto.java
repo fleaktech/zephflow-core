@@ -13,8 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.zerobussink;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import io.fleak.zephflow.api.CommandConfig;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import lombok.*;
 
 /**
@@ -27,6 +31,8 @@ public class ZerobusSinkDto {
 
   public static final String ENCODING_PROTOBUF = "protobuf";
   public static final String ENCODING_JSON = "json";
+  public static final String WIRE_PROTOCOL_KEY = "wireProtocol";
+  public static final String LEGACY_WIRE_PROTOCOL_KEY = "encodingType";
 
   @Data
   @Builder
@@ -45,8 +51,17 @@ public class ZerobusSinkDto {
     /** Avro schema of the target table. Used to build the protobuf descriptor at runtime. */
     private Map<String, Object> avroSchema;
 
-    /** Wire encoding: {@code protobuf} (default) or {@code json}. */
-    @Builder.Default private String encodingType = ENCODING_PROTOBUF;
+    /**
+     * Wire protocol: {@code protobuf} (default) or {@code json}. The legacy key {@code
+     * encodingType} is read as an alias.
+     */
+    @Builder.Default private String wireProtocol = ENCODING_PROTOBUF;
+
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private final Set<String> wireProtocolKeys = new HashSet<>();
 
     /**
      * Store-and-forward: when enabled, a connectivity failure persists records to a local durable
@@ -74,5 +89,22 @@ public class ZerobusSinkDto {
      * default (5min) to bound how long a flush parks the native thread when offline.
      */
     @Builder.Default private int flushTimeoutMillis = 60_000;
+
+    @JsonSetter(WIRE_PROTOCOL_KEY)
+    public void setWireProtocol(String wireProtocol) {
+      this.wireProtocol = wireProtocol;
+      wireProtocolKeys.add(WIRE_PROTOCOL_KEY);
+    }
+
+    @JsonSetter(LEGACY_WIRE_PROTOCOL_KEY)
+    public void setEncodingType(String encodingType) {
+      this.wireProtocol = encodingType;
+      wireProtocolKeys.add(LEGACY_WIRE_PROTOCOL_KEY);
+    }
+
+    /** True when the config carried both {@code wireProtocol} and its alias. */
+    public boolean hasAmbiguousWireProtocol() {
+      return wireProtocolKeys.size() > 1;
+    }
   }
 }

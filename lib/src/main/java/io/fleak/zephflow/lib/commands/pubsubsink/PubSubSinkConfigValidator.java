@@ -48,7 +48,7 @@ public class PubSubSinkConfigValidator implements ConfigValidator {
     if (config.getEncoding() != null) {
       SinkEncoding.validate(
           config.getEncoding(), CAPABILITY, field("encodingType", config.getEncodingType()));
-    } else {
+    } else if (config.getEncodingType() != null) {
       Preconditions.checkArgument(
           StringUtils.isNotBlank(config.getEncodingType()), "no encoding type is provided");
 

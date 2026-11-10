@@ -39,12 +39,12 @@ public class ZerobusSinkConfigValidator implements ConfigValidator {
     validateDatabricksCredential(config, jobContext, errors);
     validateZerobusEndpoint(config.getZerobusEndpoint(), errors);
     validateTableName(config.getTableName(), errors);
-    validateEncodingType(config.getEncodingType(), errors);
+    validateWireProtocol(config, errors);
     validateStoreAndForward(config, errors);
 
     // avroSchema is only used to build the protobuf descriptor. In JSON mode the stream is created
     // without a descriptor (sdk.createJsonStream), so a schema is neither required nor used.
-    if (ZerobusSinkDto.ENCODING_PROTOBUF.equalsIgnoreCase(config.getEncodingType())) {
+    if (ZerobusSinkDto.ENCODING_PROTOBUF.equalsIgnoreCase(config.getWireProtocol())) {
       Map<String, Object> avroSchema = config.getAvroSchema();
       if (validateAvroSchema(avroSchema, errors)) {
         try {
@@ -138,20 +138,33 @@ public class ZerobusSinkConfigValidator implements ConfigValidator {
     }
   }
 
-  private void validateEncodingType(String encodingType, List<String> errors) {
-    if (encodingType == null || encodingType.trim().isEmpty()) {
-      errors.add("encodingType is required");
+  private void validateWireProtocol(Config config, List<String> errors) {
+    if (config.hasAmbiguousWireProtocol()) {
+      errors.add(
+          "set only one of "
+              + ZerobusSinkDto.WIRE_PROTOCOL_KEY
+              + " and "
+              + ZerobusSinkDto.LEGACY_WIRE_PROTOCOL_KEY
+              + "; "
+              + ZerobusSinkDto.LEGACY_WIRE_PROTOCOL_KEY
+              + " is an alias of "
+              + ZerobusSinkDto.WIRE_PROTOCOL_KEY);
       return;
     }
-    if (!ZerobusSinkDto.ENCODING_PROTOBUF.equalsIgnoreCase(encodingType)
-        && !ZerobusSinkDto.ENCODING_JSON.equalsIgnoreCase(encodingType)) {
+    String wireProtocol = config.getWireProtocol();
+    if (wireProtocol == null || wireProtocol.trim().isEmpty()) {
+      errors.add("wireProtocol is required");
+      return;
+    }
+    if (!ZerobusSinkDto.ENCODING_PROTOBUF.equalsIgnoreCase(wireProtocol)
+        && !ZerobusSinkDto.ENCODING_JSON.equalsIgnoreCase(wireProtocol)) {
       errors.add(
-          "encodingType must be '"
+          "wireProtocol must be '"
               + ZerobusSinkDto.ENCODING_PROTOBUF
               + "' or '"
               + ZerobusSinkDto.ENCODING_JSON
               + "'. Got: "
-              + encodingType);
+              + wireProtocol);
     }
   }
 

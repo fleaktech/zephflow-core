@@ -38,7 +38,7 @@ import org.mockito.ArgumentCaptor;
 class PubSubSinkCommandTest {
 
   @Test
-  void encodingJsonObject_publishesTheDataOfEncodingType() throws Exception {
+  void noFormatKey_publishesTheSameJsonObjectAsEncodingTypeAndEncoding() throws Exception {
     RecordFleakData record =
         new RecordFleakData(
             Map.of(
@@ -52,6 +52,7 @@ class PubSubSinkCommandTest {
                     .setData(ByteString.copyFromUtf8("{\"city\":\"Zürich 苏黎世\",\"id\":\"7\"}")))
             .build();
 
+    assertEquals(expected, publishedRequest(Map.of(), record));
     assertEquals(expected, publishedRequest(Map.of("encodingType", "JSON_OBJECT"), record));
     assertEquals(
         expected,

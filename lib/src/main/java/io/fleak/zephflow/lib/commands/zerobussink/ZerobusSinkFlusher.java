@@ -139,7 +139,7 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
             .setFlushTimeoutMs(config.getFlushTimeoutMillis())
             .build();
     try {
-      if (ZerobusSinkDto.ENCODING_JSON.equalsIgnoreCase(config.getEncodingType())) {
+      if (ZerobusSinkDto.ENCODING_JSON.equalsIgnoreCase(config.getWireProtocol())) {
         ZerobusJsonStream newJsonStream =
             newSdk
                 .createJsonStream(
@@ -184,10 +184,10 @@ public class ZerobusSinkFlusher implements Flusher<Map<String, Object>> {
       // pipeline log (on the initial path the node just crash-loops on init).
       if (!bounded)
         log.error(
-            "Failed to open Zerobus stream for table {} (endpoint {}, encoding {}): {}",
+            "Failed to open Zerobus stream for table {} (endpoint {}, wire protocol {}): {}",
             tableName,
             config.getZerobusEndpoint(),
-            config.getEncodingType(),
+            config.getWireProtocol(),
             e.getMessage(),
             e);
       // stream creation failed: clean up the SDK before surfacing
