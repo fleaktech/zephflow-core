@@ -15,8 +15,8 @@ package io.fleak.zephflow.lib.commands.mqttsource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.nio.charset.StandardCharsets;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.junit.jupiter.api.Test;
@@ -28,7 +28,7 @@ public class MqttClientProviderTest {
         .brokerUrl("tcp://localhost:1883")
         .topicFilter("sensors/#")
         .clientId("test-client")
-        .encodingType(EncodingType.JSON_OBJECT)
+        .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
         .build();
   }
 
@@ -65,7 +65,7 @@ public class MqttClientProviderTest {
             .brokerUrl("tcp://localhost:1883")
             .topicFilter("sensors/#")
             .clientId("test-client")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .sessionExpiryIntervalSeconds(120L)
             .build();
 

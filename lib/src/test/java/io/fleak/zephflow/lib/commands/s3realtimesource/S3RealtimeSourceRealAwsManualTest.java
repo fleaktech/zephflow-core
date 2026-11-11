@@ -15,11 +15,13 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
@@ -44,8 +46,9 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
  *   # credentials: rely on the default AWS chain (AWS_ACCESS_KEY_ID/.../profile/IAM role) or set:
  *   export S3RT_ACCESS_KEY=...               # optional
  *   export S3RT_SECRET_KEY=...               # optional
- *   export S3RT_ENCODING=STRING_LINE         # optional, default STRING_LINE (raw line per record)
- *   export S3RT_COMPRESSION=GZIP             # optional, gzip is auto-detected when unset
+ *   export S3RT_DECODING='{"compression":["gzip"],"format":{"type":"json","mode":"lines"}}'
+ *                                            # optional, default one raw text line per record with
+ *                                            # gzip detected automatically
  *   export S3RT_MIN_RECORDS=1                # optional, records to wait for (default 1)
  *   export S3RT_TIMEOUT_SECONDS=180          # optional, how long to wait (default 180)
  *   ./gradlew :lib:test --tests \
@@ -66,9 +69,10 @@ class S3RealtimeSourceRealAwsManualTest {
 
   private static final String QUEUE_URL = System.getenv("S3RT_QUEUE_URL");
   private static final String REGION = System.getenv("S3RT_REGION");
-  private static final String ENCODING = envOrDefault("S3RT_ENCODING", "STRING_LINE");
-  // Optional: force compression (e.g. GZIP). When unset, gzip is auto-detected from object bytes.
-  private static final String COMPRESSION = System.getenv("S3RT_COMPRESSION");
+  private static final String DECODING =
+      envOrDefault(
+          "S3RT_DECODING",
+          "{\"compression\":[\"auto\"],\"format\":{\"type\":\"text\",\"framing\":{\"type\":\"line\"}}}");
   private static final String ACCESS_KEY = System.getenv("S3RT_ACCESS_KEY");
   private static final String SECRET_KEY = System.getenv("S3RT_SECRET_KEY");
   private static final String CRED_ID = "s3rt-cred";
@@ -96,9 +100,9 @@ class S3RealtimeSourceRealAwsManualTest {
           });
 
       log.info(
-          "polling {} (encoding={}) for up to {}s, expecting >= {} record(s)",
+          "polling {} (decoding={}) for up to {}s, expecting >= {} record(s)",
           QUEUE_URL,
-          ENCODING,
+          DECODING,
           TIMEOUT_SECONDS,
           MIN_RECORDS);
       waitUntil(() -> acceptor.records.size() >= MIN_RECORDS, Duration.ofSeconds(TIMEOUT_SECONDS));
@@ -122,10 +126,9 @@ class S3RealtimeSourceRealAwsManualTest {
     Map<String, Object> config = new HashMap<>();
     config.put("queueUrl", QUEUE_URL);
     config.put("regionStr", REGION);
-    config.put("encodingType", ENCODING);
-    if (COMPRESSION != null && !COMPRESSION.isBlank()) {
-      config.put("compressionType", COMPRESSION);
-    }
+    config.put(
+        "decoding",
+        JsonUtils.fromJsonString(DECODING, new TypeReference<Map<String, Object>>() {}));
     config.put("waitTimeSeconds", 5);
     if (ACCESS_KEY != null && SECRET_KEY != null) {
       config.put("credentialId", CRED_ID);

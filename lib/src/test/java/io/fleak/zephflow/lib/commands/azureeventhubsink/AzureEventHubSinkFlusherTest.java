@@ -24,9 +24,7 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +37,7 @@ class AzureEventHubSinkFlusherTest {
     when(producerClient.createBatch()).thenReturn(batch);
     when(batch.tryAdd(any())).thenReturn(false);
     var result =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null)
+        new AzureEventHubSinkFlusher(producerClient, serializer, null)
             .flushBounded(
                 prepared(record(Map.of("id", 1)), record(Map.of("id", 2))),
                 Map.of(),
@@ -56,16 +54,14 @@ class AzureEventHubSinkFlusherTest {
 
   @Test
   void boundedNullSerializationRejectsOnlyThatRecordAndPreservesSuccessfulBatch() throws Exception {
-    FleakSerializer<?> mixed = mock();
-    when(mixed.serialize(anyList()))
-        .thenReturn(new io.fleak.zephflow.lib.serdes.SerializedEvent(null, null, null))
-        .thenReturn(new io.fleak.zephflow.lib.serdes.SerializedEvent(null, new byte[] {1}, null));
+    RecordEncoder mixed = mock();
+    when(mixed.encode(any())).thenReturn(null).thenReturn(new byte[] {1});
     EventDataBatch batch = mock();
     when(producerClient.createBatch()).thenReturn(batch);
     when(batch.tryAdd(any())).thenReturn(true);
     when(batch.getCount()).thenReturn(1);
     var result =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(mixed), null)
+        new AzureEventHubSinkFlusher(producerClient, mixed, null)
             .flushBounded(
                 prepared(record(Map.of("id", 1)), record(Map.of("id", 2))),
                 Map.of(),
@@ -87,8 +83,7 @@ class AzureEventHubSinkFlusherTest {
         assertThrows(
             io.fleak.zephflow.lib.commands.sink.BoundedFlushException.class,
             () ->
-                new AzureEventHubSinkFlusher(
-                        producerClient, SinkEncoding.fromSerializer(serializer), null)
+                new AzureEventHubSinkFlusher(producerClient, serializer, null)
                     .flushBounded(
                         prepared(record(Map.of("id", 1))),
                         Map.of(),
@@ -121,8 +116,7 @@ class AzureEventHubSinkFlusherTest {
         .doThrow(new IllegalStateException("accepted remotely, acknowledgement lost"))
         .when(producerClient)
         .send(batch);
-    var flusher =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null);
+    var flusher = new AzureEventHubSinkFlusher(producerClient, serializer, null);
     var hooks =
         new io.fleak.zephflow.api.execution.ExecutionHooks(
             () -> {},
@@ -145,13 +139,12 @@ class AzureEventHubSinkFlusherTest {
   }
 
   private EventHubProducerClient producerClient;
-  private FleakSerializer<?> serializer;
+  private RecordEncoder serializer;
 
   @BeforeEach
   void setUp() {
     producerClient = mock(EventHubProducerClient.class);
-    serializer =
-        SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT).createSerializer();
+    serializer = SinkEncoding.JSON_OBJECT;
   }
 
   private static SimpleSinkCommand.PreparedInputEvents<RecordFleakData> prepared(
@@ -176,7 +169,7 @@ class AzureEventHubSinkFlusherTest {
     when(batch.getCount()).thenReturn(3);
 
     AzureEventHubSinkFlusher flusher =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null);
+        new AzureEventHubSinkFlusher(producerClient, serializer, null);
 
     SimpleSinkCommand.FlushResult result =
         flusher.flush(
@@ -199,7 +192,7 @@ class AzureEventHubSinkFlusherTest {
         .thenReturn(2); // non-empty so the full batch is sent, not treated as oversize
 
     AzureEventHubSinkFlusher flusher =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null);
+        new AzureEventHubSinkFlusher(producerClient, serializer, null);
 
     SimpleSinkCommand.FlushResult result =
         flusher.flush(
@@ -219,10 +212,7 @@ class AzureEventHubSinkFlusherTest {
     when(batch.getCount()).thenReturn(1);
 
     AzureEventHubSinkFlusher flusher =
-        new AzureEventHubSinkFlusher(
-            producerClient,
-            SinkEncoding.fromSerializer(serializer),
-            PathExpression.fromString("$.k"));
+        new AzureEventHubSinkFlusher(producerClient, serializer, PathExpression.fromString("$.k"));
 
     SimpleSinkCommand.FlushResult result =
         flusher.flush(
@@ -247,7 +237,7 @@ class AzureEventHubSinkFlusherTest {
     when(batch.getCount()).thenReturn(0); // empty -> event itself is too large
 
     AzureEventHubSinkFlusher flusher =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null);
+        new AzureEventHubSinkFlusher(producerClient, serializer, null);
 
     SimpleSinkCommand.FlushResult result =
         flusher.flush(prepared(record(Map.of("id", 1))), Map.of());
@@ -260,7 +250,7 @@ class AzureEventHubSinkFlusherTest {
   @Test
   void returnsEmptyResultForNoEvents() throws Exception {
     AzureEventHubSinkFlusher flusher =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null);
+        new AzureEventHubSinkFlusher(producerClient, serializer, null);
 
     SimpleSinkCommand.FlushResult result =
         flusher.flush(new SimpleSinkCommand.PreparedInputEvents<>(), Map.of());
@@ -273,7 +263,7 @@ class AzureEventHubSinkFlusherTest {
   @Test
   void throwsWhenFlushingAfterClose() {
     AzureEventHubSinkFlusher flusher =
-        new AzureEventHubSinkFlusher(producerClient, SinkEncoding.fromSerializer(serializer), null);
+        new AzureEventHubSinkFlusher(producerClient, serializer, null);
     flusher.close();
     assertThrows(
         IllegalStateException.class,

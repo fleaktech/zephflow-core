@@ -98,7 +98,7 @@ public class SqsSinkCommand extends SimpleSinkCommand<SqsOutboundMessage> {
         config.getEncoding() != null
             ? EncodingCompiler.recordEncoder(
                 config.getEncoding(), SqsSinkConfigValidator.CAPABILITY)
-            : SinkEncoding.LEGACY_JSON_OBJECT;
+            : SinkEncoding.JSON_OBJECT;
 
     return new SqsSinkMessageProcessor(
         encoder, messageGroupIdExpression, deduplicationIdExpression);

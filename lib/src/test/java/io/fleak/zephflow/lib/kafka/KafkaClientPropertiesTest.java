@@ -56,7 +56,6 @@ class KafkaClientPropertiesTest {
         KafkaSinkDto.Config.builder()
             .broker("original:9092")
             .topic("topic")
-            .encodingType("JSON_OBJECT")
             .storeAndForwardEnabled(true)
             .credentialId("credential")
             .securityProtocol("SASL_SSL")

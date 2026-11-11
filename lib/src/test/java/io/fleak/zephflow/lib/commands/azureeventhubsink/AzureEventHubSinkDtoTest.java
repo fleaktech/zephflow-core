@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.azureeventhubsink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -28,13 +29,14 @@ class AzureEventHubSinkDtoTest {
             .connectionString("cs")
             .eventHubName("hub")
             .partitionKeyFieldExpressionStr("$.id")
-            .encodingType("JSON_OBJECT")
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
 
     assertEquals("cs", config.getConnectionString());
     assertEquals("hub", config.getEventHubName());
     assertEquals("$.id", config.getPartitionKeyFieldExpressionStr());
-    assertEquals("JSON_OBJECT", config.getEncodingType());
+    assertEquals(
+        EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"), config.getEncoding());
   }
 
   @Test
@@ -46,7 +48,7 @@ class AzureEventHubSinkDtoTest {
             "tenantId", "t",
             "clientId", "c",
             "clientSecret", "s",
-            "encodingType", "JSON_OBJECT");
+            "encoding", Map.of("format", Map.of("type", "json", "mode", "object")));
 
     AzureEventHubSinkDto.Config config =
         OBJECT_MAPPER.convertValue(json, AzureEventHubSinkDto.Config.class);
@@ -54,7 +56,8 @@ class AzureEventHubSinkDtoTest {
     assertEquals("ns.servicebus.windows.net", config.getFullyQualifiedNamespace());
     assertEquals("hub", config.getEventHubName());
     assertEquals("t", config.getTenantId());
-    assertEquals("JSON_OBJECT", config.getEncodingType());
+    assertEquals(
+        EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"), config.getEncoding());
     assertNull(config.getConnectionString());
   }
 }

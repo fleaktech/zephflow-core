@@ -19,11 +19,13 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DeadLetterCommiterSerializer;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -82,7 +84,7 @@ class FsSourceLowMemoryTest {
   void jsonLinesWithManyShortFields() throws Exception {
     String line = jsonWithTwentyFields();
     long count = TARGET_BYTES / line.length();
-    run("JSON_OBJECT_LINE", file("a.jsonl", count, i -> line, false));
+    run(Decodings.JSON_LINES, file("a.jsonl", count, i -> line, false));
     assertEquals(List.of(count, 0L), List.of(records.get(), dlqEntries.get()));
   }
 
@@ -90,7 +92,7 @@ class FsSourceLowMemoryTest {
   void gzippedJsonLinesWithManyShortFields() throws Exception {
     String line = jsonWithTwentyFields();
     long count = TARGET_BYTES / line.length();
-    run("JSON_OBJECT_LINE", file("a.jsonl.gz", count, i -> line, true));
+    run(Decodings.JSON_LINES, file("a.jsonl.gz", count, i -> line, true));
     assertEquals(List.of(count, 0L), List.of(records.get(), dlqEntries.get()));
   }
 
@@ -99,7 +101,7 @@ class FsSourceLowMemoryTest {
     long size = 160 * 1024;
     long count = TARGET_BYTES / size;
     run(
-        "STRING_LINE",
+        Decodings.TEXT_LINE,
         file(
             "a.txt",
             count,
@@ -115,17 +117,23 @@ class FsSourceLowMemoryTest {
     String bad = "not json " + "x".repeat(120 * 1024);
     long count = 1000;
     run(
-        "JSON_OBJECT_LINE",
+        Decodings.JSON_LINES,
         file("a.jsonl", count, i -> (i % 10 == 0 ? "{\"i\":" + i + "}" : bad) + "\n", false));
     assertEquals(List.of(count / 10, count - count / 10), List.of(records.get(), dlqEntries.get()));
     assertTrue(
         dlqBytes.get() > (count - count / 10) * bad.length(), "every bad record is stored whole");
   }
 
-  private void run(String encodingType, Path file) throws Exception {
+  private void run(FormatConfig format, Path file) throws Exception {
     FsSourceCommand command = new FsSourceCommand("source", JobContext.builder().build());
     command.parseAndValidateArg(
-        Map.of("backend", "file", "root", root.toUri().toString(), "encodingType", encodingType));
+        Map.of(
+            "backend",
+            "file",
+            "root",
+            root.toUri().toString(),
+            "decoding",
+            Decodings.autoCompressionConfig(format)));
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     CountingDlqWriter dlq = new CountingDlqWriter();
     dlq.open();

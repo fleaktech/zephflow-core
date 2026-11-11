@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubClientFactory;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubConnectionConfig;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceFetcher;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -171,10 +172,8 @@ public class AzureIotHubSourceCommand extends SimpleSourceCommand<SerializedEven
             decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE));
   }
 
-  /** The decoding of the message bodies; {@code encodingType} decompresses nothing, as before. */
   static DecodingConfig decodingConfig(AzureIotHubSourceDto.Config config) {
-    return MessageDecodingConverter.decodingConfig(
-        config.getEncodingType(), config.getDecoding(), false);
+    return new SourceDecoding(config.getDecoding()).decodingConfig();
   }
 
   private CommitStrategy createCommitStrategy(AzureIotHubSourceDto.Config config) {

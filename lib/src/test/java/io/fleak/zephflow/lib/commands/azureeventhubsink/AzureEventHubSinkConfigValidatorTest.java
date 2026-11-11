@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import org.junit.jupiter.api.Test;
 
 class AzureEventHubSinkConfigValidatorTest {
@@ -29,7 +30,7 @@ class AzureEventHubSinkConfigValidatorTest {
     return AzureEventHubSinkDto.Config.builder()
         .connectionString("Endpoint=sb://ns/;SharedAccessKeyName=k;SharedAccessKey=v")
         .eventHubName("hub")
-        .encodingType("JSON_OBJECT");
+        .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
   }
 
   private void validate(AzureEventHubSinkDto.Config config) {
@@ -64,7 +65,7 @@ class AzureEventHubSinkConfigValidatorTest {
 
   @Test
   void rejectsUnsupportedEncoding() {
-    var config = validConfig().encodingType("TEXT").build();
+    var config = validConfig().encoding(EncodeTestSupport.format("{\"type\":\"text\"}")).build();
     assertThrows(IllegalArgumentException.class, () -> validate(config));
   }
 
@@ -78,40 +79,24 @@ class AzureEventHubSinkConfigValidatorTest {
   void acceptsEncodingAlone() {
     var config =
         validConfig()
-            .encodingType(null)
             .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
             .build();
     assertDoesNotThrow(() -> validate(config));
   }
 
   @Test
-  void rejectsEncodingWithEncodingType() {
-    var config =
-        validConfig()
-            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
-            .build();
-    assertEquals(
-        "azureeventhubsink: encoding cannot be combined with encodingType",
-        assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage());
-  }
-
-  @Test
   void rejectsEncodingInAFormatItCannotWrite() {
-    var config =
-        validConfig()
-            .encodingType(null)
-            .encoding(encoding("{\"format\":{\"type\":\"kv\"}}"))
-            .build();
+    var config = validConfig().encoding(encoding("{\"format\":{\"type\":\"kv\"}}")).build();
     assertEquals(
         "azureeventhubsink cannot write kv",
         assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage());
   }
 
   @Test
-  void rejectsNeitherEncodingNorEncodingTypeAsBefore() {
-    var config = validConfig().encodingType(null).build();
+  void rejectsMissingEncoding() {
+    var config = validConfig().encoding(null).build();
     assertEquals(
-        "enumStr is marked non-null but is null",
-        assertThrows(NullPointerException.class, () -> validate(config)).getMessage());
+        "azureeventhubsink: encoding is required",
+        assertThrows(IllegalArgumentException.class, () -> validate(config)).getMessage());
   }
 }

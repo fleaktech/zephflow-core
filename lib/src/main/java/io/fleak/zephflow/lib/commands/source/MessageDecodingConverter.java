@@ -22,7 +22,6 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.filedecode.DlqTexts;
 import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.filedecode.UnitRun;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
@@ -91,19 +90,6 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     this.texts =
         new DlqTexts(
             this.format, SourceDecoding.multiline(format), 0, noun(unit), retry(unit), null, false);
-  }
-
-  /**
-   * A message source's decoding config: {@code decoding} as given, or {@code encodingType}'s format
-   * with gzip detection when {@code detectGzip}, and no decompression otherwise.
-   *
-   * @throws IllegalArgumentException when not exactly one of the two is set, or for an {@code
-   *     encodingType} that cannot be decoded
-   */
-  public static DecodingConfig decodingConfig(
-      EncodingType encodingType, DecodingConfig decoding, boolean detectGzip) {
-    DecodingConfig config = new SourceDecoding(encodingType, null, decoding).decodingConfig();
-    return decoding != null || detectGzip ? config : new DecodingConfig(List.of(), config.format());
   }
 
   @Override
@@ -261,13 +247,13 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
             case MESSAGE ->
                 "check that the message is "
                     + format
-                    + " as the source's encodingType or decoding says, and that its compression is"
+                    + " as the source's decoding says, and that its compression is"
                     + " set when the message is compressed, or fix the producer that wrote it; "
                     + retry(unit);
             case FILE ->
                 "check that the file is "
                     + format
-                    + " as the source's encodingType or decoding says, and that its compression is"
+                    + " as the source's decoding says, and that its compression is"
                     + " set when the file is compressed; "
                     + retry(unit);
           };
@@ -289,11 +275,11 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     return switch (unit) {
       case MESSAGE ->
           "the source could not process the message (the error says why); if every message fails"
-              + " like this, check the source's encodingType or decoding; "
+              + " like this, check the source's decoding; "
               + retry(unit);
       case FILE ->
           "the source could not process the file (the error says why); check the source's"
-              + " encodingType or decoding, "
+              + " decoding, "
               + retry(unit);
     };
   }

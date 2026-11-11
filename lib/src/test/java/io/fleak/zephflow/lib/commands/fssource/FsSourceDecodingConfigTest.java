@@ -194,8 +194,8 @@ class FsSourceDecodingConfigTest {
                 new String(bytes, StandardCharsets.ISO_8859_1),
                 Map.of(METADATA_FS_SOURCE_URN, urn("bad.bin")),
                 "MALFORMED " + format + " record:",
-                "Action: fix this record where it is written, or the source's encodingType or"
-                    + " decoding if every record fails like this; the value is the record's bytes",
+                "Action: fix this record where it is written, or the source's decoding if"
+                    + " every record fails like this; the value is the record's bytes",
                 "file " + urn("bad.bin") + ", bytes 0-" + bytes.length,
                 "source")),
         dlq.stream()
@@ -229,7 +229,7 @@ class FsSourceDecodingConfigTest {
                 "",
                 Map.of(METADATA_FS_SOURCE_URN, urn("logs.gz")),
                 "MALFORMED text file: UndeclaredCompressionException",
-                "Action: check that the file is text as the source's encodingType or decoding says,"
+                "Action: check that the file is text as the source's decoding says,"
                     + " or fix the listed records where the file is written; "
                     + RENAME,
                 "file "
@@ -332,9 +332,9 @@ class FsSourceDecodingConfigTest {
                     + urn("a.jsonl." + codec)
                     + " due to a read failure; it is read again on every run until it is fixed."
                     + " Check whether the file was still being written when it was listed, the"
-                    + " compression setting (decoding.compression, or gzip detected automatically"
-                    + " for encodingType), and whether its compressed data is damaged or has bytes"
-                    + " after its end, in which case rewrite the file"),
+                    + " compression setting (decoding.compression), and whether its compressed"
+                    + " data is damaged or has bytes after its end, in which case rewrite the"
+                    + " file"),
             logs.events().stream()
                 .filter(e -> e.getLevel() == Level.ERROR)
                 .map(e -> e.getMessage().getFormattedMessage())

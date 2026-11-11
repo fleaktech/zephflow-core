@@ -31,7 +31,8 @@ import io.fleak.zephflow.lib.commands.azureeventhubsink.AzureEventHubSinkDto;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceCommand;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.azureeventhubsource.AzureEventHubSourceDto;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -169,7 +170,7 @@ public class AzureEventHubIntegrationTest {
         AzureEventHubSinkDto.Config.builder()
             .connectionString(eventHubs.getConnectionString())
             .eventHubName(EVENT_HUB_NAME)
-            .encodingType("JSON_OBJECT")
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
 
     AzureEventHubSinkCommand sink =
@@ -197,7 +198,7 @@ public class AzureEventHubIntegrationTest {
             .consumerGroup(CONSUMER_GROUP)
             .checkpointStorageConnectionString(azurite.getConnectionString())
             .checkpointContainerName(CHECKPOINT_CONTAINER)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .initialPosition(AzureEventHubSourceDto.InitialPosition.EARLIEST)
             .commitStrategy(AzureEventHubSourceDto.CommitStrategyType.PER_RECORD)
             .build();

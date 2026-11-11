@@ -30,7 +30,7 @@ class JsonConfigParserTest {
     config.put("regionStr", "us-west-2");
     config.put("bucketName", "test-bucket");
     config.put("keyName", "test-key");
-    config.put("encodingType", "json");
+    config.put("encoding", Map.of("format", Map.of("type", "json", "mode", "lines")));
     config.put("batchSize", null);
 
     var result = parser.parseConfig(config);
@@ -46,7 +46,7 @@ class JsonConfigParserTest {
     config.put("regionStr", "us-west-2");
     config.put("bucketName", "test-bucket");
     config.put("keyName", "test-key");
-    config.put("encodingType", "json");
+    config.put("encoding", Map.of("format", Map.of("type", "json", "mode", "lines")));
     config.put("batchSize", 5000);
 
     var result = parser.parseConfig(config);
@@ -62,7 +62,7 @@ class JsonConfigParserTest {
     config.put("regionStr", "us-west-2");
     config.put("bucketName", "test-bucket");
     config.put("keyName", "test-key");
-    config.put("encodingType", "json");
+    config.put("encoding", Map.of("format", Map.of("type", "json", "mode", "lines")));
 
     var result = parser.parseConfig(config);
 

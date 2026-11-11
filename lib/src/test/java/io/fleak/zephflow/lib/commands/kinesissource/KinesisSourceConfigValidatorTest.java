@@ -18,8 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -67,7 +66,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "applicationName", "test",
                         "streamName", "stream",
-                        "encodingType", "JSON_OBJECT")),
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT))),
                 KinesisSourceDto.Config.class),
             true),
         Arguments.of(
@@ -76,7 +75,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "streamName", "stream",
                         "regionStr", "us-east-1",
-                        "encodingType", "JSON_OBJECT")),
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT))),
                 KinesisSourceDto.Config.class),
             true),
         Arguments.of(
@@ -95,7 +94,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "streamName", "stream",
                         "regionStr", "us-east-1",
-                        "encodingType", "JSON_OBJECT",
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT),
                         "applicationName", "app",
                         "initialPosition", "AT_TIMESTAMP")),
                 KinesisSourceDto.Config.class),
@@ -107,7 +106,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "streamName", "stream",
                         "regionStr", "us-east-1",
-                        "encodingType", "JSON_OBJECT",
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT),
                         "applicationName", "app",
                         "initialPosition", "LATEST",
                         "initialPositionTimestamp", "2024-01-01T00:00:00.000+0000")),
@@ -120,7 +119,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "streamName", "stream",
                         "regionStr", "us-east-1",
-                        "encodingType", "JSON_OBJECT",
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT),
                         "applicationName", "app",
                         "initialPositionTimestamp", "2024-01-01T00:00:00.000+0000")),
                 KinesisSourceDto.Config.class),
@@ -131,7 +130,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "streamName", "stream",
                         "regionStr", "us-east-1",
-                        "encodingType", "JSON_OBJECT",
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT),
                         "applicationName", "app",
                         "initialPosition", "AT_TIMESTAMP",
                         "initialPositionTimestamp", "2024-01-01T00:00:00.000+0000")),
@@ -143,7 +142,7 @@ class KinesisSourceConfigValidatorTest {
                     Map.of(
                         "streamName", "stream",
                         "regionStr", "us-east-1",
-                        "encodingType", "JSON_OBJECT",
+                        "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT),
                         "applicationName", "app",
                         "initialPosition", "LATEST")),
                 KinesisSourceDto.Config.class),
@@ -152,30 +151,21 @@ class KinesisSourceConfigValidatorTest {
             KinesisSourceDto.Config.builder()
                 .applicationName("test")
                 .regionStr("us-east-1")
-                .encodingType(EncodingType.JSON_OBJECT)
+                .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
                 .streamName("test")
                 .build(),
-            false),
-        // unsupported encoding type PARQUET
-        Arguments.of(
-            KinesisSourceDto.Config.builder()
-                .applicationName("test")
-                .regionStr("us-east-1")
-                .encodingType(EncodingType.PARQUET)
-                .streamName("test")
-                .build(),
-            true));
+            false));
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     KinesisSourceDto.Config config = decodingBase().build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+    assertEquals("decoding is required", decodingRejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     KinesisSourceDto.Config config =
         decodingBase()
             .decoding(
@@ -188,17 +178,6 @@ class KinesisSourceConfigValidatorTest {
         () ->
             new KinesisSourceConfigValidator()
                 .validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    KinesisSourceDto.Config config =
-        decodingBase()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
   }
 
   @Test
@@ -221,30 +200,6 @@ class KinesisSourceConfigValidatorTest {
                 new KinesisSourceConfigValidator()
                     .validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT))
         .getMessage();
-  }
-
-  @Test
-  void emptyCompressionTypesAreAccepted() {
-    KinesisSourceDto.Config config =
-        decodingBase().encodingType(EncodingType.JSON_OBJECT).compressionTypes(List.of()).build();
-
-    assertDoesNotThrow(
-        () ->
-            new KinesisSourceConfigValidator()
-                .validateConfig(config, "test", KINESIS_SOURCE_TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void compressionTypesAreRejected() {
-    KinesisSourceDto.Config config =
-        decodingBase()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .compressionTypes(List.of(CompressionType.GZIP))
-            .build();
-
-    assertEquals(
-        "compressionTypes is no longer supported; set the compression in decoding instead",
-        decodingRejection(config));
   }
 
   private static KinesisSourceDto.Config.ConfigBuilder decodingBase() {

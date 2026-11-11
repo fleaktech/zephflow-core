@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.commands.mqttsource;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -35,9 +34,8 @@ public interface MqttSourceDto {
   class Config implements CommandConfig {
     private String brokerUrl;
     private String topicFilter;
-    private EncodingType encodingType;
 
-    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    /** How the messages are decoded. */
     private DecodingConfig decoding;
 
     private String clientId;

@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.sqssink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +28,7 @@ class SqsSinkDtoTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo")
             .regionStr("us-east-1")
-            .encodingType("JSON_OBJECT")
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .credentialId("my-cred")
             .messageGroupIdExpression("$.groupId")
             .deduplicationIdExpression("$.dedupId")
@@ -37,7 +38,8 @@ class SqsSinkDtoTest {
     assertEquals(
         "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo", config.getQueueUrl());
     assertEquals("us-east-1", config.getRegionStr());
-    assertEquals("JSON_OBJECT", config.getEncodingType());
+    assertEquals(
+        EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"), config.getEncoding());
     assertEquals("my-cred", config.getCredentialId());
     assertEquals("$.groupId", config.getMessageGroupIdExpression());
     assertEquals("$.dedupId", config.getDeduplicationIdExpression());
@@ -50,7 +52,7 @@ class SqsSinkDtoTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType("JSON_OBJECT")
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
 
     assertEquals(SqsSinkDto.DEFAULT_BATCH_SIZE, config.getBatchSize());
@@ -65,7 +67,7 @@ class SqsSinkDtoTest {
         Map.of(
             "queueUrl", "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
             "regionStr", "us-east-1",
-            "encodingType", "JSON_OBJECT",
+            "encoding", Map.of("format", Map.of("type", "json", "mode", "object")),
             "batchSize", 7,
             "messageGroupIdExpression", "$.group");
 
@@ -73,7 +75,8 @@ class SqsSinkDtoTest {
 
     assertEquals("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue", config.getQueueUrl());
     assertEquals("us-east-1", config.getRegionStr());
-    assertEquals("JSON_OBJECT", config.getEncodingType());
+    assertEquals(
+        EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"), config.getEncoding());
     assertEquals(7, config.getBatchSize());
     assertEquals("$.group", config.getMessageGroupIdExpression());
   }

@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.commands.pubsubsource;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.*;
 
@@ -31,9 +30,8 @@ public interface PubSubSourceDto {
   class Config implements CommandConfig {
     private String projectId;
     @NonNull private String subscription;
-    private EncodingType encodingType;
 
-    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    /** How the messages are decoded. */
     private DecodingConfig decoding;
 
     private String credentialId;

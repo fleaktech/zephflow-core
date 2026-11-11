@@ -29,12 +29,14 @@ import io.fleak.zephflow.api.metric.FleakGauge;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -140,58 +142,70 @@ class FsSourceSnapshotTest {
                 "json_object_line_gzip",
                 "data.jsonl.gz",
                 gzip(lines),
-                legacy("JSON_OBJECT_LINE"),
+                decoding(Decodings.JSON_LINES),
                 true),
             new Case(
                 "json_object_line_gzip_trailer_cut",
                 "data.jsonl.gz",
                 Arrays.copyOf(gzip(lines), gzip(lines).length - 6),
-                legacy("JSON_OBJECT_LINE"),
+                decoding(Decodings.JSON_LINES),
                 true),
             new Case(
                 "json_object_line_gzip_cut_mid_data",
                 "data.jsonl.gz",
                 Arrays.copyOf(gzip(manyLines), gzip(manyLines).length / 2),
-                legacy("JSON_OBJECT_LINE"),
+                decoding(Decodings.JSON_LINES),
                 true),
             new Case(
                 "json_object_line_gzip_trailing_bytes",
                 "data.jsonl.gz",
                 concat(gzip(lines), "trailing".getBytes(StandardCharsets.UTF_8)),
-                legacy("JSON_OBJECT_LINE"),
+                decoding(Decodings.JSON_LINES),
                 true),
             jsonl("json_object_line_empty", ""),
-            new Case("json_object_empty", "data.json", new byte[0], legacy("JSON_OBJECT"), true),
             new Case(
-                "json_object_empty_no_dlq", "data.json", new byte[0], legacy("JSON_OBJECT"), false),
-            new Case("json_array_empty", "data.json", new byte[0], legacy("JSON_ARRAY"), true),
-            new Case("xml_empty", "data.xml", new byte[0], legacy("XML"), true),
-            new Case("text_empty", "data.txt", new byte[0], legacy("TEXT"), true),
-            new Case("string_line_empty", "data.txt", new byte[0], legacy("STRING_LINE"), true),
+                "json_object_empty",
+                "data.json",
+                new byte[0],
+                decoding(Decodings.JSON_OBJECT),
+                true),
+            new Case(
+                "json_object_empty_no_dlq",
+                "data.json",
+                new byte[0],
+                decoding(Decodings.JSON_OBJECT),
+                false),
+            new Case(
+                "json_array_empty", "data.json", new byte[0], decoding(Decodings.JSON_ARRAY), true),
+            new Case("xml_empty", "data.xml", new byte[0], decoding(Decodings.XML), true),
+            new Case("text_empty", "data.txt", new byte[0], decoding(Decodings.TEXT), true),
+            new Case(
+                "string_line_empty", "data.txt", new byte[0], decoding(Decodings.TEXT_LINE), true),
             csv("csv_empty", ""),
             new Case(
                 "json_object_line_long_line_under_chunk_size",
                 "data.jsonl",
                 bytes("{\"a\":1}\n{\"long\":\"" + "x".repeat(100) + "\"}\n{\"a\":3}\n"),
-                with(legacy("JSON_OBJECT_LINE"), "maxFileBytes", 64L),
+                with(decoding(Decodings.JSON_LINES), "maxFileBytes", 64L),
                 true),
             new Case(
                 "json_object_line_cr_only_over_limit",
                 "data.jsonl",
                 bytes("{\"a\":1}\r{\"a\":2}\r{\"a\":3}\r"),
-                with(with(legacy("JSON_OBJECT_LINE"), "maxFileBytes", 16L), "chunkSizeBytes", 8),
+                with(
+                    with(decoding(Decodings.JSON_LINES), "maxFileBytes", 16L), "chunkSizeBytes", 8),
                 true),
             new Case(
                 "csv_record_over_limit_within_slack",
                 "data.csv",
                 bytes("id,name\n1,x\n2," + "y".repeat(200) + "\n3,z\n"),
-                with(with(legacy("CSV"), "maxFileBytes", 64L), "chunkSizeBytes", 16),
+                with(with(decoding(Decodings.CSV), "maxFileBytes", 64L), "chunkSizeBytes", 16),
                 true),
             new Case(
                 "csv_record_over_limit_past_slack",
                 "data.csv",
                 bytes("id,name\n1,x\n2," + "y".repeat(200_000) + "\n3,z\n"),
-                with(legacy("CSV"), "maxFileBytes", 1000L),
+                with(decoding(Decodings.CSV), "maxFileBytes", 1000L),
                 true),
             jsonl("json_object_line_array_line", "{\"a\":1}\n[{\"a\":2}]\n{\"a\":3}\n"),
             new Case(
@@ -199,7 +213,7 @@ class FsSourceSnapshotTest {
                 "data.jsonl",
                 bytes("{\"a\":1}\n{\"long\":\"" + "x".repeat(20_000) + "\"}\n{\"a\":3}\n"),
                 with(
-                    with(legacy("JSON_OBJECT_LINE"), "maxFileBytes", 10_000L),
+                    with(decoding(Decodings.JSON_LINES), "maxFileBytes", 10_000L),
                     "chunkSizeBytes",
                     16),
                 true),
@@ -207,71 +221,76 @@ class FsSourceSnapshotTest {
                 "json_object_line_index_past_chunks",
                 "data.jsonl",
                 bytes(chunked.toString()),
-                with(legacy("JSON_OBJECT_LINE"), "chunkSizeBytes", 32),
+                with(decoding(Decodings.JSON_LINES), "chunkSizeBytes", 32),
                 true),
             new Case(
                 "json_object_line_all_bad_no_dlq",
                 "data.jsonl",
                 bytes("{bad\nnot json\n"),
-                legacy("JSON_OBJECT_LINE"),
+                decoding(Decodings.JSON_LINES),
                 false),
             new Case(
                 "json_object_valid",
                 "data.json",
                 bytes("{\"a\":{\"b\":[1,2]}}"),
-                legacy("JSON_OBJECT"),
+                decoding(Decodings.JSON_OBJECT),
                 true),
-            new Case("json_object_bad", "data.json", bytes("{\"a\":"), legacy("JSON_OBJECT"), true),
+            new Case(
+                "json_object_bad",
+                "data.json",
+                bytes("{\"a\":"),
+                decoding(Decodings.JSON_OBJECT),
+                true),
             new Case(
                 "json_object_over_limit",
                 "data.json",
                 bytes("{\"long\":\"" + "x".repeat(100) + "\"}"),
-                with(legacy("JSON_OBJECT"), "maxFileBytes", 32L),
+                with(decoding(Decodings.JSON_OBJECT), "maxFileBytes", 32L),
                 true),
             new Case(
                 "json_array_valid",
                 "data.json",
                 bytes("[{\"a\":1},{\"a\":2}]"),
-                legacy("JSON_ARRAY"),
+                decoding(Decodings.JSON_ARRAY),
                 true),
             new Case(
                 "json_array_bad",
                 "data.json",
                 bytes("[{\"a\":1},{\"a\":,{\"a\":3}]"),
-                legacy("JSON_ARRAY"),
+                decoding(Decodings.JSON_ARRAY),
                 true),
             new Case(
                 "string_line_valid",
                 "data.txt",
                 bytes("one\ntwo\r\nthree\n"),
-                legacy("STRING_LINE"),
+                decoding(Decodings.TEXT_LINE),
                 true),
             new Case(
                 "string_line_cr_only_over_limit",
                 "data.txt",
                 bytes("first line\rsecond line\rthird line\r"),
-                with(with(legacy("STRING_LINE"), "maxFileBytes", 16L), "chunkSizeBytes", 8),
+                with(with(decoding(Decodings.TEXT_LINE), "maxFileBytes", 16L), "chunkSizeBytes", 8),
                 true),
-            new Case("text_valid", "data.txt", bytes("one\ntwo\n"), legacy("TEXT"), true),
+            new Case("text_valid", "data.txt", bytes("one\ntwo\n"), decoding(Decodings.TEXT), true),
             new Case(
                 "text_over_limit",
                 "data.txt",
                 bytes("x".repeat(100)),
-                with(legacy("TEXT"), "maxFileBytes", 32L),
+                with(decoding(Decodings.TEXT), "maxFileBytes", 32L),
                 true),
             new Case(
                 "xml_over_limit",
                 "data.xml",
                 bytes("<root><a>" + "x".repeat(100) + "</a></root>"),
-                with(legacy("XML"), "maxFileBytes", 32L),
+                with(decoding(Decodings.XML), "maxFileBytes", 32L),
                 true),
             new Case(
                 "xml_valid",
                 "data.xml",
                 bytes("<root><a>1</a><b>x</b></root>"),
-                legacy("XML"),
+                decoding(Decodings.XML),
                 true),
-            new Case("xml_bad", "data.xml", bytes("<root><a>1</a>"), legacy("XML"), true),
+            new Case("xml_bad", "data.xml", bytes("<root><a>1</a>"), decoding(Decodings.XML), true),
             csv("csv_valid", csv),
             jsonl(
                 "json_object_line_bad_record_over_128k",
@@ -280,44 +299,44 @@ class FsSourceSnapshotTest {
                 "json_array_element_over_limit_within_slack",
                 "data.json",
                 bytes("[{\"a\":1},{\"long\":\"" + "x".repeat(200) + "\"},{\"a\":3}]"),
-                with(legacy("JSON_ARRAY"), "maxFileBytes", 64L),
+                with(decoding(Decodings.JSON_ARRAY), "maxFileBytes", 64L),
                 true),
             new Case(
                 "json_array_element_over_limit_past_slack",
                 "data.json",
                 bytes("[{\"a\":1},{\"long\":\"" + "x".repeat(200_000) + "\"},{\"a\":3}]"),
-                with(legacy("JSON_ARRAY"), "maxFileBytes", 1000L),
+                with(decoding(Decodings.JSON_ARRAY), "maxFileBytes", 1000L),
                 true),
             csv("csv_quote_left_open_after_rows", "id,name\n1,x\n2,\"open\n3,y\n"),
             new Case(
                 "csv_quote_left_open_past_slack",
                 "data.csv",
                 bytes("id,name\n1,x\n2,\"open" + "y".repeat(200_000) + "\n"),
-                with(legacy("CSV"), "maxFileBytes", 1000L),
+                with(decoding(Decodings.CSV), "maxFileBytes", 1000L),
                 true),
-            gzipCase("json_object_gzip", "data.json.gz", gzip(document), "JSON_OBJECT"),
+            gzipCase("json_object_gzip", "data.json.gz", gzip(document), Decodings.JSON_OBJECT),
             gzipCase(
                 "json_object_gzip_trailer_cut",
                 "data.json.gz",
                 Arrays.copyOf(gzip(document), gzip(document).length - 6),
-                "JSON_OBJECT"),
+                Decodings.JSON_OBJECT),
             gzipCase(
                 "json_object_gzip_trailing_bytes",
                 "data.json.gz",
                 concat(gzip(document), bytes("trailing")),
-                "JSON_OBJECT"),
-            gzipCase("xml_gzip", "data.xml.gz", gzip("<root><a>1</a></root>"), "XML"),
-            gzipCase("csv_gzip", "data.csv.gz", gzip(manyRows), "CSV"),
+                Decodings.JSON_OBJECT),
+            gzipCase("xml_gzip", "data.xml.gz", gzip("<root><a>1</a></root>"), Decodings.XML),
+            gzipCase("csv_gzip", "data.csv.gz", gzip(manyRows), Decodings.CSV),
             gzipCase(
                 "csv_gzip_cut_mid_data",
                 "data.csv.gz",
                 Arrays.copyOf(gzip(manyRows), gzip(manyRows).length / 2),
-                "CSV"),
+                Decodings.CSV),
             gzipCase(
                 "csv_gzip_trailing_bytes",
                 "data.csv.gz",
                 concat(gzip(csv), bytes("trailing")),
-                "CSV"),
+                Decodings.CSV),
             csv("csv_duplicate_header", "id,id\n1,2\n"),
             csv("csv_empty_header_name", "id,\n1,2\n"),
             csv("csv_quote_left_open", "id,name\n1,\"open\n2,y\n"),
@@ -508,19 +527,19 @@ class FsSourceSnapshotTest {
   }
 
   private static Case jsonl(String name, String content) {
-    return new Case(name, "data.jsonl", bytes(content), legacy("JSON_OBJECT_LINE"), true);
+    return new Case(name, "data.jsonl", bytes(content), decoding(Decodings.JSON_LINES), true);
   }
 
-  private static Case gzipCase(String name, String fileName, byte[] content, String encodingType) {
-    return new Case(name, fileName, content, legacy(encodingType), true);
+  private static Case gzipCase(String name, String fileName, byte[] content, FormatConfig format) {
+    return new Case(name, fileName, content, decoding(format), true);
   }
 
   private static Case csv(String name, String content) {
-    return new Case(name, "data.csv", bytes(content), legacy("CSV"), true);
+    return new Case(name, "data.csv", bytes(content), decoding(Decodings.CSV), true);
   }
 
-  private static Map<String, Object> legacy(String encodingType) {
-    return Map.of("encodingType", encodingType);
+  private static Map<String, Object> decoding(FormatConfig format) {
+    return Map.of("decoding", Decodings.autoCompressionConfig(format));
   }
 
   private static Map<String, Object> with(Map<String, Object> config, String key, Object value) {

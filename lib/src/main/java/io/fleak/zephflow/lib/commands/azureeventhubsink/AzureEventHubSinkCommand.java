@@ -23,13 +23,10 @@ import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubClientFactory;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubConnectionConfig;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
@@ -102,13 +99,8 @@ public class AzureEventHubSinkCommand extends SimpleSinkCommand<RecordFleakData>
   }
 
   private static RecordEncoder recordEncoder(AzureEventHubSinkDto.Config config) {
-    if (config.getEncoding() != null) {
-      return EncodingCompiler.recordEncoder(
-          config.getEncoding(), AzureEventHubSinkConfigValidator.CAPABILITY);
-    }
-    EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
-    return SinkEncoding.fromSerializer(
-        SerializerFactory.createSerializerFactory(encodingType).createSerializer());
+    return EncodingCompiler.recordEncoder(
+        config.getEncoding(), AzureEventHubSinkConfigValidator.CAPABILITY);
   }
 
   @Override

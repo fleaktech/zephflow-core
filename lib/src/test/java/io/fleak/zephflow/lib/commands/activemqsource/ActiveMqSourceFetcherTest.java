@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
@@ -24,7 +25,6 @@ import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness.ProcessKilled;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import jakarta.jms.*;
 import java.util.Map;
@@ -75,7 +75,9 @@ class ActiveMqSourceFetcherTest {
     MessageDecodingConverter converter =
         new MessageDecodingConverter(
             ActiveMqSourceCommand.decodingConfig(
-                ActiveMqSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build()),
+                ActiveMqSourceDto.Config.builder()
+                    .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
+                    .build()),
             MessageDecodingConverter.Unit.MESSAGE);
 
     SourceExecutionContext<SerializedEvent> mockContext = mock();

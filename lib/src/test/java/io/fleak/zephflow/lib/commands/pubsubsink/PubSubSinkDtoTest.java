@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.pubsubsink;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +28,7 @@ class PubSubSinkDtoTest {
         PubSubSinkDto.Config.builder()
             .projectId("my-project")
             .topic("my-topic")
-            .encodingType("JSON_OBJECT")
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .credentialId("my-cred")
             .orderingKeyExpression("$.tenantId")
             .batchSize(250)
@@ -35,7 +36,8 @@ class PubSubSinkDtoTest {
 
     assertEquals("my-project", config.getProjectId());
     assertEquals("my-topic", config.getTopic());
-    assertEquals("JSON_OBJECT", config.getEncodingType());
+    assertEquals(
+        EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"), config.getEncoding());
     assertEquals("my-cred", config.getCredentialId());
     assertEquals("$.tenantId", config.getOrderingKeyExpression());
     assertEquals(250, config.getBatchSize());
@@ -44,7 +46,10 @@ class PubSubSinkDtoTest {
   @Test
   void testDefaultValues() {
     PubSubSinkDto.Config config =
-        PubSubSinkDto.Config.builder().topic("t").encodingType("JSON_OBJECT").build();
+        PubSubSinkDto.Config.builder()
+            .topic("t")
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
 
     assertEquals(PubSubSinkDto.DEFAULT_BATCH_SIZE, config.getBatchSize());
     assertNull(config.getCredentialId());
@@ -58,7 +63,7 @@ class PubSubSinkDtoTest {
         Map.of(
             "projectId", "p",
             "topic", "t",
-            "encodingType", "JSON_OBJECT",
+            "encoding", Map.of("format", Map.of("type", "json", "mode", "object")),
             "batchSize", 50,
             "orderingKeyExpression", "$.id");
 
@@ -66,7 +71,8 @@ class PubSubSinkDtoTest {
 
     assertEquals("p", config.getProjectId());
     assertEquals("t", config.getTopic());
-    assertEquals("JSON_OBJECT", config.getEncodingType());
+    assertEquals(
+        EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"), config.getEncoding());
     assertEquals(50, config.getBatchSize());
     assertEquals("$.id", config.getOrderingKeyExpression());
   }

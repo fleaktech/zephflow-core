@@ -113,10 +113,16 @@ class FsSourceDownstreamTest {
     FsSourceCommand source = new FsSourceCommand("source", JOB_CONTEXT);
     source.parseAndValidateArg(
         Map.of(
-            "backend", "file",
-            "root", root.toUri().toString(),
-            "fileNameRegex", "f_(?<ts>\\d+)\\.jsonl",
-            "encodingType", "JSON_OBJECT_LINE"));
+            "backend",
+            "file",
+            "root",
+            root.toUri().toString(),
+            "fileNameRegex",
+            "f_(?<ts>\\d+)\\.jsonl",
+            "decoding",
+            Map.of(
+                "compression", List.of("auto"),
+                "format", Map.of("type", "json", "mode", "lines"))));
     source.initialize(new MetricClientProvider.NoopMetricClientProvider());
     return source;
   }

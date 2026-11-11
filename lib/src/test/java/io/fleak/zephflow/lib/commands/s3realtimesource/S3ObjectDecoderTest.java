@@ -18,9 +18,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDecoder.Result;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3ObjectDecoder.Status;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
@@ -109,8 +109,7 @@ class S3ObjectDecoderTest {
     when(s3.getObject(any(GetObjectRequest.class))).thenReturn(body(original));
     var decoder =
         new S3ObjectDecoder(
-            new S3Decoding(null, null, new DecodingConfig(null, new AutoFormatConfig()), true),
-            2048 * MIB);
+            new S3Decoding(new DecodingConfig(null, new AutoFormatConfig()), true), 2048 * MIB);
     assertEquals(Status.FINISHED, decoder.decode(s3, REF, 1024, spoolDir, collect()).status());
     var record = assertInstanceOf(DecodeOutcome.Decoded.class, seen.getFirst()).record();
     assertEquals(DetectedFormat.JSON_OBJECT, FormatRecord.format(record));
@@ -212,7 +211,8 @@ class S3ObjectDecoderTest {
   void theLimitsFollowTheHeapGiven() {
     assertEquals(
         new DecodeLimits(16 * MIB, 32 * MIB, 128 * MIB),
-        new S3ObjectDecoder(new S3Decoding(EncodingType.CSV, null, null, false), 2048 * MIB)
+        new S3ObjectDecoder(
+                new S3Decoding(Decodings.autoCompression(Decodings.CSV), false), 2048 * MIB)
             .limits());
   }
 
@@ -226,7 +226,7 @@ class S3ObjectDecoderTest {
             + assertThrows(PatternSyntaxException.class, () -> Pattern.compile("(")).getMessage(),
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new S3ObjectDecoder(new S3Decoding(null, null, badRegex, false), 2048 * MIB))
+                () -> new S3ObjectDecoder(new S3Decoding(badRegex, false), 2048 * MIB))
             .getMessage());
     DecodingConfig compressedParquet =
         JsonUtils.fromJsonString(
@@ -235,9 +235,7 @@ class S3ObjectDecoderTest {
         "parquet cannot be combined with compression; its pages carry their own",
         assertThrows(
                 IllegalArgumentException.class,
-                () ->
-                    new S3ObjectDecoder(
-                        new S3Decoding(null, null, compressedParquet, false), 2048 * MIB))
+                () -> new S3ObjectDecoder(new S3Decoding(compressedParquet, false), 2048 * MIB))
             .getMessage());
   }
 
@@ -248,7 +246,8 @@ class S3ObjectDecoderTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () ->
-                    new S3ObjectDecoder(new S3Decoding(EncodingType.CSV, null, null, false), 2048))
+                    new S3ObjectDecoder(
+                        new S3Decoding(Decodings.autoCompression(Decodings.CSV), false), 2048))
             .getMessage());
   }
 
@@ -294,7 +293,7 @@ class S3ObjectDecoderTest {
 
   private S3ObjectDecoder jsonLines(boolean addS3Metadata) {
     return new S3ObjectDecoder(
-        new S3Decoding(EncodingType.JSON_OBJECT_LINE, null, null, addS3Metadata), 2048 * MIB);
+        new S3Decoding(Decodings.autoCompression(Decodings.JSON_LINES), addS3Metadata), 2048 * MIB);
   }
 
   private S3ObjectDecoder.Visitor collect() {

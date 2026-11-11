@@ -15,12 +15,9 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.net.URI;
 import java.util.Date;
-import java.util.List;
 import lombok.*;
 import software.amazon.kinesis.common.InitialPositionInStream;
 
@@ -34,13 +31,9 @@ public interface KinesisSourceDto {
     @NonNull private String regionStr;
     @NonNull private String streamName;
     @NonNull private String applicationName;
-    private EncodingType encodingType;
 
-    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    /** How the messages are decoded. */
     private DecodingConfig decoding;
-
-    /** Rejected when not empty: compression is set through {@code decoding}. */
-    private List<CompressionType> compressionTypes;
 
     private InitialPositionInStream initialPosition;
 

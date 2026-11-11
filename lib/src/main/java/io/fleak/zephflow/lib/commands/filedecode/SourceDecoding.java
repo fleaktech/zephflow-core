@@ -13,21 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.filedecode;
 
-import static io.fleak.zephflow.lib.serdes.EncodingType.CSV;
-import static io.fleak.zephflow.lib.serdes.EncodingType.JSON_ARRAY;
-import static io.fleak.zephflow.lib.serdes.EncodingType.JSON_OBJECT;
-import static io.fleak.zephflow.lib.serdes.EncodingType.JSON_OBJECT_LINE;
-import static io.fleak.zephflow.lib.serdes.EncodingType.STRING_LINE;
-import static io.fleak.zephflow.lib.serdes.EncodingType.TEXT;
-import static io.fleak.zephflow.lib.serdes.EncodingType.XML;
-
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -38,18 +27,9 @@ import io.fleak.zephflow.lib.serdes.decode.config.ProtobufFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
-import java.util.List;
-import java.util.Set;
 
-/**
- * The inputs that decide how a file source's bytes are decoded: either the legacy {@code
- * encodingType} (with an optional {@code compressionType}) or a {@code decoding} configuration.
- */
-public record SourceDecoding(
-    EncodingType encodingType, CompressionType compressionType, DecodingConfig decoding) {
-
-  private static final Set<EncodingType> SUPPORTED_ENCODING_TYPES =
-      Set.of(CSV, JSON_OBJECT, JSON_ARRAY, JSON_OBJECT_LINE, STRING_LINE, TEXT, XML);
+/** A source's {@code decoding} configuration, which every decoding source requires. */
+public record SourceDecoding(DecodingConfig decoding) {
 
   /** The format's type name, as {@code decoding} spells it ({@code json}, {@code csv}, ...). */
   public String formatName() {
@@ -79,46 +59,14 @@ public record SourceDecoding(
   }
 
   /**
-   * The decoding configuration: {@code decoding} as given, or the legacy settings translated.
+   * The decoding configuration.
    *
-   * @throws IllegalArgumentException when not exactly one of {@code encodingType} and {@code
-   *     decoding} is set, when {@code compressionType} comes with {@code decoding}, or for {@code
-   *     PARQUET}
+   * @throws IllegalArgumentException when {@code decoding} is not set
    */
   public DecodingConfig decodingConfig() {
-    if ((encodingType == null) == (decoding == null)) {
-      throw new IllegalArgumentException("exactly one of encodingType and decoding must be set");
+    if (decoding == null) {
+      throw new IllegalArgumentException("decoding is required");
     }
-    if (decoding != null) {
-      if (compressionType != null) {
-        throw new IllegalArgumentException(
-            "compressionType is only allowed with encodingType; decoding carries its own compression");
-      }
-      return decoding;
-    }
-    if (!SUPPORTED_ENCODING_TYPES.contains(encodingType)) {
-      throw new IllegalArgumentException(
-          "Unsupported deserialization encoding type: "
-              + encodingType
-              + ". Supported types: "
-              + SUPPORTED_ENCODING_TYPES);
-    }
-    DecompressionCodec codec =
-        compressionType == CompressionType.GZIP ? DecompressionCodec.GZIP : DecompressionCodec.AUTO;
-    return new DecodingConfig(List.of(codec), format(encodingType));
-  }
-
-  private static FormatConfig format(EncodingType encodingType) {
-    return switch (encodingType) {
-      case JSON_OBJECT -> new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT);
-      case JSON_ARRAY -> new JsonFormatConfig(JsonFormatConfig.Mode.ARRAY);
-      case JSON_OBJECT_LINE -> new JsonFormatConfig(JsonFormatConfig.Mode.LINES);
-      case STRING_LINE -> new TextFormatConfig(null, new FramingConfig.Line(false));
-      case TEXT -> new TextFormatConfig(null, new FramingConfig.Whole());
-      case CSV -> new CsvFormatConfig(null, null, null, null, null, null, null, true, null);
-      case XML -> new XmlFormatConfig(XmlFormatConfig.Mode.DOCUMENT, null);
-      case PARQUET -> throw new IllegalArgumentException("PARQUET is rejected; use decoding");
-      case KV -> throw new IllegalArgumentException("KV is a sink-only format");
-    };
+    return decoding;
   }
 }

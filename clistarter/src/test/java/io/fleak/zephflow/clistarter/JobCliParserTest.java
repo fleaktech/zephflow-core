@@ -100,12 +100,19 @@ class JobCliParserTest {
           - id: "src"
             commandName: "stdin"
             config:
-              encodingType: "JSON_ARRAY"
+              decoding:
+                compression: []
+                format:
+                  type: "json"
+                  mode: "array"
             outputs: ["sink"]
           - id: "sink"
             commandName: "stdout"
             config:
-              encodingType: "JSON_OBJECT"
+              encoding:
+                format:
+                  type: "json"
+                  mode: "object"
         """
             .formatted(secret);
     Path dagFile = tempDir.resolve("dag.yml");

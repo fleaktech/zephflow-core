@@ -25,13 +25,14 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DeadLetterCommiterSerializer;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -85,7 +86,7 @@ class S3RealtimeLowMemoryTest {
   void jsonLinesWithManyShortFields() throws IOException {
     String line = jsonWithTwentyFields();
     long count = TARGET_BYTES / line.length();
-    run(EncodingType.JSON_OBJECT_LINE, file(count, i -> line, false));
+    run(Decodings.JSON_LINES, file(count, i -> line, false));
     assertEquals(List.of(count, 0L), List.of(records.get(), dlqEntries.get()));
   }
 
@@ -93,7 +94,7 @@ class S3RealtimeLowMemoryTest {
   void gzippedJsonLinesWithManyShortFields() throws IOException {
     String line = jsonWithTwentyFields();
     long count = TARGET_BYTES / line.length();
-    run(EncodingType.JSON_OBJECT_LINE, file(count, i -> line, true));
+    run(Decodings.JSON_LINES, file(count, i -> line, true));
     assertEquals(List.of(count, 0L), List.of(records.get(), dlqEntries.get()));
   }
 
@@ -102,7 +103,7 @@ class S3RealtimeLowMemoryTest {
     long size = 160 * 1024;
     long count = TARGET_BYTES / size;
     run(
-        EncodingType.STRING_LINE,
+        Decodings.TEXT_LINE,
         file(count, i -> "x".repeat((int) (32 * 1024 + (i * 7919) % (224 * 1024))) + "\n", false));
     assertEquals(List.of(count, 0L), List.of(records.get(), dlqEntries.get()));
     // the 128 KiB batch cap, not the 1,000-record cap, closes these batches of at most 4 records
@@ -114,14 +115,14 @@ class S3RealtimeLowMemoryTest {
     String bad = "not json " + "x".repeat(120 * 1024);
     long count = 1000;
     run(
-        EncodingType.JSON_OBJECT_LINE,
+        Decodings.JSON_LINES,
         file(count, i -> (i % 10 == 0 ? "{\"i\":" + i + "}" : bad) + "\n", false));
     assertEquals(List.of(count / 10, count - count / 10), List.of(records.get(), dlqEntries.get()));
     assertTrue(
         dlqBytes.get() > (count - count / 10) * bad.length(), "every bad record is stored whole");
   }
 
-  private void run(EncodingType encodingType, Path object) throws IOException {
+  private void run(FormatConfig format, Path object) throws IOException {
     long length = Files.size(object);
     S3Client s3 = mock(S3Client.class);
     when(s3.getObject(any(GetObjectRequest.class)))
@@ -132,7 +133,7 @@ class S3RealtimeLowMemoryTest {
                     AbortableInputStream.create(
                         new BufferedInputStream(Files.newInputStream(object)))));
     long heap = S3DecodeLimits.nominalHeapBytes();
-    S3Decoding decoding = new S3Decoding(encodingType, null, null, false);
+    S3Decoding decoding = new S3Decoding(Decodings.autoCompression(format), false);
     CountingDlqWriter dlq = new CountingDlqWriter();
     dlq.open();
     ConcurrentLinkedQueue<String> confirmed = new ConcurrentLinkedQueue<>();

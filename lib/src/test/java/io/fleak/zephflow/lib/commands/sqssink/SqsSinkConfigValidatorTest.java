@@ -18,8 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -44,7 +43,7 @@ class SqsSinkConfigValidatorTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .credentialId("example-credential-id")
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -57,7 +56,7 @@ class SqsSinkConfigValidatorTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .messageGroupIdExpression("$.groupId")
             .deduplicationIdExpression("$.dedupId")
             .build();
@@ -71,7 +70,7 @@ class SqsSinkConfigValidatorTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     assertThrows(
         IllegalArgumentException.class,
@@ -84,7 +83,7 @@ class SqsSinkConfigValidatorTest {
     SqsSinkDto.Config config = new SqsSinkDto.Config();
     config.setQueueUrl("");
     config.setRegionStr("us-east-1");
-    config.setEncodingType(EncodingType.JSON_OBJECT.name());
+    config.setEncoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -96,38 +95,10 @@ class SqsSinkConfigValidatorTest {
     SqsSinkDto.Config config = new SqsSinkDto.Config();
     config.setQueueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue");
     config.setRegionStr("");
-    config.setEncodingType(EncodingType.JSON_OBJECT.name());
+    config.setEncoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_unsupportedEncodingType() {
-    SqsSinkConfigValidator validator = new SqsSinkConfigValidator();
-    SqsSinkDto.Config config =
-        SqsSinkDto.Config.builder()
-            .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
-            .regionStr("us-east-1")
-            .encodingType(EncodingType.STRING_LINE.name())
-            .build();
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_allSupportedEncodingTypes() {
-    SqsSinkConfigValidator validator = new SqsSinkConfigValidator();
-    for (EncodingType type : SerializerFactory.SUPPORTED_ENCODING_TYPES) {
-      SqsSinkDto.Config config =
-          SqsSinkDto.Config.builder()
-              .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
-              .regionStr("us-east-1")
-              .encodingType(type.name())
-              .build();
-      assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-    }
   }
 
   @Test
@@ -137,7 +108,7 @@ class SqsSinkConfigValidatorTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .batchSize(11)
             .build();
     assertThrows(
@@ -152,7 +123,7 @@ class SqsSinkConfigValidatorTest {
         SqsSinkDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .batchSize(0)
             .build();
     assertThrows(
@@ -169,16 +140,6 @@ class SqsSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_encodingWithEncodingType() {
-    SqsSinkDto.Config config =
-        standardQueue()
-            .encodingType(EncodingType.JSON_OBJECT.name())
-            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
-            .build();
-    assertEquals("sqssink: encoding cannot be combined with encodingType", refusal(config));
-  }
-
-  @Test
   void validateConfig_encodingJsonLines() {
     SqsSinkDto.Config config =
         standardQueue().encoding(format("{\"type\":\"json\",\"mode\":\"lines\"}")).build();
@@ -192,8 +153,11 @@ class SqsSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_neitherEncodingNorEncodingType() {
-    assertEquals("no encoding type is provided", refusal(standardQueue().build()));
+  void validateConfig_withoutEncoding() {
+    assertDoesNotThrow(
+        () ->
+            new SqsSinkConfigValidator()
+                .validateConfig(standardQueue().build(), "nodeId", TEST_JOB_CONTEXT));
   }
 
   private static SqsSinkDto.Config.ConfigBuilder standardQueue() {

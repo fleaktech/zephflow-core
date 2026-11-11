@@ -14,27 +14,16 @@
 package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 
 /**
- * The inputs that decide how an S3 object's bytes are decoded: either the legacy {@code
- * encodingType} (with an optional {@code compressionType}) or a {@code decoding} configuration, and
- * whether records get {@code __s3_bucket} / {@code __s3_key}.
+ * How an S3 object's bytes are decoded, and whether records get {@code __s3_bucket} / {@code
+ * __s3_key}.
  */
-public record S3Decoding(
-    EncodingType encodingType,
-    CompressionType compressionType,
-    DecodingConfig decoding,
-    boolean addS3Metadata) {
+public record S3Decoding(DecodingConfig decoding, boolean addS3Metadata) {
 
   public static S3Decoding of(S3RealtimeSourceDto.Config config) {
-    return new S3Decoding(
-        config.getEncodingType(),
-        config.getCompressionType(),
-        config.getDecoding(),
-        config.isAddS3Metadata());
+    return new S3Decoding(config.getDecoding(), config.isAddS3Metadata());
   }
 
   /** The format's type name, as {@code decoding} spells it ({@code json}, {@code csv}, ...). */
@@ -43,17 +32,15 @@ public record S3Decoding(
   }
 
   /**
-   * The decoding configuration: {@code decoding} as given, or the legacy settings translated.
+   * The decoding configuration.
    *
-   * @throws IllegalArgumentException when not exactly one of {@code encodingType} and {@code
-   *     decoding} is set, when {@code compressionType} comes with {@code decoding}, or for {@code
-   *     PARQUET}
+   * @throws IllegalArgumentException when {@code decoding} is not set
    */
   public DecodingConfig decodingConfig() {
     return sourceDecoding().decodingConfig();
   }
 
   private SourceDecoding sourceDecoding() {
-    return new SourceDecoding(encodingType, compressionType, decoding);
+    return new SourceDecoding(decoding);
   }
 }

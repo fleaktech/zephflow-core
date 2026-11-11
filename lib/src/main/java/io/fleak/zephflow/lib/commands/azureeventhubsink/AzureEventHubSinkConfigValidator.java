@@ -13,9 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.azureeventhubsink;
 
-import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_AZURE_EVENTHUB_SINK;
-import static io.fleak.zephflow.lib.utils.MiscUtils.parseEnum;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
@@ -24,11 +22,9 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubConfigValidation;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 
@@ -58,13 +54,7 @@ public class AzureEventHubSinkConfigValidator implements ConfigValidator {
         config.getClientId(),
         config.getClientSecret());
 
-    if (config.getEncoding() != null) {
-      SinkEncoding.validate(
-          config.getEncoding(), CAPABILITY, field("encodingType", config.getEncodingType()));
-    } else {
-      EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-      SerializerFactory.validateEncodingType(encodingType);
-    }
+    SinkEncoding.validate(config.getEncoding(), CAPABILITY);
 
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
       PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());

@@ -24,7 +24,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -116,7 +116,7 @@ class KafkaSinkDeliveryModeTest {
     return KafkaSinkDto.Config.builder()
         .topic(TOPIC)
         .broker("localhost:9092")
-        .encodingType(EncodingType.JSON_OBJECT.toString());
+        .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
   }
 
   @Test
@@ -225,7 +225,13 @@ class KafkaSinkDeliveryModeTest {
   void configWithoutDeliveryModeField_defaultsToWaitForAck() {
     KafkaSinkCommand command =
         buildCommandFromConfigMap(
-            Map.of("broker", "localhost:9092", "topic", TOPIC, "encodingType", "JSON_OBJECT"));
+            Map.of(
+                "broker",
+                "localhost:9092",
+                "topic",
+                TOPIC,
+                "encoding",
+                Map.of("format", Map.of("type", "json", "mode", "object"))));
 
     command.writeToSink(EVENTS, "test_user", command.getExecutionContext());
 

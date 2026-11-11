@@ -15,22 +15,13 @@ package io.fleak.zephflow.lib.commands.filedecode;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
-import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class SourceDecodingTest {
@@ -39,71 +30,19 @@ class SourceDecodingTest {
       new DecodingConfig(List.of(DecompressionCodec.AUTO), new ParquetFormatConfig());
 
   @Test
-  void legacyEncodingTypesMapToDecodingConfigurations() {
-    Map<EncodingType, FormatConfig> expected =
-        Map.of(
-            EncodingType.JSON_OBJECT, new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT),
-            EncodingType.JSON_ARRAY, new JsonFormatConfig(JsonFormatConfig.Mode.ARRAY),
-            EncodingType.JSON_OBJECT_LINE, new JsonFormatConfig(JsonFormatConfig.Mode.LINES),
-            EncodingType.STRING_LINE, new TextFormatConfig(null, new FramingConfig.Line(false)),
-            EncodingType.TEXT, new TextFormatConfig(null, new FramingConfig.Whole()),
-            EncodingType.CSV,
-                new CsvFormatConfig(null, null, null, null, null, null, null, true, null),
-            EncodingType.XML, new XmlFormatConfig(XmlFormatConfig.Mode.DOCUMENT, null));
-
-    assertEquals(
-        expected.entrySet().stream()
-            .collect(
-                Collectors.toMap(
-                    Map.Entry::getKey,
-                    e -> new DecodingConfig(List.of(DecompressionCodec.AUTO), e.getValue()))),
-        expected.keySet().stream()
-            .collect(
-                Collectors.toMap(
-                    Function.identity(), t -> new SourceDecoding(t, null, null).decodingConfig())));
-  }
-
-  @Test
-  void gzipIsTheOnlyLegacyCompressionSetting() {
-    assertEquals(
-        new DecodingConfig(
-            List.of(DecompressionCodec.GZIP), new JsonFormatConfig(JsonFormatConfig.Mode.LINES)),
-        new SourceDecoding(EncodingType.JSON_OBJECT_LINE, CompressionType.GZIP, null)
-            .decodingConfig());
-  }
-
-  @Test
   void decodingIsUsedAsGiven() {
-    SourceDecoding decoding = new SourceDecoding(null, null, PARQUET);
+    SourceDecoding decoding = new SourceDecoding(PARQUET);
 
     assertEquals(
         List.of(PARQUET, "parquet"), List.of(decoding.decodingConfig(), decoding.formatName()));
   }
 
   @Test
-  void invalidCombinationsAreRejected() {
+  void missingDecodingIsRejected() {
     assertEquals(
-        List.of(
-            "exactly one of encodingType and decoding must be set",
-            "exactly one of encodingType and decoding must be set",
-            "compressionType is only allowed with encodingType; decoding carries its own"
-                + " compression",
-            "Unsupported deserialization encoding type: PARQUET",
-            "Unsupported deserialization encoding type: KV"),
-        Arrays.stream(
-                new SourceDecoding[] {
-                  new SourceDecoding(null, null, null),
-                  new SourceDecoding(EncodingType.CSV, null, PARQUET),
-                  new SourceDecoding(null, CompressionType.GZIP, PARQUET),
-                  new SourceDecoding(EncodingType.PARQUET, null, null),
-                  new SourceDecoding(EncodingType.KV, null, null)
-                })
-            .map(
-                d ->
-                    assertThrows(IllegalArgumentException.class, d::decodingConfig)
-                        .getMessage()
-                        .split("\\. Supported types")[0])
-            .toList());
+        "decoding is required",
+        assertThrows(IllegalArgumentException.class, new SourceDecoding(null)::decodingConfig)
+            .getMessage());
   }
 
   @Test

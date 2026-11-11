@@ -31,7 +31,7 @@ import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.dlq.S3DlqWriterTest;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.file.Files;
@@ -230,7 +230,7 @@ class S3SinkStoreForwardTest {
 
   private S3SinkDto.Config jsonConfig(Path storeDir, boolean storeAndForward) {
     return baseConfig(storeDir, storeAndForward)
-        .encodingType(EncodingType.JSON_OBJECT_LINE.toString())
+        .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"lines\"}"))
         .build();
   }
 

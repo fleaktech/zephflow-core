@@ -13,10 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.stdout;
 
-import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_STDOUT;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -24,7 +22,6 @@ import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Set;
 
 /** Created by bolei on 12/20/24 */
@@ -42,12 +39,6 @@ public class StdOutSinkConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     StdOutDto.Config config = (StdOutDto.Config) commandConfig;
-    if (config.getEncoding() != null) {
-      SinkEncoding.validate(
-          config.getEncoding(), CAPABILITY, field("encodingType", config.getEncodingType()));
-      return;
-    }
-    Preconditions.checkNotNull(config.getEncodingType(), "no encoding type is provided");
-    SerializerFactory.validateEncodingType(config.getEncodingType());
+    SinkEncoding.validate(config.getEncoding(), CAPABILITY);
   }
 }

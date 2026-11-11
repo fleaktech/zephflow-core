@@ -21,21 +21,14 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.BlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
-import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
-import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.compression.CompressorFactory;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
-import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 
@@ -116,9 +109,7 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
             config.getS3EndpointOverride());
 
     BlobFileWriter<RecordFleakData> fileWriter =
-        config.getEncoding() != null
-            ? EncodingCompiler.fileWriter(config.getEncoding(), S3SinkConfigValidator.CAPABILITY)
-            : createFileWriter(parseEnum(EncodingType.class, config.getEncodingType()), config);
+        EncodingCompiler.fileWriter(config.getEncoding(), S3SinkConfigValidator.CAPABILITY);
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
     DlqWriter dlqWriter = null;
     if (jobContext.getDlqConfig() != null) {
@@ -139,23 +130,6 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
             counters.outputSizeCounter(),
             counters.sinkErrorCounter());
     return flusher;
-  }
-
-  private BlobFileWriter<RecordFleakData> createFileWriter(
-      EncodingType encodingType, S3SinkDto.Config config) {
-    if (encodingType == EncodingType.PARQUET) {
-      if (config.getAvroSchema() == null || config.getAvroSchema().isEmpty()) {
-        throw new IllegalArgumentException("avroSchema is required for PARQUET encoding type");
-      }
-      return new ParquetBlobFileWriter(config.getAvroSchema());
-    } else {
-      SerializerFactory<?> serializerFactory =
-          SerializerFactory.createSerializerFactory(
-              encodingType, CsvSerializerOptions.DEFAULT, config.kvOptions());
-      FleakSerializer<?> serializer = serializerFactory.createSerializer();
-      return new TextBlobFileWriter(
-          serializer, encodingType, CompressorFactory.getCompressor(config.getCompressionType()));
-    }
   }
 
   @Override

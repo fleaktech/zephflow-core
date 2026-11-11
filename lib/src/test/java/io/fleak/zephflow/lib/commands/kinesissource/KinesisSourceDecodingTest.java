@@ -18,6 +18,7 @@ import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -31,13 +32,13 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Kinesis has no client seam, so its {@code decoding} is exercised by the LocalStack test; this
- * pins that a parsed and validated {@code encodingType} config gets a converter that decodes a
- * value as it is, even one that starts with the gzip magic bytes.
+ * pins that a parsed and validated config without compression gets a converter that decodes a value
+ * as it is, even one that starts with the gzip magic bytes.
  */
 class KinesisSourceDecodingTest {
 
   @Test
-  void encodingTypeDecodesGzipBytesAsTheyAre() throws IOException {
+  void noCompressionDecodesGzipBytesAsTheyAre() throws IOException {
     KinesisSourceDto.Config config =
         new JsonConfigParser<>(KinesisSourceDto.Config.class)
             .parseConfig(
@@ -45,7 +46,7 @@ class KinesisSourceDecodingTest {
                     "applicationName", "app",
                     "regionStr", "us-east-1",
                     "streamName", "stream",
-                    "encodingType", "JSON_OBJECT"));
+                    "decoding", Decodings.uncompressedConfig(Decodings.JSON_OBJECT)));
     new KinesisSourceConfigValidator()
         .validateConfig(
             config, "node", KinesisSourceConfigValidatorTest.KINESIS_SOURCE_TEST_JOB_CONTEXT);

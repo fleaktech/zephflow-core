@@ -13,20 +13,17 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
-import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.field;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 
@@ -46,14 +43,7 @@ public class PubSubSinkConfigValidator implements ConfigValidator {
     PubSubSinkDto.Config config = (PubSubSinkDto.Config) commandConfig;
     Preconditions.checkArgument(StringUtils.isNotBlank(config.getTopic()), "no topic is provided");
     if (config.getEncoding() != null) {
-      SinkEncoding.validate(
-          config.getEncoding(), CAPABILITY, field("encodingType", config.getEncodingType()));
-    } else if (config.getEncodingType() != null) {
-      Preconditions.checkArgument(
-          StringUtils.isNotBlank(config.getEncodingType()), "no encoding type is provided");
-
-      EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-      SerializerFactory.validateEncodingType(encodingType);
+      EncodingCompiler.validate(config.getEncoding(), CAPABILITY);
     }
 
     if (config.getBatchSize() != null) {

@@ -16,7 +16,7 @@ package io.fleak.zephflow.lib.commands.fssource;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
@@ -30,7 +30,7 @@ class FsSourceConfigValidatorTest {
         .backend("file")
         .root("file:///tmp/data")
         .fileNameRegex("invoice_(?<ts>\\d+)\\.json")
-        .encodingType(EncodingType.JSON_OBJECT_LINE)
+        .decoding(Decodings.autoCompression(Decodings.JSON_LINES))
         .build();
   }
 
@@ -65,28 +65,6 @@ class FsSourceConfigValidatorTest {
   void rejectsInvalidRegex() {
     FsSourceDto.Config config = validConfig();
     config.setFileNameRegex("invoice_(?<ts>\\d+");
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new FsSourceConfigValidator()
-                .validateConfig(config, "n", JobContext.builder().build()));
-  }
-
-  @Test
-  void rejectsNeitherEncodingTypeNorDecoding() {
-    FsSourceDto.Config config = validConfig();
-    config.setEncodingType(null);
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            new FsSourceConfigValidator()
-                .validateConfig(config, "n", JobContext.builder().build()));
-  }
-
-  @Test
-  void rejectsParquetEncodingType() {
-    FsSourceDto.Config config = validConfig();
-    config.setEncodingType(EncodingType.PARQUET);
     assertThrows(
         IllegalArgumentException.class,
         () ->
@@ -170,32 +148,24 @@ class FsSourceConfigValidatorTest {
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     FsSourceDto.Config config = validConfig();
-    config.setEncodingType(null);
     config.setDecoding(parquet());
 
     new FsSourceConfigValidator().validateConfig(config, "n", JobContext.builder().build());
   }
 
   @Test
-  void exactlyOneOfEncodingTypeAndDecodingIsAllowed() {
-    FsSourceDto.Config both = validConfig();
-    both.setDecoding(parquet());
-    FsSourceDto.Config neither = validConfig();
-    neither.setEncodingType(null);
+  void missingDecodingIsRejected() {
+    FsSourceDto.Config config = validConfig();
+    config.setDecoding(null);
 
-    assertEquals(
-        List.of(
-            "exactly one of encodingType and decoding must be set",
-            "exactly one of encodingType and decoding must be set"),
-        List.of(rejection(both), rejection(neither)));
+    assertEquals("decoding is required", rejection(config));
   }
 
   @Test
   void aDecodingTheCompilerRejectsFailsValidation() {
     FsSourceDto.Config config = validConfig();
-    config.setEncodingType(null);
     config.setDecoding(
         new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()));
 

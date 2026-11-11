@@ -19,12 +19,13 @@ import static org.mockito.Mockito.mock;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.MessageDecodeException;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
@@ -62,7 +63,7 @@ class IotHubMessageConverterTest {
     return Stream.of(
         Arguments.of(
             "metadataAndProperties",
-            EncodingType.JSON_OBJECT,
+            Decodings.JSON_OBJECT,
             event(null, "{\"temp\":72}", METADATA),
             List.of(
                 record(
@@ -74,7 +75,7 @@ class IotHubMessageConverterTest {
                         "_iothub", ENVELOPE)))),
         Arguments.of(
             "metadataWithoutProperties",
-            EncodingType.JSON_OBJECT,
+            Decodings.JSON_OBJECT,
             event(null, "{\"temp\":72}", NO_PROPERTIES),
             List.of(
                 record(
@@ -95,12 +96,12 @@ class IotHubMessageConverterTest {
                             Map.of()))))),
         Arguments.of(
             "noMetadata",
-            EncodingType.JSON_OBJECT,
+            Decodings.JSON_OBJECT,
             event(null, "{\"temp\":72}", null),
             List.of(record(Map.of("temp", 72)))),
         Arguments.of(
             "keyAndMetadata",
-            EncodingType.JSON_OBJECT,
+            Decodings.JSON_OBJECT,
             event(key, "{\"temp\":72}", NO_PROPERTIES),
             List.of(
                 record(
@@ -123,12 +124,12 @@ class IotHubMessageConverterTest {
                             Map.of()))))),
         Arguments.of(
             "keyWithoutMetadata",
-            EncodingType.JSON_OBJECT,
+            Decodings.JSON_OBJECT,
             event(key, "{\"temp\":72}", null),
             List.of(record(Map.of("temp", 72)))),
         Arguments.of(
             "bodyFieldsUnderMetadataAndEnvelope",
-            EncodingType.JSON_OBJECT,
+            Decodings.JSON_OBJECT,
             event(null, "{\"deviceId\":\"body\",\"_iothub\":\"body\",\"temp\":72}", METADATA),
             List.of(
                 record(
@@ -140,7 +141,7 @@ class IotHubMessageConverterTest {
                         "_iothub", ENVELOPE)))),
         Arguments.of(
             "severalJsonLines",
-            EncodingType.JSON_OBJECT_LINE,
+            Decodings.JSON_LINES,
             event(null, "{\"temp\":1}\n{\"temp\":2}\n", METADATA),
             List.of(
                 record(
@@ -162,26 +163,22 @@ class IotHubMessageConverterTest {
   @ParameterizedTest(name = "{0}")
   @MethodSource("cases")
   void givesTheRecordsWithMetadataAndEnvelope(
-      String name,
-      EncodingType encodingType,
-      SerializedEvent event,
-      List<RecordFleakData> records) {
-    assertEquals(records, decoded(encodingType, event).transformedData());
+      String name, FormatConfig format, SerializedEvent event, List<RecordFleakData> records) {
+    assertEquals(records, decoded(format, event).transformedData());
   }
 
   @Test
   void aMessageWithNoBodyGivesNoRecords() {
     SerializedEvent event = new SerializedEvent(null, null, new HashMap<>(METADATA));
 
-    assertEquals(
-        ConvertedResult.success(List.of(), event), decoded(EncodingType.JSON_OBJECT, event));
+    assertEquals(ConvertedResult.success(List.of(), event), decoded(Decodings.JSON_OBJECT, event));
   }
 
   @Test
   void aBadMessageFails() {
     SerializedEvent event = event(null, "not json", METADATA);
 
-    ConvertedResult<SerializedEvent> decoded = decoded(EncodingType.JSON_OBJECT, event);
+    ConvertedResult<SerializedEvent> decoded = decoded(Decodings.JSON_OBJECT, event);
 
     assertEquals(
         Arrays.asList(
@@ -197,11 +194,10 @@ class IotHubMessageConverterTest {
   }
 
   private static ConvertedResult<SerializedEvent> decoded(
-      EncodingType encodingType, SerializedEvent event) {
+      FormatConfig format, SerializedEvent event) {
     return new IotHubMessageConverter(
             new MessageDecodingConverter(
-                MessageDecodingConverter.decodingConfig(encodingType, null, false),
-                MessageDecodingConverter.Unit.MESSAGE))
+                Decodings.uncompressed(format), MessageDecodingConverter.Unit.MESSAGE))
         .convert(event, context());
   }
 

@@ -28,13 +28,13 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
 import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -78,7 +78,7 @@ class S3RealtimeSourceCommandTest {
         Map.of(
             "queueUrl", "https://sqs.us-east-1.amazonaws.com/123456789012/q",
             "regionStr", "us-east-1",
-            "encodingType", "JSON_OBJECT_LINE");
+            "decoding", Decodings.autoCompressionConfig(Decodings.JSON_LINES));
     command.parseAndValidateArg(config);
     command.initialize(mock(MetricClientProvider.class));
     INITIALIZED.add(command);
@@ -353,7 +353,7 @@ class S3RealtimeSourceCommandTest {
         S3RealtimeSourceDto.Config.builder()
             .queueUrl("queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT_LINE)
+            .decoding(Decodings.autoCompression(Decodings.JSON_LINES))
             .s3RegionStr("us-west-2")
             .build();
     assertEquals("us-west-2", built.getS3RegionStr());
@@ -431,8 +431,8 @@ class S3RealtimeSourceCommandTest {
             "https://sqs.us-east-1.amazonaws.com/123456789012/q",
             "regionStr",
             "us-east-1",
-            "encodingType",
-            "JSON_OBJECT_LINE"));
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES)));
   }
 
   /** Terminates what a test initialized, also when it fails, so no spool directory is left. */

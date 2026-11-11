@@ -19,6 +19,7 @@ import com.google.cloud.pubsub.v1.stub.SubscriberStub;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
@@ -129,10 +130,8 @@ public class PubSubSourceCommand extends SimpleSourceCommand<PubSubReceivedMessa
         message -> "Pub/Sub messageId: " + message.messageId());
   }
 
-  /** The decoding of the messages; {@code encodingType} decompresses nothing, as before. */
   static DecodingConfig decodingConfig(PubSubSourceDto.Config config) {
-    return MessageDecodingConverter.decodingConfig(
-        config.getEncodingType(), config.getDecoding(), false);
+    return new SourceDecoding(config.getDecoding()).decodingConfig();
   }
 
   @Override

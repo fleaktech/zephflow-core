@@ -25,10 +25,7 @@ import io.fleak.zephflow.lib.commands.sink.BoundedFlushException;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
-import java.util.List;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,23 +42,17 @@ class KinesisFlusherTest {
   private static final String STREAM_NAME = "test-stream";
   private KinesisClient kinesisClient;
   private KinesisFlusher flusher;
-  private FleakSerializer<?> serializer;
+  private RecordEncoder serializer;
 
   @BeforeEach
   void setUp() {
     kinesisClient = mock(KinesisClient.class);
     PathExpression partitionKeyPathExpression = PathExpression.fromString("$.partitionKey");
 
-    SerializerFactory<?> serializerFactory =
-        SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT);
-    serializer = serializerFactory.createSerializer();
+    serializer = SinkEncoding.JSON_OBJECT;
 
     flusher =
-        new KinesisFlusher(
-            kinesisClient,
-            STREAM_NAME,
-            partitionKeyPathExpression,
-            SinkEncoding.fromSerializer(serializer));
+        new KinesisFlusher(kinesisClient, STREAM_NAME, partitionKeyPathExpression, serializer);
   }
 
   @Test
@@ -76,7 +67,7 @@ class KinesisFlusherTest {
                 new StringPrimitiveFleakData("key1"),
                 "data",
                 new StringPrimitiveFleakData("value1")));
-    long record1Size = serializer.serialize(List.of(record1)).value().length;
+    long record1Size = serializer.encode(record1).length;
     RecordFleakData record2 =
         new RecordFleakData(
             Map.of(
@@ -84,7 +75,7 @@ class KinesisFlusherTest {
                 new StringPrimitiveFleakData("key2"),
                 "data",
                 new StringPrimitiveFleakData("value2")));
-    long record2Size = serializer.serialize(List.of(record2)).value().length;
+    long record2Size = serializer.encode(record2).length;
     preparedInputEvents.add(record1, record1);
     preparedInputEvents.add(record2, record2);
 
@@ -231,16 +222,12 @@ class KinesisFlusherTest {
 
   @Test
   void boundedReceiptsMapSubmittedPositionsAfterSerializationFailure() throws Exception {
-    var failingSerializer = mock(FleakSerializer.class);
-    when(failingSerializer.serialize(anyList()))
+    var failingSerializer = mock(RecordEncoder.class);
+    when(failingSerializer.encode(any()))
         .thenThrow(new IllegalArgumentException("bad data"))
-        .thenReturn(
-            new io.fleak.zephflow.lib.serdes.SerializedEvent(null, new byte[] {1, 2, 3}, Map.of()))
-        .thenReturn(
-            new io.fleak.zephflow.lib.serdes.SerializedEvent(null, new byte[] {4, 5}, Map.of()));
-    var bounded =
-        new KinesisFlusher(
-            kinesisClient, STREAM_NAME, null, SinkEncoding.fromSerializer(failingSerializer));
+        .thenReturn(new byte[] {1, 2, 3})
+        .thenReturn(new byte[] {4, 5});
+    var bounded = new KinesisFlusher(kinesisClient, STREAM_NAME, null, failingSerializer);
     var malformed = event("bad");
     var accepted = event("accepted");
     var rejected = event("rejected");
@@ -341,7 +328,7 @@ class KinesisFlusherTest {
     var result = flusher.flushBounded(events, Map.of(), hooks());
 
     assertEquals(1, result.successCount());
-    assertEquals(serializer.serialize(List.of(accepted)).value().length, result.flushedDataSize());
+    assertEquals(serializer.encode(accepted).length, result.flushedDataSize());
     assertEquals(3L, result.effectOutcome().attemptedCount());
     assertEquals(1L, result.effectOutcome().acknowledgedCount());
     assertEquals(1L, result.effectOutcome().definiteFailureCount());

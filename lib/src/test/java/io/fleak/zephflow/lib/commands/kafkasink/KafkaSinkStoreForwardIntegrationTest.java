@@ -26,7 +26,7 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,7 +118,7 @@ class KafkaSinkStoreForwardIntegrationTest {
         KafkaSinkDto.Config.builder()
             .topic(TOPIC)
             .broker(KAFKA.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .storeAndForwardEnabled(true)
             .localStorePath(storeDir.toString())
             .forwardRetryIntervalMillis(1_000)
@@ -314,7 +314,7 @@ class KafkaSinkStoreForwardIntegrationTest {
         KafkaSinkDto.Config.builder()
             .topic(topic)
             .broker(KAFKA.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .storeAndForwardEnabled(true)
             .localStorePath(storeDir.toString())
             .build();
@@ -355,7 +355,7 @@ class KafkaSinkStoreForwardIntegrationTest {
         KafkaSinkDto.Config.builder()
             .topic(topic)
             .broker(KAFKA.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .storeAndForwardEnabled(true)
             .localStorePath(storeDir.toString())
             .forwardRetryIntervalMillis(1_000)

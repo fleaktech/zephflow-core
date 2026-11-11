@@ -38,7 +38,7 @@ import io.fleak.zephflow.lib.commands.gcssink.*;
 import io.fleak.zephflow.lib.commands.jdbcsink.*;
 import io.fleak.zephflow.lib.commands.pubsubsink.*;
 import io.fleak.zephflow.lib.commands.smtpsink.*;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Session;
@@ -198,11 +198,10 @@ class BoundedSinkLogSafetyTest {
             () -> flush(flusher, Map.<String, Object>of("message", ROW), bounded));
       }
       case "eventhub" -> {
-        FleakSerializer<?> serializer = mock();
-        when(serializer.serialize(anyList())).thenThrow(failure);
+        RecordEncoder serializer = mock();
+        when(serializer.encode(any())).thenThrow(failure);
         var flusher =
-            new AzureEventHubSinkFlusher(
-                mock(EventHubProducerClient.class), SinkEncoding.fromSerializer(serializer), null);
+            new AzureEventHubSinkFlusher(mock(EventHubProducerClient.class), serializer, null);
         flush(flusher, (RecordFleakData) FleakData.wrap(Map.of("message", ROW)), bounded);
       }
       default -> throw new AssertionError(kind);

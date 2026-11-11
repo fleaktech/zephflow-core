@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.filesource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -31,56 +30,14 @@ class FileSourceConfigValidatorTest {
   private final FileSourceConfigValidator validator = new FileSourceConfigValidator();
 
   @Test
-  void validateConfig_unsupportedEncodingType(@TempDir File tempDir) throws IOException {
-    File tempFile = new File(tempDir, "test.txt");
-    assertTrue(tempFile.createNewFile());
-
-    FileSourceDto.Config config =
-        FileSourceDto.Config.builder()
-            .filePath(tempFile.getAbsolutePath())
-            .encodingType(EncodingType.PARQUET)
-            .build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Unsupported deserialization encoding type"));
-  }
-
-  @Test
-  void validateConfig_allSupportedEncodingTypes(@TempDir File tempDir) throws IOException {
-    File tempFile = new File(tempDir, "test.txt");
-    assertTrue(tempFile.createNewFile());
-
-    for (EncodingType type :
-        List.of(
-            EncodingType.CSV,
-            EncodingType.JSON_OBJECT,
-            EncodingType.JSON_ARRAY,
-            EncodingType.JSON_OBJECT_LINE,
-            EncodingType.STRING_LINE,
-            EncodingType.TEXT,
-            EncodingType.XML)) {
-      FileSourceDto.Config config =
-          FileSourceDto.Config.builder()
-              .filePath(tempFile.getAbsolutePath())
-              .encodingType(type)
-              .build();
-
-      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
-    }
-  }
-
-  @Test
-  void neitherEncodingTypeNorDecodingIsRejected() throws IOException {
+  void missingDecodingIsRejected() throws IOException {
     FileSourceDto.Config config = FileSourceDto.Config.builder().filePath(existingFile()).build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+    assertEquals("decoding is required", decodingRejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() throws IOException {
+  void decodingIsAccepted() throws IOException {
     FileSourceDto.Config config =
         FileSourceDto.Config.builder()
             .filePath(existingFile())
@@ -91,18 +48,6 @@ class FileSourceConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() throws IOException {
-    FileSourceDto.Config config =
-        FileSourceDto.Config.builder()
-            .filePath(existingFile())
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
   }
 
   @Test

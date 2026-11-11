@@ -86,8 +86,7 @@ public record DlqTexts(
                       + ", or write smaller documents or avro blocks; if one document holds many"
                       + " records, decode it in a mode that reads them one at a time (text line,"
                       + " json lines or array, xml elements, yaml multi_document, protobuf"
-                      + " varint_delimited, avro ocf; as encodingType: STRING_LINE,"
-                      + " JSON_OBJECT_LINE or JSON_ARRAY); "
+                      + " varint_delimited, avro ocf); "
                       + retry);
       case MAX_CODEC_MEMORY_BYTES ->
           new OversizedText(
@@ -166,7 +165,7 @@ public record DlqTexts(
               + noun
               + " is "
               + format
-              + " as the source's encodingType or decoding says, or fix the listed records where"
+              + " as the source's decoding says, or fix the listed records where"
               + " the "
               + noun
               + " is written; "

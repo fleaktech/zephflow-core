@@ -30,7 +30,6 @@ public interface PubSubSinkDto {
   class Config implements CommandConfig {
     private String projectId;
     @NonNull private String topic;
-    private String encodingType;
     private EncodingConfig encoding;
     private String credentialId;
     private String orderingKeyExpression;

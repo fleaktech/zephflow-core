@@ -18,6 +18,7 @@ import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.backend.sftp.SftpBackendConfig;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.util.HashMap;
@@ -49,10 +50,14 @@ class FsSourceCommandSftpBackendConfigTest {
 
     Map<String, Object> config =
         Map.of(
-            "backend", "sftp",
-            "root", "sftp://example.com:2222/upload",
-            "encodingType", "JSON_OBJECT_LINE",
-            "backendConfig", Map.of("credentialId", "cred1"));
+            "backend",
+            "sftp",
+            "root",
+            "sftp://example.com:2222/upload",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES),
+            "backendConfig",
+            Map.of("credentialId", "cred1"));
     command.parseAndValidateArg(config);
     command.initialize(mock(MetricClientProvider.class));
 

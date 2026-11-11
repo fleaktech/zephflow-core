@@ -16,7 +16,8 @@ package io.fleak.zephflow.lib.commands.sqssource;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,7 @@ class SqsSourceDtoTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .credentialId("my-cred")
             .maxNumberOfMessages(5)
             .waitTimeSeconds(10)
@@ -37,7 +38,7 @@ class SqsSourceDtoTest {
 
     assertEquals("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue", config.getQueueUrl());
     assertEquals("us-east-1", config.getRegionStr());
-    assertEquals(EncodingType.JSON_OBJECT, config.getEncodingType());
+    assertEquals(Decodings.uncompressed(Decodings.JSON_OBJECT), config.getDecoding());
     assertEquals("my-cred", config.getCredentialId());
     assertEquals(5, config.getMaxNumberOfMessages());
     assertEquals(10, config.getWaitTimeSeconds());
@@ -50,7 +51,7 @@ class SqsSourceDtoTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     assertEquals(SqsSourceDto.DEFAULT_MAX_NUMBER_OF_MESSAGES, config.getMaxNumberOfMessages());
@@ -64,16 +65,20 @@ class SqsSourceDtoTest {
   void testJsonParsing() {
     Map<String, Object> jsonMap =
         Map.of(
-            "queueUrl", "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
-            "regionStr", "us-east-1",
-            "encodingType", "JSON_OBJECT",
-            "maxNumberOfMessages", 7);
+            "queueUrl",
+            "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
+            "regionStr",
+            "us-east-1",
+            "decoding",
+            Map.of("compression", List.of(), "format", Map.of("type", "json", "mode", "object")),
+            "maxNumberOfMessages",
+            7);
 
     SqsSourceDto.Config config = OBJECT_MAPPER.convertValue(jsonMap, SqsSourceDto.Config.class);
 
     assertEquals("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue", config.getQueueUrl());
     assertEquals("us-east-1", config.getRegionStr());
-    assertEquals(EncodingType.JSON_OBJECT, config.getEncodingType());
+    assertEquals(Decodings.uncompressed(Decodings.JSON_OBJECT), config.getDecoding());
     assertEquals(7, config.getMaxNumberOfMessages());
   }
 }

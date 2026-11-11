@@ -206,8 +206,7 @@ final class FsFileDecoder {
         urn,
         compression
             ? "whether the file was still being written when it was listed, the compression"
-                + " setting (decoding.compression, or gzip detected automatically for"
-                + " encodingType), and whether its compressed data is damaged or has bytes after"
+                + " setting (decoding.compression), and whether its compressed data is damaged or has bytes after"
                 + " its end, in which case rewrite the file"
             : "the backend's read permission, the network, and free disk where the task runs",
         error);

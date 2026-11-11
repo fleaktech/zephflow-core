@@ -146,8 +146,12 @@ class SplunkHecSinkCommandTest {
         "http://127.0.0.1:" + server.getAddress().getPort() + "/services/collector/event");
     nodeConfig.put("credentialId", "hec_token");
     nodeConfig.put("sourcetype", "fleak:csv");
-    nodeConfig.put("encodingType", "CSV");
-    nodeConfig.put("csvColumns", List.of("time", "src_ip", "action"));
+    nodeConfig.put(
+        "encoding",
+        Map.of(
+            "format",
+            Map.of(
+                "type", "csv", "header", false, "columns", List.of("time", "src_ip", "action"))));
 
     SplunkHecSinkCommand command =
         (SplunkHecSinkCommand)
@@ -214,9 +218,17 @@ class SplunkHecSinkCommandTest {
         "http://127.0.0.1:" + server.getAddress().getPort() + "/services/collector/event");
     nodeConfig.put("credentialId", "hec_token");
     nodeConfig.put("sourcetype", "fleak:kv");
-    nodeConfig.put("encodingType", "KV");
-    nodeConfig.put("kvFields", List.of("time", "src_ip", "action"));
-    nodeConfig.put("kvPairDelimiter", "|");
+    nodeConfig.put(
+        "encoding",
+        Map.of(
+            "format",
+            Map.of(
+                "type",
+                "kv",
+                "fields",
+                List.of("time", "src_ip", "action"),
+                "pairDelimiter",
+                "|")));
 
     SplunkHecSinkCommand command =
         (SplunkHecSinkCommand)
@@ -286,11 +298,9 @@ class SplunkHecSinkCommandTest {
   }
 
   @Test
-  void encodingCsv_sendsTheEnvelopeOfCsvColumns() throws Exception {
+  void encodingCsv_sendsTheCsvLine() throws Exception {
     List<String> expected = List.of("{\"event\":\"1,\\\"x, y\\\"\",\"sourcetype\":\"fleak\"}");
 
-    assertEquals(
-        expected, sentEnvelopes(Map.of("encodingType", "CSV", "csvColumns", List.of("a", "b"))));
     assertEquals(
         expected,
         sentEnvelopes(
@@ -302,13 +312,9 @@ class SplunkHecSinkCommandTest {
   }
 
   @Test
-  void encodingKv_sendsTheEnvelopeOfKvOptions() throws Exception {
+  void encodingKv_sendsTheKvLine() throws Exception {
     List<String> expected = List.of("{\"event\":\"b=\\\"x, y\\\"|a=1\",\"sourcetype\":\"fleak\"}");
 
-    assertEquals(
-        expected,
-        sentEnvelopes(
-            Map.of("encodingType", "KV", "kvFields", List.of("b", "a"), "kvPairDelimiter", "|")));
     assertEquals(
         expected,
         sentEnvelopes(

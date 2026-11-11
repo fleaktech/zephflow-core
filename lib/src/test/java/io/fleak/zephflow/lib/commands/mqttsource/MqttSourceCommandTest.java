@@ -21,8 +21,8 @@ import static org.mockito.Mockito.*;
 import io.fleak.zephflow.api.SourceCommand;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.eclipse.paho.mqttv5.client.MqttClient;
@@ -62,7 +62,7 @@ class MqttSourceCommandTest {
             .brokerUrl("tcp://localhost:1883")
             .topicFilter("sensors/#")
             .clientId("my-client")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     SourceExecutionContext<SerializedEvent> context =

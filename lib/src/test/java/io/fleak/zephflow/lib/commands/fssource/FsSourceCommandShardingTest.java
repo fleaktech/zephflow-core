@@ -19,6 +19,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import java.nio.file.Files;
@@ -56,10 +57,14 @@ class FsSourceCommandShardingTest {
   private List<String> run(Path tempDir, JobContext jobContext) throws Exception {
     Map<String, Object> rawConfig =
         Map.of(
-            "backend", "file",
-            "root", tempDir.toUri().toString(),
-            "fileNameRegex", "evt_(?<ts>\\d+)\\.log",
-            "encodingType", "JSON_OBJECT_LINE");
+            "backend",
+            "file",
+            "root",
+            tempDir.toUri().toString(),
+            "fileNameRegex",
+            "evt_(?<ts>\\d+)\\.log",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES));
     List<String> emittedValues = new ArrayList<>();
     SourceEventAcceptor eventAcceptor =
         new SourceEventAcceptor() {

@@ -22,8 +22,8 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandTest;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.utils.MiscUtils;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,7 +44,7 @@ class FileSourceCommandTest {
     command.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(
             FileSourceDto.Config.builder()
-                .encodingType(EncodingType.CSV)
+                .decoding(Decodings.uncompressed(Decodings.CSV))
                 .filePath(inputFile.toString())
                 .build(),
             new TypeReference<>() {}));

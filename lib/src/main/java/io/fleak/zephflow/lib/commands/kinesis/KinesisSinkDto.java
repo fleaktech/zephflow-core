@@ -29,7 +29,6 @@ public interface KinesisSinkDto {
     @NonNull private String streamName;
     private String credentialId;
     private String partitionKeyFieldExpressionStr;
-    private String encodingType;
     private EncodingConfig encoding;
   }
 }

@@ -41,9 +41,9 @@ import software.amazon.awssdk.services.s3.S3Client;
 
 /**
  * Decodes one S3 object the way the S3 realtime source does: the decoding inputs of {@link
- * S3Decoding} (with the legacy mapping), the source's fixed limits for a heap size, the download to
- * local disk, and the {@code addS3Metadata} enrichment. A sampler can use it too, so a preview
- * matches what a pipeline emits. Compiled once; reusable and thread-safe.
+ * S3Decoding}, the source's fixed limits for a heap size, the download to local disk, and the
+ * {@code addS3Metadata} enrichment. A sampler can use it too, so a preview matches what a pipeline
+ * emits. Compiled once; reusable and thread-safe.
  */
 public final class S3ObjectDecoder {
 

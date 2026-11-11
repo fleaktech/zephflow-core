@@ -16,7 +16,8 @@ package io.fleak.zephflow.lib.commands.pubsubsource;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,7 @@ class PubSubSourceDtoTest {
         PubSubSourceDto.Config.builder()
             .projectId("my-project")
             .subscription("my-sub")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .credentialId("my-cred")
             .maxMessages(50)
             .returnImmediately(true)
@@ -37,7 +38,7 @@ class PubSubSourceDtoTest {
 
     assertEquals("my-project", config.getProjectId());
     assertEquals("my-sub", config.getSubscription());
-    assertEquals(EncodingType.JSON_OBJECT, config.getEncodingType());
+    assertEquals(Decodings.uncompressed(Decodings.JSON_OBJECT), config.getDecoding());
     assertEquals("my-cred", config.getCredentialId());
     assertEquals(50, config.getMaxMessages());
     assertTrue(config.getReturnImmediately());
@@ -49,7 +50,7 @@ class PubSubSourceDtoTest {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .subscription("my-sub")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     assertEquals(PubSubSourceDto.DEFAULT_MAX_MESSAGES, config.getMaxMessages());
@@ -67,8 +68,8 @@ class PubSubSourceDtoTest {
             "p",
             "subscription",
             "s",
-            "encodingType",
-            "JSON_OBJECT",
+            "decoding",
+            Map.of("compression", List.of(), "format", Map.of("type", "json", "mode", "object")),
             "maxMessages",
             200,
             "returnImmediately",
@@ -81,7 +82,7 @@ class PubSubSourceDtoTest {
 
     assertEquals("p", config.getProjectId());
     assertEquals("s", config.getSubscription());
-    assertEquals(EncodingType.JSON_OBJECT, config.getEncodingType());
+    assertEquals(Decodings.uncompressed(Decodings.JSON_OBJECT), config.getDecoding());
     assertEquals(200, config.getMaxMessages());
     assertFalse(config.getReturnImmediately());
     assertEquals(60, config.getAckDeadlineExtensionSeconds());

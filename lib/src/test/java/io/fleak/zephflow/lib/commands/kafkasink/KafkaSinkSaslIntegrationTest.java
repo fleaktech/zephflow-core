@@ -24,7 +24,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -159,7 +159,7 @@ class KafkaSinkSaslIntegrationTest {
         KafkaSinkDto.Config.builder()
             .topic(TOPIC)
             .broker(KAFKA.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .securityProtocol("SASL_PLAINTEXT")
             .saslMechanism("PLAIN")
             .credentialId(CREDENTIAL_ID)
@@ -186,7 +186,7 @@ class KafkaSinkSaslIntegrationTest {
         KafkaSinkDto.Config.builder()
             .topic(TOPIC_NEG)
             .broker(KAFKA.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .securityProtocol("SASL_PLAINTEXT")
             .saslMechanism("PLAIN")
             .credentialId(CREDENTIAL_ID)
@@ -224,7 +224,7 @@ class KafkaSinkSaslIntegrationTest {
         KafkaSinkDto.Config.builder()
             .topic(topic)
             .broker(KAFKA.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .securityProtocol("SASL_PLAINTEXT")
             .saslMechanism(mechanism)
             .credentialId(CREDENTIAL_ID)

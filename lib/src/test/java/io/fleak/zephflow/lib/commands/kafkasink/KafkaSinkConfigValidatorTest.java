@@ -20,8 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
@@ -38,7 +37,7 @@ class KafkaSinkConfigValidatorTest {
         KafkaSinkDto.Config.builder()
             .broker("localhost:9092")
             .topic("test-topic")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .partitionKeyFieldExpressionStr("$.user_id")
             .build();
 
@@ -51,7 +50,7 @@ class KafkaSinkConfigValidatorTest {
         KafkaSinkDto.Config.builder()
             .broker("") // Empty string instead of null
             .topic("test-topic")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
 
     Exception exception =
@@ -67,7 +66,7 @@ class KafkaSinkConfigValidatorTest {
         KafkaSinkDto.Config.builder()
             .broker("localhost:9092")
             .topic("test-topic")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .storeAndForwardEnabled(true)
             .deliveryMode(KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET)
             .build();
@@ -86,7 +85,7 @@ class KafkaSinkConfigValidatorTest {
         KafkaSinkDto.Config.builder()
             .broker("localhost:9092")
             .topic("") // Empty string instead of null
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
 
     Exception exception =
@@ -97,77 +96,35 @@ class KafkaSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_invalidEncodingType() {
+  void validateConfig_textIsRejected() {
     KafkaSinkDto.Config config =
         KafkaSinkDto.Config.builder()
             .broker("localhost:9092")
             .topic("test-topic")
-            .encodingType("INVALID_TYPE")
+            .encoding(EncodeTestSupport.format("{\"type\":\"text\"}"))
             .build();
 
     Exception exception =
         assertThrows(
             IllegalArgumentException.class,
             () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Invalid value for enum EncodingType"));
+    assertEquals("kafkasink cannot write text", exception.getMessage());
   }
 
   @Test
-  void validateConfig_unsupportedEncodingType_stringLine() {
-    KafkaSinkDto.Config config =
-        KafkaSinkDto.Config.builder()
-            .broker("localhost:9092")
-            .topic("test-topic")
-            .encodingType(EncodingType.STRING_LINE.name())
-            .build();
-
-    Exception exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
-  }
-
-  @Test
-  void validateConfig_unsupportedEncodingType_text() {
-    KafkaSinkDto.Config config =
-        KafkaSinkDto.Config.builder()
-            .broker("localhost:9092")
-            .topic("test-topic")
-            .encodingType(EncodingType.TEXT.name())
-            .build();
-
-    Exception exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
-  }
-
-  @Test
-  void validateConfig_unsupportedEncodingType_xml() {
-    KafkaSinkDto.Config config =
-        KafkaSinkDto.Config.builder()
-            .broker("localhost:9092")
-            .topic("test-topic")
-            .encodingType(EncodingType.XML.name())
-            .build();
-
-    Exception exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
-  }
-
-  @Test
-  void validateConfig_allSupportedEncodingTypes() {
-    for (EncodingType type : SerializerFactory.SUPPORTED_ENCODING_TYPES) {
+  void validateConfig_allSupportedFormats() {
+    for (String format :
+        List.of(
+            "{\"type\":\"csv\"}",
+            "{\"type\":\"json\",\"mode\":\"object\"}",
+            "{\"type\":\"json\",\"mode\":\"array\"}",
+            "{\"type\":\"json\",\"mode\":\"lines\"}",
+            "{\"type\":\"kv\"}")) {
       KafkaSinkDto.Config config =
           KafkaSinkDto.Config.builder()
               .broker("localhost:9092")
               .topic("test-topic")
-              .encodingType(type.name())
+              .encoding(EncodeTestSupport.format(format))
               .build();
 
       assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
@@ -178,7 +135,7 @@ class KafkaSinkConfigValidatorTest {
     return KafkaSinkDto.Config.builder()
         .broker("localhost:9092")
         .topic("test-topic")
-        .encodingType(EncodingType.JSON_OBJECT.name());
+        .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
   }
 
   @Test
@@ -318,24 +275,26 @@ class KafkaSinkConfigValidatorTest {
         KafkaSinkDto.Config.builder()
             .broker("localhost:9092")
             .topic("test-topic")
-            .encodingType(EncodingType.KV.name())
-            .kvFields(List.of("src_ip", "action"))
+            .encoding(
+                EncodeTestSupport.format("{\"type\":\"kv\",\"fields\":[\"src_ip\",\"action\"]}"))
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
 
-    config.setKvPairDelimiter("=");
+    config.setEncoding(
+        EncodeTestSupport.format(
+            "{\"type\":\"kv\",\"fields\":[\"src_ip\"],\"pairDelimiter\":\"=\"}"));
     assertThrows(
         IllegalArgumentException.class, () -> validator.validateConfig(config, "test-node", null));
   }
 
-  private static KafkaSinkDto.Config.ConfigBuilder withoutEncodingType() {
+  private static KafkaSinkDto.Config.ConfigBuilder withoutEncoding() {
     return KafkaSinkDto.Config.builder().broker("localhost:9092").topic("test-topic");
   }
 
   @Test
   void validateConfig_encodingAlone_ok() {
     KafkaSinkDto.Config config =
-        withoutEncodingType()
+        withoutEncoding()
             .encoding(encoding("{\"format\":{\"type\":\"csv\",\"delimiter\":\"|\"}}"))
             .build();
 
@@ -343,26 +302,9 @@ class KafkaSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_encodingWithLegacyFormatFields_rejected() {
-    KafkaSinkDto.Config config =
-        base()
-            .kvFields(List.of("src_ip"))
-            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"object\"}}"))
-            .build();
-
-    Exception exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertEquals(
-        "kafkasink: encoding cannot be combined with encodingType, kvFields",
-        exception.getMessage());
-  }
-
-  @Test
   void validateConfig_encodingWithCompression_rejected() {
     KafkaSinkDto.Config config =
-        withoutEncodingType()
+        withoutEncoding()
             .encoding(
                 encoding(
                     "{\"compression\":\"gzip\",\"format\":{\"type\":\"json\",\"mode\":\"lines\"}}"))
@@ -376,12 +318,13 @@ class KafkaSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_neitherEncodingNorEncodingType_keepsLegacyError() {
-    KafkaSinkDto.Config config = withoutEncodingType().build();
+  void validateConfig_missingEncoding_rejected() {
+    KafkaSinkDto.Config config = withoutEncoding().build();
 
     Exception exception =
         assertThrows(
-            NullPointerException.class, () -> validator.validateConfig(config, "test-node", null));
-    assertEquals("enumStr is marked non-null but is null", exception.getMessage());
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("kafkasink: encoding is required", exception.getMessage());
   }
 }

@@ -189,7 +189,7 @@ class KvEncodeTest {
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("lines")
-  void writesTheLegacyLineInRecordAndFileMode(
+  void writesTheLineInRecordAndFileMode(
       String name, String format, RecordFleakData record, String expected) throws Exception {
     EncodingConfig config = encoding("[]", format);
     assertEquals(

@@ -21,7 +21,7 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import jakarta.jms.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -81,7 +81,7 @@ public class ActiveMqSourceCommandTest {
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination(queueName)
             .destinationType(ActiveMqSourceDto.DestinationType.QUEUE)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
@@ -138,7 +138,7 @@ public class ActiveMqSourceCommandTest {
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination(topicName)
             .destinationType(ActiveMqSourceDto.DestinationType.TOPIC)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .clientId(clientId)
             .subscriptionName(subscriptionName)
             .build();

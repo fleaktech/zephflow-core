@@ -19,8 +19,10 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,12 +53,12 @@ class FsSourceCommandStreamingTest {
 
   private record Run(List<Object> values, List<Object> raws, int acceptCalls) {}
 
-  private static Run run(Path dir, String encodingType, Map<String, Object> extraConfig)
+  private static Run run(Path dir, FormatConfig format, Map<String, Object> extraConfig)
       throws Exception {
     Map<String, Object> rawConfig = new HashMap<>();
     rawConfig.put("backend", "file");
     rawConfig.put("root", dir.toUri().toString());
-    rawConfig.put("encodingType", encodingType);
+    rawConfig.put("decoding", Decodings.autoCompressionConfig(format));
     rawConfig.putAll(extraConfig);
 
     List<RecordFleakData> emitted = new ArrayList<>();
@@ -90,7 +92,7 @@ class FsSourceCommandStreamingTest {
     }
     Files.writeString(dir.resolve("a.log"), payload.toString());
 
-    Run run = run(dir, "JSON_OBJECT_LINE", Map.of("chunkSizeBytes", 256));
+    Run run = run(dir, Decodings.JSON_LINES, Map.of("chunkSizeBytes", 256));
 
     // JSON integers unwrap as Long (NumberPrimitiveFleakData.unwrap()), not Integer.
     assertEquals(
@@ -110,7 +112,7 @@ class FsSourceCommandStreamingTest {
     }
     Files.writeString(dir.resolve("a.log"), payload.toString());
 
-    Run run = run(dir, "JSON_OBJECT_LINE", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
+    Run run = run(dir, Decodings.JSON_LINES, Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
     assertEquals(500, run.values().size(), "maxFileBytes bounds a record, not the file");
   }
@@ -119,7 +121,7 @@ class FsSourceCommandStreamingTest {
   void aWholeDocumentOverTheCapIsSummarizedRatherThanBuffered(@TempDir Path dir) throws Exception {
     Files.writeString(dir.resolve("a.json"), "{\"v\":\"" + "x".repeat(500) + "\"}");
 
-    Run run = run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L));
+    Run run = run(dir, Decodings.JSON_OBJECT, Map.of("maxFileBytes", 64L));
 
     assertEquals(List.of(), run.values(), "the document is over the cap, so nothing is emitted");
   }
@@ -133,7 +135,7 @@ class FsSourceCommandStreamingTest {
     }
     Files.writeString(dir.resolve("a.log"), payload.toString());
 
-    Run run = run(dir, "STRING_LINE", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
+    Run run = run(dir, Decodings.TEXT_LINE, Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
     assertEquals(
         new Run(
@@ -152,7 +154,7 @@ class FsSourceCommandStreamingTest {
     payload.append("]");
     Files.writeString(dir.resolve("a.json"), payload.toString());
 
-    Run run = run(dir, "JSON_ARRAY", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
+    Run run = run(dir, Decodings.JSON_ARRAY, Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
     assertEquals(5000, run.values().size(), "maxFileBytes bounds one element, not the array");
     assertEquals(4999L, run.values().getLast());
@@ -167,7 +169,7 @@ class FsSourceCommandStreamingTest {
     }
     Files.writeString(dir.resolve("a.csv"), payload.toString());
 
-    Run run = run(dir, "CSV", Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
+    Run run = run(dir, Decodings.CSV, Map.of("chunkSizeBytes", 256, "maxFileBytes", 1024L));
 
     assertEquals(5000, run.values().size(), "maxFileBytes bounds one row, not the file");
     assertEquals("4999", run.values().getLast());
@@ -179,7 +181,7 @@ class FsSourceCommandStreamingTest {
     String hugeElement = "{\"v\":\"" + "x".repeat(512 * 1024) + "\"}";
     Files.writeString(dir.resolve("a.json"), "[{\"v\":\"first\"}," + hugeElement + "]");
 
-    Run run = run(dir, "JSON_ARRAY", Map.of("chunkSizeBytes", 64, "maxFileBytes", 1024L));
+    Run run = run(dir, Decodings.JSON_ARRAY, Map.of("chunkSizeBytes", 64, "maxFileBytes", 1024L));
 
     assertEquals(
         List.of("first"),
@@ -195,7 +197,7 @@ class FsSourceCommandStreamingTest {
       gzipOutputStream.write("{\"v\":1}\n{\"v\":2}\n".getBytes(StandardCharsets.UTF_8));
     }
 
-    Run run = run(dir, "JSON_OBJECT_LINE", Map.of());
+    Run run = run(dir, Decodings.JSON_LINES, Map.of());
 
     // JSON integers unwrap as Long (NumberPrimitiveFleakData.unwrap()), not Integer.
     assertEquals(List.of(1L, 2L), run.values());
@@ -205,7 +207,7 @@ class FsSourceCommandStreamingTest {
   void anEmptyLineOrientedFileCompletesWithoutThrowing(@TempDir Path dir) throws Exception {
     Files.writeString(dir.resolve("a.log"), "");
 
-    Run run = run(dir, "JSON_OBJECT_LINE", Map.of());
+    Run run = run(dir, Decodings.JSON_LINES, Map.of());
 
     assertEquals(0, run.values().size(), "an empty file legitimately has nothing to emit");
   }
@@ -214,7 +216,7 @@ class FsSourceCommandStreamingTest {
   void anAllBlankLinesFileCompletesWithoutThrowing(@TempDir Path dir) throws Exception {
     Files.writeString(dir.resolve("a.log"), "\n\n  \n");
 
-    Run run = run(dir, "JSON_OBJECT_LINE", Map.of());
+    Run run = run(dir, Decodings.JSON_LINES, Map.of());
 
     assertEquals(0, run.values().size(), "blank lines are dropped, not errors");
   }

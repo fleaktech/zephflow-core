@@ -22,14 +22,11 @@ import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.services.kinesis.KinesisClient;
@@ -93,14 +90,8 @@ public class KinesisSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private static RecordEncoder recordEncoder(KinesisSinkDto.Config config) {
-    if (config.getEncoding() != null) {
-      return EncodingCompiler.recordEncoder(
-          config.getEncoding(), KinesisSinkConfigValidator.CAPABILITY);
-    }
-    EncodingType encodingType = parseEnum(EncodingType.class, config.getEncodingType());
-    SerializerFactory<?> serializerFactory =
-        SerializerFactory.createSerializerFactory(encodingType);
-    return SinkEncoding.fromSerializer(serializerFactory.createSerializer());
+    return EncodingCompiler.recordEncoder(
+        config.getEncoding(), KinesisSinkConfigValidator.CAPABILITY);
   }
 
   @Override

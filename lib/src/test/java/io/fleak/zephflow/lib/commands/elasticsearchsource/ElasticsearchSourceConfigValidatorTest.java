@@ -18,27 +18,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.NullSource;
 
 class ElasticsearchSourceConfigValidatorTest {
 
   private final ElasticsearchSourceConfigValidator validator =
       new ElasticsearchSourceConfigValidator();
 
-  @ParameterizedTest
-  @NullSource
-  @EnumSource(EncodingType.class)
-  void anyOrNoEncodingTypePasses(EncodingType encodingType) {
+  @Test
+  void aValidConfigPasses() {
     assertDoesNotThrow(
-        () ->
-            validator.validateConfig(
-                config().encodingType(encodingType).build(), "node", TestUtils.JOB_CONTEXT));
+        () -> validator.validateConfig(config().build(), "node", TestUtils.JOB_CONTEXT));
   }
 
   static Stream<Arguments> invalidConfigs() {

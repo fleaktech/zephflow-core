@@ -16,34 +16,11 @@ package io.fleak.zephflow.lib.commands.stdout;
 import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import org.junit.jupiter.api.Test;
 
 class StdOutSinkConfigValidatorTest {
 
   private final StdOutSinkConfigValidator validator = new StdOutSinkConfigValidator();
-
-  @Test
-  void validateConfig_unsupportedEncodingType() {
-    StdOutDto.Config config =
-        StdOutDto.Config.builder().encodingType(EncodingType.STRING_LINE).build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Unsupported serialization encoding type"));
-  }
-
-  @Test
-  void validateConfig_allSupportedEncodingTypes() {
-    for (EncodingType type : SerializerFactory.SUPPORTED_ENCODING_TYPES) {
-      StdOutDto.Config config = StdOutDto.Config.builder().encodingType(type).build();
-
-      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
-    }
-  }
 
   @Test
   void validateConfig_encodingAlone() {
@@ -53,21 +30,6 @@ class StdOutSinkConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
-  }
-
-  @Test
-  void validateConfig_encodingWithEncodingType() {
-    StdOutDto.Config config =
-        StdOutDto.Config.builder()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .encoding(encoding("{\"format\":{\"type\":\"json\",\"mode\":\"object\"}}"))
-            .build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertEquals("stdout: encoding cannot be combined with encodingType", exception.getMessage());
   }
 
   @Test
@@ -83,12 +45,13 @@ class StdOutSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_neitherEncodingNorEncodingType() {
+  void validateConfig_withoutEncoding() {
     StdOutDto.Config config = StdOutDto.Config.builder().build();
 
-    NullPointerException exception =
+    IllegalArgumentException exception =
         assertThrows(
-            NullPointerException.class, () -> validator.validateConfig(config, "test-node", null));
-    assertEquals("no encoding type is provided", exception.getMessage());
+            IllegalArgumentException.class,
+            () -> validator.validateConfig(config, "test-node", null));
+    assertEquals("stdout: encoding is required", exception.getMessage());
   }
 }

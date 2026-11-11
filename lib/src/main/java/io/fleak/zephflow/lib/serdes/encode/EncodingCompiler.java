@@ -42,7 +42,6 @@ import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
-import io.fleak.zephflow.lib.serdes.ser.FieldNames;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;

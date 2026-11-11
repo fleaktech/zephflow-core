@@ -33,12 +33,12 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
 import io.fleak.zephflow.lib.commands.azureeventhub.AzureEventHubClientFactory;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
@@ -61,8 +61,9 @@ import org.mockito.ArgumentCaptor;
 
 /**
  * The converter this source's {@code createExecutionContext} builds: {@code decoding} alone decodes
- * messages, {@code encodingType} decodes a body as it is, even one that starts with the gzip magic
- * bytes, and a message that fails to decode is dead-lettered as received with the decode text.
+ * messages, a decoding without compression decodes a body as it is, even one that starts with the
+ * gzip magic bytes, and a message that fails to decode is dead-lettered as received with the decode
+ * text.
  */
 class AzureIotHubSourceDecodingTest {
 
@@ -86,9 +87,9 @@ class AzureIotHubSourceDecodingTest {
   }
 
   @Test
-  void encodingTypeDecodesGzipBytesAsTheyAre() throws Exception {
+  void noCompressionDecodesGzipBytesAsTheyAre() throws Exception {
     SourceExecutionContext<SerializedEvent> context =
-        context(config().encodingType(EncodingType.JSON_OBJECT).build());
+        context(config().decoding(Decodings.uncompressed(Decodings.JSON_OBJECT)).build());
     SerializedEvent message = new SerializedEvent(null, gzip("{\"a\":1}"), null);
 
     ConvertedResult<SerializedEvent> result = context.converter().convert(message, context);
@@ -167,7 +168,7 @@ class AzureIotHubSourceDecodingTest {
             Map.of(
                 "deviceId", "sensor-01", "enqueuedTime", ENQUEUED.toString(), "prop.schema", "v2"),
             "MALFORMED json message: JsonParseException",
-            "Action: check that the message is json as the source's encodingType or decoding"
+            "Action: check that the message is json as the source's decoding"
                 + " says, and that its compression is set when the message is compressed, or fix"
                 + " the producer that wrote it; the DLQ value is the message as received, so it"
                 + " can be sent again",

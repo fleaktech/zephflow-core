@@ -26,7 +26,7 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -179,7 +179,7 @@ public class AzureIotHubSourceIntegrationTest {
             .consumerGroup(CONSUMER_GROUP)
             .checkpointStorageConnectionString(azurite.getConnectionString())
             .checkpointContainerName(CHECKPOINT_CONTAINER)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .initialPosition(AzureIotHubSourceDto.InitialPosition.EARLIEST)
             .commitStrategy(AzureIotHubSourceDto.CommitStrategyType.PER_RECORD)
             .build();

@@ -29,7 +29,6 @@ public interface SqsSinkDto {
   class Config implements CommandConfig {
     @NonNull private String queueUrl;
     @NonNull private String regionStr;
-    private String encodingType;
     private EncodingConfig encoding;
     private String credentialId;
     private String messageGroupIdExpression;

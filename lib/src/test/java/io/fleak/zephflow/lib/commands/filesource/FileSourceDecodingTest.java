@@ -28,10 +28,10 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandTest;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -70,7 +70,7 @@ class FileSourceDecodingTest {
   }
 
   @Test
-  void encodingTypeDecodesAGzipFileAsItIs() throws IOException {
+  void noCompressionDecodesAGzipFileAsItIs() throws IOException {
     byte[] gzipped = gzip("{\"a\":1}");
 
     DeadLettered result = runWithDlq(gzipped);
@@ -92,7 +92,7 @@ class FileSourceDecodingTest {
     assertEquals(
         List.of(
             "MALFORMED json file: JsonParseException",
-            "Action: check that the file is json as the source's encodingType or decoding says,"
+            "Action: check that the file is json as the source's decoding says,"
                 + " and that its compression is set when the file is compressed; fix the file and"
                 + " run the job again",
             "com.fasterxml.jackson.core.JsonParseException",
@@ -125,7 +125,7 @@ class FileSourceDecodingTest {
               jobContext,
               FileSourceDto.Config.builder()
                   .filePath(file.toString())
-                  .encodingType(EncodingType.JSON_OBJECT)
+                  .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
                   .build());
     }
     ArgumentCaptor<SerializedEvent> value = ArgumentCaptor.forClass(SerializedEvent.class);

@@ -14,11 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.CompressionType;
 import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvSinkConfig;
-import java.util.List;
-import java.util.Map;
 import lombok.*;
 
 /** Created by bolei on 9/3/24 */
@@ -27,25 +23,15 @@ public interface S3SinkDto {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  class Config implements CommandConfig, KvSinkConfig {
+  class Config implements CommandConfig {
     @NonNull private String regionStr;
     @NonNull private String bucketName;
     @NonNull private String keyName;
-    private String encodingType;
     private String credentialId;
     private String s3EndpointOverride;
     @Builder.Default private boolean batching = true;
     @Builder.Default private int batchSize = 10_000;
     @Builder.Default private long flushIntervalMillis = 10_000;
-    private Map<String, Object> avroSchema;
-    private CompressionType compressionType;
-
-    private List<String> kvFields;
-
-    private String kvPairDelimiter;
-
-    private Boolean kvCleanFields;
-
     private EncodingConfig encoding;
 
     /**

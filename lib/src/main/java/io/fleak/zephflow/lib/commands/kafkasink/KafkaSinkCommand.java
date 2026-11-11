@@ -24,17 +24,13 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.ChronicleStoreForward;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.sink.StoreForwardPaths;
 import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
-import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -172,15 +168,8 @@ public class KafkaSinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private static RecordEncoder recordEncoder(KafkaSinkDto.Config config) {
-    if (config.getEncoding() != null) {
-      return EncodingCompiler.recordEncoder(
-          config.getEncoding(), KafkaSinkConfigValidator.CAPABILITY);
-    }
-    EncodingType encodingType = EncodingType.valueOf(config.getEncodingType().toUpperCase());
-    SerializerFactory<?> serializerFactory =
-        SerializerFactory.createSerializerFactory(
-            encodingType, CsvSerializerOptions.DEFAULT, config.kvOptions());
-    return SinkEncoding.fromSerializer(serializerFactory.createSerializer());
+    return EncodingCompiler.recordEncoder(
+        config.getEncoding(), KafkaSinkConfigValidator.CAPABILITY);
   }
 
   private static final int STORE_FORWARD_DRAIN_CHUNK = 1000;

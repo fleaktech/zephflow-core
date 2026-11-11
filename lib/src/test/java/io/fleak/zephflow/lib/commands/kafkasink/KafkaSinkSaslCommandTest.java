@@ -21,7 +21,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -62,7 +62,7 @@ class KafkaSinkSaslCommandTest {
     return KafkaSinkDto.Config.builder()
         .broker("localhost:9092")
         .topic("t")
-        .encodingType(EncodingType.JSON_OBJECT.name());
+        .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
   }
 
   @Test
