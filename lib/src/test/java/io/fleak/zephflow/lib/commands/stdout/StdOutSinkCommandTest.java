@@ -24,8 +24,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
-import io.fleak.zephflow.lib.commands.stdin.StdInSourceDto;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -52,7 +51,9 @@ class StdOutSinkCommandTest {
         fleakData.getArrayPayload().stream().map(fd -> ((RecordFleakData) fd)).toList();
     command.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(
-            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(),
+            StdOutDto.Config.builder()
+                .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
+                .build(),
             new TypeReference<>() {}));
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     var context = command.getExecutionContext();

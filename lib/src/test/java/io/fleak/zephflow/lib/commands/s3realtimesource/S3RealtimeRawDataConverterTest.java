@@ -22,12 +22,11 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.parquet.TestParquetCodecs;
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
 import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
@@ -38,6 +37,7 @@ import io.fleak.zephflow.lib.serdes.decode.RecordCursor;
 import io.fleak.zephflow.lib.serdes.decode.RecordDecoder;
 import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
@@ -100,7 +100,7 @@ class S3RealtimeRawDataConverterTest {
 
   private static final String RETRY = "then re-upload the object or send this notification again";
   private static final String RECORD_ACTION =
-      "Action: fix this record where it is written, or the source's encodingType or decoding if"
+      "Action: fix this record where it is written, or the source's decoding if"
           + " every record fails like this; the value is the record's bytes";
   private static final String READ_ACTION =
       "Action: check the cause below, such as the source's S3 permissions (s3:GetObject), the"
@@ -129,7 +129,7 @@ class S3RealtimeRawDataConverterTest {
   private static String malformedAction(String format) {
     return "Action: check that the object is "
         + format
-        + " as the source's encodingType or decoding says, or fix the listed records where the"
+        + " as the source's decoding says, or fix the listed records where the"
         + " object is written; "
         + RETRY;
   }
@@ -231,8 +231,8 @@ class S3RealtimeRawDataConverterTest {
         skippedObjectCounter);
   }
 
-  private S3RealtimeRawDataConverter converter(EncodingType encodingType) {
-    return converter(new S3Decoding(encodingType, null, null, false), HEAP, 4 * MIB);
+  private S3RealtimeRawDataConverter converter(FormatConfig format) {
+    return converter(new S3Decoding(Decodings.autoCompression(format), false), HEAP, 4 * MIB);
   }
 
   private static S3EventMessage message(String... keys) {
@@ -264,7 +264,7 @@ class S3RealtimeRawDataConverterTest {
   @Test
   void jsonLinesAreEmittedAndTheHandleIsQueuedOnlyOnAcknowledge() {
     stub("k.jsonl", utf8("{\"msg\":\"a\"}\n{\"msg\":\"b\"}"));
-    S3RealtimeRawDataConverter converter = converter(EncodingType.JSON_OBJECT_LINE);
+    S3RealtimeRawDataConverter converter = converter(Decodings.JSON_LINES);
     S3EventMessage message = message("k.jsonl");
 
     TestEmitter emitter = emit(converter, message);
@@ -283,7 +283,8 @@ class S3RealtimeRawDataConverterTest {
   void addS3MetadataEnrichesRecords() {
     stub("dir/k.json", utf8("{\"msg\":\"a\"}"));
     S3RealtimeRawDataConverter converter =
-        converter(new S3Decoding(EncodingType.JSON_OBJECT_LINE, null, null, true), HEAP, 4 * MIB);
+        converter(
+            new S3Decoding(Decodings.autoCompression(Decodings.JSON_LINES), true), HEAP, 4 * MIB);
 
     TestEmitter emitter = emit(converter, message("dir/k.json"));
 
@@ -299,8 +300,7 @@ class S3RealtimeRawDataConverterTest {
     stub("k1.jsonl", utf8("{\"msg\":\"a\"}"));
     stub("k2.jsonl", utf8("{\"msg\":\"b\"}"));
 
-    TestEmitter emitter =
-        emit(converter(EncodingType.JSON_OBJECT_LINE), message("k1.jsonl", "k2.jsonl"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message("k1.jsonl", "k2.jsonl"));
 
     assertEquals(
         List.of(List.of(json("{\"msg\":\"a\"}")), List.of(json("{\"msg\":\"b\"}"))),
@@ -314,16 +314,12 @@ class S3RealtimeRawDataConverterTest {
     List<RecordFleakData> expected = List.of(json("{\"msg\":\"a\"}"), json("{\"msg\":\"b\"}"));
 
     assertEquals(
-        expected,
-        emit(converter(EncodingType.JSON_OBJECT_LINE), message("data.jsonl.gz")).records());
+        expected, emit(converter(Decodings.JSON_LINES), message("data.jsonl.gz")).records());
     assertEquals(
         expected,
         emit(
                 converter(
-                    new S3Decoding(
-                        EncodingType.JSON_OBJECT_LINE, CompressionType.GZIP, null, false),
-                    HEAP,
-                    4 * MIB),
+                    new S3Decoding(Decodings.gzip(Decodings.JSON_LINES), false), HEAP, 4 * MIB),
                 message("data.jsonl.gz"))
             .records());
   }
@@ -336,8 +332,6 @@ class S3RealtimeRawDataConverterTest {
         emit(
             converter(
                 new S3Decoding(
-                    null,
-                    null,
                     new DecodingConfig(
                         List.of(), new TextFormatConfig(null, new FramingConfig.Line(null))),
                     false),
@@ -362,7 +356,7 @@ class S3RealtimeRawDataConverterTest {
   void theInputSizeIsTheDecompressedEndOfTheLastSpan() {
     stub("data.jsonl.gz", gzip(utf8("{\"msg\":\"a\"}\n{\"msg\":\"b\"}\n")));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("data.jsonl.gz"));
+    emit(converter(Decodings.JSON_LINES), message("data.jsonl.gz"));
 
     verify(dataSizeCounter).increase(eq(23L), anyMap());
   }
@@ -372,7 +366,7 @@ class S3RealtimeRawDataConverterTest {
     stub("x.csv", utf8("a,b\n1,2\n"));
     assertEquals(
         List.of(json("{\"a\":\"1\",\"b\":\"2\"}")),
-        emit(converter(EncodingType.CSV), message("x.csv")).records());
+        emit(converter(Decodings.CSV), message("x.csv")).records());
 
     MessageType schema = MessageTypeParser.parseMessageType("message m { required int64 n; }");
     ByteArrayOutputStream parquet = new ByteArrayOutputStream();
@@ -428,7 +422,7 @@ class S3RealtimeRawDataConverterTest {
     stub("many.jsonl", utf8(lines.toString()));
     assertEquals(
         List.of(1000, 1000, 500),
-        emit(converter(EncodingType.JSON_OBJECT_LINE), message("many.jsonl")).batches.stream()
+        emit(converter(Decodings.JSON_LINES), message("many.jsonl")).batches.stream()
             .map(List::size)
             .toList());
 
@@ -438,7 +432,10 @@ class S3RealtimeRawDataConverterTest {
     assertEquals(
         List.of(2, 1),
         emit(
-                converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), HEAP, 200),
+                converter(
+                    new S3Decoding(Decodings.autoCompression(Decodings.TEXT_LINE), false),
+                    HEAP,
+                    200),
                 message("big.txt"))
             .batches
             .stream()
@@ -450,7 +447,7 @@ class S3RealtimeRawDataConverterTest {
   void aBadRecordIsDeadLetteredWithItsBytesAndTheRestIsEmitted() {
     stub("bad.jsonl", utf8("{\"a\":1}\nnot json\n{\"a\":3}\n"));
 
-    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     assertEquals(List.of(json("{\"a\":1}"), json("{\"a\":3}")), emitter.records());
     assertEquals(
@@ -469,7 +466,7 @@ class S3RealtimeRawDataConverterTest {
   void twoDifferentSyntaxErrorsShareTheFirstLine() {
     stub("bad.jsonl", utf8("{\"a\" 1}\n{\"a\":}\n"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     assertEquals(
         List.of(
@@ -483,7 +480,7 @@ class S3RealtimeRawDataConverterTest {
     String big = "x".repeat(S3RealtimeRawDataConverter.MAX_RECORD_ENTRY_BYTES + 1);
     stub("bad.jsonl", utf8("{\"a\":1}\n" + big + "\n"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     assertEquals(
         List.of(
@@ -505,7 +502,10 @@ class S3RealtimeRawDataConverterTest {
 
     TestEmitter emitter =
         emit(
-            converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), MIB, 4 * MIB),
+            converter(
+                new S3Decoding(Decodings.autoCompression(Decodings.TEXT_LINE), false),
+                MIB,
+                4 * MIB),
             message("big.txt"));
 
     assertEquals(List.of(json("{\"__raw__\":\"ok\"}")), emitter.records());
@@ -539,7 +539,8 @@ class S3RealtimeRawDataConverterTest {
     stub("big.txt", utf8(text.toString()));
 
     emit(
-        converter(new S3Decoding(EncodingType.STRING_LINE, null, null, false), MIB, 4 * MIB),
+        converter(
+            new S3Decoding(Decodings.autoCompression(Decodings.TEXT_LINE), false), MIB, 4 * MIB),
         message("big.txt"));
 
     StringBuilder ranges = new StringBuilder("recordIndex ");
@@ -564,7 +565,7 @@ class S3RealtimeRawDataConverterTest {
   void aTerminalFailureEndsTheObjectAfterTheRecordsBeforeIt() {
     stub("x.csv", utf8("a,b\n1,2\n\"3,4\n"));
 
-    TestEmitter emitter = emit(converter(EncodingType.CSV), message("x.csv"));
+    TestEmitter emitter = emit(converter(Decodings.CSV), message("x.csv"));
 
     assertEquals(List.of(json("{\"a\":\"1\",\"b\":\"2\"}")), emitter.records());
     assertEquals(
@@ -589,7 +590,7 @@ class S3RealtimeRawDataConverterTest {
                     .build(),
                 AbortableInputStream.create(new ByteArrayInputStream(new byte[0]))));
 
-    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("big.json"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message("big.json"));
 
     assertEquals(List.of(), emitter.batches);
     assertEquals(
@@ -612,7 +613,7 @@ class S3RealtimeRawDataConverterTest {
     when(s3Client.getObject(any(GetObjectRequest.class)))
         .thenThrow(NoSuchKeyException.builder().message("gone").build());
 
-    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("gone.jsonl"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message("gone.jsonl"));
 
     assertEquals(List.of(), emitter.batches);
     assertEquals(List.of(), dlq);
@@ -624,7 +625,7 @@ class S3RealtimeRawDataConverterTest {
     when(s3Client.getObject(any(GetObjectRequest.class)))
         .thenThrow(new IllegalStateException("s3 unavailable"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("k.json"));
+    emit(converter(Decodings.JSON_LINES), message("k.json"));
 
     assertEquals(1, dlq.size());
     assertEquals(
@@ -652,7 +653,7 @@ class S3RealtimeRawDataConverterTest {
                 new S3ObjectRef("b", "invalid.jsonl", region),
                 new S3ObjectRef("b", "good.jsonl", "us-east-1")));
 
-    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message);
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message);
 
     assertEquals(List.of(json("{\"msg\":\"good\"}")), emitter.records());
     assertEquals(1, dlq.size());
@@ -675,7 +676,7 @@ class S3RealtimeRawDataConverterTest {
     TestEmitter emitter = new TestEmitter();
     emitter.failBatch = 1;
 
-    converter(EncodingType.JSON_OBJECT_LINE).emit(message("many.jsonl"), context, emitter);
+    converter(Decodings.JSON_LINES).emit(message("many.jsonl"), context, emitter);
 
     assertEquals(List.of(1000, 1000, 500), emitter.batches.stream().map(List::size).toList());
     assertEquals(
@@ -700,8 +701,7 @@ class S3RealtimeRawDataConverterTest {
     TestEmitter emitter = new TestEmitter();
     emitter.stopAfterBatch = 0;
 
-    converter(EncodingType.JSON_OBJECT_LINE)
-        .emit(message("many.jsonl", "next.jsonl"), context, emitter);
+    converter(Decodings.JSON_LINES).emit(message("many.jsonl", "next.jsonl"), context, emitter);
 
     assertEquals(List.of(1000), emitter.batches.stream().map(List::size).toList());
     assertEquals(List.of(), dlq);
@@ -804,7 +804,7 @@ class S3RealtimeRawDataConverterTest {
   }
 
   @Test
-  void theOtherLegacyEncodingsDecodeThroughTheConverter() {
+  void theOtherFormatsDecodeThroughTheConverter() {
     stub("o.json", utf8("{\"a\":1}"));
     stub("a.json", utf8("[{\"a\":1},{\"a\":2}]"));
     stub("t.txt", utf8("hello\nworld"));
@@ -816,10 +816,10 @@ class S3RealtimeRawDataConverterTest {
             List.of(json("{\"__raw__\":\"hello\\nworld\"}")),
             List.of(json("{\"a\":\"1\"}"))),
         List.of(
-            emit(converter(EncodingType.JSON_OBJECT), message("o.json")).records(),
-            emit(converter(EncodingType.JSON_ARRAY), message("a.json")).records(),
-            emit(converter(EncodingType.TEXT), message("t.txt")).records(),
-            emit(converter(EncodingType.XML), message("x.xml")).records()));
+            emit(converter(Decodings.JSON_OBJECT), message("o.json")).records(),
+            emit(converter(Decodings.JSON_ARRAY), message("a.json")).records(),
+            emit(converter(Decodings.TEXT), message("t.txt")).records(),
+            emit(converter(Decodings.XML), message("x.xml")).records()));
   }
 
   @Test
@@ -827,8 +827,7 @@ class S3RealtimeRawDataConverterTest {
     stub("bad.json", utf8("{bad"));
     stub("good.json", utf8("{\"a\":1}"));
 
-    TestEmitter emitter =
-        emit(converter(EncodingType.JSON_OBJECT), message("bad.json", "good.json"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_OBJECT), message("bad.json", "good.json"));
 
     assertEquals(List.of(json("{\"a\":1}")), emitter.records());
     assertEquals(
@@ -846,7 +845,7 @@ class S3RealtimeRawDataConverterTest {
   void anObjectWithoutRecordsCountsNoInputSize() {
     stub("bad.jsonl", utf8("this is definitely not json\n"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     verify(dataSizeCounter, never()).increase(anyLong(), anyMap());
   }
@@ -869,7 +868,7 @@ class S3RealtimeRawDataConverterTest {
   void csvRowsWithDifferentColumnCountsShareTheFirstLine() {
     stub("x.csv", utf8("a,b,c\n1\n1,2\n1,2,3,4\n"));
 
-    emit(converter(EncodingType.CSV), message("x.csv"));
+    emit(converter(Decodings.CSV), message("x.csv"));
 
     assertEquals(
         List.of(
@@ -883,7 +882,7 @@ class S3RealtimeRawDataConverterTest {
   void corruptCompressionIsSummarized() {
     stub("x.jsonl.gz", concat(gzip(utf8("{\"a\":1}\n")), utf8("xx")));
 
-    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("x.jsonl.gz"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message("x.jsonl.gz"));
 
     assertEquals(List.of(json("{\"a\":1}")), emitter.records());
     assertEquals(
@@ -907,7 +906,7 @@ class S3RealtimeRawDataConverterTest {
                 .awsErrorDetails(AwsErrorDetails.builder().errorCode("AccessDenied").build())
                 .build());
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("k.json"));
+    emit(converter(Decodings.JSON_LINES), message("k.json"));
 
     assertEquals(
         List.of(
@@ -930,7 +929,7 @@ class S3RealtimeRawDataConverterTest {
     TestEmitter emitter = new TestEmitter();
     emitter.failEvenBatches = true;
 
-    converter(new S3Decoding(EncodingType.JSON_OBJECT_LINE, null, null, false), HEAP, 1)
+    converter(new S3Decoding(Decodings.autoCompression(Decodings.JSON_LINES), false), HEAP, 1)
         .emit(message("many.jsonl"), context, emitter);
 
     assertEquals(250, emitter.batches.size());
@@ -991,7 +990,7 @@ class S3RealtimeRawDataConverterTest {
               throw new IllegalStateException("client closed");
             });
 
-    converter(EncodingType.JSON_OBJECT_LINE).emit(message("k.json"), context, emitter);
+    converter(Decodings.JSON_LINES).emit(message("k.json"), context, emitter);
 
     assertEquals(List.of(), dlq);
     verify(deserializeFailureCounter, never()).increase(anyMap());
@@ -1080,8 +1079,7 @@ class S3RealtimeRawDataConverterTest {
         .writeToDlq(anyLong(), any(), anyString(), anyString());
 
     assertDoesNotThrow(
-        () ->
-            converter(EncodingType.JSON_OBJECT_LINE).emit(message("bad.jsonl"), context, emitter));
+        () -> converter(Decodings.JSON_LINES).emit(message("bad.jsonl"), context, emitter));
   }
 
   @Test
@@ -1091,7 +1089,7 @@ class S3RealtimeRawDataConverterTest {
     // calls: before the object, at the record, after the record, then when the object ends
     emitter.stopAtCall = 4;
 
-    converter(EncodingType.JSON_OBJECT_LINE).emit(message("k.jsonl"), context, emitter);
+    converter(Decodings.JSON_LINES).emit(message("k.jsonl"), context, emitter);
 
     assertEquals(List.of(), emitter.batches);
     verify(inputEventCounter, never()).increase(anyLong(), anyMap());
@@ -1105,7 +1103,7 @@ class S3RealtimeRawDataConverterTest {
     emitter.failBatch = 0;
     emitter.stopWhenFailing = true;
 
-    converter(EncodingType.JSON_OBJECT_LINE).emit(message("k.jsonl"), context, emitter);
+    converter(Decodings.JSON_LINES).emit(message("k.jsonl"), context, emitter);
 
     assertEquals(List.of(), dlq);
   }
@@ -1115,7 +1113,7 @@ class S3RealtimeRawDataConverterTest {
     String bad = "x".repeat(S3RealtimeRawDataConverter.MAX_RECORD_ENTRY_BYTES);
     stub("bad.jsonl", utf8(bad + "\n"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     assertEquals(
         List.of(
@@ -1141,7 +1139,7 @@ class S3RealtimeRawDataConverterTest {
         .when(dlqWriter)
         .writeToDlq(anyLong(), any(), anyString(), anyString());
 
-    TestEmitter emitter = emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    TestEmitter emitter = emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     assertEquals(List.of(json("{\"a\":1}")), emitter.records());
     assertEquals(
@@ -1153,7 +1151,7 @@ class S3RealtimeRawDataConverterTest {
   void entriesCarryTheErrorsStackTraceBetweenTheActionAndTheObject() {
     stub("bad.jsonl", utf8("{\"a\":1}\nnot json\n"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("bad.jsonl"));
+    emit(converter(Decodings.JSON_LINES), message("bad.jsonl"));
 
     List<String> lines = texts.getFirst();
     assertEquals(
@@ -1259,7 +1257,7 @@ class S3RealtimeRawDataConverterTest {
   void aDeadLetteredLineLastSetsTheInputSize() {
     stub("k.jsonl", utf8("{\"a\":1}\nnot json\n"));
 
-    emit(converter(EncodingType.JSON_OBJECT_LINE), message("k.jsonl"));
+    emit(converter(Decodings.JSON_LINES), message("k.jsonl"));
 
     verify(dataSizeCounter).increase(eq(16L), anyMap());
   }
@@ -1285,7 +1283,7 @@ class S3RealtimeRawDataConverterTest {
   void aCsvHeaderFailureIsShownAsTheHeader() {
     stub("x.csv", utf8("a,a\n1,2\n"));
 
-    emit(converter(EncodingType.CSV), message("x.csv"));
+    emit(converter(Decodings.CSV), message("x.csv"));
 
     assertEquals(
         List.of(
@@ -1402,7 +1400,7 @@ class S3RealtimeRawDataConverterTest {
                 + " memory, or write smaller documents or avro blocks; if one document holds many"
                 + " records, decode it in a mode that reads them one at a time (text line, json"
                 + " lines or array, xml elements, yaml multi_document, protobuf varint_delimited,"
-                + " avro ocf; as encodingType: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY); "
+                + " avro ocf); "
                 + RETRY,
             "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
@@ -1413,7 +1411,7 @@ class S3RealtimeRawDataConverterTest {
                 + " memory, or write smaller documents or avro blocks; if one document holds many"
                 + " records, decode it in a mode that reads them one at a time (text line, json"
                 + " lines or array, xml elements, yaml multi_document, protobuf varint_delimited,"
-                + " avro ocf; as encodingType: STRING_LINE, JSON_OBJECT_LINE or JSON_ARRAY); "
+                + " avro ocf); "
                 + RETRY,
             "a document or block reached 5000 bytes, over maxDocumentBytes 4096"),
         Arguments.of(
@@ -1589,7 +1587,7 @@ class S3RealtimeRawDataConverterTest {
   }
 
   private static S3Decoding decoding(String json) {
-    return new S3Decoding(null, null, decodingConfig(json), false);
+    return new S3Decoding(decodingConfig(json), false);
   }
 
   private static RecordFleakData json(String json) {

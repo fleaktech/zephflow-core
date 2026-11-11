@@ -20,11 +20,13 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.CheckpointClient;
 import io.fleak.zephflow.lib.commands.fssource.checkpoint.FsCheckpoint;
 import io.fleak.zephflow.lib.commands.fssource.util.Partitioner;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -110,10 +112,10 @@ class FsSourceCommandSkipRetryTest {
   }
 
   private List<Object> run(Path dir) throws Exception {
-    return run(dir, "JSON_OBJECT_LINE", Map.of());
+    return run(dir, Decodings.JSON_LINES, Map.of());
   }
 
-  private List<Object> run(Path dir, String encodingType, Map<String, Object> extraConfig)
+  private List<Object> run(Path dir, FormatConfig format, Map<String, Object> extraConfig)
       throws Exception {
     JobContext jobContext =
         JobContext.builder()
@@ -123,7 +125,7 @@ class FsSourceCommandSkipRetryTest {
     rawConfig.put("backend", "file");
     rawConfig.put("root", dir.toUri().toString());
     rawConfig.put("fileNameRegex", "evt_(?<ts>\\d+)\\.(log|json)");
-    rawConfig.put("encodingType", encodingType);
+    rawConfig.put("decoding", Decodings.autoCompressionConfig(format));
     rawConfig.putAll(extraConfig);
     List<RecordFleakData> emitted = new ArrayList<>();
     SourceEventAcceptor acceptor =
@@ -192,7 +194,8 @@ class FsSourceCommandSkipRetryTest {
     Files.writeString(dir.resolve("evt_2.json"), "{\"v\":\"b\"}");
     Map<String, Object> smallCap = Map.of("maxFileBytes", 64L);
 
-    assertEquals(List.of("b"), run(dir, "JSON_OBJECT", smallCap), "run 1: evt_1 is too large");
+    assertEquals(
+        List.of("b"), run(dir, Decodings.JSON_OBJECT, smallCap), "run 1: evt_1 is too large");
 
     // Shrinking the file shows whether run 2 looks at it again: a retry would now emit it.
     Files.writeString(dir.resolve("evt_1.json"), "{\"v\":\"a\"}");
@@ -200,7 +203,7 @@ class FsSourceCommandSkipRetryTest {
 
     assertEquals(
         List.of("c"),
-        run(dir, "JSON_OBJECT", smallCap),
+        run(dir, Decodings.JSON_OBJECT, smallCap),
         "an oversized file cannot succeed on retry, so it is completed rather than retried");
   }
 
@@ -211,7 +214,7 @@ class FsSourceCommandSkipRetryTest {
     String newerFileName = sameBucketFileName(dir, "evt_1.log");
     Files.writeString(dir.resolve(newerFileName), "{\"v\":\"b\"}");
 
-    run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L));
+    run(dir, Decodings.JSON_OBJECT, Map.of("maxFileBytes", 64L));
 
     String newerUrn = dir.resolve(newerFileName).toUri().toString();
     FsCheckpoint checkpoint =
@@ -233,7 +236,7 @@ class FsSourceCommandSkipRetryTest {
 
     assertEquals(
         List.of(),
-        run(dir, "JSON_OBJECT", Map.of("maxFileBytes", 64L)),
+        run(dir, Decodings.JSON_OBJECT, Map.of("maxFileBytes", 64L)),
         "the oversized file is resolved, so there is nothing left for a retry to do");
   }
 

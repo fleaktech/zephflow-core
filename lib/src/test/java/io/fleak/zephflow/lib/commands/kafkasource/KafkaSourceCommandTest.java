@@ -31,15 +31,16 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommand;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.kafkasink.KafkaSinkDto;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
@@ -138,7 +139,7 @@ public class KafkaSourceCommandTest {
         KafkaSourceDto.Config.builder()
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .topic(TOPIC_NAME)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .groupId("test-group-" + System.currentTimeMillis())
             .properties(Map.of("auto.offset.reset", "latest"))
             .build();
@@ -256,7 +257,7 @@ public class KafkaSourceCommandTest {
         KafkaSinkDto.Config.builder()
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .topic(outputTopic)
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(sinkConfig, new TypeReference<>() {}));
@@ -380,7 +381,7 @@ public class KafkaSourceCommandTest {
       assertEquals(
           List.of(
               "MALFORMED json message: JsonParseException",
-              "Action: check that the message is json as the source's encodingType or decoding"
+              "Action: check that the message is json as the source's decoding"
                   + " says, and that its compression is set when the message is compressed, or fix"
                   + " the producer that wrote it; the DLQ value is the message as received, so it"
                   + " can be sent again",
@@ -447,7 +448,7 @@ public class KafkaSourceCommandTest {
         KafkaSourceDto.Config.builder()
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .topic(topic)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .groupId("test-group-" + System.currentTimeMillis())
             .properties(properties)
             .build();

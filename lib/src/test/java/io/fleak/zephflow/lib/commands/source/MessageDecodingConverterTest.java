@@ -26,7 +26,7 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.ByteInput;
 import io.fleak.zephflow.lib.serdes.decode.DecodeLimits;
@@ -209,7 +209,7 @@ class MessageDecodingConverterTest {
         new Failure(
             cause,
             "MALFORMED json message: JsonParseException\n"
-                + "Action: check that the message is json as the source's encodingType or decoding"
+                + "Action: check that the message is json as the source's decoding"
                 + " says, and that its compression is set when the message is compressed, or fix"
                 + " the producer that wrote it; "
                 + RESEND
@@ -295,7 +295,7 @@ class MessageDecodingConverterTest {
         new Failure(
             cause,
             "MALFORMED json message: IllegalArgumentException\n"
-                + "Action: check that the message is json as the source's encodingType or decoding"
+                + "Action: check that the message is json as the source's decoding"
                 + " says, and that its compression is set when the message is compressed, or fix"
                 + " the producer that wrote it; "
                 + RESEND
@@ -560,7 +560,7 @@ class MessageDecodingConverterTest {
             cause,
             "READ_FAILURE json message: IOException\n"
                 + "Action: the source could not process the message (the error says why); if"
-                + " every message fails like this, check the source's encodingType or decoding; "
+                + " every message fails like this, check the source's decoding; "
                 + RESEND
                 + "\n"
                 + trace(cause),
@@ -580,7 +580,7 @@ class MessageDecodingConverterTest {
         new Failure(
             cause,
             "MALFORMED json file: IllegalArgumentException\n"
-                + "Action: check that the file is json as the source's encodingType or decoding"
+                + "Action: check that the file is json as the source's decoding"
                 + " says, and that its compression is set when the file is compressed; fix the"
                 + " file and run the job again\n"
                 + trace(cause)
@@ -633,61 +633,10 @@ class MessageDecodingConverterTest {
             thrown,
             "READ_FAILURE json file: RuntimeException\n"
                 + "Action: the source could not process the file (the error says why); check the"
-                + " source's encodingType or decoding, fix the file and run the job again\n"
+                + " source's decoding, fix the file and run the job again\n"
                 + trace(thrown),
             message),
         Failure.of(readFailure));
-  }
-
-  @Test
-  void encodingTypeDetectsGzipOnlyWhenAsked() throws IOException {
-    JsonFormatConfig object = new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT);
-    assertEquals(
-        new DecodingConfig(List.of(DecompressionCodec.AUTO), object),
-        MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, true));
-    assertEquals(
-        new DecodingConfig(List.of(), object),
-        MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, false));
-
-    SerializedEvent gzipped = new SerializedEvent(null, gzip("{\"a\":1}"), null);
-    assertEquals(
-        ConvertedResult.success(List.of(record(Map.of("a", 1))), gzipped),
-        convert(
-            MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, true),
-            gzipped));
-    assertInstanceOf(
-        MessageDecodeException.class,
-        convert(
-                MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, false),
-                gzipped)
-            .error());
-  }
-
-  @Test
-  void decodingIsUsedAsGiven() {
-    DecodingConfig decoding =
-        new DecodingConfig(List.of(DecompressionCodec.ZSTD), JSON_LINES.format());
-
-    assertEquals(decoding, MessageDecodingConverter.decodingConfig(null, decoding, false));
-    assertEquals(decoding, MessageDecodingConverter.decodingConfig(null, decoding, true));
-  }
-
-  @Test
-  void exactlyOneOfEncodingTypeAndDecoding() {
-    assertEquals(
-        "exactly one of encodingType and decoding must be set",
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> MessageDecodingConverter.decodingConfig(null, null, true))
-            .getMessage());
-    assertEquals(
-        "exactly one of encodingType and decoding must be set",
-        assertThrows(
-                IllegalArgumentException.class,
-                () ->
-                    MessageDecodingConverter.decodingConfig(
-                        EncodingType.JSON_OBJECT, JSON_OBJECT, true))
-            .getMessage());
   }
 
   /** A failed result, with the parts of its {@link MessageDecodeException} that matter. */
@@ -743,11 +692,10 @@ class MessageDecodingConverterTest {
   }
 
   @Test
-  void aLegacyTextSourceWithoutDetectionRefusesAGzipMessage() throws IOException {
+  void textWithoutCompressionRefusesAGzipMessage() throws IOException {
     MessageDecodingConverter converter =
         new MessageDecodingConverter(
-            MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, false),
-            MessageDecodingConverter.Unit.MESSAGE);
+            Decodings.uncompressed(Decodings.TEXT), MessageDecodingConverter.Unit.MESSAGE);
 
     SerializedEvent message = new SerializedEvent(null, gzip("x"), null);
 
@@ -758,7 +706,7 @@ class MessageDecodingConverterTest {
         new Failure(
             cause,
             "MALFORMED text message: UndeclaredCompressionException\n"
-                + "Action: check that the message is text as the source's encodingType or decoding"
+                + "Action: check that the message is text as the source's decoding"
                 + " says, and that its compression is set when the message is compressed, or fix"
                 + " the producer that wrote it; "
                 + RESEND
@@ -770,11 +718,10 @@ class MessageDecodingConverterTest {
   }
 
   @Test
-  void aLegacyTextSourceWithDetectionStillReadsAGzipMessage() throws IOException {
+  void textWithAutoCompressionReadsAGzipMessage() throws IOException {
     MessageDecodingConverter converter =
         new MessageDecodingConverter(
-            MessageDecodingConverter.decodingConfig(EncodingType.TEXT, null, true),
-            MessageDecodingConverter.Unit.MESSAGE);
+            Decodings.autoCompression(Decodings.TEXT), MessageDecodingConverter.Unit.MESSAGE);
 
     SerializedEvent message = new SerializedEvent(null, gzip("x"), null);
 

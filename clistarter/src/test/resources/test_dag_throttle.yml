@@ -7,7 +7,11 @@ dag:
   - id: "in"
     commandName: "stdin"
     config:
-      "encodingType": "JSON_ARRAY"
+      decoding:
+        compression: []
+        format:
+          type: "json"
+          mode: "array"
     outputs:
       - "throttle"
 
@@ -23,4 +27,7 @@ dag:
   - id: "out"
     commandName: "stdout"
     config:
-      "encodingType": "JSON_OBJECT"
+      encoding:
+        format:
+          type: "json"
+          mode: "object"

@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,7 @@ class SqsSinkCommandTest {
     return SqsSinkDto.Config.builder()
         .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/test-queue")
         .regionStr("us-east-1")
-        .encodingType("JSON_OBJECT")
+        .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
         .batchSize(batchSize)
         .build();
   }
@@ -91,7 +92,7 @@ class SqsSinkCommandTest {
       "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue";
 
   @Test
-  void encodingJsonObject_sendsTheBodyOfEncodingType() throws Exception {
+  void withoutOrWithJsonObjectEncoding_sendsTheJsonObject() throws Exception {
     RecordFleakData record =
         new RecordFleakData(
             Map.of(
@@ -107,7 +108,7 @@ class SqsSinkCommandTest {
                     .build())
             .build();
 
-    assertEquals(expected, sentRequest(Map.of("encodingType", "JSON_OBJECT"), record));
+    assertEquals(expected, sentRequest(Map.of(), record));
     assertEquals(
         expected,
         sentRequest(

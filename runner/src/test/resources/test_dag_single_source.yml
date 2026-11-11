@@ -8,4 +8,8 @@ dag:
   - id: "in"
     commandName: "stdin"
     config:
-      encodingType: "JSON_ARRAY"
+      decoding:
+        compression: []
+        format:
+          type: "json"
+          mode: "array"

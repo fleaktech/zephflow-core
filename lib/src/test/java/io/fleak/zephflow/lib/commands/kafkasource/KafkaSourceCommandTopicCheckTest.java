@@ -28,7 +28,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import java.util.Map;
 import java.util.Properties;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -98,7 +98,7 @@ class KafkaSourceCommandTopicCheckTest {
             .broker("localhost:9092")
             .topic(TOPIC)
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .properties(properties)
             .build();
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));

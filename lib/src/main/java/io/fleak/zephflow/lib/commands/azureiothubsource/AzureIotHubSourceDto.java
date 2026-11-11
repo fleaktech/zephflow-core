@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.commands.azureiothubsource;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -65,9 +64,7 @@ public interface AzureIotHubSourceDto {
     private String checkpointContainerName;
 
     // --- Decoding of the telemetry message body ---
-    private EncodingType encodingType;
-
-    /** How the message bodies are decoded; exactly one of this and {@code encodingType}. */
+    /** How the message bodies are decoded. */
     private DecodingConfig decoding;
 
     /** Where to start when a partition has no persisted checkpoint. */

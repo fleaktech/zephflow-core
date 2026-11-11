@@ -15,127 +15,29 @@ package io.fleak.zephflow.lib.commands.s3realtimesource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
-import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.XmlFormatConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 
 class S3DecodingTest {
-
-  static Stream<Arguments> legacyMapping() {
-    return Stream.of(
-        Arguments.of(EncodingType.JSON_OBJECT, new JsonFormatConfig(JsonFormatConfig.Mode.OBJECT)),
-        Arguments.of(EncodingType.JSON_ARRAY, new JsonFormatConfig(JsonFormatConfig.Mode.ARRAY)),
-        Arguments.of(
-            EncodingType.JSON_OBJECT_LINE, new JsonFormatConfig(JsonFormatConfig.Mode.LINES)),
-        Arguments.of(
-            EncodingType.STRING_LINE, new TextFormatConfig(null, new FramingConfig.Line(false))),
-        Arguments.of(EncodingType.TEXT, new TextFormatConfig(null, new FramingConfig.Whole())),
-        Arguments.of(
-            EncodingType.CSV,
-            new CsvFormatConfig(null, null, null, null, null, null, null, true, null)),
-        Arguments.of(EncodingType.XML, new XmlFormatConfig(XmlFormatConfig.Mode.DOCUMENT, null)));
-  }
-
-  @ParameterizedTest
-  @MethodSource("legacyMapping")
-  void legacyEncodingsMapToTheirFormatWithAutoGzipDetection(
-      EncodingType encodingType, FormatConfig format) {
-    assertEquals(
-        new DecodingConfig(List.of(DecompressionCodec.AUTO), format),
-        new S3Decoding(encodingType, null, null, false).decodingConfig());
-  }
-
-  @Test
-  void forcedGzipMapsToGzip() {
-    assertEquals(
-        new DecodingConfig(
-            List.of(DecompressionCodec.GZIP), new JsonFormatConfig(JsonFormatConfig.Mode.LINES)),
-        new S3Decoding(EncodingType.JSON_OBJECT_LINE, CompressionType.GZIP, null, false)
-            .decodingConfig());
-  }
 
   @Test
   void decodingIsUsedAsGiven() {
     DecodingConfig decoding =
         new DecodingConfig(List.of(DecompressionCodec.ZSTD), new ParquetFormatConfig());
-    assertSame(decoding, new S3Decoding(null, null, decoding, true).decodingConfig());
+    assertSame(decoding, new S3Decoding(decoding, true).decodingConfig());
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     assertEquals(
-        "exactly one of encodingType and decoding must be set",
+        "decoding is required",
         assertThrows(
-                IllegalArgumentException.class,
-                () -> new S3Decoding(null, null, null, false).decodingConfig())
+                IllegalArgumentException.class, () -> new S3Decoding(null, false).decodingConfig())
             .getMessage());
-  }
-
-  @Test
-  void bothEncodingTypeAndDecodingAreRejected() {
-    DecodingConfig decoding =
-        new DecodingConfig(null, new JsonFormatConfig(JsonFormatConfig.Mode.LINES));
-    assertEquals(
-        "exactly one of encodingType and decoding must be set",
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new S3Decoding(EncodingType.CSV, null, decoding, false).decodingConfig())
-            .getMessage());
-  }
-
-  @Test
-  void compressionTypeWithDecodingIsRejected() {
-    DecodingConfig decoding =
-        new DecodingConfig(null, new JsonFormatConfig(JsonFormatConfig.Mode.LINES));
-    assertEquals(
-        "compressionType is only allowed with encodingType; decoding carries its own compression",
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new S3Decoding(null, CompressionType.GZIP, decoding, false).decodingConfig())
-            .getMessage());
-  }
-
-  @Test
-  void parquetEncodingTypeIsRejected() {
-    String prefix = "Unsupported deserialization encoding type: PARQUET. Supported types: ";
-    String message =
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new S3Decoding(EncodingType.PARQUET, null, null, false).decodingConfig())
-            .getMessage();
-
-    String supported = message.substring(prefix.length());
-    assertEquals(
-        List.of(
-            prefix,
-            Set.of(
-                "CSV",
-                "JSON_OBJECT",
-                "JSON_ARRAY",
-                "JSON_OBJECT_LINE",
-                "STRING_LINE",
-                "TEXT",
-                "XML")),
-        List.of(
-            message.substring(0, prefix.length()),
-            Set.copyOf(Arrays.asList(supported.substring(1, supported.length() - 1).split(", ")))));
   }
 
   @Test
@@ -148,8 +50,6 @@ class S3DecodingTest {
             .map(
                 type ->
                     new S3Decoding(
-                            null,
-                            null,
                             JsonUtils.fromJsonString(
                                 "{\"format\":{\"type\":\"" + type + "\"}}", DecodingConfig.class),
                             false)

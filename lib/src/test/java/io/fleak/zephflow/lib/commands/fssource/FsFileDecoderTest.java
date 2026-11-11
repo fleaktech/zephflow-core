@@ -75,8 +75,7 @@ class FsFileDecoderTest {
       long listedSize, String overCap, String detail) {
     FsFileDecoder decoder =
         new FsFileDecoder(
-            new SourceDecoding(
-                null, null, new DecodingConfig(List.of(), new ParquetFormatConfig())),
+            new SourceDecoding(new DecodingConfig(List.of(), new ParquetFormatConfig())),
             null,
             false,
             false,
@@ -166,8 +165,7 @@ class FsFileDecoderTest {
       boolean fileNameRegex, boolean exactObjectKey, String rename) {
     FsFileDecoder decoder =
         new FsFileDecoder(
-            new SourceDecoding(
-                null, null, new DecodingConfig(List.of(), new ParquetFormatConfig())),
+            new SourceDecoding(new DecodingConfig(List.of(), new ParquetFormatConfig())),
             null,
             fileNameRegex,
             exactObjectKey,

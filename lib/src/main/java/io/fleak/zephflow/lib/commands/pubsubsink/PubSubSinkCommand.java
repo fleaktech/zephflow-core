@@ -106,7 +106,7 @@ public class PubSubSinkCommand extends SimpleSinkCommand<PubSubOutboundMessage> 
         config.getEncoding() != null
             ? EncodingCompiler.recordEncoder(
                 config.getEncoding(), PubSubSinkConfigValidator.CAPABILITY)
-            : SinkEncoding.LEGACY_JSON_OBJECT;
+            : SinkEncoding.JSON_OBJECT;
     return new PubSubSinkMessageProcessor(encoder, orderingKeyExpression);
   }
 

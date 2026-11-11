@@ -36,13 +36,9 @@ import io.fleak.zephflow.lib.commands.sink.ParquetBlobFileWriter;
 import io.fleak.zephflow.lib.commands.sink.PassThroughMessagePreProcessor;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
-import io.fleak.zephflow.lib.commands.sink.TextBlobFileWriter;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.compression.NoopCompressor;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -140,11 +136,9 @@ class BatchS3FlusherTest {
   private BatchS3Flusher createFlusher(String keyName, int batchSize, long flushIntervalMs) {
     AwsClientFactory.S3TransferResources s3TransferResources = createS3TransferResources();
     BlobFileWriter<RecordFleakData> fileWriter =
-        new TextBlobFileWriter(
-            SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE)
-                .createSerializer(),
-            EncodingType.JSON_OBJECT_LINE,
-            new NoopCompressor());
+        EncodingCompiler.fileWriter(
+            encoding("[]", "{\"type\":\"json\",\"mode\":\"lines\"}"),
+            S3SinkConfigValidator.CAPABILITY);
 
     return new BatchS3Flusher(
         s3TransferResources,
@@ -190,11 +184,9 @@ class BatchS3FlusherTest {
             },
             Runnable::run);
     var fileWriter =
-        new TextBlobFileWriter(
-            SerializerFactory.createSerializerFactory(EncodingType.JSON_OBJECT_LINE)
-                .createSerializer(),
-            EncodingType.JSON_OBJECT_LINE,
-            new NoopCompressor());
+        EncodingCompiler.fileWriter(
+            encoding("[]", "{\"type\":\"json\",\"mode\":\"lines\"}"),
+            S3SinkConfigValidator.CAPABILITY);
     var sink =
         new BatchS3Flusher(
             new AwsClientFactory.S3TransferResources(client, manager),

@@ -23,8 +23,7 @@ import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData.NumberType;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
-import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvSerializerOptions;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -159,22 +158,6 @@ class SplunkHecSinkMessageProcessorTest {
   }
 
   @Test
-  void csvOptions_onlyForCsvEncoding() {
-    SplunkHecSinkDto.Config config =
-        SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
-    assertNull(SplunkHecSinkMessageProcessor.csvOptions(config));
-
-    config.setEncodingType("JSON_OBJECT");
-    config.setCsvColumns(List.of("a"));
-    assertNull(SplunkHecSinkMessageProcessor.csvOptions(config));
-
-    config.setEncodingType("CSV");
-    CsvSerializerOptions options = SplunkHecSinkMessageProcessor.csvOptions(config);
-    assertEquals(List.of("a"), options.columns());
-    assertFalse(options.includeHeader());
-  }
-
-  @Test
   void preprocess_kv_eventIsKeyValueLine() throws Exception {
     SplunkHecSinkMessageProcessor processor =
         kvProcessor(
@@ -195,24 +178,6 @@ class SplunkHecSinkMessageProcessorTest {
     assertThrows(IllegalArgumentException.class, () -> processor.preprocess(firewallRecord(), 0L));
   }
 
-  @Test
-  void kvOptions_onlyForKvEncoding() {
-    SplunkHecSinkDto.Config config =
-        SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
-    config.setKvFields(List.of("a"));
-    config.setKvPairDelimiter("=");
-    assertFalse(config.usesKvEncoding());
-    assertEquals(KvSerializerOptions.DEFAULT, config.kvOptions());
-
-    config.setEncodingType("KV");
-    config.setKvPairDelimiter("|");
-    config.setKvCleanFields(true);
-    KvSerializerOptions options = config.kvOptions();
-    assertEquals(List.of("a"), options.fields());
-    assertEquals("|", options.pairDelimiter());
-    assertTrue(options.cleanFields());
-  }
-
   private static String eventOf(SplunkHecSinkMessageProcessor processor, RecordFleakData record)
       throws Exception {
     return OBJECT_MAPPER
@@ -224,20 +189,19 @@ class SplunkHecSinkMessageProcessorTest {
   }
 
   @Test
-  void fromConfig_picksSerializerFromEncodingType() throws Exception {
+  void fromConfig_picksTheEncoder() throws Exception {
     SplunkHecSinkDto.Config config =
         SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
-    config.setCsvColumns(List.of("src_ip", "action"));
-    config.setKvFields(List.of("src_ip", "action"));
     RecordFleakData record = firewallRecord();
 
     assertTrue(eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record).startsWith("{"));
 
-    config.setEncodingType("CSV");
+    config.setEncoding(
+        format("{\"type\":\"csv\",\"header\":false,\"columns\":[\"src_ip\",\"action\"]}"));
     assertEquals(
         "\"1.2.3.4,allow\"", eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record));
 
-    config.setEncodingType("KV");
+    config.setEncoding(format("{\"type\":\"kv\",\"fields\":[\"src_ip\",\"action\"]}"));
     assertEquals(
         "\"src_ip=1.2.3.4 action=allow\"",
         eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record));
@@ -279,8 +243,11 @@ class SplunkHecSinkMessageProcessorTest {
             .index(index)
             .sourcetype(sourcetype)
             .source(source)
-            .encodingType("CSV")
-            .csvColumns(columns)
+            .encoding(
+                format(
+                    "{\"type\":\"csv\",\"header\":false,\"columns\":"
+                        + JsonUtils.toJsonString(columns)
+                        + "}"))
             .build();
     return SplunkHecSinkMessageProcessor.fromConfig(config);
   }
@@ -294,8 +261,7 @@ class SplunkHecSinkMessageProcessorTest {
             .index(index)
             .sourcetype(sourcetype)
             .source(source)
-            .encodingType("KV")
-            .kvFields(fields)
+            .encoding(format("{\"type\":\"kv\",\"fields\":" + JsonUtils.toJsonString(fields) + "}"))
             .build();
     return SplunkHecSinkMessageProcessor.fromConfig(config);
   }

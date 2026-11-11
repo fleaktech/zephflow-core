@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import lombok.*;
 
 public interface ElasticsearchSourceDto {
@@ -38,8 +37,5 @@ public interface ElasticsearchSourceDto {
     @Builder.Default private String scrollTimeout = DEFAULT_SCROLL_TIMEOUT;
 
     @Builder.Default private int batchSize = DEFAULT_BATCH_SIZE;
-
-    /** Ignored: every hit's {@code _source} becomes the record. Kept so existing configs parse. */
-    private EncodingType encodingType;
   }
 }

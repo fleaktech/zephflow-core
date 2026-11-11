@@ -52,7 +52,7 @@ public final class FsSourceConfigValidator implements ConfigValidator {
   }
 
   static SourceDecoding decoding(FsSourceDto.Config config) {
-    return new SourceDecoding(config.getEncodingType(), null, config.getDecoding());
+    return new SourceDecoding(config.getDecoding());
   }
 
   private static Long longValueOf(Integer value) {

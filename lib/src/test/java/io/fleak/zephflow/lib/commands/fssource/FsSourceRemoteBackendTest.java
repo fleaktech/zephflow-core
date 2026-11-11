@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FileEntry;
 import io.fleak.zephflow.lib.commands.fssource.api.FileKey;
 import io.fleak.zephflow.lib.commands.fssource.api.FileLister;
@@ -231,7 +232,9 @@ class FsSourceRemoteBackendTest {
   }
 
   private void run(long localSpoolMaxBytes) throws Exception {
-    run(localSpoolMaxBytes, Map.of("encodingType", "JSON_OBJECT_LINE"));
+    run(
+        localSpoolMaxBytes,
+        Map.of("decoding", Decodings.autoCompressionConfig(Decodings.JSON_LINES)));
   }
 
   private void run(Long localSpoolMaxBytes, Map<String, Object> format) throws Exception {
@@ -369,7 +372,7 @@ class FsSourceRemoteBackendTest {
   void localSpoolMaxBytesDefaultsToOneGib() throws Exception {
     file("f_1.jsonl", lines(1, 1));
 
-    run(null, Map.of("encodingType", "JSON_OBJECT_LINE"));
+    run(null, Map.of("decoding", Decodings.autoCompressionConfig(Decodings.JSON_LINES)));
 
     assertEquals(
         1L << 30, ((FsSourceExecutionContext) command.getExecutionContext()).localSpoolMaxBytes);

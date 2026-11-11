@@ -21,10 +21,8 @@ import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
-import io.fleak.zephflow.lib.serdes.SerializedEvent;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
+import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,8 +39,7 @@ class KafkaSinkFlusherTest {
 
   @Test
   void boundedLocalRejectionsAreDefiniteAndDoNotBecomeRemoteAttempts() throws Exception {
-    when(mockSerializer.serialize(anyList()))
-        .thenThrow(new IllegalArgumentException("invalid event"));
+    when(mockSerializer.encode(any())).thenThrow(new IllegalArgumentException("invalid event"));
     var result =
         flusher.flushBounded(createPreparedEvents(testEvents), Map.of(), boundedHooks(() -> {}));
     assertEquals(5, result.errorOutputList().size());
@@ -58,9 +55,7 @@ class KafkaSinkFlusherTest {
 
   @Test
   void boundedMixedLocalRejectionPreservesBrokerAcknowledgement() throws Exception {
-    when(mockSerializer.serialize(anyList()))
-        .thenReturn(new SerializedEvent(null, TEST_DATA, Map.of()))
-        .thenReturn(new SerializedEvent(null, null, Map.of()));
+    when(mockSerializer.encode(any())).thenReturn(TEST_DATA).thenReturn(null);
     when(mockProducer.send(any(ProducerRecord.class)))
         .thenReturn(
             java.util.concurrent.CompletableFuture.completedFuture(mock(RecordMetadata.class)));
@@ -157,7 +152,7 @@ class KafkaSinkFlusherTest {
   }
 
   @Mock private KafkaProducer<byte[], byte[]> mockProducer;
-  @Mock private FleakSerializer<Object> mockSerializer;
+  @Mock private RecordEncoder mockSerializer;
   @Mock private FleakCounter mockDeliveredCountCounter;
   @Mock private FleakCounter mockDeliveredSizeCounter;
   @Mock private FleakCounter mockAsyncErrorCounter;
@@ -177,8 +172,7 @@ class KafkaSinkFlusherTest {
       testEvents.add((RecordFleakData) FleakData.wrap(Map.of("id", i, "message", "test-" + i)));
     }
 
-    when(mockSerializer.serialize(anyList()))
-        .thenReturn(new SerializedEvent(null, TEST_DATA, Map.of()));
+    when(mockSerializer.encode(any())).thenReturn(TEST_DATA);
 
     doAnswer(
             invocation -> {
@@ -193,7 +187,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(mockSerializer),
+            mockSerializer,
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -221,10 +215,10 @@ class KafkaSinkFlusherTest {
   @Test
   void testMixedErrors_SuccessCountExcludesSyncFailures() throws Exception {
     // First and third calls succeed, second fails with serialization error
-    when(mockSerializer.serialize(anyList()))
-        .thenReturn(new SerializedEvent(null, TEST_DATA, Map.of()))
+    when(mockSerializer.encode(any()))
+        .thenReturn(TEST_DATA)
         .thenThrow(new RuntimeException("Serialization error"))
-        .thenReturn(new SerializedEvent(null, TEST_DATA, Map.of()));
+        .thenReturn(TEST_DATA);
 
     SimpleSinkCommand.PreparedInputEvents<RecordFleakData> preparedEvents =
         createPreparedEvents(testEvents.subList(0, 3));
@@ -241,15 +235,14 @@ class KafkaSinkFlusherTest {
 
   @Test
   void testErrorHandling_SerializationFailure() throws Exception {
-    FleakSerializer<Object> failingSerializer = mock(FleakSerializer.class);
-    when(failingSerializer.serialize(anyList()))
-        .thenThrow(new RuntimeException("Serialization error"));
+    RecordEncoder failingSerializer = mock(RecordEncoder.class);
+    when(failingSerializer.encode(any())).thenThrow(new RuntimeException("Serialization error"));
 
     KafkaSinkFlusher failingFlusher =
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(failingSerializer),
+            failingSerializer,
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -335,7 +328,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(mockSerializer),
+            mockSerializer,
             keyExpression,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -416,15 +409,14 @@ class KafkaSinkFlusherTest {
 
   @Test
   void testNullValueSerialization() throws Exception {
-    FleakSerializer<Object> nullValueSerializer = mock(FleakSerializer.class);
-    when(nullValueSerializer.serialize(anyList()))
-        .thenReturn(new SerializedEvent(null, null, Map.of()));
+    RecordEncoder nullValueSerializer = mock(RecordEncoder.class);
+    when(nullValueSerializer.encode(any())).thenReturn(null);
 
     KafkaSinkFlusher nullValueFlusher =
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(nullValueSerializer),
+            nullValueSerializer,
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -454,7 +446,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(mockSerializer),
+            mockSerializer,
             nullKeyExpression,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -484,7 +476,7 @@ class KafkaSinkFlusherTest {
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(mockSerializer),
+            mockSerializer,
             errorKeyExpression,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,
@@ -515,14 +507,13 @@ class KafkaSinkFlusherTest {
 
   @Test
   void testEmptySerializedRecord_IsReportedNotDropped() throws Exception {
-    FleakSerializer<Object> emptySerializer = mock(FleakSerializer.class);
-    when(emptySerializer.serialize(anyList()))
-        .thenReturn(new SerializedEvent(null, new byte[0], Map.of()));
+    RecordEncoder emptySerializer = mock(RecordEncoder.class);
+    when(emptySerializer.encode(any())).thenReturn(new byte[0]);
     KafkaSinkFlusher emptyFlusher =
         new KafkaSinkFlusher(
             mockProducer,
             topic,
-            SinkEncoding.fromSerializer(emptySerializer),
+            emptySerializer,
             null,
             mockDeliveredCountCounter,
             mockDeliveredSizeCounter,

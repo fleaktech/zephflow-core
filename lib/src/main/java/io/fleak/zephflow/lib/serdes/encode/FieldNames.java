@@ -11,9 +11,22 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.serdes;
+package io.fleak.zephflow.lib.serdes.encode;
 
-import java.util.Map;
+import java.util.regex.Pattern;
 
-/** Created by bolei on 9/16/24 */
-public record TypedEventContainer<T>(T payload, Map<String, String> metadataWithKey) {}
+public final class FieldNames {
+
+  private static final Pattern FORMAT_CHARS = Pattern.compile("\\p{Cf}");
+  private static final Pattern EDGE_WHITESPACE = Pattern.compile("^[\\s\\p{Z}]+|[\\s\\p{Z}]+$");
+
+  private FieldNames() {}
+
+  public static String normalize(String name) {
+    if (name == null) {
+      return "";
+    }
+    String visible = FORMAT_CHARS.matcher(name).replaceAll("");
+    return EDGE_WHITESPACE.matcher(visible).replaceAll("");
+  }
+}

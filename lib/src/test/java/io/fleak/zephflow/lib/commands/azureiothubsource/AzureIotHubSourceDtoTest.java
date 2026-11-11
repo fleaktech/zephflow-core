@@ -15,7 +15,7 @@ package io.fleak.zephflow.lib.commands.azureiothubsource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import org.junit.jupiter.api.Test;
 
 class AzureIotHubSourceDtoTest {
@@ -28,7 +28,7 @@ class AzureIotHubSourceDtoTest {
             .eventHubName("hub")
             .checkpointStorageConnectionString("UseDevelopmentStorage=true")
             .checkpointContainerName("checkpoints")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     assertEquals("$Default", config.getConsumerGroup());

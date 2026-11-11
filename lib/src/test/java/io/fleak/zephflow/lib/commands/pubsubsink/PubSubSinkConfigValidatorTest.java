@@ -19,8 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
-import io.fleak.zephflow.lib.serdes.EncodingType;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -49,7 +48,7 @@ class PubSubSinkConfigValidatorTest {
         PubSubSinkDto.Config.builder()
             .projectId("p")
             .topic("t")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .credentialId("example-credential-id")
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -60,44 +59,10 @@ class PubSubSinkConfigValidatorTest {
     PubSubSinkConfigValidator validator = new PubSubSinkConfigValidator();
     PubSubSinkDto.Config config = new PubSubSinkDto.Config();
     config.setTopic("");
-    config.setEncodingType(EncodingType.JSON_OBJECT.name());
+    config.setEncoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_blankEncoding() {
-    PubSubSinkConfigValidator validator = new PubSubSinkConfigValidator();
-    PubSubSinkDto.Config config = new PubSubSinkDto.Config();
-    config.setTopic("t");
-    config.setEncodingType("");
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_unsupportedEncoding() {
-    PubSubSinkConfigValidator validator = new PubSubSinkConfigValidator();
-    PubSubSinkDto.Config config =
-        PubSubSinkDto.Config.builder()
-            .topic("t")
-            .encodingType(EncodingType.STRING_LINE.name())
-            .build();
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_allSupportedEncodings() {
-    PubSubSinkConfigValidator validator = new PubSubSinkConfigValidator();
-    for (EncodingType type : SerializerFactory.SUPPORTED_ENCODING_TYPES) {
-      PubSubSinkDto.Config config =
-          PubSubSinkDto.Config.builder().topic("t").encodingType(type.name()).build();
-      assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-    }
   }
 
   @Test
@@ -106,7 +71,7 @@ class PubSubSinkConfigValidatorTest {
     PubSubSinkDto.Config config =
         PubSubSinkDto.Config.builder()
             .topic("t")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .batchSize(1001)
             .build();
     assertThrows(
@@ -120,7 +85,7 @@ class PubSubSinkConfigValidatorTest {
     PubSubSinkDto.Config config =
         PubSubSinkDto.Config.builder()
             .topic("t")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .batchSize(0)
             .build();
     assertThrows(
@@ -134,7 +99,7 @@ class PubSubSinkConfigValidatorTest {
     PubSubSinkDto.Config config =
         PubSubSinkDto.Config.builder()
             .topic("t")
-            .encodingType(EncodingType.JSON_OBJECT.name())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .orderingKeyExpression("not a valid expression")
             .build();
     assertThrows(
@@ -150,17 +115,6 @@ class PubSubSinkConfigValidatorTest {
             .build();
     assertDoesNotThrow(
         () -> new PubSubSinkConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_encodingWithEncodingType() {
-    PubSubSinkDto.Config config =
-        PubSubSinkDto.Config.builder()
-            .topic("t")
-            .encodingType(EncodingType.JSON_OBJECT.name())
-            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
-            .build();
-    assertEquals("pubsubsink: encoding cannot be combined with encodingType", refusal(config));
   }
 
   @Test
@@ -181,7 +135,7 @@ class PubSubSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_neitherEncodingNorEncodingType() {
+  void validateConfig_withoutEncoding() {
     assertDoesNotThrow(
         () ->
             new PubSubSinkConfigValidator()

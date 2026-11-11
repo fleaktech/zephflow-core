@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.credentials.GcpCredential;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -52,7 +52,7 @@ class PubSubSourceConfigValidatorTest {
         PubSubSourceDto.Config.builder()
             .projectId("p")
             .subscription("my-sub")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .credentialId("example-credential-id")
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -63,7 +63,7 @@ class PubSubSourceConfigValidatorTest {
     PubSubSourceConfigValidator validator = new PubSubSourceConfigValidator();
     PubSubSourceDto.Config config = new PubSubSourceDto.Config();
     config.setSubscription("");
-    config.setEncodingType(EncodingType.JSON_OBJECT);
+    config.setDecoding(Decodings.uncompressed(Decodings.JSON_OBJECT));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -75,7 +75,7 @@ class PubSubSourceConfigValidatorTest {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .subscription("s")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .maxMessages(1001)
             .build();
     assertThrows(
@@ -89,7 +89,7 @@ class PubSubSourceConfigValidatorTest {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .subscription("s")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .maxMessages(0)
             .build();
     assertThrows(
@@ -103,7 +103,7 @@ class PubSubSourceConfigValidatorTest {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .subscription("s")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .ackDeadlineExtensionSeconds(-1)
             .build();
     assertThrows(
@@ -117,7 +117,7 @@ class PubSubSourceConfigValidatorTest {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .subscription("s")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .ackDeadlineExtensionSeconds(601)
             .build();
     assertThrows(
@@ -131,7 +131,7 @@ class PubSubSourceConfigValidatorTest {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .subscription("s")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .maxMessages(1000)
             .ackDeadlineExtensionSeconds(0)
             .build();
@@ -139,15 +139,15 @@ class PubSubSourceConfigValidatorTest {
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     assertEquals(
-        "exactly one of encodingType and decoding must be set",
+        "decoding is required",
         decodingRejection(
             PubSubSourceDto.Config.builder().projectId("p").subscription("my-sub").build()));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     PubSubSourceDto.Config config =
         PubSubSourceDto.Config.builder()
             .projectId("p")
@@ -160,19 +160,6 @@ class PubSubSourceConfigValidatorTest {
 
     assertDoesNotThrow(
         () -> new PubSubSourceConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    PubSubSourceDto.Config config =
-        PubSubSourceDto.Config.builder()
-            .projectId("p")
-            .subscription("my-sub")
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
   }
 
   @Test

@@ -22,8 +22,8 @@ import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.OperatorCommandRegistry;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 
 /** Created by bolei on 12/20/24 */
 class StdInSourceCommandTest {
@@ -37,7 +37,9 @@ class StdInSourceCommandTest {
                 .createCommand("my_node", JOB_CONTEXT);
     command.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(
-            StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(),
+            StdInSourceDto.Config.builder()
+                .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
+                .build(),
             new TypeReference<>() {}));
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
     command.execute("my_user", eventConsumer);

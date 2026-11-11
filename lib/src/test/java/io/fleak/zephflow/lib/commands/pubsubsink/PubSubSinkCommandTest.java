@@ -38,7 +38,7 @@ import org.mockito.ArgumentCaptor;
 class PubSubSinkCommandTest {
 
   @Test
-  void noFormatKey_publishesTheSameJsonObjectAsEncodingTypeAndEncoding() throws Exception {
+  void noFormatKey_publishesTheSameJsonObjectAsAJsonObjectEncoding() throws Exception {
     RecordFleakData record =
         new RecordFleakData(
             Map.of(
@@ -53,7 +53,6 @@ class PubSubSinkCommandTest {
             .build();
 
     assertEquals(expected, publishedRequest(Map.of(), record));
-    assertEquals(expected, publishedRequest(Map.of("encodingType", "JSON_OBJECT"), record));
     assertEquals(
         expected,
         publishedRequest(

@@ -20,10 +20,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.structure.FleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.MessageDecodingConverter;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.time.Duration;
 import java.util.*;
@@ -110,7 +110,9 @@ class KafkaSourceFetcherTest {
     MessageDecodingConverter converter =
         new MessageDecodingConverter(
             KafkaSourceCommand.decodingConfig(
-                KafkaSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build()),
+                KafkaSourceDto.Config.builder()
+                    .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
+                    .build()),
             MessageDecodingConverter.Unit.MESSAGE);
 
     SourceExecutionContext<SerializedEvent> sourceInitializedConfig = mock();

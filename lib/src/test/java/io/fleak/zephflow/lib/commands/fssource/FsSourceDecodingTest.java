@@ -28,11 +28,13 @@ import io.fleak.zephflow.api.metric.FleakGauge;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.filedecode.UnitRun;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -67,7 +69,7 @@ class FsSourceDecodingTest {
           + " older than the files already read, if the regex has one); a name already read is not"
           + " read again";
   private static final String RECORD_ACTION =
-      "Action: fix this record where it is written, or the source's encodingType or decoding if"
+      "Action: fix this record where it is written, or the source's decoding if"
           + " every record fails like this; the value is the record's bytes";
   private static final String RECORD_LIMIT_FROM_SETTING =
       "Action: this source sets maxRecordBytes to maxFileBytes, so raise maxFileBytes (and the"
@@ -103,7 +105,7 @@ class FsSourceDecodingTest {
 
   @Test
   void aBadLineIsARecordEntryWithItsBytesAndFileRelativeIndex() throws Exception {
-    run(file("a.jsonl", "{\"a\":1}\n{\"a\":\n{\"a\":3}\n"), "JSON_OBJECT_LINE", Map.of(), true);
+    run(file("a.jsonl", "{\"a\":1}\n{\"a\":\n{\"a\":3}\n"), Decodings.JSON_LINES, Map.of(), true);
 
     assertEquals(
         List.of(
@@ -120,10 +122,14 @@ class FsSourceDecodingTest {
 
   @Test
   void aSmallBadDocumentKeepsItsBytesAndALargeOneIsSummarized() throws Exception {
-    run(file("small.json", "{\"a\":"), "JSON_OBJECT", Map.of(), true);
+    run(file("small.json", "{\"a\":"), Decodings.JSON_OBJECT, Map.of(), true);
     Files.delete(root.resolve("small.json"));
     command = null;
-    run(file("large.json", "{\"a\":\"" + "x".repeat(140_000)), "JSON_OBJECT", Map.of(), true);
+    run(
+        file("large.json", "{\"a\":\"" + "x".repeat(140_000)),
+        Decodings.JSON_OBJECT,
+        Map.of(),
+        true);
 
     assertEquals(
         List.of(
@@ -138,7 +144,7 @@ class FsSourceDecodingTest {
                 "",
                 Map.of(METADATA_FS_SOURCE_URN, urn("large.json")),
                 "MALFORMED json file: JsonEOFException",
-                "Action: check that the file is json as the source's encodingType or decoding says,"
+                "Action: check that the file is json as the source's decoding says,"
                     + " or fix the listed records where the file is written; "
                     + RENAME,
                 "file "
@@ -150,10 +156,10 @@ class FsSourceDecodingTest {
 
   @Test
   void aSmallBadXmlDocumentKeepsItsBytesAndALargeOneIsSummarized() throws Exception {
-    run(file("small.xml", "<root><a>1</a>"), "XML", Map.of(), true);
+    run(file("small.xml", "<root><a>1</a>"), Decodings.XML, Map.of(), true);
     Files.delete(root.resolve("small.xml"));
     command = null;
-    run(file("large.xml", "<root><a>" + "x".repeat(140_000)), "XML", Map.of(), true);
+    run(file("large.xml", "<root><a>" + "x".repeat(140_000)), Decodings.XML, Map.of(), true);
 
     assertEquals(
         List.of(
@@ -171,7 +177,7 @@ class FsSourceDecodingTest {
   void anOversizedLineIsSummarizedWithTheSettingToRaiseAndTheRestIsRead() throws Exception {
     run(
         file("f_1.jsonl", "{\"a\":1}\n{\"a\":\"" + "x".repeat(200) + "\"}\n{\"a\":3}\n"),
-        "JSON_OBJECT_LINE",
+        Decodings.JSON_LINES,
         Map.of("maxFileBytes", 64L, "fileNameRegex", "f_(?<ts>\\d+)\\.jsonl"),
         true);
 
@@ -192,7 +198,7 @@ class FsSourceDecodingTest {
   void withoutMaxFileBytesTheActionAsksForMoreHeap() throws Exception {
     run(
         file("a.jsonl", "{\"a\":\"" + "x".repeat(2000) + "\"}\n"),
-        "JSON_OBJECT_LINE",
+        Decodings.JSON_LINES,
         Map.of(),
         true,
         128 * 1024);
@@ -210,12 +216,12 @@ class FsSourceDecodingTest {
 
   @Test
   void csvHeaderAndOpenQuoteFailuresEndTheFileWithASummary() throws Exception {
-    run(file("dup.csv", "id,id\n1,2\n"), "CSV", Map.of(), true);
+    run(file("dup.csv", "id,id\n1,2\n"), Decodings.CSV, Map.of(), true);
     Files.delete(root.resolve("dup.csv"));
     command = null;
     run(
         file("open.csv", "id,name\n1,x\n2,\"open" + "y".repeat(200)),
-        "CSV",
+        Decodings.CSV,
         Map.of("maxFileBytes", 64L),
         true);
 
@@ -225,7 +231,7 @@ class FsSourceDecodingTest {
                 "",
                 Map.of(METADATA_FS_SOURCE_URN, urn("dup.csv")),
                 "MALFORMED csv file: MalformedCsvException",
-                "Action: check that the file is csv as the source's encodingType or decoding says,"
+                "Action: check that the file is csv as the source's decoding says,"
                     + " or fix the listed records where the file is written; "
                     + RENAME,
                 "file " + urn("dup.csv") + "; 1 outcome; the header; the file ended",
@@ -246,7 +252,7 @@ class FsSourceDecodingTest {
   void anOversizedJsonArrayElementEndsTheFileAfterTheElementsBeforeIt() throws Exception {
     run(
         file("a.json", "[{\"a\":1},{\"long\":\"" + "x".repeat(200_000) + "\"},{\"a\":3}]"),
-        "JSON_ARRAY",
+        Decodings.JSON_ARRAY,
         Map.of("maxFileBytes", 1000L),
         true);
 
@@ -293,7 +299,7 @@ class FsSourceDecodingTest {
       try (BoundedLogCapture logs = new BoundedLogCapture(FsFileDecoder.class)) {
         assertThrows(
             IllegalStateException.class,
-            () -> run(file, "JSON_OBJECT_LINE", Map.of("maxFileBytes", 100L), true));
+            () -> run(file, Decodings.JSON_LINES, Map.of("maxFileBytes", 100L), true));
 
         assertEquals(
             List.of(
@@ -303,9 +309,9 @@ class FsSourceDecodingTest {
                         + urn("a.jsonl.gz")
                         + " due to a read failure; it is read again on every run until it is fixed."
                         + " Check whether the file was still being written when it was listed, the"
-                        + " compression setting (decoding.compression, or gzip detected"
-                        + " automatically for encodingType), and whether its compressed data is"
-                        + " damaged or has bytes after its end, in which case rewrite the file")),
+                        + " compression setting (decoding.compression), and whether its compressed"
+                        + " data is damaged or has bytes after its end, in which case rewrite the"
+                        + " file")),
             List.of(
                 logs.events().stream().map(LogEvent::getLevel).toList(),
                 logs.events().stream().map(e -> e.getMessage().getFormattedMessage()).toList()));
@@ -337,10 +343,14 @@ class FsSourceDecodingTest {
     command = new FsSourceCommand("source", JobContext.builder().build());
     command.parseAndValidateArg(
         Map.of(
-            "backend", "file",
-            "root", root.toUri().toString(),
-            "fileNameRegex", "f_(?<ts>\\d+)\\.jsonl",
-            "encodingType", "JSON_OBJECT_LINE"));
+            "backend",
+            "file",
+            "root",
+            root.toUri().toString(),
+            "fileNameRegex",
+            "f_(?<ts>\\d+)\\.jsonl",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES)));
     command.initialize(new RecordingMetricClientProvider());
 
     command.execute(
@@ -368,7 +378,7 @@ class FsSourceDecodingTest {
     Path file = file("a.jsonl", "{\"a\":1}\n");
 
     try (BoundedLogCapture logs = new BoundedLogCapture(FsFileAccess.class)) {
-      run(file, "JSON_OBJECT_LINE", Map.of(), true);
+      run(file, Decodings.JSON_LINES, Map.of(), true);
 
       assertEquals(
           List.of("fs_source reading urn=" + urn("a.jsonl") + " listedSizeBytes=8 in place"),
@@ -384,8 +394,8 @@ class FsSourceDecodingTest {
     Path file = file("a.jsonl", "{bad\n{bad\n{\"x\":\"" + "y".repeat(200) + "\"}\n{\"a\":1}\n");
 
     try (BoundedLogCapture logs = new BoundedLogCapture(UnitRun.class)) {
-      run(file, "JSON_OBJECT_LINE", Map.of("maxFileBytes", 100L), false);
-      run(file, "JSON_OBJECT_LINE", Map.of("maxFileBytes", 100L), false);
+      run(file, Decodings.JSON_LINES, Map.of("maxFileBytes", 100L), false);
+      run(file, Decodings.JSON_LINES, Map.of("maxFileBytes", 100L), false);
 
       assertEquals(
           List.of(
@@ -405,20 +415,20 @@ class FsSourceDecodingTest {
     assertEquals(List.of(1), batches);
   }
 
-  private void run(Path file, String encodingType, Map<String, Object> extra, boolean withDlq)
+  private void run(Path file, FormatConfig format, Map<String, Object> extra, boolean withDlq)
       throws Exception {
-    run(file, encodingType, extra, withDlq, 0);
+    run(file, format, extra, withDlq, 0);
   }
 
   /** Runs the source over {@code root}; one command per test unless it is reset to null. */
   private void run(
-      Path file, String encodingType, Map<String, Object> extra, boolean withDlq, long heapBytes)
+      Path file, FormatConfig format, Map<String, Object> extra, boolean withDlq, long heapBytes)
       throws Exception {
     if (command == null) {
       Map<String, Object> config = new HashMap<>(extra);
       config.put("backend", "file");
       config.put("root", root.toUri().toString());
-      config.put("encodingType", encodingType);
+      config.put("decoding", Decodings.autoCompressionConfig(format));
       command = new FsSourceCommand("source", JobContext.builder().build());
       command.parseAndValidateArg(config);
       command.initialize(new RecordingMetricClientProvider());

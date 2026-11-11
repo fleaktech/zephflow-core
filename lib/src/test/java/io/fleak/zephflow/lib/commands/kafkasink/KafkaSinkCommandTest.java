@@ -21,7 +21,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -114,7 +114,7 @@ class KafkaSinkCommandTest {
         KafkaSinkDto.Config.builder()
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
@@ -156,7 +156,7 @@ class KafkaSinkCommandTest {
         KafkaSinkDto.Config.builder()
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
@@ -214,9 +214,10 @@ class KafkaSinkCommandTest {
         KafkaSinkDto.Config.builder()
             .topic(topic)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
-            .encodingType(EncodingType.KV.toString())
-            .kvFields(List.of("user", "action", "missing"))
-            .kvPairDelimiter(", ")
+            .encoding(
+                EncodeTestSupport.format(
+                    "{\"type\":\"kv\",\"fields\":[\"user\",\"action\",\"missing\"],"
+                        + "\"pairDelimiter\":\", \"}"))
             .build();
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 

@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -44,7 +44,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("tcp://localhost:61616")
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-queue")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
@@ -58,7 +58,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-topic")
             .destinationType(ActiveMqSourceDto.DestinationType.TOPIC)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .clientId("my-client")
             .subscriptionName("my-sub")
             .build();
@@ -73,7 +73,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("")
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-queue")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     IllegalArgumentException ex =
@@ -90,7 +90,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("tcp://localhost:61616")
             .brokerType(null)
             .destination("test-queue")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     NullPointerException ex =
@@ -107,7 +107,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("tcp://localhost:61616")
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     IllegalArgumentException ex =
@@ -125,7 +125,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-topic")
             .destinationType(ActiveMqSourceDto.DestinationType.TOPIC)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .subscriptionName("my-sub")
             .build();
 
@@ -144,7 +144,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-topic")
             .destinationType(ActiveMqSourceDto.DestinationType.TOPIC)
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .clientId("my-client")
             .build();
 
@@ -162,7 +162,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("tcp://localhost:61616")
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-queue")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .commitStrategy(ActiveMqSourceDto.CommitStrategyType.BATCH)
             .commitBatchSize(0)
             .build();
@@ -181,7 +181,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("tcp://localhost:61616")
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-queue")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .commitStrategy(ActiveMqSourceDto.CommitStrategyType.BATCH)
             .commitIntervalMs(-1L)
             .build();
@@ -200,7 +200,7 @@ class ActiveMqSourceConfigValidatorTest {
             .brokerUrl("tcp://localhost:61616")
             .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
             .destination("test-queue")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .commitStrategy(ActiveMqSourceDto.CommitStrategyType.PER_RECORD)
             .commitBatchSize(-1)
             .commitIntervalMs(-1L)
@@ -210,31 +210,14 @@ class ActiveMqSourceConfigValidatorTest {
   }
 
   @Test
-  void testUnsupportedEncodingType() {
-    ActiveMqSourceDto.Config config =
-        ActiveMqSourceDto.Config.builder()
-            .brokerUrl("tcp://localhost:61616")
-            .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
-            .destination("test-queue")
-            .encodingType(EncodingType.PARQUET)
-            .build();
-
-    IllegalArgumentException ex =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", mockJobContext));
-    assertTrue(ex.getMessage().contains("Unsupported deserialization encoding type"));
-  }
-
-  @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     ActiveMqSourceDto.Config config = decodingBase().build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+    assertEquals("decoding is required", decodingRejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     ActiveMqSourceDto.Config config =
         decodingBase()
             .decoding(
@@ -244,17 +227,6 @@ class ActiveMqSourceConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    ActiveMqSourceDto.Config config =
-        decodingBase()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
   }
 
   @Test

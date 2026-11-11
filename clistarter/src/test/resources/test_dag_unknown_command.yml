@@ -7,7 +7,11 @@ dag:
   - id: "a"
     commandName: "stdin"
     config:
-      "encodingType": "JSON_ARRAY"
+      decoding:
+        compression: []
+        format:
+          type: "json"
+          mode: "array"
     outputs:
       - "b"
 

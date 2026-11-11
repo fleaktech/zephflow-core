@@ -20,7 +20,6 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_INDEX;
 import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_SOURCE;
 import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_SOURCETYPE;
 import static io.fleak.zephflow.lib.utils.MiscUtils.FIELD_NAME_TS;
-import static io.fleak.zephflow.lib.utils.MiscUtils.parseEnum;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.api.structure.FleakData;
@@ -28,17 +27,11 @@ import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.TextFormatConfig;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
-import io.fleak.zephflow.lib.serdes.ser.SerializerFactory;
-import io.fleak.zephflow.lib.serdes.ser.csv.CsvSerializerOptions;
-import io.fleak.zephflow.lib.serdes.ser.kv.KvTypedSerializer;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -79,7 +72,7 @@ public class SplunkHecSinkMessageProcessor
 
   static SplunkHecSinkMessageProcessor fromConfig(SplunkHecSinkDto.Config config) {
     LineEncoder lineEncoder =
-        config.getEncoding() != null ? lineEncoder(config.getEncoding()) : lineEncoder(config);
+        config.getEncoding() != null ? lineEncoder(config.getEncoding()) : null;
     return new SplunkHecSinkMessageProcessor(
         config.getIndex(), config.getSourcetype(), config.getSource(), lineEncoder);
   }
@@ -95,37 +88,9 @@ public class SplunkHecSinkMessageProcessor
     };
   }
 
-  private static LineEncoder lineEncoder(SplunkHecSinkDto.Config config) {
-    EncodingType encodingType = encodingType(config);
-    if (encodingType == EncodingType.KV) {
-      KvTypedSerializer kvSerializer = new KvTypedSerializer(config.kvOptions());
-      return event -> kvSerializer.toLine(event.unwrap());
-    }
-    if (encodingType == EncodingType.CSV) {
-      FleakSerializer<?> csvSerializer =
-          SerializerFactory.createSerializerFactory(EncodingType.CSV, csvOptions(config))
-              .createSerializer();
-      return line(SinkEncoding.fromSerializer(csvSerializer));
-    }
-    return null;
-  }
-
   private static LineEncoder line(RecordEncoder encoder) {
     return event ->
         StringUtils.removeEnd(new String(encoder.encode(event), StandardCharsets.UTF_8), "\r\n");
-  }
-
-  static CsvSerializerOptions csvOptions(SplunkHecSinkDto.Config config) {
-    if (encodingType(config) != EncodingType.CSV) {
-      return null;
-    }
-    return new CsvSerializerOptions(config.getCsvColumns(), false);
-  }
-
-  private static EncodingType encodingType(SplunkHecSinkDto.Config config) {
-    return StringUtils.isBlank(config.getEncodingType())
-        ? null
-        : parseEnum(EncodingType.class, config.getEncodingType());
   }
 
   @Override

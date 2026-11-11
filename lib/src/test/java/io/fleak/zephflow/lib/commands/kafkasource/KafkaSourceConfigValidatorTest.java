@@ -17,12 +17,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.ParquetFormatConfig;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,7 +46,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .build();
 
     // Should not throw any exception
@@ -58,7 +60,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.BATCH)
             .commitBatchSize(2000)
             .commitIntervalMs(10000L)
@@ -74,7 +76,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .build();
 
     IllegalArgumentException exception =
@@ -91,7 +93,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .build();
 
     IllegalArgumentException exception =
@@ -108,7 +110,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .build();
 
     IllegalArgumentException exception =
@@ -119,14 +121,14 @@ class KafkaSourceConfigValidatorTest {
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     KafkaSourceDto.Config config = baseConfig().build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", rejection(config));
+    assertEquals("decoding is required", rejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     KafkaSourceDto.Config config =
         baseConfig()
             .decoding(
@@ -136,17 +138,6 @@ class KafkaSourceConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    KafkaSourceDto.Config config =
-        baseConfig()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", rejection(config));
   }
 
   @Test
@@ -160,6 +151,23 @@ class KafkaSourceConfigValidatorTest {
     assertEquals(
         "parquet cannot be combined with compression; its pages carry their own",
         rejection(config));
+  }
+
+  @Test
+  void encodingTypeIsAParseErrorNamingTheField() {
+    Map<String, Object> config =
+        Map.of(
+            "broker", "localhost:9092",
+            "topic", "test-topic",
+            "groupId", "test-group",
+            "encodingType", "JSON_OBJECT");
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new JsonConfigParser<>(KafkaSourceDto.Config.class).parseConfig(config));
+
+    assertTrue(e.getMessage().startsWith("Unrecognized field \"encodingType\""), e.getMessage());
   }
 
   private static KafkaSourceDto.Config.ConfigBuilder baseConfig() {
@@ -183,7 +191,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.BATCH)
             .commitBatchSize(0)
             .build();
@@ -202,7 +210,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.BATCH)
             .commitBatchSize(-100)
             .build();
@@ -221,7 +229,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.BATCH)
             .commitIntervalMs(0L)
             .build();
@@ -240,7 +248,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.BATCH)
             .commitIntervalMs(-1000L)
             .build();
@@ -260,7 +268,7 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.PER_RECORD)
             .commitBatchSize(-1) // This should be ignored for PER_RECORD strategy
             .commitIntervalMs(-1L) // This should be ignored for PER_RECORD strategy
@@ -277,52 +285,12 @@ class KafkaSourceConfigValidatorTest {
             .broker("localhost:9092")
             .topic("test-topic")
             .groupId("test-group")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
             .commitStrategy(KafkaSourceDto.CommitStrategyType.NONE)
             .commitBatchSize(-1) // This should be ignored for NONE strategy
             .commitIntervalMs(-1L) // This should be ignored for NONE strategy
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
-  }
-
-  @Test
-  void testUnsupportedEncodingType_parquet() {
-    KafkaSourceDto.Config config =
-        KafkaSourceDto.Config.builder()
-            .broker("localhost:9092")
-            .topic("test-topic")
-            .groupId("test-group")
-            .encodingType(EncodingType.PARQUET)
-            .build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", mockJobContext));
-    assertTrue(exception.getMessage().contains("Unsupported deserialization encoding type"));
-  }
-
-  @Test
-  void testAllSupportedEncodingTypes() {
-    for (EncodingType type :
-        List.of(
-            EncodingType.CSV,
-            EncodingType.JSON_OBJECT,
-            EncodingType.JSON_ARRAY,
-            EncodingType.JSON_OBJECT_LINE,
-            EncodingType.STRING_LINE,
-            EncodingType.TEXT,
-            EncodingType.XML)) {
-      KafkaSourceDto.Config config =
-          KafkaSourceDto.Config.builder()
-              .broker("localhost:9092")
-              .topic("test-topic")
-              .groupId("test-group")
-              .encodingType(type)
-              .build();
-
-      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", mockJobContext));
-    }
   }
 }

@@ -40,8 +40,7 @@ class DlqTextsTest {
                 + " task's heap to match), or write smaller documents or avro blocks; if one"
                 + " document holds many records, decode it in a mode that reads them one at a"
                 + " time (text line, json lines or array, xml elements, yaml multi_document,"
-                + " protobuf varint_delimited, avro ocf; as encodingType: STRING_LINE,"
-                + " JSON_OBJECT_LINE or JSON_ARRAY); "
+                + " protobuf varint_delimited, avro ocf); "
                 + RENAME),
         texts("json").oversizedText(oversized(LimitKind.MAX_DOCUMENT_BYTES)));
   }
@@ -86,7 +85,7 @@ class DlqTextsTest {
                 + RENAME),
         texts("json").oversizedText(oversized(LimitKind.ZSTD_WINDOW)));
     assertEquals(
-        "check that the file is csv as the source's encodingType or decoding says, or fix the"
+        "check that the file is csv as the source's decoding says, or fix the"
             + " listed records where the file is written; "
             + RENAME,
         texts("csv").failureAction(ErrorKind.MALFORMED));

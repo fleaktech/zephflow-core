@@ -23,8 +23,8 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.NodeExecutionException;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.util.Collections;
 import java.util.List;
@@ -103,8 +103,7 @@ class SimpleSourceCommandTest {
     mockFetcher = mock();
     RawDataConverter<SerializedEvent> rawDataConverter =
         new MessageDecodingConverter(
-            MessageDecodingConverter.decodingConfig(EncodingType.JSON_OBJECT, null, false),
-            MessageDecodingConverter.Unit.MESSAGE);
+            Decodings.uncompressed(Decodings.JSON_OBJECT), MessageDecodingConverter.Unit.MESSAGE);
     mockEncoder = mock();
     mockSourceEventAcceptor = mock(SourceEventAcceptor.class);
     mockMetricClientProvider = mock(MetricClientProvider.class);

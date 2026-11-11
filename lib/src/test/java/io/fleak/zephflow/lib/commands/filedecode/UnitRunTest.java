@@ -171,8 +171,8 @@ class UnitRunTest {
                 "{bad",
                 Map.of("urn", URN, "index", "2"),
                 "MALFORMED json record: IOException",
-                "Action: fix this record where it is written, or the source's encodingType or"
-                    + " decoding if every record fails like this; the value is the record's bytes",
+                "Action: fix this record where it is written, or the source's decoding if"
+                    + " every record fails like this; the value is the record's bytes",
                 "file " + URN + ", recordIndex 2, bytes 10-14",
                 "source"),
             new Entry(
@@ -324,7 +324,7 @@ class UnitRunTest {
     large.complete(UnitRun.MAX_RECORD_ENTRY_BYTES + 1);
 
     String malformedAction =
-        "Action: check that the file is json as the source's encodingType or decoding says, or"
+        "Action: check that the file is json as the source's decoding says, or"
             + " fix the listed records where the file is written; "
             + RENAME;
     assertEquals(
@@ -333,8 +333,8 @@ class UnitRunTest {
                 "{\"a\":",
                 URN_METADATA,
                 "MALFORMED json record: IOException",
-                "Action: fix this record where it is written, or the source's encodingType or"
-                    + " decoding if every record fails like this; the value is the record's bytes",
+                "Action: fix this record where it is written, or the source's decoding if"
+                    + " every record fails like this; the value is the record's bytes",
                 "file " + URN + ", bytes 0-5",
                 "source"),
             new Entry(

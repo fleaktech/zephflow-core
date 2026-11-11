@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.stdin;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
@@ -30,43 +29,14 @@ class StdInSourceConfigValidatorTest {
   private final StdInSourceConfigValidator validator = new StdInSourceConfigValidator();
 
   @Test
-  void validateConfig_unsupportedEncodingType() {
-    StdInSourceDto.Config config =
-        StdInSourceDto.Config.builder().encodingType(EncodingType.PARQUET).build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "test-node", null));
-    assertTrue(exception.getMessage().contains("Unsupported deserialization encoding type"));
-  }
-
-  @Test
-  void validateConfig_allSupportedEncodingTypes() {
-    for (EncodingType type :
-        List.of(
-            EncodingType.CSV,
-            EncodingType.JSON_OBJECT,
-            EncodingType.JSON_ARRAY,
-            EncodingType.JSON_OBJECT_LINE,
-            EncodingType.STRING_LINE,
-            EncodingType.TEXT,
-            EncodingType.XML)) {
-      StdInSourceDto.Config config = StdInSourceDto.Config.builder().encodingType(type).build();
-
-      assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
-    }
-  }
-
-  @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     StdInSourceDto.Config config = StdInSourceDto.Config.builder().build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+    assertEquals("decoding is required", decodingRejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     StdInSourceDto.Config config =
         StdInSourceDto.Config.builder()
             .decoding(
@@ -74,17 +44,6 @@ class StdInSourceConfigValidatorTest {
             .build();
 
     assertDoesNotThrow(() -> validator.validateConfig(config, "test-node", null));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    StdInSourceDto.Config config =
-        StdInSourceDto.Config.builder()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
   }
 
   @Test

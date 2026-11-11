@@ -16,7 +16,8 @@ package io.fleak.zephflow.lib.commands.azureeventhubsource;
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +31,7 @@ class AzureEventHubSourceDtoTest {
             .eventHubName("hub")
             .checkpointStorageConnectionString("scs")
             .checkpointContainerName("c")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
     assertEquals("$Default", config.getConsumerGroup());
@@ -51,7 +52,9 @@ class AzureEventHubSourceDtoTest {
             "consumerGroup", "cg",
             "checkpointStorageEndpoint", "https://acct.blob.core.windows.net",
             "checkpointContainerName", "checkpoints",
-            "encodingType", "JSON_OBJECT",
+            "decoding",
+                Map.of(
+                    "compression", List.of(), "format", Map.of("type", "json", "mode", "object")),
             "initialPosition", "LATEST",
             "maxEventsPerFetch", 250);
 
@@ -62,7 +65,7 @@ class AzureEventHubSourceDtoTest {
     assertEquals("hub", config.getEventHubName());
     assertEquals("cg", config.getConsumerGroup());
     assertEquals("checkpoints", config.getCheckpointContainerName());
-    assertEquals(EncodingType.JSON_OBJECT, config.getEncodingType());
+    assertEquals(Decodings.uncompressed(Decodings.JSON_OBJECT), config.getDecoding());
     assertEquals(AzureEventHubSourceDto.InitialPosition.LATEST, config.getInitialPosition());
     assertEquals(250, config.getMaxEventsPerFetch());
   }

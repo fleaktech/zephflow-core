@@ -19,8 +19,10 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -45,7 +47,7 @@ class FsSourceCommandEncodingTest {
     FsBackendRegistry.unregister("file");
   }
 
-  private List<RecordFleakData> run(Path tempDir, String encodingType) throws Exception {
+  private List<RecordFleakData> run(Path tempDir, FormatConfig format) throws Exception {
     Map<String, Object> rawConfig =
         Map.of(
             "backend",
@@ -54,8 +56,8 @@ class FsSourceCommandEncodingTest {
             tempDir.toUri().toString(),
             "fileNameRegex",
             "evt_(?<ts>\\d+)\\..*",
-            "encodingType",
-            encodingType);
+            "decoding",
+            Decodings.autoCompressionConfig(format));
     List<RecordFleakData> emitted = new ArrayList<>();
     SourceEventAcceptor out =
         new SourceEventAcceptor() {
@@ -77,7 +79,7 @@ class FsSourceCommandEncodingTest {
   @Test
   void jsonObject_singleRecord(@TempDir Path tempDir) throws Exception {
     Files.writeString(tempDir.resolve("evt_1.json"), "{\"k\":\"v\"}");
-    List<RecordFleakData> out = run(tempDir, "JSON_OBJECT");
+    List<RecordFleakData> out = run(tempDir, Decodings.JSON_OBJECT);
     assertEquals(1, out.size());
     assertEquals("v", out.get(0).unwrap().get("k"));
   }
@@ -85,14 +87,14 @@ class FsSourceCommandEncodingTest {
   @Test
   void jsonArray_fansOut(@TempDir Path tempDir) throws Exception {
     Files.writeString(tempDir.resolve("evt_1.json"), "[{\"k\":1},{\"k\":2}]");
-    List<RecordFleakData> out = run(tempDir, "JSON_ARRAY");
+    List<RecordFleakData> out = run(tempDir, Decodings.JSON_ARRAY);
     assertEquals(2, out.size());
   }
 
   @Test
   void text_emitsRecordPerFile(@TempDir Path tempDir) throws Exception {
     Files.writeString(tempDir.resolve("evt_1.txt"), "hello\nworld");
-    List<RecordFleakData> out = run(tempDir, "STRING_LINE");
+    List<RecordFleakData> out = run(tempDir, Decodings.TEXT_LINE);
     assertEquals(2, out.size());
     assertEquals("hello", out.get(0).unwrap().get("__raw__"));
   }
@@ -100,7 +102,7 @@ class FsSourceCommandEncodingTest {
   @Test
   void csv_parses(@TempDir Path tempDir) throws Exception {
     Files.writeString(tempDir.resolve("evt_1.csv"), "a,b\n1,2\n3,4");
-    List<RecordFleakData> out = run(tempDir, "CSV");
+    List<RecordFleakData> out = run(tempDir, Decodings.CSV);
     assertEquals(2, out.size());
     assertEquals("1", String.valueOf(out.get(0).unwrap().get("a")));
   }
@@ -112,7 +114,7 @@ class FsSourceCommandEncodingTest {
       gzipOutputStream.write("{\"v\":\"a\"}\n{\"v\":\"b\"}".getBytes(StandardCharsets.UTF_8));
     }
     Files.write(tempDir.resolve("evt_1.jsonl.gz"), byteArrayOutputStream.toByteArray());
-    List<RecordFleakData> out = run(tempDir, "JSON_OBJECT_LINE");
+    List<RecordFleakData> out = run(tempDir, Decodings.JSON_LINES);
     assertEquals(List.of("a", "b"), out.stream().map(record -> record.unwrap().get("v")).toList());
   }
 
@@ -151,8 +153,8 @@ class FsSourceCommandEncodingTest {
             tempDir.toUri().toString(),
             "fileNameRegex",
             "evt_(?<ts>\\d+)\\..*",
-            "encodingType",
-            "JSON_OBJECT");
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_OBJECT));
     command.parseAndValidateArg(rawConfig);
     command.initialize(new MetricClientProvider.NoopMetricClientProvider());
 

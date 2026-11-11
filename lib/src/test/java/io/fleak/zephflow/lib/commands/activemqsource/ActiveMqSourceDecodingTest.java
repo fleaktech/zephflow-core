@@ -24,9 +24,9 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.source.ConvertedResult;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -42,8 +42,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The converter this source's {@code createExecutionContext} builds: {@code decoding} alone decodes
- * messages, and {@code encodingType} decodes a value as it is, even one that starts with the gzip
- * magic bytes.
+ * messages, and a decoding without compression decodes a value as it is, even one that starts with
+ * the gzip magic bytes.
  */
 class ActiveMqSourceDecodingTest {
 
@@ -68,14 +68,14 @@ class ActiveMqSourceDecodingTest {
   }
 
   @Test
-  void encodingTypeDecodesGzipBytesAsTheyAre() throws Exception {
+  void noCompressionDecodesGzipBytesAsTheyAre() throws Exception {
     SourceExecutionContext<SerializedEvent> context =
         context(
             ActiveMqSourceDto.Config.builder()
                 .brokerUrl("tcp://localhost:61616")
                 .brokerType(ActiveMqSourceDto.BrokerType.CLASSIC)
                 .destination("q")
-                .encodingType(EncodingType.JSON_OBJECT)
+                .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
                 .build());
     SerializedEvent message = new SerializedEvent(null, gzip("{\"a\":1}"), null);
 

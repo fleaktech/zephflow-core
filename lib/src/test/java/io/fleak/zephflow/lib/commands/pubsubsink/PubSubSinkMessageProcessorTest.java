@@ -13,7 +13,7 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
-import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.LEGACY_JSON_OBJECT;
+import static io.fleak.zephflow.lib.commands.sink.SinkEncoding.JSON_OBJECT;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -26,7 +26,7 @@ class PubSubSinkMessageProcessorTest {
 
   @Test
   void testPreprocessWithoutOrderingKey() throws Exception {
-    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(LEGACY_JSON_OBJECT, null);
+    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(JSON_OBJECT, null);
 
     RecordFleakData event =
         new RecordFleakData(
@@ -45,8 +45,7 @@ class PubSubSinkMessageProcessorTest {
   @Test
   void testPreprocessWithOrderingKey() throws Exception {
     PathExpression keyExpr = PathExpression.fromString("$.tenantId");
-    PubSubSinkMessageProcessor processor =
-        new PubSubSinkMessageProcessor(LEGACY_JSON_OBJECT, keyExpr);
+    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(JSON_OBJECT, keyExpr);
 
     RecordFleakData event =
         new RecordFleakData(
@@ -63,8 +62,7 @@ class PubSubSinkMessageProcessorTest {
   @Test
   void testPreprocessWithMissingOrderingKeyField() throws Exception {
     PathExpression keyExpr = PathExpression.fromString("$.tenantId");
-    PubSubSinkMessageProcessor processor =
-        new PubSubSinkMessageProcessor(LEGACY_JSON_OBJECT, keyExpr);
+    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(JSON_OBJECT, keyExpr);
 
     RecordFleakData event =
         new RecordFleakData(Map.of("data", new StringPrimitiveFleakData("payload")));
@@ -77,7 +75,7 @@ class PubSubSinkMessageProcessorTest {
 
   @Test
   void testPreprocessBodyIsValidJson() throws Exception {
-    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(LEGACY_JSON_OBJECT, null);
+    PubSubSinkMessageProcessor processor = new PubSubSinkMessageProcessor(JSON_OBJECT, null);
 
     RecordFleakData event =
         new RecordFleakData(Map.of("key", new StringPrimitiveFleakData("value")));

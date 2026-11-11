@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -47,7 +47,7 @@ class SqsSourceConfigValidatorTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .credentialId("example-credential-id")
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -63,7 +63,7 @@ class SqsSourceConfigValidatorTest {
               SqsSourceDto.Config.builder()
                   .queueUrl(null)
                   .regionStr("us-east-1")
-                  .encodingType(EncodingType.JSON_OBJECT)
+                  .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
                   .build();
         });
   }
@@ -74,7 +74,7 @@ class SqsSourceConfigValidatorTest {
     SqsSourceDto.Config config = new SqsSourceDto.Config();
     config.setQueueUrl("");
     config.setRegionStr("us-east-1");
-    config.setEncodingType(EncodingType.JSON_OBJECT);
+    config.setDecoding(Decodings.uncompressed(Decodings.JSON_OBJECT));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -86,7 +86,7 @@ class SqsSourceConfigValidatorTest {
     SqsSourceDto.Config config = new SqsSourceDto.Config();
     config.setQueueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue");
     config.setRegionStr("");
-    config.setEncodingType(EncodingType.JSON_OBJECT);
+    config.setDecoding(Decodings.uncompressed(Decodings.JSON_OBJECT));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
@@ -99,7 +99,7 @@ class SqsSourceConfigValidatorTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .maxNumberOfMessages(11)
             .build();
     assertThrows(
@@ -114,7 +114,7 @@ class SqsSourceConfigValidatorTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .waitTimeSeconds(21)
             .build();
     assertThrows(
@@ -129,7 +129,7 @@ class SqsSourceConfigValidatorTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .visibilityTimeoutSeconds(-1)
             .build();
     assertThrows(
@@ -144,7 +144,7 @@ class SqsSourceConfigValidatorTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .maxNumberOfMessages(10)
             .waitTimeSeconds(20)
             .visibilityTimeoutSeconds(0)
@@ -159,7 +159,7 @@ class SqsSourceConfigValidatorTest {
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
+            .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .maxNumberOfMessages(0)
             .build();
     assertThrows(
@@ -168,9 +168,9 @@ class SqsSourceConfigValidatorTest {
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
+  void missingDecodingIsRejected() {
     assertEquals(
-        "exactly one of encodingType and decoding must be set",
+        "decoding is required",
         decodingRejection(
             SqsSourceDto.Config.builder()
                 .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
@@ -179,7 +179,7 @@ class SqsSourceConfigValidatorTest {
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     SqsSourceDto.Config config =
         SqsSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
@@ -192,19 +192,6 @@ class SqsSourceConfigValidatorTest {
 
     assertDoesNotThrow(
         () -> new SqsSourceConfigValidator().validateConfig(config, "nodeId", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    SqsSourceDto.Config config =
-        SqsSourceDto.Config.builder()
-            .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/q")
-            .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
   }
 
   @Test

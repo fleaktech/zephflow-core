@@ -51,10 +51,7 @@ public interface AzureEventHubSinkDto {
      */
     private String partitionKeyFieldExpressionStr;
 
-    /** Output encoding (e.g. {@code JSON_OBJECT}). */
-    private String encodingType;
-
-    /** Output format in the shape of a source's {@code decoding}; replaces {@code encodingType}. */
+    /** Output format in the shape of a source's {@code decoding}. */
     private EncodingConfig encoding;
   }
 }

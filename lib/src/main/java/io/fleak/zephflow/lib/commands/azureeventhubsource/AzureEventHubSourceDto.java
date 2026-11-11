@@ -14,7 +14,6 @@
 package io.fleak.zephflow.lib.commands.azureeventhubsource;
 
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -61,9 +60,7 @@ public interface AzureEventHubSourceDto {
     private String checkpointContainerName;
 
     // --- Decoding ---
-    private EncodingType encodingType;
-
-    /** How the messages are decoded; exactly one of this and {@code encodingType}. */
+    /** How the messages are decoded. */
     private DecodingConfig decoding;
 
     /** Where to start when a partition has no persisted checkpoint. */

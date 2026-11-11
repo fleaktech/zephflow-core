@@ -20,7 +20,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -52,7 +52,7 @@ class KafkaSinkBadConfigTimingTest {
         KafkaSinkDto.Config.builder()
             .topic("bolei_output")
             .broker(UNREACHABLE_BROKER)
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     command.parseAndValidateArg(OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 

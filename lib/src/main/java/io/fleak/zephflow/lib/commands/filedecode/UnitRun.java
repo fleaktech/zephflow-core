@@ -495,8 +495,8 @@ public final class UnitRun {
             + texts.format()
             + " record: "
             + causeName(failed.error())
-            + "\nAction: fix this record where it is written, or the source's encodingType or"
-            + " decoding if every record fails like this; the value is the record's bytes\n"
+            + "\nAction: fix this record where it is written, or the source's decoding"
+            + " if every record fails like this; the value is the record's bytes\n"
             + ExceptionUtils.getStackTrace(failed.error())
             + "\n"
             + identity;

@@ -22,9 +22,9 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.kafkasource.KafkaSourceCommandTest;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -70,14 +70,16 @@ class StdInSourceDecodingTest {
   // stdin re-encodes each line as text, so the bytes go to the converter the command builds.
   @Test
   @SuppressWarnings("unchecked")
-  void encodingTypeDecodesGzipBytesAsTheyAre() throws IOException {
+  void noCompressionDecodesGzipBytesAsTheyAre() throws IOException {
     SourceExecutionContext<SerializedEvent> context =
         (SourceExecutionContext<SerializedEvent>)
             command()
                 .createExecutionContext(
                     new MetricClientProvider.NoopMetricClientProvider(),
                     TestUtils.JOB_CONTEXT,
-                    StdInSourceDto.Config.builder().encodingType(EncodingType.JSON_OBJECT).build(),
+                    StdInSourceDto.Config.builder()
+                        .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
+                        .build(),
                     "node");
     SerializedEvent message = new SerializedEvent(null, gzip("{\"a\":1}"), null);
 

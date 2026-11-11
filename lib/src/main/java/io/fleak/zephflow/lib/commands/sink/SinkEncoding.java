@@ -19,61 +19,26 @@ import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
-import io.fleak.zephflow.lib.serdes.ser.FleakSerializer;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
 
-/**
- * A byte-writing sink picks its output with {@code encoding} or with its legacy format fields
- * ({@code encodingType}, {@code compressionType}, {@code avroSchema}, {@code csvColumns}, the kv
- * options), never both.
- */
+/** How a byte-writing sink picks its output: its {@code encoding}. */
 public final class SinkEncoding {
 
-  /**
-   * Without {@code encoding}, sqssink and pubsubsink write the record as a JSON object whatever
-   * encodingType says.
-   */
-  public static final RecordEncoder LEGACY_JSON_OBJECT =
+  /** Without {@code encoding}, sqssink and pubsubsink write each record as a JSON object. */
+  public static final RecordEncoder JSON_OBJECT =
       record -> toJsonString(record).getBytes(StandardCharsets.UTF_8);
 
   private SinkEncoding() {}
 
-  /** A legacy format field of a sink config, by its config name. */
-  public record LegacyField(String name, Object value) {
-
-    boolean isSet() {
-      return switch (value) {
-        case null -> false;
-        case String s -> !s.isEmpty();
-        case Collection<?> c -> !c.isEmpty();
-        case Map<?, ?> m -> !m.isEmpty();
-        default -> true;
-      };
-    }
-  }
-
-  public static LegacyField field(String name, Object value) {
-    return new LegacyField(name, value);
-  }
-
-  /** Refuses {@code encoding} next to any set legacy field, then checks it against the sink. */
-  public static void validate(
-      EncodingConfig encoding, WriterCapability capability, LegacyField... legacyFields) {
-    List<String> set =
-        Arrays.stream(legacyFields).filter(LegacyField::isSet).map(LegacyField::name).toList();
-    if (!set.isEmpty()) {
-      throw new IllegalArgumentException(
-          capability.sink() + ": encoding cannot be combined with " + String.join(", ", set));
+  /**
+   * Checks {@code encoding} against the sink.
+   *
+   * @throws IllegalArgumentException when {@code encoding} is not set or the sink cannot write it
+   */
+  public static void validate(EncodingConfig encoding, WriterCapability capability) {
+    if (encoding == null) {
+      throw new IllegalArgumentException(capability.sink() + ": encoding is required");
     }
     EncodingCompiler.validate(encoding, capability);
-  }
-
-  /** A legacy serializer as a record encoder: the bytes it writes for one record. */
-  public static RecordEncoder fromSerializer(FleakSerializer<?> serializer) {
-    return record -> serializer.serialize(List.of(record)).value();
   }
 }

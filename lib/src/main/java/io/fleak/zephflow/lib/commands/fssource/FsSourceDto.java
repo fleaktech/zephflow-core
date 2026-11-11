@@ -15,7 +15,6 @@ package io.fleak.zephflow.lib.commands.fssource;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.fleak.zephflow.api.CommandConfig;
-import io.fleak.zephflow.lib.serdes.EncodingType;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.Map;
 import lombok.AllArgsConstructor;
@@ -36,13 +35,7 @@ public interface FsSourceDto {
     private String fileNameRegex;
     private String exactObjectKey;
 
-    /**
-     * Encoding of the files, translated to a decoding configuration (gzip detected automatically).
-     * Exactly one of this and {@code decoding} is set.
-     */
-    private EncodingType encodingType;
-
-    /** How the files are decoded; exactly one of this and {@code encodingType}. */
+    /** How the files are decoded. */
     private DecodingConfig decoding;
 
     private Map<String, Object> backendConfig;

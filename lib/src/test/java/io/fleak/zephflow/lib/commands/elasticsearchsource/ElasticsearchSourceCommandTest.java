@@ -37,9 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullSource;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.api.Test;
 
 class ElasticsearchSourceCommandTest {
 
@@ -47,10 +45,8 @@ class ElasticsearchSourceCommandTest {
 
   private final List<Increase> increases = new ArrayList<>();
 
-  @ParameterizedTest
-  @NullSource
-  @ValueSource(strings = {"JSON_OBJECT", "TEXT"})
-  void scrollsTheIndexIntoRecords(String encodingType) throws Exception {
+  @Test
+  void scrollsTheIndexIntoRecords() throws Exception {
     String auth =
         "Basic " + Base64.getEncoder().encodeToString("user:pass".getBytes(StandardCharsets.UTF_8));
     List<Object> records = new ArrayList<>();
@@ -91,9 +87,6 @@ class ElasticsearchSourceCommandTest {
                   2,
                   "credentialId",
                   "es-cred"));
-      if (encodingType != null) {
-        config.put("encodingType", encodingType);
-      }
       command.parseAndValidateArg(config);
       command.initialize(new RecordingMetricClientProvider());
       command.execute(

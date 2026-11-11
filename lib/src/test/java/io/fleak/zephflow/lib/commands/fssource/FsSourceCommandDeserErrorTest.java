@@ -23,6 +23,7 @@ import io.fleak.zephflow.api.metric.FleakGauge;
 import io.fleak.zephflow.api.metric.FleakStopWatch;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
@@ -69,10 +70,14 @@ class FsSourceCommandDeserErrorTest {
   private List<RecordFleakData> run(Path tempDir, boolean withDlq) throws Exception {
     Map<String, Object> rawConfig =
         Map.of(
-            "backend", "file",
-            "root", tempDir.toUri().toString(),
-            "fileNameRegex", "evt_(?<ts>\\d+)\\.jsonl",
-            "encodingType", "JSON_OBJECT_LINE");
+            "backend",
+            "file",
+            "root",
+            tempDir.toUri().toString(),
+            "fileNameRegex",
+            "evt_(?<ts>\\d+)\\.jsonl",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES));
     List<RecordFleakData> emitted = new ArrayList<>();
     SourceEventAcceptor out =
         new SourceEventAcceptor() {
@@ -125,8 +130,8 @@ class FsSourceCommandDeserErrorTest {
                 "{\"device_id\":\"sensor-103\",\"value\":73.4",
                 Map.of(METADATA_FS_SOURCE_URN, urn, METADATA_FS_SOURCE_RECORD_INDEX, "3"),
                 "MALFORMED json record: JsonEOFException",
-                "Action: fix this record where it is written, or the source's encodingType or"
-                    + " decoding if every record fails like this; the value is the record's bytes",
+                "Action: fix this record where it is written, or the source's decoding if"
+                    + " every record fails like this; the value is the record's bytes",
                 "file " + urn + ", recordIndex 3, bytes 80-118",
                 "node-1")),
         deadLetters.stream().map(Entry::of).toList());
@@ -161,10 +166,14 @@ class FsSourceCommandDeserErrorTest {
     // In-memory checkpoint client, so a second run in the same process resumes from the first.
     Map<String, Object> rawConfig =
         Map.of(
-            "backend", "file",
-            "root", tempDir.toUri().toString(),
-            "fileNameRegex", "evt_(?<ts>\\d+)\\.jsonl",
-            "encodingType", "JSON_OBJECT_LINE");
+            "backend",
+            "file",
+            "root",
+            tempDir.toUri().toString(),
+            "fileNameRegex",
+            "evt_(?<ts>\\d+)\\.jsonl",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES));
     FsSourceCommand command = new FsSourceCommand("node-1", JobContext.builder().build());
     command.parseAndValidateArg(rawConfig);
     command.initialize(new RecordingMetricClientProvider());
@@ -189,10 +198,14 @@ class FsSourceCommandDeserErrorTest {
     FsSourceCommand command = new FsSourceCommand("node-1", JobContext.builder().build());
     command.parseAndValidateArg(
         Map.of(
-            "backend", "file",
-            "root", tempDir.toUri().toString(),
-            "fileNameRegex", "evt_(?<ts>\\d+)\\.jsonl",
-            "encodingType", "JSON_OBJECT_LINE"));
+            "backend",
+            "file",
+            "root",
+            tempDir.toUri().toString(),
+            "fileNameRegex",
+            "evt_(?<ts>\\d+)\\.jsonl",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES)));
     command.initialize(new RecordingMetricClientProvider());
 
     // Without a DLQ, decode failures are counted, logged and dropped; the file is done.

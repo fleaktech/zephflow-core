@@ -22,7 +22,7 @@ import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -87,7 +87,7 @@ class KafkaSinkErrorRecoveryTest {
         KafkaSinkDto.Config.builder()
             .topic(TOPIC_NAME)
             .broker(KAFKA_CONTAINER.getBootstrapServers())
-            .encodingType(EncodingType.JSON_OBJECT.toString())
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));

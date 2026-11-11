@@ -20,9 +20,11 @@ import io.fleak.zephflow.api.SourceCommand.SourceType;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.commands.fssource.api.FsBackendRegistry;
 import io.fleak.zephflow.lib.commands.fssource.backend.local.LocalFsBackend;
 import io.fleak.zephflow.lib.commands.fssource.backend.s3.S3Backend;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -71,7 +73,7 @@ class FsSourceCommandBoundedTest {
     return emitted;
   }
 
-  static Map<String, Object> rawConfig(Path tempDir, String encodingType) {
+  static Map<String, Object> rawConfig(Path tempDir, FormatConfig format) {
     return Map.of(
         "backend",
         "file",
@@ -79,8 +81,8 @@ class FsSourceCommandBoundedTest {
         tempDir.toUri().toString(),
         "fileNameRegex",
         "evt_(?<ts>\\d+)\\.log",
-        "encodingType",
-        encodingType);
+        "decoding",
+        Decodings.autoCompressionConfig(format));
   }
 
   @Test
@@ -97,7 +99,7 @@ class FsSourceCommandBoundedTest {
     Files.writeString(tempDir.resolve("ignored.txt"), "{\"v\":\"x\"}");
 
     List<RecordFleakData> emitted =
-        run(rawConfig(tempDir, "JSON_OBJECT_LINE"), JobContext.builder().build());
+        run(rawConfig(tempDir, Decodings.JSON_LINES), JobContext.builder().build());
 
     List<Object> values = emitted.stream().map(record -> record.unwrap().get("v")).toList();
     assertEquals(List.of("a", "b", "c", "d"), values);
@@ -114,8 +116,8 @@ class FsSourceCommandBoundedTest {
             "s3",
             "root",
             "s3://my-bucket/data/",
-            "encodingType",
-            "STRING_LINE",
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.TEXT_LINE),
             "backendConfig",
             Map.of("credentialId", "nonexistent-credential-id", "region", "us-east-1"));
 

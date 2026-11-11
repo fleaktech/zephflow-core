@@ -24,10 +24,11 @@ import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
@@ -104,7 +105,7 @@ class S3RealtimeSourceCommandIntegrationTest {
 
     CollectingAcceptor acceptor = new CollectingAcceptor();
     CapturingDlqWriter dlq = new CapturingDlqWriter();
-    SourceCommand command = runCommand(EncodingType.JSON_OBJECT_LINE, 5, dlq, acceptor);
+    SourceCommand command = runCommand(Decodings.JSON_LINES, 5, dlq, acceptor);
 
     waitUntil(() -> acceptor.records.size() >= 2);
     command.terminate();
@@ -126,7 +127,7 @@ class S3RealtimeSourceCommandIntegrationTest {
 
     CollectingAcceptor acceptor = new CollectingAcceptor();
     CapturingDlqWriter dlq = new CapturingDlqWriter();
-    SourceCommand command = runCommand(EncodingType.JSON_OBJECT_LINE, 5, dlq, acceptor);
+    SourceCommand command = runCommand(Decodings.JSON_LINES, 5, dlq, acceptor);
 
     waitUntil(() -> approxMessages() == 0);
     command.terminate();
@@ -161,7 +162,7 @@ class S3RealtimeSourceCommandIntegrationTest {
     CapturingDlqWriter dlq = new CapturingDlqWriter();
     // maxRetries=2 / visibilityTimeout=0 so the cap drains the queue quickly while accept keeps
     // failing.
-    SourceCommand command = runCommand(EncodingType.JSON_OBJECT_LINE, 2, 0, dlq, acceptor);
+    SourceCommand command = runCommand(Decodings.JSON_LINES, 2, 0, dlq, acceptor);
 
     waitUntil(() -> !dlq.captured.isEmpty());
     command.terminate();
@@ -194,16 +195,13 @@ class S3RealtimeSourceCommandIntegrationTest {
   }
 
   private SourceCommand runCommand(
-      EncodingType encodingType,
-      int maxRetries,
-      CapturingDlqWriter dlq,
-      SourceEventAcceptor acceptor)
+      FormatConfig format, int maxRetries, CapturingDlqWriter dlq, SourceEventAcceptor acceptor)
       throws Exception {
-    return runCommand(encodingType, maxRetries, 30, dlq, acceptor);
+    return runCommand(format, maxRetries, 30, dlq, acceptor);
   }
 
   private SourceCommand runCommand(
-      EncodingType encodingType,
+      FormatConfig format,
       int maxRetries,
       int visibilityTimeout,
       CapturingDlqWriter dlq,
@@ -232,8 +230,8 @@ class S3RealtimeSourceCommandIntegrationTest {
             queueUrl,
             "regionStr",
             LOCALSTACK.getRegion(),
-            "encodingType",
-            encodingType.name(),
+            "decoding",
+            Decodings.autoCompressionConfig(format),
             "credentialId",
             "localstack",
             "s3EndpointOverride",

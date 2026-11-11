@@ -17,8 +17,7 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.fleak.zephflow.lib.commands.JsonConfigParser;
-import io.fleak.zephflow.lib.serdes.CompressionType;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
@@ -37,8 +36,8 @@ class S3RealtimeSourceDtoTest {
             "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
             "regionStr",
             "us-east-1",
-            "encodingType",
-            "JSON_OBJECT_LINE");
+            "decoding",
+            Decodings.autoCompressionConfig(Decodings.JSON_LINES));
 
     S3RealtimeSourceDto.Config config =
         OBJECT_MAPPER.convertValue(jsonMap, S3RealtimeSourceDto.Config.class);
@@ -47,7 +46,7 @@ class S3RealtimeSourceDtoTest {
         S3RealtimeSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.JSON_OBJECT_LINE)
+            .decoding(Decodings.autoCompression(Decodings.JSON_LINES))
             .build();
     assertEquals(expected, config);
   }
@@ -58,8 +57,7 @@ class S3RealtimeSourceDtoTest {
         Map.ofEntries(
             Map.entry("queueUrl", "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue"),
             Map.entry("regionStr", "us-east-1"),
-            Map.entry("encodingType", "CSV"),
-            Map.entry("compressionType", "GZIP"),
+            Map.entry("decoding", Decodings.gzipConfig(Decodings.CSV)),
             Map.entry("credentialId", "cred"),
             Map.entry("s3CredentialId", "s3cred"),
             Map.entry("s3RegionStr", "us-west-2"),
@@ -78,8 +76,7 @@ class S3RealtimeSourceDtoTest {
         S3RealtimeSourceDto.Config.builder()
             .queueUrl("https://sqs.us-east-1.amazonaws.com/123456789012/my-queue")
             .regionStr("us-east-1")
-            .encodingType(EncodingType.CSV)
-            .compressionType(CompressionType.GZIP)
+            .decoding(Decodings.gzip(Decodings.CSV))
             .credentialId("cred")
             .s3CredentialId("s3cred")
             .s3RegionStr("us-west-2")

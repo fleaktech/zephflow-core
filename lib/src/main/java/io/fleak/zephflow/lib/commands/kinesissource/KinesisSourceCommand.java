@@ -18,6 +18,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.commands.source.*;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
@@ -111,10 +112,8 @@ public class KinesisSourceCommand extends SimpleSourceCommand<SerializedEvent> {
         decodingConfig(config), MessageDecodingConverter.Unit.MESSAGE);
   }
 
-  /** The decoding of the messages; {@code encodingType} decompresses nothing, as before. */
   static DecodingConfig decodingConfig(KinesisSourceDto.Config config) {
-    return MessageDecodingConverter.decodingConfig(
-        config.getEncodingType(), config.getDecoding(), false);
+    return new SourceDecoding(config.getDecoding()).decodingConfig();
   }
 
   @Override

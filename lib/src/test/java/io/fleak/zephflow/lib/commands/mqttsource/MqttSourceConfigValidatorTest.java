@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -42,7 +42,7 @@ class MqttSourceConfigValidatorTest {
         .brokerUrl("tcp://localhost:1883")
         .topicFilter("sensors/#")
         .clientId("my-client")
-        .encodingType(EncodingType.JSON_OBJECT);
+        .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT));
   }
 
   @Test
@@ -82,19 +82,6 @@ class MqttSourceConfigValidatorTest {
                 validator.validateConfig(
                     validBuilder().clientId("").build(), "test-node", mockJobContext));
     assertTrue(ex.getMessage().contains("no clientId is provided"));
-  }
-
-  @Test
-  void testUnsupportedEncodingType() {
-    IllegalArgumentException ex =
-        assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                validator.validateConfig(
-                    validBuilder().encodingType(EncodingType.PARQUET).build(),
-                    "test-node",
-                    mockJobContext));
-    assertTrue(ex.getMessage().contains("Unsupported deserialization encoding type"));
   }
 
   @Test
@@ -163,17 +150,16 @@ class MqttSourceConfigValidatorTest {
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
-    MqttSourceDto.Config config = validBuilder().encodingType(null).build();
+  void missingDecodingIsRejected() {
+    MqttSourceDto.Config config = validBuilder().decoding(null).build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+    assertEquals("decoding is required", decodingRejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     MqttSourceDto.Config config =
         validBuilder()
-            .encodingType(null)
             .decoding(
                 new DecodingConfig(
                     List.of(DecompressionCodec.ZSTD),
@@ -184,21 +170,9 @@ class MqttSourceConfigValidatorTest {
   }
 
   @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    MqttSourceDto.Config config =
-        validBuilder()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
-  }
-
-  @Test
   void aDecodingTheCompilerRejectsFailsValidation() {
     MqttSourceDto.Config config =
         validBuilder()
-            .encodingType(null)
             .decoding(
                 new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
             .build();

@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.EncodingType;
+import io.fleak.zephflow.lib.commands.filedecode.Decodings;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -38,7 +38,7 @@ class AzureEventHubSourceConfigValidatorTest {
         .consumerGroup("$Default")
         .checkpointStorageConnectionString("UseDevelopmentStorage=true")
         .checkpointContainerName("checkpoints")
-        .encodingType(EncodingType.JSON_OBJECT);
+        .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT));
   }
 
   private void validate(AzureEventHubSourceDto.Config config) {
@@ -142,17 +142,16 @@ class AzureEventHubSourceConfigValidatorTest {
   }
 
   @Test
-  void neitherEncodingTypeNorDecodingIsRejected() {
-    AzureEventHubSourceDto.Config config = validConnectionStringConfig().encodingType(null).build();
+  void missingDecodingIsRejected() {
+    AzureEventHubSourceDto.Config config = validConnectionStringConfig().decoding(null).build();
 
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
+    assertEquals("decoding is required", decodingRejection(config));
   }
 
   @Test
-  void decodingReplacesEncodingType() {
+  void decodingIsAccepted() {
     AzureEventHubSourceDto.Config config =
         validConnectionStringConfig()
-            .encodingType(null)
             .decoding(
                 new DecodingConfig(
                     List.of(DecompressionCodec.ZSTD),
@@ -163,21 +162,9 @@ class AzureEventHubSourceConfigValidatorTest {
   }
 
   @Test
-  void encodingTypeAndDecodingTogetherAreRejected() {
-    AzureEventHubSourceDto.Config config =
-        validConnectionStringConfig()
-            .encodingType(EncodingType.JSON_OBJECT)
-            .decoding(new DecodingConfig(List.of(), new ParquetFormatConfig()))
-            .build();
-
-    assertEquals("exactly one of encodingType and decoding must be set", decodingRejection(config));
-  }
-
-  @Test
   void aDecodingTheCompilerRejectsFailsValidation() {
     AzureEventHubSourceDto.Config config =
         validConnectionStringConfig()
-            .encodingType(null)
             .decoding(
                 new DecodingConfig(List.of(DecompressionCodec.GZIP), new ParquetFormatConfig()))
             .build();

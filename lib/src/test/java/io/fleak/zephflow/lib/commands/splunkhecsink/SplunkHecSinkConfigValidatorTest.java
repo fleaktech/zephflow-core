@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.TestUtils;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,87 +135,23 @@ class SplunkHecSinkConfigValidatorTest {
   @Test
   void validateConfig_jsonObjectEncodingValid() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("JSON_OBJECT");
+    c.setEncoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"));
     assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_jsonObjectWithCsvColumnsIgnoresColumns() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("JSON_OBJECT");
-    c.setCsvColumns(List.of("time", "time"));
-    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_csvWithColumnsValid() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("CSV");
-    c.setCsvColumns(List.of("time", "src_ip", "action"));
-    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_csvWithoutColumns() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("CSV");
-    IllegalArgumentException e =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-    assertEquals("csvColumns is required when encodingType is CSV", e.getMessage());
   }
 
   @Test
   void validateConfig_csvWithDuplicateColumns() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("CSV");
-    c.setCsvColumns(List.of("time", "time"));
+    c.setEncoding(format("{\"type\":\"csv\",\"header\":false,\"columns\":[\"time\",\"time\"]}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_unsupportedEncodingType() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("JSON_ARRAY");
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_unknownEncodingType() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("NOT_A_FORMAT");
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_kvWithoutFieldsValid() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("KV");
-    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
-  void validateConfig_kvWithOptionsValid() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("KV");
-    c.setKvFields(List.of("src_ip", "action"));
-    c.setKvPairDelimiter("|");
-    c.setKvCleanFields(true);
-    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
   }
 
   @Test
   void validateConfig_kvWithDuplicateFields() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("KV");
-    c.setKvFields(List.of("src_ip", " src_ip"));
+    c.setEncoding(format("{\"type\":\"kv\",\"fields\":[\"src_ip\",\" src_ip\"]}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
@@ -223,26 +160,16 @@ class SplunkHecSinkConfigValidatorTest {
   @Test
   void validateConfig_kvWithInvalidDelimiter() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("KV");
-    c.setKvPairDelimiter("=");
+    c.setEncoding(format("{\"type\":\"kv\",\"pairDelimiter\":\"=\"}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
   }
 
   @Test
-  void validateConfig_jsonObjectIgnoresInvalidKvOptions() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("JSON_OBJECT");
-    c.setKvPairDelimiter("=");
-    c.setKvFields(List.of("a", "a"));
-    assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
-  }
-
-  @Test
   void validateConfig_unsupportedEncodingRejected() {
     SplunkHecSinkDto.Config c = validConfig();
-    c.setEncodingType("JSON_OBJECT_LINE");
+    c.setEncoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"lines\"}"));
     assertThrows(
         IllegalArgumentException.class,
         () -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
@@ -262,21 +189,6 @@ class SplunkHecSinkConfigValidatorTest {
       c.setEncoding(format(formatJson));
       assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT), formatJson);
     }
-  }
-
-  @Test
-  void validateConfig_encodingWithLegacyFields() {
-    SplunkHecSinkDto.Config c = validConfig();
-    c.setEncoding(format("{\"type\":\"kv\"}"));
-    c.setEncodingType("KV");
-    c.setCsvColumns(List.of("a"));
-    c.setKvFields(List.of("a"));
-    c.setKvPairDelimiter("|");
-    c.setKvCleanFields(true);
-    assertEquals(
-        "splunkhecsink: encoding cannot be combined with encodingType, csvColumns, kvFields,"
-            + " kvPairDelimiter, kvCleanFields",
-        refusal(c));
   }
 
   @Test
