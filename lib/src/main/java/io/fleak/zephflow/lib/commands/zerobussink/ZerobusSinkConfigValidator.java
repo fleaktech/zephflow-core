@@ -39,7 +39,7 @@ public class ZerobusSinkConfigValidator implements ConfigValidator {
     validateDatabricksCredential(config, jobContext, errors);
     validateZerobusEndpoint(config.getZerobusEndpoint(), errors);
     validateTableName(config.getTableName(), errors);
-    validateWireProtocol(config, errors);
+    validateWireProtocol(config.getWireProtocol(), errors);
     validateStoreAndForward(config, errors);
 
     // avroSchema is only used to build the protobuf descriptor. In JSON mode the stream is created
@@ -138,20 +138,7 @@ public class ZerobusSinkConfigValidator implements ConfigValidator {
     }
   }
 
-  private void validateWireProtocol(Config config, List<String> errors) {
-    if (config.hasAmbiguousWireProtocol()) {
-      errors.add(
-          "set only one of "
-              + ZerobusSinkDto.WIRE_PROTOCOL_KEY
-              + " and "
-              + ZerobusSinkDto.LEGACY_WIRE_PROTOCOL_KEY
-              + "; "
-              + ZerobusSinkDto.LEGACY_WIRE_PROTOCOL_KEY
-              + " is an alias of "
-              + ZerobusSinkDto.WIRE_PROTOCOL_KEY);
-      return;
-    }
-    String wireProtocol = config.getWireProtocol();
+  private void validateWireProtocol(String wireProtocol, List<String> errors) {
     if (wireProtocol == null || wireProtocol.trim().isEmpty()) {
       errors.add("wireProtocol is required");
       return;
