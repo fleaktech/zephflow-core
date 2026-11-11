@@ -78,10 +78,11 @@ Subpackages of note:
   construction).
 - `lib/parser/` — extraction rules: Grok, Syslog (3164/5424), CEF, JSON, XML,
   CSV, key-value pairs, delimited text.
-- `lib/serdes/` — serializers per `EncodingType` (JSON_OBJECT_LINE, CSV, KV,
-  etc.) with optional gzip compression for the sinks; `lib/serdes/decode/`
-  holds the generic decoder every source reads with (JSON, CSV, text, XML,
-  YAML, Avro, Parquet, Protobuf; gzip, zstd, bzip2, xz, deflate and more).
+- `lib/serdes/` — reading and writing bytes at pipeline edges.
+  `lib/serdes/decode/` holds the generic decoder every source reads with
+  (JSON, CSV, text, XML, YAML, Avro, Parquet, Protobuf; gzip, zstd, bzip2, xz,
+  deflate and more). `lib/serdes/encode/` holds the encoders the sinks write
+  with (JSON, CSV, KV, text, Parquet; optional gzip).
 - `lib/pathselect/` — `PathExpression` and `ValueExtractor` for navigating
   `FleakData` via JSON-path-like syntax.
 
@@ -166,9 +167,15 @@ If `JobContext` carries an S3 DLQ config, `NoSourceDagRunner` writes failed
 events to S3 rather than silently dropping them.
 
 **Serialization.** `lib/serdes/` handles encoding/decoding at pipeline edges.
-Sinks encode with the serializer that `EncodingType` selects. Sources decode
-with the generic decoder in `lib/serdes/decode/` (`RecordDecoder`), configured
-by a `decoding` block or translated from the legacy `encodingType`.
+Both directions share one config shape: a format, then an optional
+compression. Sources take a `decoding` block (`DecodingConfig`, held by
+`SourceDecoding`), which `DecodingConfigCompiler` turns into a `RecordDecoder`;
+message sources decode each message through `MessageDecodingConverter`.
+Byte-writing sinks take an `encoding` block (`EncodingConfig`), which
+`SinkEncoding` checks against the sink's `WriterCapability`; `EncodingCompiler`
+then builds a `RecordEncoder` for sinks that write one record per unit, or a
+file writer for sinks that write many. Config errors on either side fail at
+validation, before the job runs.
 `FleakData`'s custom Jackson serializers avoid double-conversion overhead.
 
 **Thread safety.** Commands and `ExecutionContext` implementations must be safe
