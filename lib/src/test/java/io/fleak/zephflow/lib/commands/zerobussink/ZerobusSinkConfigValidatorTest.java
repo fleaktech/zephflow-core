@@ -87,22 +87,6 @@ class ZerobusSinkConfigValidatorTest {
   }
 
   @Test
-  void encodingTypeKeyParsesIntoWireProtocol() {
-    Config config = parse(rawConfig(Map.of("encodingType", "protobuf")));
-
-    Config expected = validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_PROTOBUF).build();
-    assertEquals(expected, config);
-    assertDoesNotThrow(() -> validator.validateConfig(config, "node", jobContext));
-  }
-
-  @Test
-  void encodingTypeJsonParsesIntoWireProtocolJson() {
-    Config config = parse(rawConfig(Map.of("encodingType", "json")));
-
-    assertEquals(validConfigBuilder().wireProtocol(ZerobusSinkDto.ENCODING_JSON).build(), config);
-  }
-
-  @Test
   void noWireProtocolKeyDefaultsToProtobuf() {
     Config config = parse(rawConfig(Map.of()));
 
@@ -111,17 +95,11 @@ class ZerobusSinkConfigValidatorTest {
   }
 
   @Test
-  void bothWireProtocolKeysAreRefused() {
-    Config config = parse(rawConfig(Map.of("wireProtocol", "json", "encodingType", "json")));
+  void encodingTypeKeyIsAParseError() {
+    Map<String, Object> raw = rawConfig(Map.of("encodingType", "json"));
 
-    IllegalArgumentException e =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> validator.validateConfig(config, "node", jobContext));
-    assertEquals(
-        "Zerobus sink configuration errors: set only one of wireProtocol and encodingType;"
-            + " encodingType is an alias of wireProtocol",
-        e.getMessage());
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> parse(raw));
+    assertTrue(e.getMessage().startsWith("Unrecognized field \"encodingType\""), e.getMessage());
   }
 
   @Test

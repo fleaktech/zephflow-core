@@ -24,6 +24,7 @@ import io.fleak.zephflow.lib.commands.s3.S3SinkDto;
 import io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeSourceDto;
 import io.fleak.zephflow.lib.commands.splunkhecsink.SplunkHecSinkDto;
 import io.fleak.zephflow.lib.commands.sqssink.SqsSinkDto;
+import io.fleak.zephflow.lib.commands.zerobussink.ZerobusSinkDto;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,7 +92,8 @@ class JsonConfigParserTest {
         Arguments.of(S3SinkDto.Config.class, "kvFields", List.of("a")),
         Arguments.of(SplunkHecSinkDto.Config.class, "csvColumns", List.of("a")),
         Arguments.of(SqsSinkDto.Config.class, "encodingType", "JSON_OBJECT"),
-        Arguments.of(PubSubSinkDto.Config.class, "encodingType", "JSON_OBJECT"));
+        Arguments.of(PubSubSinkDto.Config.class, "encodingType", "JSON_OBJECT"),
+        Arguments.of(ZerobusSinkDto.Config.class, "encodingType", "protobuf"));
   }
 
   @ParameterizedTest
