@@ -23,6 +23,8 @@ import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.parser.extractions.JsonExtractionConfig;
+import io.fleak.zephflow.lib.parser.extractions.KvPairExtractionConfig;
+import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionConfig;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -37,6 +39,90 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 /** Created by bolei on 10/14/24 */
 class CompiledRulesTest {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void preservesExtractedContentWhenSourceHasTheSameName(boolean removeTargetField) {
+    var input = (RecordFleakData) FleakData.wrap(Map.of("content", "<134> hello", "other", "kept"));
+    var config =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("content")
+            .removeTargetField(removeTargetField)
+            .extractionConfig(
+                SyslogExtractionConfig.builder()
+                    .componentList(List.of(SyslogExtractionConfig.ComponentType.PRIORITY))
+                    .build())
+            .build();
+
+    var output = new ParserConfigCompiler().compile(config).parse(input);
+
+    assertEquals(
+        FleakData.wrap(Map.of("priority", 134, "content", "hello", "other", "kept")), output);
+    assertEquals(Map.of("content", "<134> hello", "other", "kept"), input.unwrap());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void preservesExtractedKvPairWhenSourceHasTheSameName(boolean removeTargetField) {
+    var input = (RecordFleakData) FleakData.wrap(Map.of("message", "message=hello action=login"));
+    var config =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("message")
+            .removeTargetField(removeTargetField)
+            .extractionConfig(new KvPairExtractionConfig(" ", "="))
+            .build();
+
+    var output = new ParserConfigCompiler().compile(config).parse(input);
+
+    assertEquals(Map.of("message", "hello", "action", "login"), output.unwrap());
+    assertEquals(Map.of("message", "message=hello action=login"), input.unwrap());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void preservesJsonOutputWhenSourceHasTheSameName(boolean removeTargetField) {
+    var input = (RecordFleakData) FleakData.wrap(Map.of("message", "{\"key\":\"value\"}"));
+    var config =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("message")
+            .removeTargetField(removeTargetField)
+            .extractionConfig(new JsonExtractionConfig("message"))
+            .build();
+
+    var output = new ParserConfigCompiler().compile(config).parse(input);
+
+    assertEquals(Map.of("message", Map.of("key", "value")), output.unwrap());
+    assertEquals(Map.of("message", "{\"key\":\"value\"}"), input.unwrap());
+  }
+
+  @Test
+  void dispatchUsesExtractedFieldAfterSourceRemoval() {
+    var input = (RecordFleakData) FleakData.wrap(Map.of("content", "<134> action=login"));
+    var config =
+        ParserConfigs.ParserConfig.builder()
+            .targetField("content")
+            .removeTargetField(true)
+            .extractionConfig(
+                SyslogExtractionConfig.builder()
+                    .componentList(List.of(SyslogExtractionConfig.ComponentType.PRIORITY))
+                    .build())
+            .dispatchConfig(
+                ParserConfigs.DispatchConfig.builder()
+                    .dispatchField("content")
+                    .defaultConfig(
+                        ParserConfigs.ParserConfig.builder()
+                            .targetField("content")
+                            .removeTargetField(true)
+                            .extractionConfig(new KvPairExtractionConfig(" ", "="))
+                            .build())
+                    .build())
+            .build();
+
+    var output = new ParserConfigCompiler().compile(config).parse(input);
+
+    assertEquals(FleakData.wrap(Map.of("priority", 134, "action", "login")), output);
+    assertEquals(Map.of("content", "<134> action=login"), input.unwrap());
+  }
+
   @Test
   public void testParseCiscoAsaLog() throws Exception {
     ParserConfigCompiler parserConfigCompiler = new ParserConfigCompiler();
