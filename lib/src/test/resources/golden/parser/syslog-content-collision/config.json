@@ -1,0 +1,8 @@
+{
+  "targetField": "content",
+  "removeTargetField": true,
+  "extractionConfig": {
+    "type": "syslog",
+    "componentList": ["PRIORITY"]
+  }
+}

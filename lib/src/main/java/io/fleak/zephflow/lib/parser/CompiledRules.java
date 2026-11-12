@@ -49,10 +49,11 @@ public interface CompiledRules {
       } catch (Exception e) {
         throw new RuntimeException("failed to parse input: " + e.getMessage(), e);
       }
-      RecordFleakData mergedRecord = input.copyAndMerge(parsedData.getPayload());
+      RecordFleakData mergedRecord = input.copy();
       if (removeTargetField) {
         mergedRecord.getPayload().remove(targetField);
       }
+      mergedRecord.getPayload().putAll(parsedData.getPayload());
 
       if (dispatchRule == null) {
         return mergedRecord;
