@@ -119,28 +119,34 @@ class KafkaSinkCommandTest {
     kafkaSinkCommand.parseAndValidateArg(
         OBJECT_MAPPER.convertValue(config, new TypeReference<>() {}));
 
-    // Initialize and process
-    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
-    var context = kafkaSinkCommand.getExecutionContext();
-    kafkaSinkCommand.writeToSink(SOURCE_EVENTS, "test_user", context);
+    try {
+      // Initialize and process
+      kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = kafkaSinkCommand.getExecutionContext();
+      kafkaSinkCommand.writeToSink(SOURCE_EVENTS, "test_user", context);
 
-    // Wait for records to be processed (simulating batch processing delay)
-    Thread.sleep(2000);
+      // Wait for records to be processed (simulating batch processing delay)
+      Thread.sleep(2000);
 
-    // Poll for records
-    ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofSeconds(5));
+      // Poll for records
+      ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofSeconds(5));
 
-    // Count how many of our test records were found
-    List<RecordFleakData> foundEvents =
-        StreamSupport.stream(records.spliterator(), false)
-            .map(
-                r -> fromJsonString(new String(r.value()), new TypeReference<RecordFleakData>() {}))
-            .toList();
-    assertEquals(SOURCE_EVENTS, foundEvents);
+      // Count how many of our test records were found
+      List<RecordFleakData> foundEvents =
+          StreamSupport.stream(records.spliterator(), false)
+              .map(
+                  r ->
+                      fromJsonString(
+                          new String(r.value()), new TypeReference<RecordFleakData>() {}))
+              .toList();
+      assertEquals(SOURCE_EVENTS, foundEvents);
+    } finally {
+      kafkaSinkCommand.terminate();
+    }
   }
 
   @Test
-  public void testHighVolumePerformance() {
+  public void testHighVolumePerformance() throws Exception {
     // Create a large number of test records to simulate the original performance problem
     List<RecordFleakData> largeEventSet = new ArrayList<>();
     for (int i = 0; i < 1000; i++) { // 1000 records to simulate high volume
@@ -164,33 +170,37 @@ class KafkaSinkCommandTest {
     // Measure performance - this is the main validation
     long startTime = System.currentTimeMillis();
 
-    // Initialize command
-    kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
-    var context = kafkaSinkCommand.getExecutionContext();
+    try {
+      // Initialize command
+      kafkaSinkCommand.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      var context = kafkaSinkCommand.getExecutionContext();
 
-    // Process large batch - this should NOT cause 1000 individual flushes
-    assertDoesNotThrow(
-        () -> {
-          kafkaSinkCommand.writeToSink(largeEventSet, "perf_test_user", context);
-        },
-        "High volume write should not throw exceptions");
+      // Process large batch - this should NOT cause 1000 individual flushes
+      assertDoesNotThrow(
+          () -> {
+            kafkaSinkCommand.writeToSink(largeEventSet, "perf_test_user", context);
+          },
+          "High volume write should not throw exceptions");
 
-    long processingTime = System.currentTimeMillis() - startTime;
+      long processingTime = System.currentTimeMillis() - startTime;
 
-    // Should complete quickly due to batching (not 1000 individual flush operations)
-    assertTrue(
-        processingTime < 10000, // Should complete within 10 seconds
-        "High volume processing took too long: "
-            + processingTime
-            + "ms. "
-            + "This suggests batching is not working effectively.");
+      // Should complete quickly due to batching (not 1000 individual flush operations)
+      assertTrue(
+          processingTime < 10000, // Should complete within 10 seconds
+          "High volume processing took too long: "
+              + processingTime
+              + "ms. "
+              + "This suggests batching is not working effectively.");
 
-    System.out.println(
-        "✅ High volume test: Processed "
-            + largeEventSet.size()
-            + " records in "
-            + processingTime
-            + "ms - Performance test PASSED");
+      System.out.println(
+          "✅ High volume test: Processed "
+              + largeEventSet.size()
+              + " records in "
+              + processingTime
+              + "ms - Performance test PASSED");
+    } finally {
+      kafkaSinkCommand.terminate();
+    }
   }
 
   @Test
