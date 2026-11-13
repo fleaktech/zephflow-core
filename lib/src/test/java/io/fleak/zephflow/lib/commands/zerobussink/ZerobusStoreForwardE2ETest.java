@@ -80,60 +80,62 @@ class ZerobusStoreForwardE2ETest {
         new ZerobusSinkFlusher("c.s.t", mock(ZerobusSdk.class), null, null, null, stream);
     ZerobusMessageProcessor preprocessor = new ZerobusMessageProcessor();
 
-    ChronicleStoreForward storeForward =
+    try (ChronicleStoreForward storeForward =
         new ChronicleStoreForward(
             new ChronicleStoreForward.Config(dir, 1_000_000, 50, 2, "node-e2e"),
             new ZerobusConnectionFailureClassifier(),
             null,
             null,
-            null);
-    // ReplayTarget mirrors ZerobusSinkCommand: preprocess raw records, then flush.
-    storeForward.start(
-        records -> {
-          SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> prepared =
-              new SimpleSinkCommand.PreparedInputEvents<>();
-          for (RecordFleakData r : records) {
-            prepared.add(r, preprocessor.preprocess(r, 0L));
-          }
-          flusher.flush(prepared, Map.of());
-        });
+            null)) {
+      // ReplayTarget mirrors ZerobusSinkCommand: preprocess raw records, then flush.
+      storeForward.start(
+          records -> {
+            SimpleSinkCommand.PreparedInputEvents<Map<String, Object>> prepared =
+                new SimpleSinkCommand.PreparedInputEvents<>();
+            for (RecordFleakData r : records) {
+              prepared.add(r, preprocessor.preprocess(r, 0L));
+            }
+            flusher.flush(prepared, Map.of());
+          });
 
-    FleakCounter noop = new NoopCounter();
-    SinkExecutionContext<Map<String, Object>> ctx =
-        new SinkExecutionContext<>(
-            flusher, preprocessor, storeForward, noop, noop, noop, noop, noop);
-    TestZerobusSink sink = new TestZerobusSink();
+      FleakCounter noop = new NoopCounter();
+      SinkExecutionContext<Map<String, Object>> ctx =
+          new SinkExecutionContext<>(
+              flusher, preprocessor, storeForward, noop, noop, noop, noop, noop);
+      TestZerobusSink sink = new TestZerobusSink();
 
-    // 1) Outage: the first write fails to reach the stream and is buffered, not delivered.
-    SinkResult r1 = sink.writeToSink(List.of(record(1), record(2)), "user", ctx);
-    assertEquals(2, r1.getSuccessCount()); // safely persisted
-    assertTrue(storeForward.isBuffering());
-    assertTrue(delivered.isEmpty());
+      // 1) Outage: the first write fails to reach the stream and is buffered, not delivered.
+      SinkResult r1 = sink.writeToSink(List.of(record(1), record(2)), "user", ctx);
+      assertEquals(2, r1.getSuccessCount()); // safely persisted
+      assertTrue(storeForward.isBuffering());
+      assertTrue(delivered.isEmpty());
 
-    // 2) Still down: subsequent writes go straight to disk via the outage fast-path.
-    sink.writeToSink(List.of(record(3)), "user", ctx);
-    assertTrue(storeForward.isBuffering());
-    assertTrue(delivered.isEmpty());
+      // 2) Still down: subsequent writes go straight to disk via the outage fast-path.
+      sink.writeToSink(List.of(record(3)), "user", ctx);
+      assertTrue(storeForward.isBuffering());
+      assertTrue(delivered.isEmpty());
 
-    // 3) Recovery: the forwarder drains the backlog oldest-first, then returns to DIRECT.
-    streamUp.set(true);
-    await(() -> !storeForward.isBuffering());
-    assertEquals(List.of("{\"id\":1}", "{\"id\":2}", "{\"id\":3}"), delivered);
+      // 3) Recovery: the forwarder drains the backlog oldest-first, then returns to DIRECT.
+      streamUp.set(true);
+      await(() -> !storeForward.isBuffering());
+      assertEquals(List.of("{\"id\":1}", "{\"id\":2}", "{\"id\":3}"), delivered);
 
-    // Draining reclaims disk: the queue files are gone, only the lock + drained marker remain.
-    await(() -> reclaimed(dir));
-    assertTrue(Files.exists(dir.resolve("sf-drained")));
+      // Draining reclaims disk: the queue files are gone, only the lock + drained marker remain.
+      await(() -> reclaimed(dir));
+      assertTrue(Files.exists(dir.resolve("sf-drained")));
 
-    // 4) Back to DIRECT: a new write is delivered straight through.
-    SinkResult r4 = sink.writeToSink(List.of(record(4)), "user", ctx);
-    assertEquals(1, r4.getSuccessCount());
-    assertEquals(List.of("{\"id\":1}", "{\"id\":2}", "{\"id\":3}", "{\"id\":4}"), delivered);
-
-    storeForward.close();
+      // 4) Back to DIRECT: a new write is delivered straight through.
+      SinkResult r4 = sink.writeToSink(List.of(record(4)), "user", ctx);
+      assertEquals(1, r4.getSuccessCount());
+      assertEquals(List.of("{\"id\":1}", "{\"id\":2}", "{\"id\":3}", "{\"id\":4}"), delivered);
+    }
   }
 
   /** True once the buffer dir holds nothing but the ownership lock and drained marker. */
   private static boolean reclaimed(Path dir) {
+    if (!Files.exists(dir.resolve("sf-drained"))) {
+      return false;
+    }
     try (Stream<Path> files = Files.list(dir)) {
       return files
           .map(p -> p.getFileName().toString())
