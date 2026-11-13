@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.s3;
 
 import static io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport.encoding;
+import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -247,21 +248,24 @@ class BatchS3FlusherTest {
     flusher = createFlusher(batchSize, flushIntervalMs);
     flusher.initialize();
 
+    List<RecordFleakData> records = new ArrayList<>();
     for (int i = 0; i < 3; i++) {
-      Map<String, Object> data = new HashMap<>();
-      data.put("id", i);
-      data.put("name", "test" + i);
-      RecordFleakData record = (RecordFleakData) FleakData.wrap(data);
-      SimpleSinkCommand.PreparedInputEvents<RecordFleakData> events =
-          new SimpleSinkCommand.PreparedInputEvents<>();
-      events.add(record, record);
-      flusher.flush(events, Map.of());
+      records.add((RecordFleakData) FleakData.wrap(Map.of("id", i, "name", "test" + i)));
     }
+    flusher.flush(events(records), Map.of());
 
-    Thread.sleep(2000);
+    await(() -> !listS3Objects().isEmpty());
 
     List<String> objectKeys = listS3Objects();
     assertEquals(1, objectKeys.size());
+    List<String> lines =
+        new String(readObject(objectKeys.getFirst()), StandardCharsets.UTF_8).lines().toList();
+    assertEquals(3, lines.size());
+    for (int i = 0; i < 3; i++) {
+      assertEquals(
+          OBJECT_MAPPER.valueToTree(Map.of("id", i, "name", "test" + i)),
+          OBJECT_MAPPER.readTree(lines.get(i)));
+    }
   }
 
   /**

@@ -33,7 +33,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -53,7 +52,6 @@ import software.amazon.awssdk.services.s3.model.QueueConfiguration;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
 
-@Slf4j
 @Testcontainers
 class S3RealtimeSourceCommandIntegrationTest {
 
@@ -69,6 +67,8 @@ class S3RealtimeSourceCommandIntegrationTest {
   private SqsClient sqs;
   private String queueUrl;
   private ExecutorService executor;
+  private SourceCommand command;
+  private Future<?> execution;
 
   @BeforeEach
   void setUp() {
@@ -86,10 +86,25 @@ class S3RealtimeSourceCommandIntegrationTest {
   }
 
   @AfterEach
-  void tearDown() {
-    executor.shutdownNow();
-    s3.close();
-    sqs.close();
+  void tearDown() throws Exception {
+    try {
+      if (command != null) {
+        command.requestStop();
+        if (execution != null) {
+          execution.get(30, TimeUnit.SECONDS);
+        } else {
+          command.terminate();
+        }
+      }
+    } finally {
+      executor.shutdownNow();
+      try {
+        assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS), "source worker must stop");
+      } finally {
+        s3.close();
+        sqs.close();
+      }
+    }
   }
 
   @Test
@@ -103,12 +118,31 @@ class S3RealtimeSourceCommandIntegrationTest {
         PutObjectRequest.builder().bucket(BUCKET).key(key).build(),
         RequestBody.fromString("{\"msg\":\"a\"}\n{\"msg\":\"b\"}"));
 
-    CollectingAcceptor acceptor = new CollectingAcceptor();
+    CountDownLatch beforeCommit = new CountDownLatch(1);
+    CountDownLatch allowCommit = new CountDownLatch(1);
+    CollectingAcceptor acceptor =
+        new CollectingAcceptor() {
+          @Override
+          public void beforeCommit() {
+            beforeCommit.countDown();
+            try {
+              assertTrue(allowCommit.await(30, TimeUnit.SECONDS), "test must release the commit");
+            } catch (InterruptedException exception) {
+              Thread.currentThread().interrupt();
+              throw new AssertionError("interrupted before commit", exception);
+            }
+          }
+        };
     CapturingDlqWriter dlq = new CapturingDlqWriter();
-    SourceCommand command = runCommand(Decodings.JSON_LINES, 5, dlq, acceptor);
+    runCommand(Decodings.JSON_LINES, 5, dlq, acceptor);
 
-    waitUntil(() -> acceptor.records.size() >= 2);
-    command.terminate();
+    try {
+      assertTrue(beforeCommit.await(30, TimeUnit.SECONDS), "source must reach acknowledgement");
+      assertEquals(
+          List.of(record(Map.of("msg", "a")), record(Map.of("msg", "b"))), acceptor.records);
+    } finally {
+      allowCommit.countDown();
+    }
 
     assertEquals(List.of(record(Map.of("msg", "a")), record(Map.of("msg", "b"))), acceptor.records);
     waitUntil(() -> approxMessages() == 0);
@@ -127,10 +161,10 @@ class S3RealtimeSourceCommandIntegrationTest {
 
     CollectingAcceptor acceptor = new CollectingAcceptor();
     CapturingDlqWriter dlq = new CapturingDlqWriter();
-    SourceCommand command = runCommand(Decodings.JSON_LINES, 5, dlq, acceptor);
+    runCommand(Decodings.JSON_LINES, 5, dlq, acceptor);
 
+    waitUntil(() -> dlq.captured.size() == 1);
     waitUntil(() -> approxMessages() == 0);
-    command.terminate();
 
     assertTrue(
         acceptor.records.isEmpty(), "no records should be emitted for an unparseable object");
@@ -162,10 +196,10 @@ class S3RealtimeSourceCommandIntegrationTest {
     CapturingDlqWriter dlq = new CapturingDlqWriter();
     // maxRetries=2 / visibilityTimeout=0 so the cap drains the queue quickly while accept keeps
     // failing.
-    SourceCommand command = runCommand(Decodings.JSON_LINES, 2, 0, dlq, acceptor);
+    runCommand(Decodings.JSON_LINES, 2, 0, dlq, acceptor);
 
     waitUntil(() -> !dlq.captured.isEmpty());
-    command.terminate();
+    waitUntil(() -> approxMessages() == 0);
 
     assertFalse(dlq.captured.isEmpty(), "downstream accept() failure must be captured in the DLQ");
   }
@@ -194,13 +228,13 @@ class S3RealtimeSourceCommandIntegrationTest {
         AwsBasicCredentials.create(LOCALSTACK.getAccessKey(), LOCALSTACK.getSecretKey()));
   }
 
-  private SourceCommand runCommand(
+  private void runCommand(
       FormatConfig format, int maxRetries, CapturingDlqWriter dlq, SourceEventAcceptor acceptor)
       throws Exception {
-    return runCommand(format, maxRetries, 30, dlq, acceptor);
+    runCommand(format, maxRetries, 30, dlq, acceptor);
   }
 
-  private SourceCommand runCommand(
+  private void runCommand(
       FormatConfig format,
       int maxRetries,
       int visibilityTimeout,
@@ -224,6 +258,7 @@ class S3RealtimeSourceCommandIntegrationTest {
             new JsonConfigParser<>(S3RealtimeSourceDto.Config.class),
             new S3RealtimeSourceConfigValidator(),
             factory);
+    this.command = command;
     command.parseAndValidateArg(
         Map.of(
             "queueUrl",
@@ -250,18 +285,17 @@ class S3RealtimeSourceCommandIntegrationTest {
           .thenReturn(dlq);
       command.initialize(metrics);
     }
-    executor.submit(
-        () -> {
-          try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
-            dlqFactory
-                .when(() -> DlqWriterFactory.createSampleWriter(job.getDlqConfig(), null))
-                .thenReturn(mock(DlqWriter.class));
-            command.execute("user", acceptor);
-          } catch (Exception e) {
-            log.error("command execution failed", e);
-          }
-        });
-    return command;
+    execution =
+        executor.submit(
+            () -> {
+              try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
+                dlqFactory
+                    .when(() -> DlqWriterFactory.createSampleWriter(job.getDlqConfig(), null))
+                    .thenReturn(mock(DlqWriter.class));
+                command.execute("user", acceptor);
+              }
+              return null;
+            });
   }
 
   private void sendNotification(String bucket, String key) {
