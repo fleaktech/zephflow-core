@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.gcssink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -26,11 +27,18 @@ public class GcsSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     GcsSinkDto.Config config = (GcsSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getBucketName()), "bucketName is required");
+    require(
+        StringUtils.isNotBlank(config.getBucketName()),
+        of("bucketName"),
+        "bucketName is required and must not be blank.",
+        "bucketName is required");
 
     if (config.getBatchSize() != null) {
-      Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
+      require(
+          config.getBatchSize() >= 1,
+          of("batchSize"),
+          "batchSize must be at least 1.",
+          "batchSize must be at least 1");
     }
 
     if (StringUtils.isNotBlank(config.getCredentialId()) && enforceCredentials(jobContext)) {

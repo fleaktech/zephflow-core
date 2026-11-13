@@ -16,10 +16,14 @@ package io.fleak.zephflow.lib.utils;
 import static io.fleak.zephflow.lib.utils.AntlrUtils.GrammarType.*;
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
+import io.fleak.zephflow.api.ConfigurationIssue;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.lib.antlr.*;
 import io.fleak.zephflow.lib.commands.eval.FeelFunction;
 import io.fleak.zephflow.lib.commands.eval.FunctionSignature;
 import io.fleak.zephflow.lib.commands.eval.PythonFunction;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
@@ -40,8 +44,15 @@ public interface AntlrUtils {
     // Get the current token (where the parser stopped)
     Token currentToken = parser.getCurrentToken();
     if (currentToken.getType() != Token.EOF) {
-      throw new IllegalArgumentException(
-          "Encountered parsing error at position " + currentToken.getStopIndex());
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.root(),
+          new IllegalArgumentException(
+              "Encountered parsing error at position " + currentToken.getStopIndex()),
+          "Unexpected trailing input at line "
+              + currentToken.getLine()
+              + ", column "
+              + currentToken.getCharPositionInLine()
+              + "; expected end of expression.");
     }
   }
 
@@ -54,6 +65,21 @@ public interface AntlrUtils {
     parser.removeErrorListeners();
     parser.addErrorListener(ParseErrorListener.INSTANCE);
     return parser;
+  }
+
+  /** Adds a caller's configuration location to a recognized syntax or compilation failure. */
+  static RuntimeException configurationFailure(
+      ConfigurationPath path, Exception failure, RuntimeException originalFailure) {
+    if (failure instanceof FleakParseException syntax) {
+      return new ConfigurationValidationException(
+          originalFailure, List.of(syntax.getConfigurationIssue().withPrefix(path)));
+    }
+    if (failure instanceof ConfigurationValidationException configuration) {
+      return new ConfigurationValidationException(
+          originalFailure,
+          configuration.issues().stream().map(issue -> issue.withPrefix(path)).toList());
+    }
+    return originalFailure;
   }
 
   enum GrammarType {
@@ -96,7 +122,42 @@ public interface AntlrUtils {
               .message(enhancedMessage)
               .build();
 
-      throw new FleakParseException(errorDto);
+      throw new FleakParseException(
+          errorDto, configurationIssue(recognizer, line, charPositionInLine));
+    }
+
+    private ConfigurationIssue configurationIssue(
+        Recognizer<?, ?> recognizer, int line, int position) {
+      String reason =
+          recognizer instanceof Lexer
+              ? "Invalid character or token in expression"
+              : "Invalid expression syntax";
+      String message = reason + " at line " + line + ", column " + position;
+      if (recognizer instanceof Parser parser) {
+        message += ". Expected: " + parser.getExpectedTokens().toString(parser.getVocabulary());
+        var context = parser.getContext();
+        while (context != null) {
+          if (context instanceof EvalExpressionParser.GenericFunctionCallContext call
+              && call.IDENTIFIER() != null) {
+            String name = call.IDENTIFIER().getText();
+            FunctionSignature signature = FEEL_FUNCTION_SIGNATURES.get(name);
+            if (signature != null) {
+              message +=
+                  ". Function '"
+                      + name
+                      + "' expects "
+                      + signature.minArgs()
+                      + (signature.maxArgs() == signature.minArgs()
+                          ? ""
+                          : signature.maxArgs() == -1 ? " or more" : "-" + signature.maxArgs())
+                      + " argument(s)";
+            }
+            break;
+          }
+          context = context.getParent();
+        }
+      }
+      return new ConfigurationIssue(ConfigurationPath.root(), message);
     }
 
     private String enhanceErrorMessage(
@@ -178,10 +239,23 @@ public interface AntlrUtils {
   @Getter
   class FleakParseException extends RuntimeException {
     private final ParseErrorDto parseErrorDto;
+    private final ConfigurationIssue configurationIssue;
 
     FleakParseException(ParseErrorDto parseErrorDto) {
+      this(
+          parseErrorDto,
+          new ConfigurationIssue(
+              ConfigurationPath.root(),
+              "Invalid expression syntax at line "
+                  + parseErrorDto.getLine()
+                  + ", column "
+                  + parseErrorDto.getCharPositionInLine()));
+    }
+
+    FleakParseException(ParseErrorDto parseErrorDto, ConfigurationIssue configurationIssue) {
       super(toJsonString(parseErrorDto));
       this.parseErrorDto = parseErrorDto;
+      this.configurationIssue = configurationIssue;
     }
   }
 

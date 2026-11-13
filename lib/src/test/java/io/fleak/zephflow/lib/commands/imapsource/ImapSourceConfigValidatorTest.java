@@ -131,10 +131,13 @@ class ImapSourceConfigValidatorTest {
             .authType(null)
             .build();
 
-    NullPointerException ex =
+    io.fleak.zephflow.api.ConfigurationValidationException ex =
         assertThrows(
-            NullPointerException.class,
+            io.fleak.zephflow.api.ConfigurationValidationException.class,
             () -> validator.validateConfig(config, "test-node", mockJobContext));
+    assertEquals(NullPointerException.class, ex.originalFailure().getClass());
+    assertEquals(
+        io.fleak.zephflow.api.ConfigurationPath.of("authType"), ex.issues().getFirst().path());
     assertTrue(ex.getMessage().contains("no authType is provided"));
   }
 

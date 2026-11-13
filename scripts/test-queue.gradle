@@ -1,0 +1,142 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import org.gradle.api.tasks.testing.Test
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
+
+abstract class TestQueueProcesses {
+  @Inject abstract ExecOperations getExecOperations()
+}
+
+// Adapted from dynamicapi. Explicit selection keeps Gradle's native --tests semantics.
+def nativeTest = tasks.named('test', Test)
+def queueEnabled = {
+  def task = nativeTest.get()
+  task.filter.includePatterns.empty && task.filter.excludePatterns.empty &&
+      task.filter.commandLineIncludePatterns.empty &&
+      task.options.includeEngines.empty && task.options.excludeEngines.empty &&
+      !task.failFast && !task.debug && !task.ignoreFailures && !task.dryRun.get() && task.forkEvery == 0
+}
+def workerClasses = layout.buildDirectory.dir('test-queue/classes')
+def compileWorker = tasks.register('compileTestQueueWorker', JavaCompile) {
+  source rootProject.file('scripts/test-queue/QueueWorker.java')
+  // JUnit Launcher is already a runtime dependency of Zephflow's tests.
+  classpath = files(configurations.testCompileClasspath, configurations.testRuntimeClasspath)
+  destinationDirectory = workerClasses
+  javaCompiler = tasks.named('compileTestJava', JavaCompile).flatMap { it.javaCompiler }
+  options.encoding = 'UTF-8'
+}
+
+def processes = objects.newInstance(TestQueueProcesses)
+nativeTest.configure {
+  dependsOn { queueEnabled() ? [compileWorker] : [] }
+  inputs.files(rootProject.file('scripts/test_queue.py'),
+      rootProject.file('scripts/test-queue.gradle'),
+      rootProject.file('scripts/test_queue_report.py'),
+      rootProject.file('scripts/test-queue/QueueWorker.java'))
+  inputs.property('queueActive', queueEnabled)
+  inputs.property('workers', { nativeTest.get().maxParallelForks })
+  inputs.property('jvmArguments', { nativeTest.get().allJvmArgs })
+  outputs.doNotCacheIf('The shared queue keeps results local to this build') { queueEnabled() }
+  def nativeActions = actions.toList()
+  actions.clear()
+  doLast { task ->
+    if (!queueEnabled()) {
+      logger.lifecycle('TEST_QUEUE native Gradle execution for {}', task.path)
+      nativeActions.each { it.execute(task) }
+      return
+    }
+    delete task.binaryResultsDirectory
+    def coverage = task.extensions.getByName('jacoco')
+    if (coverage.enabled) delete coverage.destinationFile
+    def roots = task.testClassesDirs.files.collect { it.toPath() }
+    def candidates = task.candidateClassFiles.files.collect { candidate ->
+      def root = roots.find { candidate.toPath().startsWith(it) }
+      root == null ? null : root.relativize(candidate.toPath()).toString()
+          .replace(File.separator, '.').replaceAll(/\.class$/, '')
+    }.findAll { it != null }.sort()
+    def runDirectory = layout.buildDirectory.dir("test-queue/runs/${UUID.randomUUID()}").get().asFile
+    def coverageArgument = coverage.enabled ? coverage.asJvmArg : null
+    def arguments = task.allJvmArgs.toList()
+    task.jvmArgumentProviders.each { provider ->
+      def provided = provider.asArguments().toList()
+      if (!arguments.containsAll(provided)) arguments.addAll(provided)
+    }
+    // Gradle's worker launcher supplies 512 MiB when Test.maxHeapSize is unset.
+    if (!arguments.any { it.startsWith('-Xmx') }) arguments.add('-Xmx512m')
+    def configuration = [
+      task: task.path,
+      java: task.javaLauncher.get().executablePath.asFile.absolutePath,
+      classpath: files(workerClasses, task.classpath).asPath,
+      working_directory: task.workingDir.absolutePath,
+      jvm_arguments: arguments.findAll { it != coverageArgument },
+      jacoco_argument: coverageArgument,
+      filters: [includeTags: task.options.includeTags.toList(), excludeTags: task.options.excludeTags.toList()],
+      workers: task.maxParallelForks,
+      max_heap: task.maxHeapSize ?: '512m',
+      show_standard_streams: task.testLogging.showStandardStreams,
+      candidates: candidates,
+      run_directory: runDirectory.absolutePath,
+      reports_directory: task.reports.junitXml.outputLocation.get().asFile.absolutePath,
+      durations_file: layout.buildDirectory.file('test-queue/durations.json').get().asFile.absolutePath
+    ]
+    def configurationFile = layout.buildDirectory.file('test-queue/configuration.json').get().asFile
+    configurationFile.parentFile.mkdirs()
+    configurationFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(configuration))
+    logger.lifecycle('TEST_QUEUE_CONFIG task={} workers={} maxHeap={}',
+        task.path, task.maxParallelForks, configuration.max_heap)
+    def execution = processes.execOperations.exec {
+      workingDir rootProject.projectDir
+      environment task.environment
+      commandLine 'python3', rootProject.file('scripts/test_queue.py').absolutePath,
+          configurationFile.absolutePath
+      ignoreExitValue = true
+    }
+    try {
+      if (coverage.enabled) {
+        def recordings = fileTree(runDirectory) { include 'worker-*/jacoco.exec' }
+        if (!recordings.empty) {
+          ant.taskdef(name: 'mergeQueueCoverage', classname: 'org.jacoco.ant.MergeTask',
+              classpath: configurations.jacocoAnt.asPath)
+          ant.mergeQueueCoverage(destfile: coverage.destinationFile) {
+            fileset(dir: runDirectory, includes: 'worker-*/jacoco.exec')
+          }
+        } else if (execution.exitValue == 0 &&
+            new JsonSlurper().parse(new File(runDirectory, 'result.json')).selected_classes > 0) {
+          throw new GradleException('Test queue produced no JaCoCo execution data')
+        }
+      }
+    } finally {
+      processes.execOperations.exec {
+        workingDir rootProject.projectDir
+        commandLine 'python3', rootProject.file('scripts/test_queue_report.py').absolutePath,
+            task.reports.junitXml.outputLocation.get().asFile.absolutePath,
+            new File(task.reports.html.outputLocation.get().asFile, 'index.html').absolutePath
+      }
+    }
+    execution.assertNormalExitValue()
+  }
+}
+
+// Explicit local regression task; not attached to check or to any CI workflow.
+def fixtureClasses = layout.buildDirectory.dir('test-queue/fixtures')
+def compileFixtures = tasks.register('compileTestQueueFixtures', JavaCompile) {
+  source rootProject.fileTree('scripts/test-queue/fixtures') { include '*.java' }
+  classpath = files(configurations.testCompileClasspath, configurations.testRuntimeClasspath)
+  destinationDirectory = fixtureClasses
+  javaCompiler = tasks.named('compileTestJava', JavaCompile).flatMap { it.javaCompiler }
+  options.encoding = 'UTF-8'
+}
+tasks.register('testQueueInfrastructure', Exec) {
+  group = 'verification'
+  description = 'Checks the local shared test queue without containers or external services.'
+  dependsOn compileWorker, compileFixtures
+  workingDir rootProject.projectDir
+  commandLine 'python3', '-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_test_queue.py'
+  doFirst {
+    environment 'TEST_QUEUE_JAVA', nativeTest.get().javaLauncher.get().executablePath.asFile.absolutePath
+    environment 'TEST_QUEUE_CLASSPATH', files(workerClasses, fixtureClasses,
+        configurations.testRuntimeClasspath).asPath
+    environment 'TEST_QUEUE_JACOCO_ARGUMENT', nativeTest.get().jacoco.asJvmArg
+  }
+}

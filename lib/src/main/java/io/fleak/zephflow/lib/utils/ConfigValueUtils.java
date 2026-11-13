@@ -14,11 +14,27 @@
 package io.fleak.zephflow.lib.utils;
 
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import java.math.BigInteger;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 public interface ConfigValueUtils {
+
+  /**
+   * Applies the existing integer conversion and attaches the original input location on failure.
+   */
+  static long requireInteger(
+      Object value, String name, long min, long max, ConfigurationPath path) {
+    try {
+      return requireInteger(value, name, min, max);
+    } catch (IllegalArgumentException failure) {
+      throw ConfigurationValidationException.at(
+          path, failure, "Expected an integer from " + min + " to " + max);
+    }
+  }
 
   static long requireInteger(Object value, String name, long min, long max) {
     BigInteger n =
@@ -45,13 +61,27 @@ public interface ConfigValueUtils {
   }
 
   static void checkNoUnknownKeys(Map<?, ?> map, Set<String> allowed, String prefix) {
+    checkNoUnknownKeys(map, allowed, prefix, null);
+  }
+
+  /** Attaches a literal key rather than parsing the legacy human-readable prefix. */
+  static void checkNoUnknownKeys(
+      Map<?, ?> map, Set<String> allowed, String prefix, ConfigurationPath path) {
     for (Object key : map.keySet()) {
-      Preconditions.checkArgument(
-          key instanceof String name && allowed.contains(name),
-          "unknown parameter '%s%s'; allowed: %s",
-          prefix,
-          key,
-          allowed);
+      try {
+        Preconditions.checkArgument(
+            key instanceof String name && allowed.contains(name),
+            "unknown parameter '%s%s'; allowed: %s",
+            prefix,
+            key,
+            allowed);
+      } catch (IllegalArgumentException failure) {
+        if (path == null) throw failure;
+        throw ConfigurationValidationException.at(
+            key instanceof String name ? path.field(name) : path,
+            failure,
+            "Unknown parameter. Accepted fields: " + new TreeSet<>(allowed));
+      }
     }
   }
 }

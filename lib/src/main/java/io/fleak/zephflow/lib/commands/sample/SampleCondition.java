@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.sample;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.compiled.CompiledExpression;
@@ -47,9 +49,17 @@ record SampleCondition(CompiledExpression expression, PythonExecutor pythonExecu
       } catch (RuntimeException cleanup) {
         e.addSuppressed(cleanup);
       }
-      throw new IllegalArgumentException(
-          String.format("invalid 'rules[%s].condition' '%s': %s", index, condition, e.getMessage()),
-          e);
+      Exception originalCause =
+          e instanceof ConfigurationValidationException diagnostic
+              ? diagnostic.originalFailure()
+              : e;
+      var original =
+          new IllegalArgumentException(
+              String.format(
+                  "invalid 'rules[%s].condition' '%s': %s", index, condition, e.getMessage()),
+              originalCause);
+      throw AntlrUtils.configurationFailure(
+          ConfigurationPath.of("rules").index(index).field("condition"), e, original);
     }
   }
 

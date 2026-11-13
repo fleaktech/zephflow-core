@@ -13,17 +13,24 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.at;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.*;
+import io.fleak.zephflow.api.ConfigurationIssue;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.SaslConfigs;
@@ -58,30 +65,53 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     KafkaSinkDto.Config config = (KafkaSinkDto.Config) commandConfig;
 
     if (StringUtils.isBlank(config.getBroker())) {
-      throw new IllegalArgumentException("Broker must be provided");
+      throw at(
+          of("broker"),
+          new IllegalArgumentException("Broker must be provided"),
+          "broker is required and must not be blank.");
     }
     if (StringUtils.isBlank(config.getTopic())) {
-      throw new IllegalArgumentException("Topic must be provided");
+      throw at(
+          of("topic"),
+          new IllegalArgumentException("Topic must be provided"),
+          "topic is required and must not be blank.");
     }
     SinkEncoding.validate(config.getEncoding(), CAPABILITY);
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
-      PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+      PathExpression.fromString(
+          config.getPartitionKeyFieldExpressionStr(), of("partitionKeyFieldExpressionStr"));
     }
     if (config.isStoreAndForwardEnabled()) {
       if (config.getDeliveryMode() == KafkaSinkDto.DeliveryMode.FIRE_AND_FORGET) {
-        throw new IllegalArgumentException(
-            "storeAndForwardEnabled requires waiting for broker acks and cannot be combined with"
-                + " deliveryMode FIRE_AND_FORGET");
+        var original =
+            new IllegalArgumentException(
+                "storeAndForwardEnabled requires waiting for broker acks and cannot be combined with"
+                    + " deliveryMode FIRE_AND_FORGET");
+        throw new ConfigurationValidationException(
+            original,
+            List.of("storeAndForwardEnabled", "deliveryMode").stream()
+                .map(
+                    field ->
+                        new ConfigurationIssue(
+                            of(field),
+                            "storeAndForwardEnabled true cannot be combined with deliveryMode FIRE_AND_FORGET; broker acknowledgements are required."))
+                .toList());
       }
       if (config.getLocalStoreMaxBytes() <= 0) {
-        throw new IllegalArgumentException(
-            "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: "
-                + config.getLocalStoreMaxBytes());
+        throw at(
+            of("localStoreMaxBytes"),
+            new IllegalArgumentException(
+                "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: "
+                    + config.getLocalStoreMaxBytes()),
+            "localStoreMaxBytes must be greater than 0 when storeAndForwardEnabled is true.");
       }
       if (config.getForwardRetryIntervalMillis() <= 0) {
-        throw new IllegalArgumentException(
-            "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: "
-                + config.getForwardRetryIntervalMillis());
+        throw at(
+            of("forwardRetryIntervalMillis"),
+            new IllegalArgumentException(
+                "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: "
+                    + config.getForwardRetryIntervalMillis()),
+            "forwardRetryIntervalMillis must be greater than 0 when storeAndForwardEnabled is true.");
       }
     }
 
@@ -93,19 +123,34 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     if (protocol == null) {
       return;
     }
-    parseEnum(SecurityProtocol.class, protocol);
+    try {
+      parseEnum(SecurityProtocol.class, protocol);
+    } catch (IllegalArgumentException failure) {
+      throw at(
+          of("securityProtocol"),
+          failure,
+          "Allowed securityProtocol values: " + Arrays.toString(SecurityProtocol.values()) + ".");
+    }
     if (protocol.startsWith("SASL_")) {
       String mechanism = StringUtils.trimToNull(config.getSaslMechanism());
       if (mechanism == null || !SUPPORTED_SASL_MECHANISMS.contains(mechanism)) {
-        throw new IllegalArgumentException(
-            "saslMechanism must be one of "
-                + SUPPORTED_SASL_MECHANISMS
-                + " when securityProtocol is "
-                + protocol);
+        throw at(
+            of("saslMechanism"),
+            new IllegalArgumentException(
+                "saslMechanism must be one of "
+                    + SUPPORTED_SASL_MECHANISMS
+                    + " when securityProtocol is "
+                    + protocol),
+            "When securityProtocol uses SASL, saslMechanism must be one of "
+                + new TreeSet<>(SUPPORTED_SASL_MECHANISMS)
+                + ".");
       }
       if (StringUtils.isBlank(config.getCredentialId())) {
-        throw new IllegalArgumentException(
-            "credentialId is required when securityProtocol is " + protocol);
+        throw at(
+            of("credentialId"),
+            new IllegalArgumentException(
+                "credentialId is required when securityProtocol is " + protocol),
+            "credentialId is required and must not be blank when securityProtocol uses SASL.");
       }
       if (enforceCredentials(jobContext)) {
         lookupUsernamePasswordCredential(jobContext, config.getCredentialId());
@@ -120,10 +165,13 @@ public class KafkaSinkConfigValidator implements ConfigValidator {
     }
     for (String key : properties.keySet()) {
       if (key != null && MANAGED_PROPERTY_KEYS.contains(key.toLowerCase(Locale.ROOT))) {
-        throw new IllegalArgumentException(
-            "property '"
-                + key
-                + "' is managed by the connection profile/credential and must not be set in properties");
+        throw at(
+            of("properties", key),
+            new IllegalArgumentException(
+                "property '"
+                    + key
+                    + "' is managed by the connection profile/credential and must not be set in properties"),
+            "This property is managed by the connection profile or credential and must not be set in properties.");
       }
     }
   }

@@ -17,6 +17,8 @@ import static io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeRawDataC
 import static io.fleak.zephflow.lib.commands.s3realtimesource.S3RealtimeRawDataConverter.S3_METADATA_KEY;
 
 import com.google.common.annotations.VisibleForTesting;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
@@ -91,7 +93,11 @@ public final class S3ObjectDecoder {
           "heapBytes must be at least " + MIN_HEAP_BYTES + " but was " + heapBytes);
     }
     DecodingConfig config = decoding.decodingConfig();
-    this.recordDecoder = DecodingConfigCompiler.compile(config);
+    try {
+      this.recordDecoder = DecodingConfigCompiler.compile(config);
+    } catch (ConfigurationValidationException failure) {
+      throw failure.withPrefix(ConfigurationPath.of("decoding"));
+    }
     this.limits = S3DecodeLimits.forFormat(config.format(), heapBytes);
     this.addS3Metadata = decoding.addS3Metadata();
     this.heapBytes = heapBytes;

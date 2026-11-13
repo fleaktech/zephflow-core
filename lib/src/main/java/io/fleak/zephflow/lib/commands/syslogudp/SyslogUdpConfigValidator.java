@@ -13,9 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.syslogudp;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
 import java.nio.charset.Charset;
 import org.apache.commons.lang3.StringUtils;
@@ -25,21 +28,36 @@ public class SyslogUdpConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SyslogUdpDto.Config config = (SyslogUdpDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getHost()), "host must not be blank");
-    Preconditions.checkArgument(
+    require(
+        StringUtils.isNotBlank(config.getHost()),
+        of("host"),
+        "host is required and must not be blank.",
+        "host must not be blank");
+    require(
         config.getPort() > 0 && config.getPort() <= 65535,
+        of("port"),
+        "port must be between 1 and 65535.",
         "port must be between 1 and 65535, got: %s",
         config.getPort());
-    Preconditions.checkArgument(
-        config.getBufferSize() > 0, "bufferSize must be positive, got: %s", config.getBufferSize());
-    Preconditions.checkArgument(
+    require(
+        config.getBufferSize() > 0,
+        of("bufferSize"),
+        "bufferSize must be greater than 0.",
+        "bufferSize must be positive, got: %s",
+        config.getBufferSize());
+    require(
         config.getQueueCapacity() > 0,
+        of("queueCapacity"),
+        "queueCapacity must be greater than 0.",
         "queueCapacity must be positive, got: %s",
         config.getQueueCapacity());
     try {
       Charset.forName(config.getEncoding());
     } catch (Exception e) {
-      throw new IllegalArgumentException("invalid encoding: " + config.getEncoding(), e);
+      throw ConfigurationValidationException.at(
+          of("encoding"),
+          new IllegalArgumentException("invalid encoding: " + config.getEncoding(), e),
+          "encoding must name a supported charset, such as UTF-8.");
     }
   }
 }

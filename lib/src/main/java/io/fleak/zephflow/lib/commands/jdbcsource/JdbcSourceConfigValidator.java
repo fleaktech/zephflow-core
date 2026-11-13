@@ -13,7 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.jdbcsource;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -24,22 +26,36 @@ public class JdbcSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     JdbcSourceDto.Config config = (JdbcSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getJdbcUrl()), "jdbcUrl must be provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getQuery()), "query must be provided");
+    require(
+        StringUtils.isNotBlank(config.getJdbcUrl()),
+        of("jdbcUrl"),
+        "jdbcUrl is required and must not be blank.",
+        "jdbcUrl must be provided");
+    require(
+        StringUtils.isNotBlank(config.getQuery()),
+        of("query"),
+        "query is required and must not be blank.",
+        "query must be provided");
 
     if (StringUtils.isNotBlank(config.getWatermarkColumn())) {
-      Preconditions.checkArgument(
+      require(
           config.getQuery().contains(":watermark"),
+          of("query"),
+          "query must contain the :watermark placeholder when watermarkColumn is set.",
           "query must contain :watermark placeholder when watermarkColumn is set");
     }
 
-    Preconditions.checkArgument(
+    require(
         config.getPollIntervalMs() > 0,
+        of("pollIntervalMs"),
+        "pollIntervalMs must be greater than 0.",
         "pollIntervalMs must be positive, got: %s",
         config.getPollIntervalMs());
-    Preconditions.checkArgument(
-        config.getFetchSize() > 0, "fetchSize must be positive, got: %s", config.getFetchSize());
+    require(
+        config.getFetchSize() > 0,
+        of("fetchSize"),
+        "fetchSize must be greater than 0.",
+        "fetchSize must be positive, got: %s",
+        config.getFetchSize());
   }
 }

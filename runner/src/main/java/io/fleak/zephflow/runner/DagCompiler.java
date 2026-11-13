@@ -15,6 +15,7 @@ package io.fleak.zephflow.runner;
 
 import io.fleak.zephflow.api.CommandFactory;
 import io.fleak.zephflow.api.CommandType;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.runner.dag.*;
@@ -78,35 +79,10 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
                         .nodeContent(command)
                         .id(n.getId())
                         .build();
-                  } catch (Exception e) {
-                    if (jobContext != null
-                        && jobContext.getOtherProperties() != null
-                        && Boolean.TRUE.equals(
-                            jobContext.getOtherProperties().get(JobContext.FLAG_BOUNDED_MODE))) {
-                      String failureType = e.getClass().getSimpleName();
-                      log.warn(
-                          "bounded DAG compilation failed at node {}: {}", n.getId(), failureType);
-                      throw new DagCompilationException(
-                          DagCompilationException.ErrorType.NODE_COMPILATION,
-                          n.getId(),
-                          rdn.getCommandName(),
-                          "failed to compile DAG node " + n.getId() + ": " + failureType,
-                          null);
-                    }
-                    // config errors are expected user-input failures; the exception is wrapped
-                    // and rethrown for the caller to handle, so don't log at ERROR
-                    log.warn(
-                        "dag compilation error at node {}: {}, reason: {}",
-                        n.getId(),
-                        rdn,
-                        e.getMessage());
-                    throw new DagCompilationException(
-                        DagCompilationException.ErrorType.NODE_COMPILATION,
-                        n.getId(),
-                        n.getNodeContent().getCommandName(),
-                        String.format(
-                            "failed to compile DAG node: %s, reason: %s", rdn, e.getMessage()),
-                        e);
+                  } catch (ConfigurationValidationException failure) {
+                    throw compilationFailure(n, jobContext, failure.originalFailure());
+                  } catch (Exception failure) {
+                    throw compilationFailure(n, jobContext, failure);
                   }
                 })
             .toList();
@@ -118,6 +94,32 @@ public record DagCompiler(Map<String, CommandFactory> commandFactoryMap) {
             .toList();
 
     return new Dag<>(compiledNodes, compiledEdges);
+  }
+
+  private static DagCompilationException compilationFailure(
+      Node<RawDagNode> node, JobContext jobContext, Exception e) {
+    RawDagNode rdn = node.getNodeContent();
+    if (jobContext != null
+        && jobContext.getOtherProperties() != null
+        && Boolean.TRUE.equals(jobContext.getOtherProperties().get(JobContext.FLAG_BOUNDED_MODE))) {
+      String failureType = e.getClass().getSimpleName();
+      log.warn("bounded DAG compilation failed at node {}: {}", node.getId(), failureType);
+      return new DagCompilationException(
+          DagCompilationException.ErrorType.NODE_COMPILATION,
+          node.getId(),
+          rdn.getCommandName(),
+          "failed to compile DAG node " + node.getId() + ": " + failureType,
+          null);
+    }
+    // config errors are expected user-input failures; the exception is wrapped
+    // and rethrown for the caller to handle, so don't log at ERROR
+    log.warn("dag compilation error at node {}: {}, reason: {}", node.getId(), rdn, e.getMessage());
+    return new DagCompilationException(
+        DagCompilationException.ErrorType.NODE_COMPILATION,
+        node.getId(),
+        node.getNodeContent().getCommandName(),
+        String.format("failed to compile DAG node: %s, reason: %s", rdn, e.getMessage()),
+        e);
   }
 
   private CommandFactory getCommandFactory(String nodeId, String commandName) {

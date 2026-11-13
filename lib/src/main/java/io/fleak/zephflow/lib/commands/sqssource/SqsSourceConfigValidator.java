@@ -13,45 +13,60 @@
  */
 package io.fleak.zephflow.lib.commands.sqssource;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.enforceCredentials;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import org.apache.commons.lang3.StringUtils;
 
 public class SqsSourceConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SqsSourceDto.Config config = (SqsSourceDto.Config) commandConfig;
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getQueueUrl()), "no queue URL is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getRegionStr()), "no region is provided");
-    DecodingConfigCompiler.compile(SqsSourceCommand.decodingConfig(config));
+    require(
+        StringUtils.isNotBlank(config.getQueueUrl()),
+        of("queueUrl"),
+        "queueUrl is required and must not be blank.",
+        "no queue URL is provided");
+    require(
+        StringUtils.isNotBlank(config.getRegionStr()),
+        of("regionStr"),
+        "regionStr is required and must not be blank.",
+        "no region is provided");
+    SourceDecoding.validate(SqsSourceCommand.decodingConfig(config));
 
     if (config.getMaxNumberOfMessages() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getMaxNumberOfMessages() >= 1
               && config.getMaxNumberOfMessages() <= SqsSourceDto.MAX_MAX_NUMBER_OF_MESSAGES,
+          of("maxNumberOfMessages"),
+          "maxNumberOfMessages must be between 1 and "
+              + SqsSourceDto.MAX_MAX_NUMBER_OF_MESSAGES
+              + ".",
           "maxNumberOfMessages must be between 1 and %s",
           SqsSourceDto.MAX_MAX_NUMBER_OF_MESSAGES);
     }
 
     if (config.getWaitTimeSeconds() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getWaitTimeSeconds() >= 0
               && config.getWaitTimeSeconds() <= SqsSourceDto.MAX_WAIT_TIME_SECONDS,
+          of("waitTimeSeconds"),
+          "waitTimeSeconds must be between 0 and " + SqsSourceDto.MAX_WAIT_TIME_SECONDS + ".",
           "waitTimeSeconds must be between 0 and %s",
           SqsSourceDto.MAX_WAIT_TIME_SECONDS);
     }
 
     if (config.getVisibilityTimeoutSeconds() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getVisibilityTimeoutSeconds() >= 0,
+          of("visibilityTimeoutSeconds"),
+          "visibilityTimeoutSeconds must be greater than or equal to 0.",
           "visibilityTimeoutSeconds must be non-negative");
     }
 

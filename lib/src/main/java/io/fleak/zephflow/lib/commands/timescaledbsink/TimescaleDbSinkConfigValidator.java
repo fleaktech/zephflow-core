@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.timescaledbsink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -28,24 +29,50 @@ public class TimescaleDbSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     TimescaleDbSinkDto.Config config = (TimescaleDbSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getJdbcUrl()), "jdbcUrl is required");
-    Preconditions.checkArgument(
+    require(
+        StringUtils.isNotBlank(config.getJdbcUrl()),
+        of("jdbcUrl"),
+        "jdbcUrl is required and must not be blank.",
+        "jdbcUrl is required");
+    require(
         config.getJdbcUrl().startsWith("jdbc:postgresql:"),
+        of("jdbcUrl"),
+        "jdbcUrl must start with jdbc:postgresql:.",
         "jdbcUrl must be a PostgreSQL URL (jdbc:postgresql:...); TimescaleDB is a PostgreSQL extension");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getTableName()), "tableName is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getTimeColumn()), "timeColumn is required");
-    Preconditions.checkArgument(config.getTimeUnit() != null, "timeUnit is required");
-    Preconditions.checkArgument(config.getWriteMode() != null, "writeMode is required");
+    require(
+        StringUtils.isNotBlank(config.getTableName()),
+        of("tableName"),
+        "tableName is required and must not be blank.",
+        "tableName is required");
+    require(
+        StringUtils.isNotBlank(config.getTimeColumn()),
+        of("timeColumn"),
+        "timeColumn is required and must not be blank.",
+        "timeColumn is required");
+    require(
+        config.getTimeUnit() != null,
+        of("timeUnit"),
+        "timeUnit is required.",
+        "timeUnit is required");
+    require(
+        config.getWriteMode() != null,
+        of("writeMode"),
+        "writeMode is required.",
+        "writeMode is required");
 
     if (config.getWriteMode() == JdbcSinkDto.WriteMode.UPSERT) {
-      Preconditions.checkArgument(
+      require(
           StringUtils.isNotBlank(config.getUpsertKeyColumns()),
+          of("upsertKeyColumns"),
+          "upsertKeyColumns is required and must not be blank when writeMode is UPSERT.",
           "upsertKeyColumns is required when writeMode is UPSERT");
     }
 
-    Preconditions.checkArgument(config.getBatchSize() > 0, "batchSize must be at least 1");
+    require(
+        config.getBatchSize() > 0,
+        of("batchSize"),
+        "batchSize must be at least 1.",
+        "batchSize must be at least 1");
 
     if (StringUtils.isNotBlank(config.getCredentialId()) && enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());

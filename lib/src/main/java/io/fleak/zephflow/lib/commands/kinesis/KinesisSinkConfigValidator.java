@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationPath;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
@@ -46,7 +47,9 @@ public class KinesisSinkConfigValidator implements ConfigValidator {
     }
     SinkEncoding.validate(config.getEncoding(), CAPABILITY);
     if (StringUtils.trimToNull(config.getPartitionKeyFieldExpressionStr()) != null) {
-      PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+      PathExpression.fromString(
+          config.getPartitionKeyFieldExpressionStr(),
+          ConfigurationPath.of("partitionKeyFieldExpressionStr"));
     }
   }
 }

@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.azuremonitorsource;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -27,15 +28,31 @@ public class AzureMonitorSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     AzureMonitorSourceDto.Config config = (AzureMonitorSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getWorkspaceId()), "workspaceId is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getTenantId()), "tenantId is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getKqlQuery()), "kqlQuery is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getCredentialId()), "credentialId is required");
-    Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
+    require(
+        StringUtils.isNotBlank(config.getWorkspaceId()),
+        of("workspaceId"),
+        "workspaceId is required and must not be blank.",
+        "workspaceId is required");
+    require(
+        StringUtils.isNotBlank(config.getTenantId()),
+        of("tenantId"),
+        "tenantId is required and must not be blank.",
+        "tenantId is required");
+    require(
+        StringUtils.isNotBlank(config.getKqlQuery()),
+        of("kqlQuery"),
+        "kqlQuery is required and must not be blank.",
+        "kqlQuery is required");
+    require(
+        StringUtils.isNotBlank(config.getCredentialId()),
+        of("credentialId"),
+        "credentialId is required and must not be blank.",
+        "credentialId is required");
+    require(
+        config.getBatchSize() >= 1,
+        of("batchSize"),
+        "batchSize must be at least 1.",
+        "batchSize must be at least 1");
 
     if (enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());

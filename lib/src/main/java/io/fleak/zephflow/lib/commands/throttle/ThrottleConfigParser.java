@@ -13,12 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.throttle;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.ConfigValueUtils.checkNoUnknownKeys;
 import static io.fleak.zephflow.lib.utils.ConfigValueUtils.requireInteger;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import io.fleak.zephflow.api.ConfigurationPath;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -35,11 +37,13 @@ public class ThrottleConfigParser implements ConfigParser {
 
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
-    Preconditions.checkArgument(config != null, "throttle command requires configuration");
-    checkNoUnknownKeys(config, CONFIG_KEYS, "");
+    require(config != null, ConfigurationPath.root(), "throttle command requires configuration");
+    checkNoUnknownKeys(config, CONFIG_KEYS, "", ConfigurationPath.root());
     Object keyExpression = config.get(KEY_EXPRESSION);
-    Preconditions.checkArgument(
+    require(
         keyExpression instanceof String && !((String) keyExpression).isBlank(),
+        of(KEY_EXPRESSION),
+        "keyExpression must be a non-blank string",
         "throttle command requires 'keyExpression' to be configured");
     return new ThrottleCommandDto.Config(
         (String) keyExpression,
@@ -50,6 +54,8 @@ public class ThrottleConfigParser implements ConfigParser {
 
   private static long integerOrDefault(
       Map<String, Object> config, String name, long defaultValue, long max) {
-    return config.containsKey(name) ? requireInteger(config.get(name), name, 1, max) : defaultValue;
+    return config.containsKey(name)
+        ? requireInteger(config.get(name), name, 1, max, of(name))
+        : defaultValue;
   }
 }

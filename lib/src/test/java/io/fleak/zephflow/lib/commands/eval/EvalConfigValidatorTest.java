@@ -96,4 +96,40 @@ class EvalConfigValidatorTest {
   private static EvalCommandDto.Config config(String expression) {
     return new EvalCommandDto.Config(expression, false);
   }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(
+      strings = {
+        "python('PRIVATE_VALUE = 1', $)",
+        "python('def PRIVATE_FIRST(x): return x\\ndef PRIVATE_SECOND(x): return x', $)",
+        "python('def PRIVATE_FUNCTION(:', $)"
+      })
+  void actualPythonValidationReportsSafeSyntaxOrFunctionCount(String expression) {
+    var failure =
+        assertThrows(
+            io.fleak.zephflow.api.ConfigurationValidationException.class,
+            () -> validator.validateConfig(config(expression), "subject", null));
+    assertEquals(
+        io.fleak.zephflow.api.ConfigurationPath.of("expression"),
+        failure.issues().getFirst().path());
+    String message = failure.issues().getFirst().message();
+    String expected =
+        expression.contains("PRIVATE_FUNCTION")
+            ? "Invalid Python syntax"
+            : "Python script must define exactly one function; found "
+                + (expression.contains("PRIVATE_SECOND") ? "2" : "0")
+                + ".";
+    assertTrue(message.contains(expected), message);
+    org.junit.jupiter.api.Assertions.assertFalse(message.contains("PRIVATE_"), message);
+    assertEquals(IllegalArgumentException.class, failure.originalFailure().getClass());
+    assertTrue(failure.originalFailure().getMessage().startsWith("expression: "));
+  }
+
+  @Test
+  void actualPythonValidationStillAcceptsOneFunction() {
+    assertDoesNotThrow(
+        () ->
+            validator.validateConfig(
+                config("python('def convert(x): return x', $)"), "subject", null));
+  }
 }

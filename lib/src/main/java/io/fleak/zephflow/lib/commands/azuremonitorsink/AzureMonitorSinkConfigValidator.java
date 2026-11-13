@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.azuremonitorsink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -27,21 +28,43 @@ public class AzureMonitorSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     AzureMonitorSinkDto.Config config = (AzureMonitorSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getTenantId()), "tenantId is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getDceEndpoint()), "dceEndpoint is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getDcrImmutableId()), "dcrImmutableId is required");
-    Preconditions.checkArgument(
-        config.getDcrImmutableId().startsWith("dcr-"), "dcrImmutableId must start with 'dcr-'");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getStreamName()), "streamName is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getCredentialId()), "credentialId is required");
+    require(
+        StringUtils.isNotBlank(config.getTenantId()),
+        of("tenantId"),
+        "tenantId is required and must not be blank.",
+        "tenantId is required");
+    require(
+        StringUtils.isNotBlank(config.getDceEndpoint()),
+        of("dceEndpoint"),
+        "dceEndpoint is required and must not be blank.",
+        "dceEndpoint is required");
+    require(
+        StringUtils.isNotBlank(config.getDcrImmutableId()),
+        of("dcrImmutableId"),
+        "dcrImmutableId is required and must not be blank.",
+        "dcrImmutableId is required");
+    require(
+        config.getDcrImmutableId().startsWith("dcr-"),
+        of("dcrImmutableId"),
+        "dcrImmutableId must start with 'dcr-'.",
+        "dcrImmutableId must start with 'dcr-'");
+    require(
+        StringUtils.isNotBlank(config.getStreamName()),
+        of("streamName"),
+        "streamName is required and must not be blank.",
+        "streamName is required");
+    require(
+        StringUtils.isNotBlank(config.getCredentialId()),
+        of("credentialId"),
+        "credentialId is required and must not be blank.",
+        "credentialId is required");
 
     if (config.getBatchSize() != null) {
-      Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
+      require(
+          config.getBatchSize() >= 1,
+          of("batchSize"),
+          "batchSize must be at least 1.",
+          "batchSize must be at least 1");
     }
 
     if (enforceCredentials(jobContext)) {

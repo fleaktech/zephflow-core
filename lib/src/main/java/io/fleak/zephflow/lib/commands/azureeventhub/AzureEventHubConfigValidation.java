@@ -13,7 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.azureeventhub;
 
-import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.ConfigurationIssue;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
+import java.util.List;
 import org.apache.commons.lang3.StringUtils;
 
 /**
@@ -37,22 +40,58 @@ public final class AzureEventHubConfigValidation {
     boolean hasConnectionString = StringUtils.isNotBlank(connectionString);
     boolean hasNamespace = StringUtils.isNotBlank(fullyQualifiedNamespace);
 
-    Preconditions.checkArgument(
-        hasConnectionString || hasNamespace,
-        "Event Hub auth requires either connectionString or fullyQualifiedNamespace");
-    Preconditions.checkArgument(
-        !(hasConnectionString && hasNamespace),
-        "provide only one of connectionString or fullyQualifiedNamespace, not both");
+    if (!(hasConnectionString || hasNamespace)) {
+      throw new ConfigurationValidationException(
+          new IllegalArgumentException(
+              "Event Hub auth requires either connectionString or fullyQualifiedNamespace"),
+          List.of("connectionString", "fullyQualifiedNamespace").stream()
+              .map(
+                  field ->
+                      new ConfigurationIssue(
+                          ConfigurationPath.of(field),
+                          "Event Hub auth requires either connectionString or fullyQualifiedNamespace"))
+              .toList());
+    }
+    if (hasConnectionString && hasNamespace) {
+      throw new ConfigurationValidationException(
+          new IllegalArgumentException(
+              "provide only one of connectionString or fullyQualifiedNamespace, not both"),
+          List.of("connectionString", "fullyQualifiedNamespace").stream()
+              .map(
+                  field ->
+                      new ConfigurationIssue(
+                          ConfigurationPath.of(field),
+                          "provide only one of connectionString or fullyQualifiedNamespace, not both"))
+              .toList());
+    }
 
     int servicePrincipalFields =
         (StringUtils.isNotBlank(tenantId) ? 1 : 0)
             + (StringUtils.isNotBlank(clientId) ? 1 : 0)
             + (StringUtils.isNotBlank(clientSecret) ? 1 : 0);
-    Preconditions.checkArgument(
-        servicePrincipalFields == 0 || servicePrincipalFields == 3,
-        "Entra ID service principal requires all of tenantId, clientId and clientSecret");
-    Preconditions.checkArgument(
-        servicePrincipalFields == 0 || hasNamespace,
-        "service principal credentials require fullyQualifiedNamespace (Entra ID auth)");
+    if (!(servicePrincipalFields == 0 || servicePrincipalFields == 3)) {
+      throw new ConfigurationValidationException(
+          new IllegalArgumentException(
+              "Entra ID service principal requires all of tenantId, clientId and clientSecret"),
+          List.of("tenantId", "clientId", "clientSecret").stream()
+              .map(
+                  field ->
+                      new ConfigurationIssue(
+                          ConfigurationPath.of(field),
+                          "Entra ID service principal requires all of tenantId, clientId and clientSecret"))
+              .toList());
+    }
+    if (!(servicePrincipalFields == 0 || hasNamespace)) {
+      throw new ConfigurationValidationException(
+          new IllegalArgumentException(
+              "service principal credentials require fullyQualifiedNamespace (Entra ID auth)"),
+          List.of("fullyQualifiedNamespace").stream()
+              .map(
+                  field ->
+                      new ConfigurationIssue(
+                          ConfigurationPath.of(field),
+                          "service principal credentials require fullyQualifiedNamespace (Entra ID auth)"))
+              .toList());
+    }
   }
 }

@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.elasticsearchsource;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -27,10 +28,22 @@ public class ElasticsearchSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     ElasticsearchSourceDto.Config config = (ElasticsearchSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getHost()), "host is required");
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getIndex()), "index is required");
+    require(
+        StringUtils.isNotBlank(config.getHost()),
+        of("host"),
+        "host is required and must not be blank.",
+        "host is required");
+    require(
+        StringUtils.isNotBlank(config.getIndex()),
+        of("index"),
+        "index is required and must not be blank.",
+        "index is required");
 
-    Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
+    require(
+        config.getBatchSize() >= 1,
+        of("batchSize"),
+        "batchSize must be at least 1.",
+        "batchSize must be at least 1");
 
     if (StringUtils.isNotBlank(config.getCredentialId()) && enforceCredentials(jobContext)) {
       lookupUsernamePasswordCredential(jobContext, config.getCredentialId());

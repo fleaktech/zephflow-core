@@ -13,10 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.throttle;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.utils.AntlrUtils;
 import io.fleak.zephflow.lib.windowing.GroupKeyEvaluator;
 
 public class ThrottleConfigValidator implements ConfigValidator {
@@ -26,15 +30,28 @@ public class ThrottleConfigValidator implements ConfigValidator {
     ThrottleCommandDto.Config config = (ThrottleCommandDto.Config) commandConfig;
     try (var evaluator = GroupKeyEvaluator.compile(config.keyExpression(), jobContext)) {
       // Validation owns the compiled expression only for this call.
+    } catch (ConfigurationValidationException e) {
+      throw AntlrUtils.configurationFailure(
+          of("keyExpression"),
+          e,
+          new IllegalArgumentException("keyExpression: " + e.getMessage(), e.originalFailure()));
     } catch (Exception e) {
-      throw new IllegalArgumentException("keyExpression: " + e.getMessage(), e);
+      throw AntlrUtils.configurationFailure(
+          of("keyExpression"),
+          e,
+          new IllegalArgumentException("keyExpression: " + e.getMessage(), e));
     }
-    Preconditions.checkArgument(
-        config.numToAllow() != null && config.numToAllow() >= 1, "numToAllow must be >= 1");
-    Preconditions.checkArgument(
-        config.periodSeconds() != null && config.periodSeconds() > 0, "periodSeconds must be > 0");
-    Preconditions.checkArgument(
+    require(
+        config.numToAllow() != null && config.numToAllow() >= 1,
+        of("numToAllow"),
+        "numToAllow must be >= 1");
+    require(
+        config.periodSeconds() != null && config.periodSeconds() > 0,
+        of("periodSeconds"),
+        "periodSeconds must be > 0");
+    require(
         config.cacheSizeLimit() != null && config.cacheSizeLimit() > 0,
+        of("cacheSizeLimit"),
         "cacheSizeLimit must be > 0");
   }
 }

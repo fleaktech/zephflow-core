@@ -28,6 +28,6 @@ public record JsonConfigParser<T extends CommandConfig>(Class<T> clz) implements
   public T parseConfig(Map<String, Object> config) {
     Map<String, Object> filtered = new HashMap<>(config);
     filtered.values().removeIf(Objects::isNull);
-    return OBJECT_MAPPER.convertValue(filtered, clz);
+    return JsonConfigurationDiagnostics.convertValue(OBJECT_MAPPER, filtered, clz);
   }
 }

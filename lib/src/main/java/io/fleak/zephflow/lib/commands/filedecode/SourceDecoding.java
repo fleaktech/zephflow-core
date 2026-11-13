@@ -13,10 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.filedecode;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.AvroFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.CsvFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
+import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.FormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.FramingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
@@ -30,6 +33,15 @@ import io.fleak.zephflow.lib.serdes.decode.config.YamlFormatConfig;
 
 /** A source's {@code decoding} configuration, which every decoding source requires. */
 public record SourceDecoding(DecodingConfig decoding) {
+
+  /** Validates decoding and locates known failures under a source's decoding field. */
+  public static void validate(DecodingConfig decoding) {
+    try {
+      DecodingConfigCompiler.compile(decoding);
+    } catch (ConfigurationValidationException failure) {
+      throw failure.withPrefix(ConfigurationPath.of("decoding"));
+    }
+  }
 
   /** The format's type name, as {@code decoding} spells it ({@code json}, {@code csv}, ...). */
   public String formatName() {
@@ -65,7 +77,10 @@ public record SourceDecoding(DecodingConfig decoding) {
    */
   public DecodingConfig decodingConfig() {
     if (decoding == null) {
-      throw new IllegalArgumentException("decoding is required");
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.of("decoding"),
+          new IllegalArgumentException("decoding is required"),
+          "Decoding configuration is required.");
     }
     return decoding;
   }

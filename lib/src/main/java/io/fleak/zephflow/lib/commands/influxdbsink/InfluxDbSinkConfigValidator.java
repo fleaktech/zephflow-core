@@ -13,12 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.influxdbsink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationIssue;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
+import java.util.List;
 import org.apache.commons.lang3.StringUtils;
 
 /** Validates {@link InfluxDbSinkDto.Config}. */
@@ -28,18 +32,41 @@ public class InfluxDbSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     InfluxDbSinkDto.Config config = (InfluxDbSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getUrl()), "url is required");
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getOrg()), "org is required");
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getBucket()), "bucket is required");
+    require(
+        StringUtils.isNotBlank(config.getUrl()),
+        of("url"),
+        "url is required and must not be blank.",
+        "url is required");
+    require(
+        StringUtils.isNotBlank(config.getOrg()),
+        of("org"),
+        "org is required and must not be blank.",
+        "org is required");
+    require(
+        StringUtils.isNotBlank(config.getBucket()),
+        of("bucket"),
+        "bucket is required and must not be blank.",
+        "bucket is required");
 
     boolean hasMeasurement = StringUtils.isNotBlank(config.getMeasurement());
     boolean hasMeasurementField = StringUtils.isNotBlank(config.getMeasurementField());
-    Preconditions.checkArgument(
-        hasMeasurement ^ hasMeasurementField,
-        "exactly one of measurement / measurementField must be set");
+    if (!(hasMeasurement ^ hasMeasurementField)) {
+      throw new ConfigurationValidationException(
+          new IllegalArgumentException("exactly one of measurement / measurementField must be set"),
+          List.of("measurement", "measurementField").stream()
+              .map(
+                  field ->
+                      new ConfigurationIssue(
+                          of(field), "exactly one of measurement / measurementField must be set"))
+              .toList());
+    }
 
     if (config.getBatchSize() != null) {
-      Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
+      require(
+          config.getBatchSize() >= 1,
+          of("batchSize"),
+          "batchSize must be at least 1.",
+          "batchSize must be at least 1");
     }
 
     if (StringUtils.isNotBlank(config.getCredentialId()) && enforceCredentials(jobContext)) {

@@ -13,14 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.splunkhecsink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
-import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import java.net.URI;
@@ -43,38 +45,61 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SplunkHecSinkDto.Config config = (SplunkHecSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getHecUrl()), "hecUrl is required");
+    require(
+        StringUtils.isNotBlank(config.getHecUrl()),
+        of("hecUrl"),
+        "hecUrl is required and must not be blank.",
+        "hecUrl is required");
     URI uri;
     try {
       uri = new URI(config.getHecUrl());
     } catch (URISyntaxException e) {
-      throw new IllegalArgumentException("hecUrl is not a valid URI: " + config.getHecUrl(), e);
+      throw ConfigurationValidationException.at(
+          of("hecUrl"),
+          new IllegalArgumentException("hecUrl is not a valid URI: " + config.getHecUrl(), e),
+          "Invalid URI: " + e.getReason() + " at index " + e.getIndex() + ".");
     }
     String scheme = uri.getScheme();
-    Preconditions.checkArgument(
+    require(
         "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme),
+        of("hecUrl"),
+        "hecUrl must use the http or https scheme.",
         "hecUrl must use http or https scheme");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(uri.getHost()), "hecUrl must include a host");
+    require(
+        StringUtils.isNotBlank(uri.getHost()),
+        of("hecUrl"),
+        "hecUrl must include a host.",
+        "hecUrl must include a host");
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getCredentialId()), "credentialId is required");
+    require(
+        StringUtils.isNotBlank(config.getCredentialId()),
+        of("credentialId"),
+        "credentialId is required and must not be blank.",
+        "credentialId is required");
 
     if (config.getBatchSize() != null) {
-      Preconditions.checkArgument(config.getBatchSize() >= 1, "batchSize must be at least 1");
+      require(
+          config.getBatchSize() >= 1,
+          of("batchSize"),
+          "batchSize must be at least 1.",
+          "batchSize must be at least 1");
     }
 
     if (config.getEncoding() != null) {
-      EncodingCompiler.validate(config.getEncoding(), CAPABILITY);
+      SinkEncoding.validate(config.getEncoding(), CAPABILITY);
     }
 
     if (config.isStoreAndForwardEnabled()) {
-      Preconditions.checkArgument(
+      require(
           config.getLocalStoreMaxBytes() > 0,
+          of("localStoreMaxBytes"),
+          "localStoreMaxBytes must be greater than 0 when storeAndForwardEnabled is true.",
           "localStoreMaxBytes must be positive when storeAndForwardEnabled. Got: %s",
           config.getLocalStoreMaxBytes());
-      Preconditions.checkArgument(
+      require(
           config.getForwardRetryIntervalMillis() > 0,
+          of("forwardRetryIntervalMillis"),
+          "forwardRetryIntervalMillis must be greater than 0 when storeAndForwardEnabled is true.",
           "forwardRetryIntervalMillis must be positive when storeAndForwardEnabled. Got: %s",
           config.getForwardRetryIntervalMillis());
     }

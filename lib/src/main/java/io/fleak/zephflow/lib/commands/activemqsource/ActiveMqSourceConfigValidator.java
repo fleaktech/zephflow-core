@@ -13,11 +13,15 @@
  */
 package io.fleak.zephflow.lib.commands.activemqsource;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+import static io.fleak.zephflow.api.ConfigurationValidationException.requireNonNull;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
+import java.util.Arrays;
 import org.apache.commons.lang3.StringUtils;
 
 public class ActiveMqSourceConfigValidator implements ConfigValidator {
@@ -25,33 +29,52 @@ public class ActiveMqSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     ActiveMqSourceDto.Config config = (ActiveMqSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getBrokerUrl()), "no brokerUrl is provided");
-    Preconditions.checkNotNull(config.getBrokerType(), "no brokerType is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getDestination()), "no destination is provided");
+    require(
+        StringUtils.isNotBlank(config.getBrokerUrl()),
+        of("brokerUrl"),
+        "brokerUrl is required and must not be blank.",
+        "no brokerUrl is provided");
+    requireNonNull(
+        config.getBrokerType(),
+        of("brokerType"),
+        "brokerType is required. Accepted values: "
+            + Arrays.toString(ActiveMqSourceDto.BrokerType.values()),
+        "no brokerType is provided");
+    require(
+        StringUtils.isNotBlank(config.getDestination()),
+        of("destination"),
+        "destination is required and must not be blank.",
+        "no destination is provided");
     // Compiles the decoding, so a bad one fails validation rather than the first message.
-    DecodingConfigCompiler.compile(ActiveMqSourceCommand.decodingConfig(config));
+    SourceDecoding.validate(ActiveMqSourceCommand.decodingConfig(config));
 
     if (config.getDestinationType() == ActiveMqSourceDto.DestinationType.TOPIC) {
-      Preconditions.checkArgument(
+      require(
           StringUtils.isNotBlank(config.getClientId()),
+          of("clientId"),
+          "clientId is required and must not be blank for durable topic subscriptions.",
           "clientId is required for durable topic subscriptions");
-      Preconditions.checkArgument(
+      require(
           StringUtils.isNotBlank(config.getSubscriptionName()),
+          of("subscriptionName"),
+          "subscriptionName is required and must not be blank for durable topic subscriptions.",
           "subscriptionName is required for durable topic subscriptions");
     }
 
     if (config.getCommitStrategy() == ActiveMqSourceDto.CommitStrategyType.BATCH) {
       if (config.getCommitBatchSize() != null) {
-        Preconditions.checkArgument(
+        require(
             config.getCommitBatchSize() > 0,
+            of("commitBatchSize"),
+            "commitBatchSize must be greater than 0 when commitStrategy is BATCH.",
             "commitBatchSize must be positive, got: %s",
             config.getCommitBatchSize());
       }
       if (config.getCommitIntervalMs() != null) {
-        Preconditions.checkArgument(
+        require(
             config.getCommitIntervalMs() > 0,
+            of("commitIntervalMs"),
+            "commitIntervalMs must be greater than 0 when commitStrategy is BATCH.",
             "commitIntervalMs must be positive, got: %s",
             config.getCommitIntervalMs());
       }

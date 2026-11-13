@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.zerobussink;
 
+import static io.fleak.zephflow.api.ConfigurationValidationException.at;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.FieldDescriptorProto;
@@ -20,6 +22,7 @@ import com.google.protobuf.DescriptorProtos.FileDescriptorProto;
 import com.google.protobuf.DescriptorProtos.MessageOptions;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
+import io.fleak.zephflow.api.ConfigurationPath;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -30,6 +33,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericFixed;
 
@@ -64,13 +68,27 @@ public final class AvroToProtoDescriptorConverter {
     try {
       json = JsonUtils.OBJECT_MAPPER.writeValueAsString(avroSchemaMap);
     } catch (Exception e) {
-      throw new IllegalArgumentException(
-          "Failed to convert avroSchema map to JSON: " + e.getMessage(), e);
+      throw at(
+          ConfigurationPath.root(),
+          new IllegalArgumentException(
+              "Failed to convert avroSchema map to JSON: " + e.getMessage(), e),
+          "Avro schema must be serializable as a JSON object.");
     }
-    Schema schema = new Schema.Parser().parse(json);
+    Schema schema;
+    try {
+      schema = new Schema.Parser().parse(json);
+    } catch (AvroRuntimeException failure) {
+      throw at(
+          ConfigurationPath.root(),
+          failure,
+          "Invalid Avro schema; expected a valid Avro record schema.");
+    }
     if (schema.getType() != Schema.Type.RECORD) {
-      throw new IllegalArgumentException(
-          "Avro schema must be a RECORD type, got: " + schema.getType());
+      throw at(
+          ConfigurationPath.of("type"),
+          new IllegalArgumentException(
+              "Avro schema must be a RECORD type, got: " + schema.getType()),
+          "Avro schema must have type record.");
     }
     return schema;
   }
@@ -82,7 +100,10 @@ public final class AvroToProtoDescriptorConverter {
       Map<String, Object> avroSchemaMap, String tableName) {
     Schema avroSchema = parseAvro(avroSchemaMap);
     return buildMessage(
-        ROOT_MESSAGE_NAME, "." + PROTO_PACKAGE + "." + ROOT_MESSAGE_NAME, avroSchema);
+        ROOT_MESSAGE_NAME,
+        "." + PROTO_PACKAGE + "." + ROOT_MESSAGE_NAME,
+        avroSchema,
+        ConfigurationPath.root());
   }
 
   /**
@@ -150,11 +171,17 @@ public final class AvroToProtoDescriptorConverter {
    * of any further nested message fields.
    */
   private static DescriptorProto buildMessage(
-      String messageName, String qualifiedName, Schema recordSchema) {
+      String messageName, String qualifiedName, Schema recordSchema, ConfigurationPath path) {
     DescriptorProto.Builder message = DescriptorProto.newBuilder().setName(messageName);
     int fieldNumber = 1;
     for (Schema.Field avroField : recordSchema.getFields()) {
-      addField(message, qualifiedName, avroField.name(), avroField.schema(), fieldNumber++);
+      addField(
+          message,
+          qualifiedName,
+          avroField.name(),
+          avroField.schema(),
+          fieldNumber++,
+          path.field("fields").index(avroField.pos()).field("type"));
     }
     return message.build();
   }
@@ -164,28 +191,28 @@ public final class AvroToProtoDescriptorConverter {
       String enclosingQualifiedName,
       String fieldName,
       Schema fieldSchema,
-      int fieldNumber) {
-    Schema effective = unwrapNullable(fieldSchema);
+      int fieldNumber,
+      ConfigurationPath path) {
+    Schema effective = unwrapNullable(fieldSchema, path);
+    ConfigurationPath effectivePath = unwrappedPath(fieldSchema, effective, path);
     FieldDescriptorProto.Builder field =
         FieldDescriptorProto.newBuilder().setName(fieldName).setNumber(fieldNumber);
 
     switch (effective.getType()) {
       case ARRAY -> {
         field.setLabel(FieldDescriptorProto.Label.LABEL_REPEATED);
-        Schema element = unwrapNullable(effective.getElementType());
-        applyType(message, enclosingQualifiedName, field, fieldName, element);
+        var elementPath = effectivePath.field("items");
+        Schema element = unwrapNullable(effective.getElementType(), elementPath);
+        applyType(
+            message,
+            enclosingQualifiedName,
+            field,
+            fieldName,
+            element,
+            unwrappedPath(effective.getElementType(), element, elementPath));
       }
-      case MAP -> {
-        // map<string, V> => repeated <FieldName>Entry with map_entry option.
-        String entryName = capitalize(fieldName) + "Entry";
-        Schema valueSchema = unwrapNullable(effective.getValueType());
-        message.addNestedType(
-            buildMapEntry(message, enclosingQualifiedName, entryName, fieldName, valueSchema));
-        field
-            .setLabel(FieldDescriptorProto.Label.LABEL_REPEATED)
-            .setType(FieldDescriptorProto.Type.TYPE_MESSAGE)
-            .setTypeName(enclosingQualifiedName + "." + entryName);
-      }
+      case MAP ->
+          applyMapType(message, enclosingQualifiedName, field, fieldName, effective, effectivePath);
       default -> {
         // Mirror the Databricks SDK's GenerateProto tool: non-nullable Delta columns become proto2
         // `required`, nullable ones `optional`. Unity Catalog validates the stream descriptor
@@ -195,10 +222,34 @@ public final class AvroToProtoDescriptorConverter {
             isNullable(fieldSchema)
                 ? FieldDescriptorProto.Label.LABEL_OPTIONAL
                 : FieldDescriptorProto.Label.LABEL_REQUIRED);
-        applyType(message, enclosingQualifiedName, field, fieldName, effective);
+        applyType(message, enclosingQualifiedName, field, fieldName, effective, effectivePath);
       }
     }
     message.addField(field.build());
+  }
+
+  private static void applyMapType(
+      DescriptorProto.Builder message,
+      String enclosingQualifiedName,
+      FieldDescriptorProto.Builder field,
+      String fieldName,
+      Schema schema,
+      ConfigurationPath path) {
+    String entryName = capitalize(fieldName) + "Entry";
+    var valuePath = path.field("values");
+    Schema valueSchema = unwrapNullable(schema.getValueType(), valuePath);
+    message.addNestedType(
+        buildMapEntry(
+            message,
+            enclosingQualifiedName,
+            entryName,
+            fieldName,
+            valueSchema,
+            unwrappedPath(schema.getValueType(), valueSchema, valuePath)));
+    field
+        .setLabel(FieldDescriptorProto.Label.LABEL_REPEATED)
+        .setType(FieldDescriptorProto.Type.TYPE_MESSAGE)
+        .setTypeName(enclosingQualifiedName + "." + entryName);
   }
 
   /** Sets the protobuf type on a (scalar or message) field, registering nested types as needed. */
@@ -207,14 +258,15 @@ public final class AvroToProtoDescriptorConverter {
       String enclosingQualifiedName,
       FieldDescriptorProto.Builder field,
       String fieldName,
-      Schema effective) {
+      Schema effective,
+      ConfigurationPath path) {
     if (effective.getType() == Schema.Type.RECORD) {
       String nestedName = capitalize(fieldName) + "Type";
       String nestedQualified = enclosingQualifiedName + "." + nestedName;
-      message.addNestedType(buildMessage(nestedName, nestedQualified, effective));
+      message.addNestedType(buildMessage(nestedName, nestedQualified, effective, path));
       field.setType(FieldDescriptorProto.Type.TYPE_MESSAGE).setTypeName(nestedQualified);
     } else {
-      field.setType(scalarType(effective));
+      field.setType(scalarType(effective, path));
     }
   }
 
@@ -223,7 +275,8 @@ public final class AvroToProtoDescriptorConverter {
       String enclosingQualifiedName,
       String entryName,
       String fieldName,
-      Schema valueSchema) {
+      Schema valueSchema,
+      ConfigurationPath path) {
     FieldDescriptorProto keyField =
         FieldDescriptorProto.newBuilder()
             .setName("key")
@@ -240,10 +293,10 @@ public final class AvroToProtoDescriptorConverter {
     if (valueSchema.getType() == Schema.Type.RECORD) {
       String nestedName = capitalize(fieldName) + "ValueType";
       String nestedQualified = enclosingQualifiedName + "." + nestedName;
-      parent.addNestedType(buildMessage(nestedName, nestedQualified, valueSchema));
+      parent.addNestedType(buildMessage(nestedName, nestedQualified, valueSchema, path));
       valueField.setType(FieldDescriptorProto.Type.TYPE_MESSAGE).setTypeName(nestedQualified);
     } else {
-      valueField.setType(scalarType(valueSchema));
+      valueField.setType(scalarType(valueSchema, path));
     }
 
     return DescriptorProto.newBuilder()
@@ -254,7 +307,7 @@ public final class AvroToProtoDescriptorConverter {
         .build();
   }
 
-  private static FieldDescriptorProto.Type scalarType(Schema effective) {
+  private static FieldDescriptorProto.Type scalarType(Schema effective, ConfigurationPath path) {
     return switch (effective.getType()) {
       case STRING, ENUM -> FieldDescriptorProto.Type.TYPE_STRING;
       case INT -> FieldDescriptorProto.Type.TYPE_INT32;
@@ -266,14 +319,20 @@ public final class AvroToProtoDescriptorConverter {
         if ("decimal".equals(logicalType(effective))) {
           // DECIMAL/NUMERIC is absent from the documented Databricks Zerobus
           // Delta->protobuf type-mapping table, so it cannot be ingested.
-          throw new IllegalArgumentException(
-              "DECIMAL columns are not in the Databricks Zerobus type mapping and cannot be ingested");
+          throw at(
+              path.field("logicalType"),
+              new IllegalArgumentException(
+                  "DECIMAL columns are not in the Databricks Zerobus type mapping and cannot be ingested"),
+              "Decimal logical types are not supported by Zerobus protobuf encoding.");
         }
         yield FieldDescriptorProto.Type.TYPE_BYTES;
       }
       default ->
-          throw new IllegalArgumentException(
-              "Unsupported Avro type for Zerobus protobuf encoding: " + effective.getType());
+          throw at(
+              path,
+              new IllegalArgumentException(
+                  "Unsupported Avro type for Zerobus protobuf encoding: " + effective.getType()),
+              "Unsupported Avro type; protobuf scalar values support string, enum, int, long, float, double, boolean, bytes, and fixed. Nested arrays or maps are not supported here.");
     };
   }
 
@@ -530,6 +589,21 @@ public final class AvroToProtoDescriptorConverter {
   // ---------------------------------------------------------------------------
   // Avro helpers
   // ---------------------------------------------------------------------------
+
+  private static ConfigurationPath unwrappedPath(
+      Schema original, Schema effective, ConfigurationPath path) {
+    return original.getType() == Schema.Type.UNION
+        ? path.index(original.getTypes().indexOf(effective))
+        : path;
+  }
+
+  private static Schema unwrapNullable(Schema schema, ConfigurationPath path) {
+    try {
+      return unwrapNullable(schema);
+    } catch (IllegalArgumentException failure) {
+      throw at(path, failure, "Union must contain exactly one non-null type.");
+    }
+  }
 
   private static Schema unwrapNullable(Schema schema) {
     if (schema.getType() != Schema.Type.UNION) {

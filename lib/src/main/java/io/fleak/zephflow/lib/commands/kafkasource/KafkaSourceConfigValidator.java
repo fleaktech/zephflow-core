@@ -13,11 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.kafkasource;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import org.apache.commons.lang3.StringUtils;
 
 /** Created by bolei on 9/24/24 */
@@ -26,26 +28,40 @@ public class KafkaSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     KafkaSourceDto.Config config = (KafkaSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getBroker()), "no broker is provided");
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getTopic()), "no topic is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getGroupId()), "no consumer group Id is provided");
+    require(
+        StringUtils.isNotBlank(config.getBroker()),
+        of("broker"),
+        "Broker is required and must not be blank",
+        "no broker is provided");
+    require(
+        StringUtils.isNotBlank(config.getTopic()),
+        of("topic"),
+        "Topic is required and must not be blank",
+        "no topic is provided");
+    require(
+        StringUtils.isNotBlank(config.getGroupId()),
+        of("groupId"),
+        "Consumer group ID is required and must not be blank",
+        "no consumer group Id is provided");
     // Compiles the decoding, so a bad one fails validation rather than the first message.
-    DecodingConfigCompiler.compile(KafkaSourceCommand.decodingConfig(config));
+    SourceDecoding.validate(KafkaSourceCommand.decodingConfig(config));
 
     // Validate commit strategy configuration
     if (config.getCommitStrategy() != null
         && config.getCommitStrategy() == KafkaSourceDto.CommitStrategyType.BATCH) {
       if (config.getCommitBatchSize() != null) {
-        Preconditions.checkArgument(
+        require(
             config.getCommitBatchSize() > 0,
+            of("commitBatchSize"),
+            "commitBatchSize must be greater than zero when commitStrategy is BATCH",
             "commitBatchSize must be positive, got: %s",
             config.getCommitBatchSize());
       }
       if (config.getCommitIntervalMs() != null) {
-        Preconditions.checkArgument(
+        require(
             config.getCommitIntervalMs() > 0,
+            of("commitIntervalMs"),
+            "commitIntervalMs must be greater than zero when commitStrategy is BATCH",
             "commitIntervalMs must be positive, got: %s",
             config.getCommitIntervalMs());
       }

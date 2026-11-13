@@ -13,7 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.ldapsource;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -24,28 +26,50 @@ public class LdapSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     LdapSourceDto.Config config = (LdapSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getLdapUrl()), "ldapUrl is required");
+    require(
+        StringUtils.isNotBlank(config.getLdapUrl()),
+        of("ldapUrl"),
+        "ldapUrl is required and must not be blank.",
+        "ldapUrl is required");
 
     String url = config.getLdapUrl().toLowerCase();
-    Preconditions.checkArgument(
+    require(
         url.startsWith("ldap://") || url.startsWith("ldaps://"),
+        of("ldapUrl"),
+        "ldapUrl must start with ldap:// or ldaps://.",
         "ldapUrl must start with ldap:// or ldaps://: %s",
         config.getLdapUrl());
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getBaseDn()), "baseDn is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getSearchFilter()), "searchFilter is required");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getCredentialId()), "credentialId is required");
+    require(
+        StringUtils.isNotBlank(config.getBaseDn()),
+        of("baseDn"),
+        "baseDn is required and must not be blank.",
+        "baseDn is required");
+    require(
+        StringUtils.isNotBlank(config.getSearchFilter()),
+        of("searchFilter"),
+        "searchFilter is required and must not be blank.",
+        "searchFilter is required");
+    require(
+        StringUtils.isNotBlank(config.getCredentialId()),
+        of("credentialId"),
+        "credentialId is required and must not be blank.",
+        "credentialId is required");
 
     if (config.getPageSize() != null) {
-      Preconditions.checkArgument(
-          config.getPageSize() > 0, "pageSize must be positive, got: %s", config.getPageSize());
+      require(
+          config.getPageSize() > 0,
+          of("pageSize"),
+          "pageSize must be greater than 0.",
+          "pageSize must be positive, got: %s",
+          config.getPageSize());
     }
 
     if (config.getTimeLimitMs() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getTimeLimitMs() > 0,
+          of("timeLimitMs"),
+          "timeLimitMs must be greater than 0.",
           "timeLimitMs must be positive, got: %s",
           config.getTimeLimitMs());
     }

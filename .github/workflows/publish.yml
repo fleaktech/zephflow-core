@@ -34,8 +34,13 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Seed test queue durations
+        run: |
+          mkdir -p lib/build/test-queue
+          cp scripts/test-queue/durations.json lib/build/test-queue/durations.json
+
       - name: Build with Gradle
-        run: ./gradlew build
+        run: ./gradlew build -PtestQueue=true -DtestForks=4
 
       - name: Test Report
         uses: dorny/test-reporter@v1
@@ -52,7 +57,7 @@ jobs:
           max-annotations: 5
 
       - name: Generate JaCoCo Report
-        run: ./gradlew jacocoTestReport
+        run: ./gradlew jacocoTestReport -PtestQueue=true -DtestForks=4
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7

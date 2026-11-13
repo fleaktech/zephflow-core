@@ -13,15 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
-import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import java.util.Set;
@@ -41,20 +42,26 @@ public class PubSubSinkConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     PubSubSinkDto.Config config = (PubSubSinkDto.Config) commandConfig;
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getTopic()), "no topic is provided");
+    require(
+        StringUtils.isNotBlank(config.getTopic()),
+        of("topic"),
+        "topic is required and must not be blank.",
+        "no topic is provided");
     if (config.getEncoding() != null) {
-      EncodingCompiler.validate(config.getEncoding(), CAPABILITY);
+      SinkEncoding.validate(config.getEncoding(), CAPABILITY);
     }
 
     if (config.getBatchSize() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getBatchSize() >= 1 && config.getBatchSize() <= PubSubSinkDto.MAX_BATCH_SIZE,
+          of("batchSize"),
+          "batchSize must be between 1 and " + PubSubSinkDto.MAX_BATCH_SIZE + ".",
           "batchSize must be between 1 and %s",
           PubSubSinkDto.MAX_BATCH_SIZE);
     }
 
     if (StringUtils.isNotBlank(config.getOrderingKeyExpression())) {
-      PathExpression.fromString(config.getOrderingKeyExpression());
+      PathExpression.fromString(config.getOrderingKeyExpression(), of("orderingKeyExpression"));
     }
 
     if (StringUtils.trimToNull(config.getCredentialId()) != null

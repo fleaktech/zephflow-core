@@ -28,6 +28,7 @@ import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class PythonOwnershipTest {
@@ -118,6 +119,39 @@ class PythonOwnershipTest {
       assertTrue(contains(failure, primary));
       assertTrue(contains(failure, leave));
       assertTrue(contains(failure, close));
+      verify(context).close(true);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "false, leave",
+    "true, leave",
+    "false, close",
+    "true, close",
+    "false, both",
+    "true, both"
+  })
+  void invalidPythonFunctionKeepsLeaveAndCloseFailures(boolean bounded, String cleanupStage) {
+    Context context = mock();
+    Value bindings = mock();
+    when(bindings.getMemberKeys()).thenReturn(Set.of());
+    when(context.getBindings("python")).thenReturn(bindings);
+    var leave = new IllegalStateException("leave-failure");
+    var close = new IllegalStateException("close-failure");
+    if (!cleanupStage.equals("close")) doThrow(leave).when(context).leave();
+    if (!cleanupStage.equals("leave")) doThrow(close).when(context).close(true);
+    Context.Builder builder = mock(Context.Builder.class, RETURNS_SELF);
+    when(builder.build()).thenReturn(context);
+    try (var contexts = mockStatic(Context.class)) {
+      contexts.when(() -> Context.newBuilder("python")).thenReturn(builder);
+      var failure =
+          assertThrows(
+              RuntimeException.class,
+              () -> PythonExecutor.createPythonExecutor(twoFunctions(), bounded));
+      if (!cleanupStage.equals("close")) assertTrue(contains(failure, leave));
+      if (!cleanupStage.equals("leave")) assertTrue(contains(failure, close));
+      verify(context).leave();
       verify(context).close(true);
     }
   }
