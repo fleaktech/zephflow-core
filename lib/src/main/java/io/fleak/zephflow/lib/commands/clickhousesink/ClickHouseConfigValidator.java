@@ -13,12 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.clickhousesink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.at;
+import static io.fleak.zephflow.api.ConfigurationValidationException.requireNonNull;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredentialOpt;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import java.util.Objects;
 import org.apache.commons.lang3.StringUtils;
 
 public class ClickHouseConfigValidator implements ConfigValidator {
@@ -27,16 +29,27 @@ public class ClickHouseConfigValidator implements ConfigValidator {
     var config = (ClickHouseSinkDto.Config) commandConfig;
     var usernamePasswordCredential =
         lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
-    if (config.getCredentialId() != null && !(usernamePasswordCredential.isPresent())) {
-      throw new RuntimeException(
-          "The credentialId is specific but no credentials record was found");
+    if (config.getCredentialId() != null && usernamePasswordCredential.isEmpty()) {
+      // The original RuntimeException type is exposed by existing compiler/parser consumers.
+      RuntimeException original =
+          new RuntimeException("The credentialId is specific but no credentials record was found");
+      throw at(of("credentialId"), original, "The specified credential could not be found.");
     }
 
-    Objects.requireNonNull(
-        StringUtils.trimToNull(config.getEndpoint()), "A clickhouse endpoint must be specified");
-    Objects.requireNonNull(
-        StringUtils.trimToNull(config.getDatabase()), "A clickhouse database must be specified");
-    Objects.requireNonNull(
-        StringUtils.trimToNull(config.getTable()), "A clickhouse table must be specified");
+    requireNonNull(
+        StringUtils.trimToNull(config.getEndpoint()),
+        of("endpoint"),
+        "endpoint is required and must not be blank.",
+        "A clickhouse endpoint must be specified");
+    requireNonNull(
+        StringUtils.trimToNull(config.getDatabase()),
+        of("database"),
+        "database is required and must not be blank.",
+        "A clickhouse database must be specified");
+    requireNonNull(
+        StringUtils.trimToNull(config.getTable()),
+        of("table"),
+        "table is required and must not be blank.",
+        "A clickhouse table must be specified");
   }
 }

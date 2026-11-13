@@ -13,7 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.jdbcsink;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+import static io.fleak.zephflow.api.ConfigurationValidationException.requireNonNull;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -24,19 +27,35 @@ public class JdbcSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     JdbcSinkDto.Config config = (JdbcSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getJdbcUrl()), "jdbcUrl must be provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getTableName()), "tableName must be provided");
-    Preconditions.checkNotNull(config.getWriteMode(), "writeMode must be provided");
+    require(
+        StringUtils.isNotBlank(config.getJdbcUrl()),
+        of("jdbcUrl"),
+        "jdbcUrl is required and must not be blank.",
+        "jdbcUrl must be provided");
+    require(
+        StringUtils.isNotBlank(config.getTableName()),
+        of("tableName"),
+        "tableName is required and must not be blank.",
+        "tableName must be provided");
+    requireNonNull(
+        config.getWriteMode(),
+        of("writeMode"),
+        "writeMode is required.",
+        "writeMode must be provided");
 
     if (config.getWriteMode() == JdbcSinkDto.WriteMode.UPSERT) {
-      Preconditions.checkArgument(
+      require(
           StringUtils.isNotBlank(config.getUpsertKeyColumns()),
+          of("upsertKeyColumns"),
+          "upsertKeyColumns is required and must not be blank when writeMode is UPSERT.",
           "upsertKeyColumns must be provided when writeMode is UPSERT");
     }
 
-    Preconditions.checkArgument(
-        config.getBatchSize() > 0, "batchSize must be positive, got: %s", config.getBatchSize());
+    require(
+        config.getBatchSize() > 0,
+        of("batchSize"),
+        "batchSize must be greater than 0.",
+        "batchSize must be positive, got: %s",
+        config.getBatchSize());
   }
 }

@@ -13,7 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.smtpsink;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+import static io.fleak.zephflow.api.ConfigurationValidationException.requireNonNull;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -24,19 +27,42 @@ public class SmtpSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SmtpSinkDto.Config config = (SmtpSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(StringUtils.isNotBlank(config.getHost()), "no host is provided");
-    Preconditions.checkNotNull(config.getPort(), "no port is provided");
-    Preconditions.checkArgument(
-        config.getPort() > 0, "port must be positive, got: %s", config.getPort());
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getCredentialId()), "no credentialId is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getFromAddress()), "no fromAddress is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getToTemplate()), "no toTemplate is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getSubjectTemplate()), "no subjectTemplate is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getBodyTemplate()), "no bodyTemplate is provided");
+    require(
+        StringUtils.isNotBlank(config.getHost()),
+        of("host"),
+        "host is required and must not be blank.",
+        "no host is provided");
+    requireNonNull(config.getPort(), of("port"), "port is required.", "no port is provided");
+    require(
+        config.getPort() > 0,
+        of("port"),
+        "port must be greater than 0.",
+        "port must be positive, got: %s",
+        config.getPort());
+    require(
+        StringUtils.isNotBlank(config.getCredentialId()),
+        of("credentialId"),
+        "credentialId is required and must not be blank.",
+        "no credentialId is provided");
+    require(
+        StringUtils.isNotBlank(config.getFromAddress()),
+        of("fromAddress"),
+        "fromAddress is required and must not be blank.",
+        "no fromAddress is provided");
+    require(
+        StringUtils.isNotBlank(config.getToTemplate()),
+        of("toTemplate"),
+        "toTemplate is required and must not be blank.",
+        "no toTemplate is provided");
+    require(
+        StringUtils.isNotBlank(config.getSubjectTemplate()),
+        of("subjectTemplate"),
+        "subjectTemplate is required and must not be blank.",
+        "no subjectTemplate is provided");
+    require(
+        StringUtils.isNotBlank(config.getBodyTemplate()),
+        of("bodyTemplate"),
+        "bodyTemplate is required and must not be blank.",
+        "no bodyTemplate is provided");
   }
 }

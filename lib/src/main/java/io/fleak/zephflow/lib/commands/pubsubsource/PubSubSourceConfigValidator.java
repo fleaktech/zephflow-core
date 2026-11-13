@@ -13,37 +13,47 @@
  */
 package io.fleak.zephflow.lib.commands.pubsubsource;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.enforceCredentials;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupGcpCredential;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import org.apache.commons.lang3.StringUtils;
 
 public class PubSubSourceConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     PubSubSourceDto.Config config = (PubSubSourceDto.Config) commandConfig;
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getSubscription()), "no subscription is provided");
-    DecodingConfigCompiler.compile(PubSubSourceCommand.decodingConfig(config));
+    require(
+        StringUtils.isNotBlank(config.getSubscription()),
+        of("subscription"),
+        "subscription is required and must not be blank.",
+        "no subscription is provided");
+    SourceDecoding.validate(PubSubSourceCommand.decodingConfig(config));
 
     if (config.getMaxMessages() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getMaxMessages() >= 1
               && config.getMaxMessages() <= PubSubSourceDto.MAX_MAX_MESSAGES,
+          of("maxMessages"),
+          "maxMessages must be between 1 and " + PubSubSourceDto.MAX_MAX_MESSAGES + ".",
           "maxMessages must be between 1 and %s",
           PubSubSourceDto.MAX_MAX_MESSAGES);
     }
 
     if (config.getAckDeadlineExtensionSeconds() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getAckDeadlineExtensionSeconds() >= 0
               && config.getAckDeadlineExtensionSeconds()
                   <= PubSubSourceDto.MAX_ACK_DEADLINE_EXTENSION_SECONDS,
+          of("ackDeadlineExtensionSeconds"),
+          "ackDeadlineExtensionSeconds must be between 0 and "
+              + PubSubSourceDto.MAX_ACK_DEADLINE_EXTENSION_SECONDS
+              + ".",
           "ackDeadlineExtensionSeconds must be between 0 and %s",
           PubSubSourceDto.MAX_ACK_DEADLINE_EXTENSION_SECONDS);
     }

@@ -129,11 +129,27 @@ tasks.named('spotlessJava') {
   mustRunAfter 'generateAvroJava'
 }
 
+def testQueueRequested = providers.gradleProperty('testQueue').getOrElse('false')
+if (!(testQueueRequested in ['true', 'false'])) {
+  throw new GradleException('testQueue must be true or false')
+}
+
 tasks.named('test') {
   // Ordinary unit tests exclude golden and *LowMemory*; each runs as its own task (see below).
   useJUnitPlatform { excludeTags 'golden' }
   exclude '**/*LowMemory*'
   maxParallelForks = Math.max(1, Runtime.runtime.availableProcessors().intdiv(2))
+  def requestedForks = System.getProperty('testForks')
+  if (requestedForks != null) {
+    try {
+      def forks = Integer.parseInt(requestedForks)
+      if (forks < 1) throw new NumberFormatException()
+      maxParallelForks = forks
+    } catch (NumberFormatException ignored) {
+      throw new GradleException('testForks must be a positive integer')
+    }
+  }
+  inputs.property('testQueue', testQueueRequested.toBoolean())
   testLogging.showStandardStreams = true
   // -Dfssource.snapshot.update=true rewrites FsSourceSnapshotTest's expected results
   if (System.getProperty('fssource.snapshot.update') != null) {
@@ -150,6 +166,10 @@ tasks.named('test') {
     '--add-opens', 'java.base/java.util=ALL-UNNAMED',
     '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
   ]
+}
+
+if (testQueueRequested.toBoolean()) {
+  apply from: rootProject.file('scripts/test-queue.gradle')
 }
 
 tasks.named('sourcesJar') {

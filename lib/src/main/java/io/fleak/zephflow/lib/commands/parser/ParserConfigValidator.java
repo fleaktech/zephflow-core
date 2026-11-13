@@ -13,7 +13,9 @@
  */
 package io.fleak.zephflow.lib.commands.parser;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -24,8 +26,10 @@ public class ParserConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     var parserConfig = ((ParserConfigs.ParserConfig) commandConfig);
-    Preconditions.checkArgument(parserConfig.getTargetField() != null, "targetField is missing");
-    Preconditions.checkArgument(
-        parserConfig.getExtractionConfig() != null, "extractionConfig is missing");
+    require(parserConfig.getTargetField() != null, of("targetField"), "targetField is missing");
+    require(
+        parserConfig.getExtractionConfig() != null,
+        of("extractionConfig"),
+        "extractionConfig is missing");
   }
 }

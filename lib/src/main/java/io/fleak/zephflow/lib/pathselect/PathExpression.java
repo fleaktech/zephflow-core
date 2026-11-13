@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.pathselect;
 
 import static io.fleak.zephflow.lib.utils.AntlrUtils.*;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.compiled.EvalContext;
@@ -44,12 +46,29 @@ public class PathExpression {
     try {
       return fromStringOrThrow(jsonPathString);
     } catch (Exception e) {
-      throw new RuntimeException(
-          String.format(
-              "failed to parse path expression: {%s}. Error message: %s",
-              jsonPathString, e.getMessage()),
-          e);
+      throw parsingFailure(jsonPathString, e);
     }
+  }
+
+  /** Parses a configuration field while preserving the existing path-expression failure. */
+  public static PathExpression fromString(String jsonPathString, ConfigurationPath path) {
+    try {
+      return fromStringOrThrow(jsonPathString);
+    } catch (Exception failure) {
+      throw configurationFailure(path, failure, parsingFailure(jsonPathString, failure));
+    }
+  }
+
+  private static RuntimeException parsingFailure(String expression, Exception failure) {
+    Throwable cause =
+        failure instanceof ConfigurationValidationException diagnostic
+            ? diagnostic.originalFailure()
+            : failure;
+    return new RuntimeException(
+        String.format(
+            "failed to parse path expression: {%s}. Error message: %s",
+            expression, failure.getMessage()),
+        cause);
   }
 
   private static PathExpression fromStringOrThrow(String jsonPathString) {

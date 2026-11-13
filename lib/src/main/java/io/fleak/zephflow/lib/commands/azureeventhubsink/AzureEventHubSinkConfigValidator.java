@@ -13,9 +13,10 @@
  */
 package io.fleak.zephflow.lib.commands.azureeventhubsink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.COMMAND_NAME_AZURE_EVENTHUB_SINK;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
@@ -44,8 +45,11 @@ public class AzureEventHubSinkConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     AzureEventHubSinkDto.Config config = (AzureEventHubSinkDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getEventHubName()), "no eventHubName is provided");
+    require(
+        StringUtils.isNotBlank(config.getEventHubName()),
+        of("eventHubName"),
+        "eventHubName is required and must not be blank.",
+        "no eventHubName is provided");
 
     AzureEventHubConfigValidation.validateEventHubAuth(
         config.getConnectionString(),
@@ -57,7 +61,8 @@ public class AzureEventHubSinkConfigValidator implements ConfigValidator {
     SinkEncoding.validate(config.getEncoding(), CAPABILITY);
 
     if (StringUtils.isNotBlank(config.getPartitionKeyFieldExpressionStr())) {
-      PathExpression.fromString(config.getPartitionKeyFieldExpressionStr());
+      PathExpression.fromString(
+          config.getPartitionKeyFieldExpressionStr(), of("partitionKeyFieldExpressionStr"));
     }
   }
 }

@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.commands.sink;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.EncodingConfig;
 import io.fleak.zephflow.lib.serdes.encode.RecordEncoder;
@@ -37,8 +39,15 @@ public final class SinkEncoding {
    */
   public static void validate(EncodingConfig encoding, WriterCapability capability) {
     if (encoding == null) {
-      throw new IllegalArgumentException(capability.sink() + ": encoding is required");
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.of("encoding"),
+          new IllegalArgumentException(capability.sink() + ": encoding is required"),
+          "Encoding configuration is required.");
     }
-    EncodingCompiler.validate(encoding, capability);
+    try {
+      EncodingCompiler.validate(encoding, capability);
+    } catch (ConfigurationValidationException failure) {
+      throw failure.withPrefix(ConfigurationPath.of("encoding"));
+    }
   }
 }

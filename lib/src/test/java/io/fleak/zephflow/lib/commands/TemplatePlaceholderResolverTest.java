@@ -15,12 +15,51 @@ package io.fleak.zephflow.lib.commands;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.structure.FleakData;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 8/29/24 */
 class TemplatePlaceholderResolverTest {
+
+  @Test
+  void locatesAnInvalidPlaceholderWithoutChangingTheLegacyFailure() {
+    String template = "do-not-copy-this {{ $.message extra }}";
+    var path = ConfigurationPath.of("provider", "headerTemplates", "x.test");
+    var legacy =
+        assertThrows(RuntimeException.class, () -> TemplatePlaceholderResolver.create(template));
+    var failure =
+        assertThrows(
+            ConfigurationValidationException.class,
+            () -> TemplatePlaceholderResolver.create(template, path));
+    assertEquals(path, failure.issues().getFirst().path());
+    assertTrue(
+        failure.issues().getFirst().message().contains("placeholder starting at character 17"));
+    assertTrue(failure.issues().getFirst().message().contains("expected end of expression"));
+    assertFalse(failure.issues().getFirst().message().contains("do-not-copy-this"));
+    assertEquals(legacy.getClass(), failure.originalFailure().getClass());
+    assertEquals(legacy.getMessage(), failure.originalFailure().getMessage());
+    assertEquals(legacy.getCause().getClass(), failure.originalFailure().getCause().getClass());
+    assertEquals(
+        "hello event",
+        TemplatePlaceholderResolver.create("hello {{ $.name }}", path)
+            .resolvePlaceholders(FleakData.wrap(Map.of("name", "event"))));
+  }
+
+  @Test
+  void locatesANullTemplateAndRetainsTheNullPointerFailure() {
+    var failure =
+        assertThrows(
+            ConfigurationValidationException.class,
+            () ->
+                TemplatePlaceholderResolver.create(
+                    null, ConfigurationPath.of("headerTemplates", "x.test")));
+    assertEquals(NullPointerException.class, failure.originalFailure().getClass());
+    assertEquals(
+        ConfigurationPath.of("headerTemplates", "x.test"), failure.issues().getFirst().path());
+  }
 
   @Test
   public void testResolveTemplate_withPlaceholders() {

@@ -18,6 +18,8 @@ import static io.fleak.zephflow.lib.commands.eval.EvaluatorFuncs.UNARY_VALUE_EVA
 import static io.fleak.zephflow.lib.utils.MiscUtils.normalizeStrLiteral;
 
 import com.google.common.base.Preconditions;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.structure.BooleanPrimitiveFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.NumberPrimitiveFleakData;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -178,7 +181,9 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
     } else if (ctx.IDENTIFIER() != null) {
       String varName = ctx.IDENTIFIER().getText();
       if (!isDefined(varName)) {
-        throw new IllegalArgumentException("variable '" + varName + "' is not defined");
+        String message = "variable '" + varName + "' is not defined";
+        throw ConfigurationValidationException.at(
+            ConfigurationPath.root(), new IllegalArgumentException(message), message);
       }
       value = new VariableNode(varName);
     } else if (ctx.pathSelectExpr() != null) {
@@ -227,7 +232,8 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
     if (tn != null) {
       numStr = tn.getText();
     } else {
-      numStr = ctx.INT_LITERAL().getText();
+      tn = ctx.INT_LITERAL();
+      numStr = tn.getText();
     }
 
     if (numStr.contains(".")) {
@@ -235,9 +241,24 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
           new NumberPrimitiveFleakData(
               Double.parseDouble(numStr), NumberPrimitiveFleakData.NumberType.DOUBLE));
     }
-    return new LiteralNode(
-        new NumberPrimitiveFleakData(
-            Long.parseLong(numStr), NumberPrimitiveFleakData.NumberType.LONG));
+    try {
+      return new LiteralNode(
+          new NumberPrimitiveFleakData(
+              Long.parseLong(numStr), NumberPrimitiveFleakData.NumberType.LONG));
+    } catch (NumberFormatException failure) {
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.root(),
+          failure,
+          "Integer literal at line "
+              + tn.getSymbol().getLine()
+              + ", column "
+              + tn.getSymbol().getCharPositionInLine()
+              + " must be between "
+              + Long.MIN_VALUE
+              + " and "
+              + Long.MAX_VALUE
+              + ".");
+    }
   }
 
   @Override
@@ -247,7 +268,10 @@ public class ExpressionCompiler extends EvalExpressionBaseVisitor<ExpressionNode
     FeelFunction function = functionsTable.get(functionName);
 
     if (function == null) {
-      throw new IllegalArgumentException("Unknown function: " + functionName);
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.root(),
+          new IllegalArgumentException("Unknown function: " + functionName),
+          "Unknown function. Accepted functions: " + new TreeSet<>(functionsTable.keySet()));
     }
 
     List<EvalExpressionParser.ExpressionContext> argContexts =

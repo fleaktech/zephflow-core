@@ -15,6 +15,9 @@ package io.fleak.zephflow.lib.commands;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 
+import io.fleak.zephflow.api.ConfigurationIssue;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.structure.ArrayFleakData;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -43,8 +46,20 @@ public class TemplatePlaceholderResolver {
   }
 
   public static TemplatePlaceholderResolver create(String template) {
-    List<Placeholder> placeholders = extractPlaceholders(template);
+    List<Placeholder> placeholders = extractPlaceholders(template, null);
     return new TemplatePlaceholderResolver(template, placeholders);
+  }
+
+  /** Locates an invalid placeholder in the configuration field containing its template. */
+  public static TemplatePlaceholderResolver create(String template, ConfigurationPath path) {
+    try {
+      return new TemplatePlaceholderResolver(template, extractPlaceholders(template, path));
+    } catch (NullPointerException failure) {
+      if (template == null) {
+        throw ConfigurationValidationException.at(path, failure, "Template must not be null.");
+      }
+      throw failure;
+    }
   }
 
   /**
@@ -80,12 +95,31 @@ public class TemplatePlaceholderResolver {
     return result.toString();
   }
 
-  private static List<Placeholder> extractPlaceholders(String template) {
+  private static List<Placeholder> extractPlaceholders(String template, ConfigurationPath path) {
     List<Placeholder> placeholders = new ArrayList<>();
     Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
     while (matcher.find()) {
       String pathExpStr = matcher.group(1);
-      PathExpression pathExpression = PathExpression.fromString(pathExpStr);
+      PathExpression pathExpression;
+      try {
+        pathExpression =
+            path == null
+                ? PathExpression.fromString(pathExpStr)
+                : PathExpression.fromString(pathExpStr, path);
+      } catch (ConfigurationValidationException failure) {
+        throw new ConfigurationValidationException(
+            failure.originalFailure(),
+            failure.issues().stream()
+                .map(
+                    issue ->
+                        new ConfigurationIssue(
+                            issue.path(),
+                            "Template placeholder starting at character "
+                                + matcher.start()
+                                + ": "
+                                + issue.message()))
+                .toList());
+      }
       placeholders.add(new Placeholder(matcher.start(), matcher.end(), pathExpression));
     }
     return placeholders;

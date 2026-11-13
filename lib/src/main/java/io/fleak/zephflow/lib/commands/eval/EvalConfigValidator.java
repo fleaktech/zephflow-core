@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.commands.eval;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import io.fleak.zephflow.lib.commands.eval.compiled.ExpressionCompiler;
@@ -39,8 +41,16 @@ public class EvalConfigValidator implements ConfigValidator {
       // expression is discarded (this is validation only)
       pythonExecutor = PythonExecutor.createPythonExecutor(languageContext, bounded);
       ExpressionCompiler.compile(languageContext, pythonExecutor);
+    } catch (ConfigurationValidationException e) {
+      throw AntlrUtils.configurationFailure(
+          ConfigurationPath.of("expression"),
+          e,
+          new IllegalArgumentException("expression: " + e.getMessage(), e.originalFailure()));
     } catch (Exception e) {
-      throw new IllegalArgumentException("expression: " + e.getMessage(), e);
+      throw AntlrUtils.configurationFailure(
+          ConfigurationPath.of("expression"),
+          e,
+          new IllegalArgumentException("expression: " + e.getMessage(), e));
     } finally {
       closeExecutor(pythonExecutor);
     }

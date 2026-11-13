@@ -13,15 +13,16 @@
  */
 package io.fleak.zephflow.lib.commands.sqssink;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig;
-import io.fleak.zephflow.lib.serdes.encode.EncodingCompiler;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
 import java.util.Set;
@@ -41,33 +42,45 @@ public class SqsSinkConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     SqsSinkDto.Config config = (SqsSinkDto.Config) commandConfig;
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getQueueUrl()), "no queue URL is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getRegionStr()), "no region is provided");
+    require(
+        StringUtils.isNotBlank(config.getQueueUrl()),
+        of("queueUrl"),
+        "queueUrl is required and must not be blank.",
+        "no queue URL is provided");
+    require(
+        StringUtils.isNotBlank(config.getRegionStr()),
+        of("regionStr"),
+        "regionStr is required and must not be blank.",
+        "no region is provided");
     if (config.getEncoding() != null) {
-      EncodingCompiler.validate(config.getEncoding(), CAPABILITY);
+      SinkEncoding.validate(config.getEncoding(), CAPABILITY);
     }
 
     if (config.getBatchSize() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getBatchSize() >= 1 && config.getBatchSize() <= SqsSinkDto.MAX_BATCH_SIZE,
+          of("batchSize"),
+          "batchSize must be between 1 and " + SqsSinkDto.MAX_BATCH_SIZE + ".",
           "batchSize must be between 1 and %s",
           SqsSinkDto.MAX_BATCH_SIZE);
     }
 
     boolean isFifoQueue = config.getQueueUrl().endsWith(".fifo");
     if (isFifoQueue) {
-      Preconditions.checkArgument(
+      require(
           StringUtils.isNotBlank(config.getMessageGroupIdExpression()),
+          of("messageGroupIdExpression"),
+          "messageGroupIdExpression is required and must not be blank for FIFO queues.",
           "messageGroupIdExpression is required for FIFO queues");
     }
 
     if (StringUtils.isNotBlank(config.getMessageGroupIdExpression())) {
-      PathExpression.fromString(config.getMessageGroupIdExpression());
+      PathExpression.fromString(
+          config.getMessageGroupIdExpression(), of("messageGroupIdExpression"));
     }
     if (StringUtils.isNotBlank(config.getDeduplicationIdExpression())) {
-      PathExpression.fromString(config.getDeduplicationIdExpression());
+      PathExpression.fromString(
+          config.getDeduplicationIdExpression(), of("deduplicationIdExpression"));
     }
 
     if (StringUtils.trimToNull(config.getCredentialId()) != null

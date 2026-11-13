@@ -19,21 +19,26 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.structure.RecordFleakData;
+import io.fleak.zephflow.lib.commands.databrickssink.AvroToDeltaSchemaConverter;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
 import io.fleak.zephflow.lib.serdes.decode.config.JsonFormatConfig.Mode;
 import io.fleak.zephflow.lib.serdes.encode.WriterCapability.Unit;
+import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class EncodingCompilerTest {
-
   private static final String SCHEMA =
       "{\"type\":\"record\",\"name\":\"R\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"}]}";
 
@@ -56,6 +61,39 @@ class EncodingCompilerTest {
 
   private static final String KV_DELIMITER_RULE =
       " must not contain letters, digits, '_', '.', ':', '/', '-', '=', '\"', '\\' or line breaks";
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void parquetPreservesNestedSchemaCauseAndOriginalException(boolean textual) throws Exception {
+    var mapper = JsonUtils.OBJECT_MAPPER;
+    var schema =
+        mapper.readTree(
+            "{\"type\":\"record\",\"name\":\"Record\",\"fields\":[{\"name\":\"value\",\"type\":[\"string\",\"int\"]}]}");
+    var format = mapper.createObjectNode().put("type", "parquet");
+    if (textual) format.put("schema", mapper.writeValueAsString(schema));
+    else format.set("schema", schema);
+    var config =
+        mapper.treeToValue(mapper.createObjectNode().set("format", format), EncodingConfig.class);
+    var converterFailure =
+        assertThrows(
+            ConfigurationValidationException.class,
+            () -> AvroToDeltaSchemaConverter.parse(mapper.convertValue(schema, Map.class)));
+    var failure =
+        assertThrows(
+            ConfigurationValidationException.class, () -> EncodingCompiler.validate(config, S3));
+    var expected = ConfigurationPath.of("format", "schema");
+    if (!textual) expected = expected.field("fields").index(0).field("type");
+    assertEquals(expected, failure.issues().getFirst().path());
+    assertEquals(
+        converterFailure.issues().getFirst().message(), failure.issues().getFirst().message());
+    assertEquals(
+        "s3sink: parquet option schema is not a valid avro record schema: "
+            + converterFailure.getMessage(),
+        failure.originalFailure().getMessage());
+    assertEquals(
+        converterFailure.originalFailure().getClass(),
+        failure.originalFailure().getCause().getClass());
+  }
 
   static Stream<Arguments> refusals() {
     return Stream.of(

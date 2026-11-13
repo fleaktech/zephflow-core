@@ -13,11 +13,13 @@
  */
 package io.fleak.zephflow.lib.commands.mqttsource;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import org.apache.commons.lang3.StringUtils;
 
 public class MqttSourceConfigValidator implements ConfigValidator {
@@ -25,42 +27,61 @@ public class MqttSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     MqttSourceDto.Config config = (MqttSourceDto.Config) commandConfig;
 
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getBrokerUrl()), "no brokerUrl is provided");
+    require(
+        StringUtils.isNotBlank(config.getBrokerUrl()),
+        of("brokerUrl"),
+        "brokerUrl is required and must not be blank.",
+        "no brokerUrl is provided");
     if (config.isUseTls()) {
       String lowerCaseBrokerUrl = config.getBrokerUrl().toLowerCase();
-      Preconditions.checkArgument(
+      require(
           lowerCaseBrokerUrl.startsWith("ssl://") || lowerCaseBrokerUrl.startsWith("wss://"),
+          of("brokerUrl"),
+          "brokerUrl must start with ssl:// or wss:// when useTls is true.",
           "useTls is enabled but brokerUrl scheme is not ssl:// or wss://: %s",
           config.getBrokerUrl());
     }
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getTopicFilter()), "no topicFilter is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getClientId()), "no clientId is provided");
+    require(
+        StringUtils.isNotBlank(config.getTopicFilter()),
+        of("topicFilter"),
+        "topicFilter is required and must not be blank.",
+        "no topicFilter is provided");
+    require(
+        StringUtils.isNotBlank(config.getClientId()),
+        of("clientId"),
+        "clientId is required and must not be blank.",
+        "no clientId is provided");
     // Compiles the decoding, so a bad one fails validation rather than the first message.
-    DecodingConfigCompiler.compile(MqttSourceCommand.decodingConfig(config));
+    SourceDecoding.validate(MqttSourceCommand.decodingConfig(config));
 
-    Preconditions.checkArgument(
+    require(
         config.getQos() >= 0 && config.getQos() <= 2,
+        of("qos"),
+        "qos must be 0, 1 or 2.",
         "qos must be 0, 1, or 2, got: %s",
         config.getQos());
 
     if (config.getMaxBatchSize() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getMaxBatchSize() > 0,
+          of("maxBatchSize"),
+          "maxBatchSize must be greater than 0.",
           "maxBatchSize must be positive, got: %s",
           config.getMaxBatchSize());
     }
     if (config.getReceiveQueueCapacity() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getReceiveQueueCapacity() > 0,
+          of("receiveQueueCapacity"),
+          "receiveQueueCapacity must be greater than 0.",
           "receiveQueueCapacity must be positive, got: %s",
           config.getReceiveQueueCapacity());
     }
     if (config.getReceiveTimeoutMs() != null) {
-      Preconditions.checkArgument(
+      require(
           config.getReceiveTimeoutMs() > 0,
+          of("receiveTimeoutMs"),
+          "receiveTimeoutMs must be greater than 0.",
           "receiveTimeoutMs must be positive, got: %s",
           config.getReceiveTimeoutMs());
     }

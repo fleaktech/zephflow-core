@@ -13,9 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.eval;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -28,9 +31,18 @@ public class EvalConfigParser implements ConfigParser {
 
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
-    String eval = (String) config.get("expression");
-    Preconditions.checkArgument(
-        eval != null, "eval command requires 'expression' to be configured");
+    String eval;
+    try {
+      eval = (String) config.get("expression");
+    } catch (ClassCastException failure) {
+      throw ConfigurationValidationException.at(
+          of("expression"), failure, "Expression must be a string");
+    }
+    require(
+        eval != null,
+        of("expression"),
+        "Expression is required",
+        "eval command requires 'expression' to be configured");
     return new EvalCommandDto.Config(eval, assertion);
   }
 }

@@ -13,6 +13,8 @@
  */
 package io.fleak.zephflow.lib.commands.eval.python;
 
+import io.fleak.zephflow.api.ConfigurationPath;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.lib.antlr.EvalExpressionBaseListener;
 import io.fleak.zephflow.lib.antlr.EvalExpressionParser;
 import java.util.*;
@@ -44,53 +46,52 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
   public void enterGenericFunctionCall(EvalExpressionParser.GenericFunctionCallContext ctx) {
     // Check if this is a Python function call
     String functionName = ctx.IDENTIFIER().getText();
-    if ("python".equals(functionName)) {
-      // Extract the Python script from the first argument
-      if (ctx.arguments() != null && !ctx.arguments().expression().isEmpty()) {
-        String scriptText = ctx.arguments().expression().getFirst().getText();
+    if (!"python".equals(functionName)
+        || ctx.arguments() == null
+        || ctx.arguments().expression().isEmpty()) return;
+    // Extract the Python script from the first argument
+    String scriptText = decodeScript(ctx.arguments().expression().getFirst().getText());
 
-        // Handle QUOTED_IDENTIFIER - remove outer quotes and handle escape sequences
-        if ((scriptText.startsWith("'") && scriptText.endsWith("'"))
-            || (scriptText.startsWith("\"") && scriptText.endsWith("\""))) {
-          scriptText = scriptText.substring(1, scriptText.length() - 1);
-          // Handle escape sequences: \n, \t, etc.
-          scriptText =
-              scriptText
-                  .replace("\\n", "\n")
-                  .replace("\\t", "\t")
-                  .replace("\\r", "\r")
-                  .replace("\\\\'", "'")
-                  .replace("\\\"", "\"");
-        }
-
-        try {
-          CompiledPythonFunction compiledFunction = compileAndDiscover(scriptText);
-          compiledFunctions.put(ctx, compiledFunction);
-          if (boundedDiagnostics) {
-            log.debug("Pre-compiled Python function.");
-          } else {
-            log.debug(
-                "Pre-compiled Python function at context: {} with script: {}",
-                ctx.getSourceInterval(),
-                scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
-          }
-        } catch (PythonExecutor.CleanupFailure cleanup) {
-          throw cleanup;
-        } catch (Exception e) {
-          if (boundedDiagnostics) {
-            log.error("Failed to pre-compile Python function.");
-          } else {
-            log.error(
-                "Failed to pre-compile Python function at {}: {} Script: {}",
-                ctx.getSourceInterval(),
-                e.getMessage(),
-                scriptText.substring(0, Math.min(100, scriptText.length())));
-          }
-          // Re-throw as IllegalArgumentException so Sentry client error filter can ignore it
-          throw new IllegalArgumentException(e.getMessage(), e);
-        }
+    try {
+      CompiledPythonFunction compiledFunction = compileAndDiscover(scriptText);
+      compiledFunctions.put(ctx, compiledFunction);
+      if (boundedDiagnostics) {
+        log.debug("Pre-compiled Python function.");
+      } else {
+        log.debug(
+            "Pre-compiled Python function at context: {} with script: {}",
+            ctx.getSourceInterval(),
+            scriptText.substring(0, Math.min(50, scriptText.length())) + "...");
       }
+    } catch (PythonExecutor.CleanupFailure cleanup) {
+      throw cleanup;
+    } catch (ConfigurationValidationException diagnostic) {
+      logCompilationFailure(ctx, scriptText, diagnostic);
+      throw new ConfigurationValidationException(
+          new IllegalArgumentException(diagnostic.getMessage(), diagnostic.originalFailure()),
+          diagnostic.issues());
+    } catch (Exception failure) {
+      logCompilationFailure(ctx, scriptText, failure);
+      // Re-throw as IllegalArgumentException so Sentry client error filter can ignore it
+      throw new IllegalArgumentException(failure.getMessage(), failure);
     }
+  }
+
+  private static String decodeScript(String scriptText) {
+    // Handle QUOTED_IDENTIFIER - remove outer quotes and handle escape sequences
+    if ((scriptText.startsWith("'") && scriptText.endsWith("'"))
+        || (scriptText.startsWith("\"") && scriptText.endsWith("\""))) {
+      String unquoted = scriptText.substring(1, scriptText.length() - 1);
+      // Handle escape sequences: \n, \t, etc.
+      return unquoted
+          .replace("\\n", "\n")
+          .replace("\\t", "\t")
+          .replace("\\r", "\r")
+          .replace("\\\\'", "'")
+          .replace("\\\"", "\"");
+    }
+
+    return scriptText;
   }
 
   private CompiledPythonFunction compileAndDiscover(String pythonScript) {
@@ -103,63 +104,18 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
       Value initialBindings = pythonContext.getBindings("python");
       Set<String> initialKeys = new HashSet<>(initialBindings.getMemberKeys());
 
-      // 2. Load and evaluate the user script
-      Source source =
-          Source.newBuilder("python", pythonScript, "compileTimeScript.py").buildLiteral();
-      pythonContext.eval(source);
-
-      // 3. Get bindings AFTER evaluating the user script
-      Value finalBindings = pythonContext.getBindings("python");
-      Set<String> finalKeys = finalBindings.getMemberKeys();
-
-      // 4. Discover the function(s) DEFINED BY THE SCRIPT
-      List<Value> definedFunctions = new ArrayList<>();
-      List<String> definedFunctionNames = new ArrayList<>();
-
-      for (String key : finalKeys) {
-        // Consider only keys that were ADDED by the script
-        if (initialKeys.contains(key)) {
-          continue;
-        }
-        if (key.startsWith("__") && key.endsWith("__")) continue;
-        try {
-          Value member = finalBindings.getMember(key);
-          // Ensure it's an executable function defined by the script
-          if (member != null && member.canExecute() && !member.isMetaObject()) {
-            definedFunctions.add(member);
-            definedFunctionNames.add(key);
-          }
-        } catch (PolyglotException ignored) {
-          // Handle or log if needed
-        }
-      }
-
-      // 5. Validate discovery results based on DEFINED functions
-      if (definedFunctions.size() == 1) {
-        if (!boundedDiagnostics) {
-          log.debug("Found function defined by script: {}", definedFunctionNames.getFirst());
-        }
-        CompiledPythonFunction function =
-            new CompiledPythonFunction(
-                definedFunctionNames.getFirst(), definedFunctions.getFirst(), pythonContext);
-        entered = false;
-        pythonContext.leave();
-        return function;
-      }
-
-      // Log or handle error: 0 or >1 functions *defined by the script* found
-      throw new IllegalArgumentException(
-          String.format(
-              "Pre-compilation Error: Script must define exactly one function, but defined %d:"
-                  + " [%s]",
-              definedFunctions.size(), String.join(", ", definedFunctionNames)));
+      evaluateScript(pythonContext, pythonScript);
+      CompiledPythonFunction function = discoverFunction(pythonContext, initialKeys);
+      entered = false;
+      pythonContext.leave();
+      return function;
 
     } catch (RuntimeException | Error primary) {
       if (entered) {
         try {
           pythonContext.leave();
         } catch (RuntimeException | Error leaveFailure) {
-          primary.addSuppressed(leaveFailure);
+          suppressCleanupFailure(primary, leaveFailure);
         }
       }
       try {
@@ -170,10 +126,92 @@ public class PythonFunctionCollector extends EvalExpressionBaseListener {
           failure.addSuppressed(cleanup);
           throw failure;
         }
-        primary.addSuppressed(cleanup);
+        suppressCleanupFailure(primary, cleanup);
       }
       throw primary;
     }
+  }
+
+  private static void suppressCleanupFailure(Throwable primary, Throwable cleanup) {
+    Throwable original =
+        primary instanceof ConfigurationValidationException diagnostic
+            ? diagnostic.originalFailure()
+            : primary;
+    original.addSuppressed(cleanup);
+  }
+
+  private void logCompilationFailure(
+      EvalExpressionParser.GenericFunctionCallContext context,
+      String scriptText,
+      Exception failure) {
+    if (boundedDiagnostics) {
+      log.error("Failed to pre-compile Python function.");
+    } else {
+      log.error(
+          "Failed to pre-compile Python function at {}: {} Script: {}",
+          context.getSourceInterval(),
+          failure.getMessage(),
+          scriptText.substring(0, Math.min(100, scriptText.length())));
+    }
+  }
+
+  private static void evaluateScript(Context pythonContext, String pythonScript) {
+    Source source =
+        Source.newBuilder("python", pythonScript, "compileTimeScript.py").buildLiteral();
+    try {
+      pythonContext.eval(source);
+    } catch (PolyglotException failure) {
+      if (!failure.isSyntaxError()) throw failure;
+      var location = failure.getSourceLocation();
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.root(),
+          failure,
+          "Invalid Python syntax"
+              + (location == null
+                  ? "."
+                  : " at line "
+                      + location.getStartLine()
+                      + ", column "
+                      + location.getStartColumn()
+                      + "."));
+    }
+  }
+
+  private CompiledPythonFunction discoverFunction(Context pythonContext, Set<String> initialKeys) {
+    Value bindings = pythonContext.getBindings("python");
+    List<Value> definedFunctions = new ArrayList<>();
+    List<String> definedFunctionNames = new ArrayList<>();
+    for (String key : bindings.getMemberKeys()) {
+      if (initialKeys.contains(key) || isSpecialMember(key)) continue;
+      try {
+        Value member = bindings.getMember(key);
+        if (member != null && member.canExecute() && !member.isMetaObject()) {
+          definedFunctions.add(member);
+          definedFunctionNames.add(key);
+        }
+      } catch (PolyglotException ignored) {
+        // Keep discovery tolerant of inaccessible members, as before.
+      }
+    }
+    if (definedFunctions.size() != 1) {
+      throw ConfigurationValidationException.at(
+          ConfigurationPath.root(),
+          new IllegalArgumentException(
+              String.format(
+                  "Pre-compilation Error: Script must define exactly one function, but defined %d:"
+                      + " [%s]",
+                  definedFunctions.size(), String.join(", ", definedFunctionNames))),
+          "Python script must define exactly one function; found " + definedFunctions.size() + ".");
+    }
+    if (!boundedDiagnostics) {
+      log.debug("Found function defined by script: {}", definedFunctionNames.getFirst());
+    }
+    return new CompiledPythonFunction(
+        definedFunctionNames.getFirst(), definedFunctions.getFirst(), pythonContext);
+  }
+
+  private static boolean isSpecialMember(String key) {
+    return key.startsWith("__") && key.endsWith("__");
   }
 
   private Context createPythonContext() {

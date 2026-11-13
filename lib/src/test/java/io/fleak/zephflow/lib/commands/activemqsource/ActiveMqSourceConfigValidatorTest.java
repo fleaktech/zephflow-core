@@ -93,10 +93,13 @@ class ActiveMqSourceConfigValidatorTest {
             .decoding(Decodings.uncompressed(Decodings.JSON_OBJECT))
             .build();
 
-    NullPointerException ex =
+    io.fleak.zephflow.api.ConfigurationValidationException ex =
         assertThrows(
-            NullPointerException.class,
+            io.fleak.zephflow.api.ConfigurationValidationException.class,
             () -> validator.validateConfig(config, "test-node", mockJobContext));
+    assertEquals(NullPointerException.class, ex.originalFailure().getClass());
+    assertEquals(
+        io.fleak.zephflow.api.ConfigurationPath.of("brokerType"), ex.issues().getFirst().path());
     assertTrue(ex.getMessage().contains("no brokerType is provided"));
   }
 

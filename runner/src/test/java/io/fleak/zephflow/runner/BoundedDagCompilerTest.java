@@ -30,6 +30,56 @@ import org.junit.jupiter.api.Test;
 
 class BoundedDagCompilerTest {
   @Test
+  void configurationDiagnosticsKeepTheLegacyCompilerRepresentation() {
+    for (RuntimeException original :
+        List.of(
+            new IllegalArgumentException("private input"),
+            new ClassCastException("private input"))) {
+      CommandFactory factory = mock(CommandFactory.class);
+      OperatorCommand command = mock(OperatorCommand.class);
+      when(factory.commandType()).thenReturn(CommandType.INTERMEDIATE_COMMAND);
+      when(factory.createCommand(anyString(), any())).thenReturn(command);
+      doThrow(
+              ConfigurationValidationException.at(
+                  ConfigurationPath.of("expression"), original, "Expression must be a string"))
+          .when(command)
+          .parseAndValidateArg(any());
+      for (boolean bounded : List.of(false, true)) {
+        var context =
+            JobContext.builder()
+                .otherProperties(new HashMap<>(Map.of(JobContext.FLAG_BOUNDED_MODE, bounded)))
+                .build();
+        var definition =
+            AdjacencyListDagDefinition.builder()
+                .jobContext(context)
+                .dag(
+                    List.of(
+                        AdjacencyListDagDefinition.DagNode.builder()
+                            .id("subject")
+                            .commandName("subject")
+                            .config(Map.of())
+                            .build()))
+                .build();
+        var failure =
+            assertThrows(
+                DagCompilationException.class,
+                () -> new DagCompiler(Map.of("subject", factory)).compile(definition, true));
+        assertEquals(DagCompilationException.ErrorType.NODE_COMPILATION, failure.getErrorType());
+        assertEquals("subject", failure.getNodeId());
+        if (bounded) {
+          assertEquals(
+              "failed to compile DAG node subject: " + original.getClass().getSimpleName(),
+              failure.getMessage());
+          assertNull(failure.getCause());
+        } else {
+          assertSame(original, failure.getCause());
+          assertTrue(failure.getMessage().endsWith("reason: private input"));
+        }
+      }
+    }
+  }
+
+  @Test
   void compilationFailureDoesNotExposeResolvedConfigurationOrExceptionMessage() {
     String credential = "private-resolved-credential";
     CommandFactory factory = mock(CommandFactory.class);

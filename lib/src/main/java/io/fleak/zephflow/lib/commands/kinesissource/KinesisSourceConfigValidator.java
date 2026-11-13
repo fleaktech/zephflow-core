@@ -13,14 +13,17 @@
  */
 package io.fleak.zephflow.lib.commands.kinesissource;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.utils.MiscUtils.enforceCredentials;
 import static io.fleak.zephflow.lib.utils.MiscUtils.lookupUsernamePasswordCredential;
 
-import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationValidationException;
 import io.fleak.zephflow.api.JobContext;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
+import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.kinesis.common.InitialPositionInStream;
 
@@ -28,34 +31,57 @@ public class KinesisSourceConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     KinesisSourceDto.Config config = (KinesisSourceDto.Config) commandConfig;
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getApplicationName()), "no application name is provided");
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getRegionStr()), "no region name is provided");
+    require(
+        StringUtils.isNotBlank(config.getApplicationName()),
+        of("applicationName"),
+        "applicationName is required and must not be blank.",
+        "no application name is provided");
+    require(
+        StringUtils.isNotBlank(config.getRegionStr()),
+        of("regionStr"),
+        "regionStr is required and must not be blank.",
+        "no region name is provided");
     // Compiles the decoding, so a bad one fails validation rather than the first message.
-    DecodingConfigCompiler.compile(KinesisSourceCommand.decodingConfig(config));
-    Preconditions.checkArgument(
-        StringUtils.isNotBlank(config.getStreamName()), "no stream name is provided");
+    SourceDecoding.validate(KinesisSourceCommand.decodingConfig(config));
+    require(
+        StringUtils.isNotBlank(config.getStreamName()),
+        of("streamName"),
+        "streamName is required and must not be blank.",
+        "no stream name is provided");
 
     var initialPosition = config.getInitialPosition();
     var initialTS = config.getInitialPositionTimestamp();
 
     if (initialPosition != null) {
       if (initialPosition.equals(InitialPositionInStream.AT_TIMESTAMP)) {
-        Preconditions.checkState(
-            initialTS != null,
-            "If initial position is AT_TIMESTAMP then a timestamp must be provided");
+        if (initialTS == null) {
+          throw ConfigurationValidationException.at(
+              of("initialPositionTimestamp"),
+              new IllegalStateException(
+                  Strings.lenientFormat(
+                      "If initial position is AT_TIMESTAMP then a timestamp must be provided")),
+              "initialPositionTimestamp is required when initialPosition is AT_TIMESTAMP.");
+        }
       } else {
-        Preconditions.checkState(
-            initialTS == null,
-            "Timestamp must not be provided unless initial position is AT_TIMESTAMP. Found: %s with timestamp %s",
-            initialPosition,
-            initialTS);
+        if (initialTS != null) {
+          throw ConfigurationValidationException.at(
+              of("initialPositionTimestamp"),
+              new IllegalStateException(
+                  Strings.lenientFormat(
+                      "Timestamp must not be provided unless initial position is AT_TIMESTAMP. Found: %s with timestamp %s",
+                      initialPosition, initialTS)),
+              "initialPositionTimestamp must be absent unless initialPosition is AT_TIMESTAMP.");
+        }
       }
     } else {
-      Preconditions.checkState(
-          initialTS == null,
-          "Timestamp must not be provided unless initial position is AT_TIMESTAMP");
+      if (initialTS != null) {
+        throw ConfigurationValidationException.at(
+            of("initialPositionTimestamp"),
+            new IllegalStateException(
+                Strings.lenientFormat(
+                    "Timestamp must not be provided unless initial position is AT_TIMESTAMP")),
+            "initialPositionTimestamp must be absent unless initialPosition is AT_TIMESTAMP.");
+      }
     }
     if (StringUtils.trimToNull(config.getCredentialId()) != null
         && enforceCredentials(jobContext)) {

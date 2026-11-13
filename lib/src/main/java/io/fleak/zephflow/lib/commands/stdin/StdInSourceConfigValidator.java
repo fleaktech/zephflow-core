@@ -13,13 +13,14 @@
  */
 package io.fleak.zephflow.lib.commands.stdin;
 
-import com.google.common.base.Preconditions;
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
+
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.commands.filedecode.SourceDecoding;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
-import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 
 /** Created by bolei on 12/20/24 */
 public class StdInSourceConfigValidator implements ConfigValidator {
@@ -27,10 +28,12 @@ public class StdInSourceConfigValidator implements ConfigValidator {
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
     StdInSourceDto.Config config = (StdInSourceDto.Config) commandConfig;
     DecodingConfig decoding = StdInSourceCommand.decodingConfig(config);
-    Preconditions.checkArgument(
+    require(
         !SourceDecoding.multiline(decoding.format()),
+        of("decoding", "format", "framing", "type"),
+        "stdin reads one message per line and cannot use text multiline framing.",
         "stdin reads one message per line, so decoding cannot use multiline framing");
     // Compiles the decoding, so a bad one fails validation rather than the first message.
-    DecodingConfigCompiler.compile(decoding);
+    SourceDecoding.validate(decoding);
   }
 }

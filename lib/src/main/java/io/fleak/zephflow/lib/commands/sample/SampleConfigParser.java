@@ -13,13 +13,15 @@
  */
 package io.fleak.zephflow.lib.commands.sample;
 
+import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 import static io.fleak.zephflow.lib.commands.sample.SampleCommandDto.DEFAULT_SAMPLE_RATE_FIELD;
 import static io.fleak.zephflow.lib.utils.ConfigValueUtils.checkNoUnknownKeys;
 import static io.fleak.zephflow.lib.utils.ConfigValueUtils.requireInteger;
 
-import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigParser;
+import io.fleak.zephflow.api.ConfigurationPath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,11 +39,15 @@ public class SampleConfigParser implements ConfigParser {
 
   @Override
   public CommandConfig parseConfig(Map<String, Object> config) {
-    Preconditions.checkArgument(config != null, "sample command requires 'rules' to be configured");
-    checkNoUnknownKeys(config, CONFIG_KEYS, "");
+    require(
+        config != null,
+        ConfigurationPath.root(),
+        "sample command requires 'rules' to be configured");
+    checkNoUnknownKeys(config, CONFIG_KEYS, "", ConfigurationPath.root());
     Object rawRules = config.get(RULES);
-    Preconditions.checkArgument(
+    require(
         rawRules instanceof List<?> list && !list.isEmpty(),
+        of(RULES),
         "sample command requires 'rules' to be a non-empty list");
     List<SampleCommandDto.Rule> rules = new ArrayList<>();
     List<?> ruleList = (List<?>) rawRules;
@@ -52,13 +58,19 @@ public class SampleConfigParser implements ConfigParser {
   }
 
   private static SampleCommandDto.Rule parseRule(Object rawRule, int index) {
-    Preconditions.checkArgument(
-        rawRule instanceof Map<?, ?>, "'rules[%s]' must be an object", index);
+    require(
+        rawRule instanceof Map<?, ?>,
+        of(RULES).index(index),
+        "Expected an object",
+        "'rules[%s]' must be an object",
+        index);
     Map<?, ?> rule = (Map<?, ?>) rawRule;
-    checkNoUnknownKeys(rule, RULE_KEYS, String.format("rules[%s].", index));
+    checkNoUnknownKeys(rule, RULE_KEYS, String.format("rules[%s].", index), of(RULES).index(index));
     Object condition = rule.get(CONDITION);
-    Preconditions.checkArgument(
+    require(
         condition == null || (condition instanceof String s && !s.isBlank()),
+        of(RULES).index(index).field(CONDITION),
+        "Condition must be a non-blank string when provided",
         "'rules[%s].condition' must be a non-blank string",
         index);
     return new SampleCommandDto.Rule(
@@ -68,7 +80,11 @@ public class SampleConfigParser implements ConfigParser {
   private static int parseSampleRate(Object value, int index) {
     return (int)
         requireInteger(
-            value, String.format("rules[%s].%s", index, SAMPLE_RATE), 1, Integer.MAX_VALUE);
+            value,
+            String.format("rules[%s].%s", index, SAMPLE_RATE),
+            1,
+            Integer.MAX_VALUE,
+            of(RULES).index(index).field(SAMPLE_RATE));
   }
 
   private static String parseSampleRateField(Map<String, Object> config) {
@@ -76,8 +92,10 @@ public class SampleConfigParser implements ConfigParser {
       return DEFAULT_SAMPLE_RATE_FIELD;
     }
     Object field = config.get(SAMPLE_RATE_FIELD);
-    Preconditions.checkArgument(
-        field instanceof String s && !s.isBlank(), "'sampleRateField' must be a non-blank string");
+    require(
+        field instanceof String s && !s.isBlank(),
+        of(SAMPLE_RATE_FIELD),
+        "'sampleRateField' must be a non-blank string");
     return (String) field;
   }
 }
