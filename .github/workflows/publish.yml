@@ -43,7 +43,7 @@ jobs:
         run: ./gradlew build -PtestQueue=true -DtestForks=4
 
       - name: Test Report
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: success() || failure()
         timeout-minutes: 10
         env:
