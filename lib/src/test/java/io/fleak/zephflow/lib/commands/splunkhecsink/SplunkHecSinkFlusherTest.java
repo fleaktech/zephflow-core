@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -170,6 +171,26 @@ class SplunkHecSinkFlusherTest {
 
   private SplunkHecSinkFlusher flusher(int batchSize) {
     return flusher(batchSize, null);
+  }
+
+  private SplunkHecSinkFlusher fastRetryingFlusher(int batchSize) {
+    return new SplunkHecSinkFlusher(
+        hec.url(),
+        "abcd-1234",
+        HttpClient.newHttpClient(),
+        batchSize,
+        SplunkHecSinkCommand.FLUSH_INTERVAL_MS,
+        dlqWriter,
+        null,
+        "splunkNode",
+        sinkOutputCounter,
+        outputSizeCounter,
+        sinkErrorCounter) {
+      @Override
+      protected long retryDelayMillis(int attempt) {
+        return 1;
+      }
+    };
   }
 
   private SplunkHecSinkFlusher flusher(int batchSize, JobContext jobContext) {
@@ -814,6 +835,39 @@ class SplunkHecSinkFlusherTest {
     await(() -> !store.isBuffering());
     assertEquals(new Counts(2, 2, 0, 0, 2), counts());
     assertEquals(List.of(2), hec.requestSizes());
+  }
+
+  @Test
+  void connectionFailure_withNoopStore_isRetriedUntilTheHecIsBack() throws Exception {
+    AtomicInteger refused = new AtomicInteger(6);
+    hec = FakeHec.replying(lines -> refused.getAndDecrement() > 0 ? Reply.NO_RESPONSE : Reply.ok());
+    SplunkHecSinkFlusher flusher = fastRetryingFlusher(2);
+    flusher.enableStoreForward(SinkStoreForward.noop(), new HecDestinationFailureClassifier());
+
+    SimpleSinkCommand.FlushResult result = flusher.flush(events("a", "b"), Map.of());
+
+    assertEquals(7, hec.requests().size());
+    assertEquals(
+        new SimpleSinkCommand.FlushResult(2, 0, List.of()).successCount(), result.successCount());
+    assertTrue(result.errorOutputList().isEmpty());
+  }
+
+  @Test
+  void serverError_withNoopStore_timerFlushIsRetriedUntilItClears() throws Exception {
+    AtomicInteger busy = new AtomicInteger(5);
+    hec =
+        FakeHec.replying(
+            lines -> busy.getAndDecrement() > 0 ? Reply.hec(503, 9, "Server is busy") : Reply.ok());
+    SplunkHecSinkFlusher flusher = fastRetryingFlusher(10);
+    flusher.enableStoreForward(SinkStoreForward.noop(), new HecDestinationFailureClassifier());
+    flusher.flush(events("a", "b"), Map.of());
+
+    flusher.executeScheduledFlush();
+
+    assertEquals(List.of(2, 2, 2, 2, 2, 2), hec.requestSizes());
+    assertEquals(2, sinkOutputCounter.total.get());
+    assertEquals(0, sinkErrorCounter.total.get());
+    assertTrue(dlqWriter.deadLetters.isEmpty());
   }
 
   @Test
