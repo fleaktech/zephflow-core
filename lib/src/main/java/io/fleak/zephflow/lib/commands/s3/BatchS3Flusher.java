@@ -239,9 +239,7 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
 
   private SimpleSinkCommand.FlushResult uploadWithRetry(
       List<File> tempFiles, String baseKey, int recordCount) {
-    long retryDelayMs = INITIAL_RETRY_DELAY_MS;
     int attempt = 0;
-
     while (true) {
       attempt++;
       try {
@@ -262,25 +260,11 @@ public class BatchS3Flusher extends AbstractBufferedFlusher<RecordFleakData> {
             tempFiles.size(),
             bucketName);
         return new SimpleSinkCommand.FlushResult(recordCount, totalSize, List.of());
-      } catch (Exception e) {
-        if (boundedHooks != null
-            || attempt >= MAX_WRITE_RETRIES
-            || Thread.currentThread().isInterrupted()) {
+      } catch (RuntimeException e) {
+        if (boundedHooks != null || !shouldRetry(attempt, e)) {
           throw e;
         }
-        log.warn(
-            "Upload error (attempt {}/{}), retrying in {}ms: {}",
-            attempt,
-            MAX_WRITE_RETRIES,
-            retryDelayMs,
-            e.getMessage());
-        try {
-          Thread.sleep(retryDelayMs);
-        } catch (InterruptedException interrupted) {
-          Thread.currentThread().interrupt();
-          throw e;
-        }
-        retryDelayMs *= 2;
+        awaitRetry(attempt, e);
       }
     }
   }
