@@ -131,9 +131,13 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
       }
       try {
         return doFlush(slice);
-      } catch (HecResponseException | IOException e) {
-        if (e instanceof HecResponseException hec && !hec.isRetryable()
-            || !shouldRetry(attempt, e)) {
+      } catch (HecResponseException e) {
+        if (!e.isRetryable() || !shouldRetry(attempt, e)) {
+          throw e;
+        }
+        awaitRetry(attempt, e);
+      } catch (IOException e) {
+        if (!shouldRetry(attempt, e)) {
           throw e;
         }
         awaitRetry(attempt, e);
