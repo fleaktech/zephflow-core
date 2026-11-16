@@ -14,8 +14,10 @@
 package io.fleak.zephflow.lib.commands.sink;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.execution.ExecutionHooks;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
@@ -136,6 +138,19 @@ class AbstractBufferedFlusherRetryTest {
 
     assertEquals(6, flusher.sendAttempts.get());
     assertEquals(1, result.errorOutputList().size());
+    flusher.close();
+  }
+
+  @Test
+  void aBoundedRunGivesUpAfterThreeAttempts() {
+    ExecutionHooks hooks =
+        new ExecutionHooks(() -> {}, mock(ExecutionHooks.Effects.class), Runnable::run);
+    FakeFlusher flusher = new FakeFlusher(100, JobContext.builder().executionHooks(hooks).build());
+    flusher.enableStoreForward(SinkStoreForward.noop(), IO_IS_DESTINATION);
+    IOException failure = new IOException("connection refused");
+
+    assertTrue(flusher.shouldRetry(2, failure));
+    assertFalse(flusher.shouldRetry(3, failure));
     flusher.close();
   }
 
