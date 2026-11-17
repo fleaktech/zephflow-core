@@ -35,4 +35,6 @@ public class WindowsMultilineExtractionConfig implements ExtractionConfig {
   }
 
   Map<String, Object> config;
+
+  String timezone;
 }

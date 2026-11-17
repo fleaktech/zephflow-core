@@ -23,7 +23,12 @@ import io.fleak.zephflow.lib.parser.TimestampExtractor;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
@@ -38,8 +43,12 @@ import org.jetbrains.annotations.NotNull;
  *
  * <p>Created by bolei on 2/1/25
  */
-public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtractor)
+public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtractor, ZoneId zoneId)
     implements ExtractionRule {
+
+  // Event Viewer text carries the collecting host's local time with one- or two-digit M, d and h
+  private static final DateTimeFormatter TIMESTAMP_FORMAT =
+      DateTimeFormatter.ofPattern("M/d/yyyy h:mm:ss a", Locale.US);
 
   // Regex patterns for different Windows log formats
   private static final String REGEX_KEY = "[\\w\\s().-]+";
@@ -386,11 +395,24 @@ public record WindowsMultilineExtractionRule(TimestampExtractor timestampExtract
 
   private void addMetadata(Map<String, Object> root, String raw) {
     root.put(FIELD_NAME_RAW, raw);
-    if (timestampExtractor != null) {
-      String tsStr = timestampExtractor.extractTimestampString(root);
-      if (tsStr != null) {
-        root.put(FIELD_NAME_TS, tsStr);
-      }
+    if (timestampExtractor == null) {
+      return;
+    }
+    String tsStr = timestampExtractor.extractTimestampString(root);
+    if (tsStr == null) {
+      return;
+    }
+    Long epochMillis = epochMillisOrNull(tsStr);
+    if (epochMillis != null) {
+      root.put(FIELD_NAME_TS, epochMillis);
+    }
+  }
+
+  private Long epochMillisOrNull(String tsStr) {
+    try {
+      return LocalDateTime.parse(tsStr, TIMESTAMP_FORMAT).atZone(zoneId).toInstant().toEpochMilli();
+    } catch (DateTimeParseException e) {
+      return null;
     }
   }
 

@@ -13,7 +13,7 @@
     "Logon ID": "0x3E7",
     "Account Domain": "NT AUTHORITY"
   },
-  "__ts__": "6/6/2025 8:58:06 AM",
+  "__ts__": 1749200286000,
   "Privileges": "SeAssignPrimaryTokenPrivilege\nSeTcbPrivilege\nSeSecurityPrivilege\nSeTakeOwnershipPrivilege\nSeLoadDriverPrivilege\nSeBackupPrivilege\nSeRestorePrivilege\nSeDebugPrivilege\nSeAuditPrivilege\nSeSystemEnvironmentPrivilege\nSeImpersonatePrivilege\nSeDelegateSessionUserImpersonatePrivilege",
   "Computer": "xing",
   "Level": "Information",

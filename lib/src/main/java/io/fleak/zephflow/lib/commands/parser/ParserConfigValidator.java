@@ -14,14 +14,17 @@
 package io.fleak.zephflow.lib.commands.parser;
 
 import static io.fleak.zephflow.api.ConfigurationPath.of;
+import static io.fleak.zephflow.api.ConfigurationValidationException.at;
 import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
+import io.fleak.zephflow.lib.parser.extractions.WindowsMultilineExtractionConfig;
+import java.time.DateTimeException;
+import java.time.ZoneId;
 
-/** Created by bolei on 3/18/25 */
 public class ParserConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
@@ -31,5 +34,16 @@ public class ParserConfigValidator implements ConfigValidator {
         parserConfig.getExtractionConfig() != null,
         of("extractionConfig"),
         "extractionConfig is missing");
+    if (parserConfig.getExtractionConfig() instanceof WindowsMultilineExtractionConfig windows
+        && windows.getTimezone() != null) {
+      try {
+        ZoneId.of(windows.getTimezone());
+      } catch (DateTimeException failure) {
+        throw at(
+            of("extractionConfig", "timezone"),
+            failure,
+            "timezone is not a recognised time zone name or offset");
+      }
+    }
   }
 }

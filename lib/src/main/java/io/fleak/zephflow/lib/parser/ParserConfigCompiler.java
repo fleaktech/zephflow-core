@@ -19,6 +19,8 @@ import io.fleak.zephflow.lib.parser.extractions.*;
 import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionConfig;
 import io.fleak.zephflow.lib.parser.extractions.SyslogExtractionRule;
 import io.fleak.zephflow.lib.utils.GrokUtils;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -66,7 +68,9 @@ public class ParserConfigCompiler {
         instanceof WindowsMultilineExtractionConfig windowsMultilineExtractionConfig) {
       TimestampExtractor timestampExtractor =
           createTimestampExtractor(windowsMultilineExtractionConfig);
-      return new WindowsMultilineExtractionRule(timestampExtractor);
+      String timezone = windowsMultilineExtractionConfig.getTimezone();
+      ZoneId zoneId = timezone == null ? ZoneOffset.UTC : ZoneId.of(timezone);
+      return new WindowsMultilineExtractionRule(timestampExtractor, zoneId);
     }
 
     if (extractionConfig instanceof SyslogExtractionConfig syslogExtractionConfig) {
