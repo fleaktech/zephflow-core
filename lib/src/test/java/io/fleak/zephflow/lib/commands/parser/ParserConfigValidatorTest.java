@@ -31,14 +31,14 @@ class ParserConfigValidatorTest {
   private final ParserConfigValidator validator = new ParserConfigValidator();
 
   @Test
-  void validateConfig_windowsTimezoneAccepted() {
+  void validateConfigAcceptsWindowsTimezone() {
     assertDoesNotThrow(() -> validator.validateConfig(windows("America/Chicago"), "n", null));
     assertDoesNotThrow(() -> validator.validateConfig(windows("+02:00"), "n", null));
     assertDoesNotThrow(() -> validator.validateConfig(windows(null), "n", null));
   }
 
   @Test
-  void validateConfig_windowsTimezoneUnknown() {
+  void validateConfigRejectsUnknownWindowsTimezone() {
     ConfigurationValidationException e =
         assertThrows(
             ConfigurationValidationException.class,

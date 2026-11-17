@@ -98,28 +98,28 @@ class WindowsMultilineExtractionRuleTest {
   }
 
   @Test
-  public void testCompiledConfig_defaultTimezoneIsUtc() throws Exception {
+  public void testCompiledConfigDefaultTimezoneIsUtc() throws Exception {
     RecordFleakData result =
         parseWithCompiledConfig(null, "03/12/2021 10:48:14 AM\nLogName=Security");
     assertEquals(1615546094000L, result.getPayload().get(FIELD_NAME_TS).getLongValue());
   }
 
   @Test
-  public void testCompiledConfig_namedTimezone() throws Exception {
+  public void testCompiledConfigNamedTimezone() throws Exception {
     RecordFleakData result =
         parseWithCompiledConfig("America/Chicago", "03/12/2021 10:48:14 AM\nLogName=Security");
     assertEquals(1615567694000L, result.getPayload().get(FIELD_NAME_TS).getLongValue());
   }
 
   @Test
-  public void testCompiledConfig_fixedOffsetTimezone() throws Exception {
+  public void testCompiledConfigFixedOffsetTimezone() throws Exception {
     RecordFleakData result =
         parseWithCompiledConfig("+02:00", "03/12/2021 10:48:14 AM\nLogName=Security");
     assertEquals(1615538894000L, result.getPayload().get(FIELD_NAME_TS).getLongValue());
   }
 
   @Test
-  public void testCompiledConfig_unparseableTimestampWritesNoTs() throws Exception {
+  public void testCompiledConfigUnparseableTimestampWritesNoTs() throws Exception {
     String raw = "Date=yesterday\nLogName=Security";
     RecordFleakData result = parseWithCompiledConfig(null, raw);
     assertFalse(result.getPayload().containsKey(FIELD_NAME_TS));
@@ -128,7 +128,18 @@ class WindowsMultilineExtractionRuleTest {
   }
 
   @Test
-  public void testCompiledConfig_invalidTimezoneFailsCompilation() {
+  public void testExtractMissingTimestampFieldWritesNoTs() throws Exception {
+    String raw = "LogName=Security\nEventCode=4624";
+    WindowsMultilineExtractionRule rule =
+        new WindowsMultilineExtractionRule(
+            new WindowsMultilineExtractionRule.FromFieldTimestampExtractor("Date"), ZoneOffset.UTC);
+    RecordFleakData result = rule.extract(raw);
+    assertFalse(result.getPayload().containsKey(FIELD_NAME_TS));
+    assertEquals(raw, result.getPayload().get(FIELD_NAME_RAW).getStringValue());
+  }
+
+  @Test
+  public void testCompiledConfigInvalidTimezoneFailsCompilation() {
     ParserConfigs.ParserConfig parserConfig = firstLineConfig("America/Chicgo");
     DateTimeException e =
         assertThrows(
