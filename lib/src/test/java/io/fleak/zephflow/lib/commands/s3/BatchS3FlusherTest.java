@@ -688,6 +688,53 @@ class BatchS3FlusherTest {
   }
 
   @Test
+  void uploadFailureWithoutAStoreIsRetriedUntilTheUploadSucceeds() throws Exception {
+    S3TransferManager manager = mock(S3TransferManager.class);
+    FileUpload upload = mock(FileUpload.class);
+    when(manager.uploadFile(any(UploadFileRequest.class))).thenReturn(upload);
+    AtomicInteger failing = new AtomicInteger(5);
+    when(upload.completionFuture())
+        .thenAnswer(
+            invocation ->
+                failing.getAndDecrement() > 0
+                    ? CompletableFuture.failedFuture(new IOException("upload down"))
+                    : CompletableFuture.completedFuture(null));
+    BatchS3Flusher sink =
+        new BatchS3Flusher(
+            new AwsClientFactory.S3TransferResources(mock(S3AsyncClient.class), manager),
+            BUCKET_NAME,
+            KEY_NAME,
+            EncodingCompiler.fileWriter(
+                encoding("[]", TEXT_LINE), S3SinkConfigValidator.CAPABILITY),
+            2,
+            60000,
+            null,
+            JobContext.builder().build(),
+            "s3",
+            sinkOutputCounter,
+            outputSizeCounter,
+            sinkErrorCounter) {
+          @Override
+          protected long retryDelayMillis(int attempt) {
+            return 1;
+          }
+        };
+    sink.enableStoreForward(SinkStoreForward.noop(), new S3DestinationFailureClassifier());
+    sink.initialize();
+
+    try {
+      SimpleSinkCommand.FlushResult result =
+          sink.flush(events(List.of(raw("line 1"), raw("line 2"))), Map.of());
+
+      assertEquals(2, result.successCount());
+      assertTrue(result.errorOutputList().isEmpty());
+      verify(manager, times(6)).uploadFile(any(UploadFileRequest.class));
+    } finally {
+      sink.abort();
+    }
+  }
+
+  @Test
   void uploadFailureWithARejectedRecordThrowsADestinationFailureCarryingIt() throws Exception {
     S3TransferManager manager = mock(S3TransferManager.class);
     FileUpload upload = mock(FileUpload.class);

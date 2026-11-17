@@ -125,32 +125,23 @@ public class SplunkHecSinkFlusher extends AbstractBufferedFlusher<SplunkHecOutbo
   @Override
   protected SimpleSinkCommand.FlushResult doFlushWithRetry(
       List<Pair<RecordFleakData, SplunkHecOutboundEvent>> slice) throws Exception {
-    long retryDelayMs = INITIAL_RETRY_DELAY_MS;
-    try {
-      for (int attempt = 1; ; attempt++) {
-        if (Thread.currentThread().isInterrupted()) {
-          throw new InterruptedException("Splunk HEC flush interrupted");
-        }
-        try {
-          return doFlush(slice);
-        } catch (HecResponseException | IOException e) {
-          if (attempt >= MAX_WRITE_RETRIES
-              || e instanceof HecResponseException hec && !hec.isRetryable()) {
-            throw e;
-          }
-          log.warn(
-              "Splunk HEC error (attempt {}/{}), retrying in {}ms: {}",
-              attempt,
-              MAX_WRITE_RETRIES,
-              retryDelayMs,
-              failureMessage(e));
-          Thread.sleep(retryDelayMs);
-          retryDelayMs *= 2;
-        }
+    for (int attempt = 1; ; attempt++) {
+      if (Thread.currentThread().isInterrupted()) {
+        throw new InterruptedException("Splunk HEC flush interrupted");
       }
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw e;
+      try {
+        return doFlush(slice);
+      } catch (HecResponseException e) {
+        if (!e.isRetryable() || !shouldRetry(attempt, e)) {
+          throw e;
+        }
+        awaitRetry(attempt, e);
+      } catch (IOException e) {
+        if (!shouldRetry(attempt, e)) {
+          throw e;
+        }
+        awaitRetry(attempt, e);
+      }
     }
   }
 

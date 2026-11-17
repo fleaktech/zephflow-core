@@ -13,8 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.sink;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import io.fleak.zephflow.api.ErrorOutput;
@@ -52,6 +50,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   protected static final int MAX_WRITE_RETRIES = 3;
   protected static final long INITIAL_RETRY_DELAY_MS = 1000;
+  protected static final long MAX_RETRY_DELAY_MS = 30_000;
 
   protected final DlqWriter dlqWriter;
   protected final String nodeId;
@@ -64,6 +63,9 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
   private BufferedWriter<Pair<RecordFleakData, T>> bufferedWriter;
   private volatile SinkStoreForward storeForward = SinkStoreForward.noop();
   private volatile DestinationFailureClassifier destinationFailureClassifier;
+  private volatile boolean closing;
+  // flushNow replays records a store already holds, so that store's loop owns the retrying
+  private final ThreadLocal<Boolean> replaying = ThreadLocal.withInitial(() -> false);
 
   protected AbstractBufferedFlusher(
       DlqWriter dlqWriter,
@@ -251,6 +253,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   /** Stops the timer-based flush scheduler. Call from subclass close(). */
   protected final synchronized void stopFlushTimer() {
+    closing = true;
     if (bufferedWriter != null) {
       bufferedWriter.close();
     }
@@ -314,23 +317,28 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
     int successCount = 0;
     long flushedDataSize = 0;
     List<ErrorOutput> errors = new ArrayList<>();
-    for (List<Pair<RecordFleakData, T>> slice :
-        Lists.partition(events.rawAndPreparedList(), getBatchSize())) {
-      SimpleSinkCommand.FlushResult result;
-      beforeWrite();
-      try {
-        result = doFlushWithRetry(slice);
-      } catch (Exception e) {
-        if (keepsForReplay(e)) {
-          throw e;
+    replaying.set(true);
+    try {
+      for (List<Pair<RecordFleakData, T>> slice :
+          Lists.partition(events.rawAndPreparedList(), getBatchSize())) {
+        SimpleSinkCommand.FlushResult result;
+        beforeWrite();
+        try {
+          result = doFlushWithRetry(slice);
+        } catch (Exception e) {
+          if (keepsForReplay(e)) {
+            throw e;
+          }
+          result = createCompleteFailureResult(slice, getExceptionMessage(e));
+        } finally {
+          afterWrite();
         }
-        result = createCompleteFailureResult(slice, getExceptionMessage(e));
-      } finally {
-        afterWrite();
+        successCount += result.successCount();
+        flushedDataSize += result.flushedDataSize();
+        errors.addAll(result.errorOutputList());
       }
-      successCount += result.successCount();
-      flushedDataSize += result.flushedDataSize();
-      errors.addAll(result.errorOutputList());
+    } finally {
+      replaying.remove();
     }
     return new SimpleSinkCommand.FlushResult(successCount, flushedDataSize, errors);
   }
@@ -500,6 +508,7 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
 
   @Override
   public void abort() throws java.io.IOException {
+    closing = true;
     discardPendingRecords();
     close();
   }
@@ -681,26 +690,65 @@ public abstract class AbstractBufferedFlusher<T> implements SimpleSinkCommand.Fl
       boundedHooks.control().checkpoint();
       return doFlush(batch);
     }
-    long retryDelayMs = INITIAL_RETRY_DELAY_MS;
     int attempt = 0;
-
     while (true) {
       attempt++;
       try {
         return doFlush(batch);
       } catch (Exception e) {
-        if (attempt >= MAX_WRITE_RETRIES) {
+        if (!shouldRetry(attempt, e)) {
           throw e;
         }
-        log.warn(
-            "Error (attempt {}/{}), retrying in {}ms: {}",
-            attempt,
-            MAX_WRITE_RETRIES,
-            retryDelayMs,
-            e.getMessage());
-        threadSleep(retryDelayMs);
-        retryDelayMs *= 2;
+        awaitRetry(attempt, e);
       }
+    }
+  }
+
+  /**
+   * Whether a send that failed on {@code attempt} is tried again. A streaming flush that fails
+   * because the destination is down, with no local store to keep the records, retries until it is
+   * delivered: the pipeline waits and the data stays at the source instead of being dropped.
+   * Everything else gets {@link #MAX_WRITE_RETRIES}.
+   */
+  protected final boolean shouldRetry(int attempt, Throwable failure) {
+    if (closing || isInterrupt(failure)) {
+      return false;
+    }
+    return retriesUntilDelivered(failure) || attempt < MAX_WRITE_RETRIES;
+  }
+
+  private boolean retriesUntilDelivered(Throwable failure) {
+    DestinationFailureClassifier classifier = destinationFailureClassifier;
+    return boundedHooks == null
+        && !testMode
+        && !replaying.get()
+        && !storesFailures()
+        && classifier != null
+        && classifier.isDestinationFailure(failure);
+  }
+
+  /** Backoff before the next attempt: doubles from one second and caps at thirty. */
+  protected long retryDelayMillis(int attempt) {
+    return Math.min(INITIAL_RETRY_DELAY_MS << Math.min(attempt - 1, 20), MAX_RETRY_DELAY_MS);
+  }
+
+  /**
+   * Logs the failed attempt and sleeps the backoff. Rethrows {@code failure} with the interrupt
+   * flag set when the sleep is interrupted.
+   */
+  protected final <E extends Exception> void awaitRetry(int attempt, E failure) throws E {
+    long delayMs = retryDelayMillis(attempt);
+    log.warn(
+        "Sink {} send failed (attempt {}), retrying in {} ms: {}",
+        nodeId,
+        attempt,
+        delayMs,
+        getExceptionMessage(failure));
+    try {
+      Thread.sleep(delayMs);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw failure;
     }
   }
 

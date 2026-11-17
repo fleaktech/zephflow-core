@@ -149,17 +149,32 @@ class S3SinkStoreForwardTest {
         List.of(metrics.totals(), uploadedObjects()));
   }
 
+  /** Without a store the sink holds the batch and keeps retrying, so nothing is lost. */
   @Test
-  void storeOffCountsTheLossAndWritesNothingLocally(@TempDir Path storeDir) throws Exception {
+  void storeOffKeepsRetryingTheTimerFlushUntilTheBucketExists(@TempDir Path storeDir)
+      throws Exception {
     CapturingMetrics metrics = new CapturingMetrics();
     S3SinkCommand sink = start(jsonConfig(storeDir, false), metrics);
 
     sink.writeToSink(records(0, 3), "user", sink.getExecutionContext());
-    await(() -> metrics.total(SINK_ERROR) == 3);
+    Thread.sleep(3_500); // past the three attempts that used to drop the batch
+    Map<String, Long> totalsDuringOutage = metrics.totals();
+    createBucket();
+    await(() -> metrics.total(SINK_OUTPUT) == 3);
 
     assertEquals(
-        List.of(SinkStoreForward.noop(), counts(0, 0, 0, 0, 3), List.of()),
-        List.of(store(sink), metrics.totals(), filesUnder(storeDir)));
+        List.of(
+            SinkStoreForward.noop(),
+            counts(0, 0, 0, 0, 0),
+            counts(0, 0, 0, 3, 0),
+            new TreeSet<>(List.of(0, 1, 2)),
+            List.of()),
+        List.of(
+            store(sink),
+            totalsDuringOutage,
+            metrics.totals(),
+            uploadedIds(),
+            filesUnder(storeDir)));
   }
 
   @Test
