@@ -108,7 +108,7 @@ jobs:
       # Publish Release to Maven Central
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew clean -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy
+        run: ./gradlew clean -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy --stacktrace
         env:
           GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
@@ -117,6 +117,19 @@ jobs:
           JRELEASER_GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # JReleaser reports portal errors as "Unexpected error" on the console; the HTTP
+      # response is only in its trace log, so keep it when the publish fails.
+      - name: Upload JReleaser trace log
+        if: failure() && github.event_name == 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: jreleaser-trace
+          path: |
+            build/jreleaser/trace.log
+            build/jreleaser/output.properties
+          if-no-files-found: warn
+          retention-days: 14
 
       # Install cosign for attestation signing
       - name: Install cosign
