@@ -69,6 +69,16 @@ allprojects {
   }
 }
 
+def isReleaseCandidate = version.toString() ==~ /.*-rc\.\d+/
+
+tasks.named('jreleaserDeploy') {
+  doFirst {
+    if (isReleaseCandidate) {
+      throw new GradleException("Release candidate ${version} goes to GitHub Packages, not Maven Central")
+    }
+  }
+}
+
 jreleaser {
   gitRootSearch = false
 
@@ -138,8 +148,19 @@ subprojects {
     }
 
     repositories {
-      maven {
-        url = project.rootProject.layout.buildDirectory.dir('staging-deploy')
+      if (isReleaseCandidate) {
+        maven {
+          name = 'GitHubPackages'
+          url = 'https://maven.pkg.github.com/fleaktech/zephflow-core'
+          credentials {
+            username = System.getenv('GITHUB_ACTOR')
+            password = System.getenv('GITHUB_TOKEN')
+          }
+        }
+      } else {
+        maven {
+          url = project.rootProject.layout.buildDirectory.dir('staging-deploy')
+        }
       }
     }
   }
