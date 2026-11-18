@@ -105,10 +105,13 @@ jobs:
             ${{ steps.build_cli_jar.outputs.cli_jar_path }}
           tag_name: ${{ github.event.release.tag_name }}
 
-      # Publish Release to Maven Central
+      # Publish Release to Maven Central. `clean` runs on its own: in one invocation it
+      # deletes build/jreleaser/trace.log after JReleaser has already opened it.
       - name: Publish Release to Maven Central
         if: github.event_name == 'release'
-        run: ./gradlew clean -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy --stacktrace
+        run: |
+          ./gradlew clean
+          ./gradlew -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy --stacktrace
         env:
           GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
@@ -117,6 +120,32 @@ jobs:
           JRELEASER_GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # JReleaser drops the body of a 4xx from the Central Portal, so ask the portal
+      # directly: the deployment's state and errors, then the publish response itself.
+      - name: Query the Central Portal for the failed deployment
+        if: failure() && github.event_name == 'release'
+        env:
+          PORTAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          PORTAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+        run: |
+          set +x
+          deployment_id=$(sed -n 's/^deployMavenCentralSonatypeDeploymentId=//p' build/jreleaser/output.properties)
+          if [ -z "$deployment_id" ]; then
+            echo "No deployment id in build/jreleaser/output.properties; the failure happened before the upload."
+            exit 0
+          fi
+          token=$(printf '%s:%s' "$PORTAL_USERNAME" "$PORTAL_PASSWORD" | base64 -w0)
+          echo "::group::Deployment status for $deployment_id"
+          curl -sS -X POST -H "Authorization: Bearer $token" \
+            "https://central.sonatype.com/api/v1/publisher/status?id=$deployment_id"
+          echo
+          echo "::endgroup::"
+          echo "::group::Publish response for $deployment_id"
+          curl -sS -i -X POST -H "Authorization: Bearer $token" \
+            "https://central.sonatype.com/api/v1/publisher/deployment/$deployment_id"
+          echo
+          echo "::endgroup::"
 
       # JReleaser reports portal errors as "Unexpected error" on the console; the HTTP
       # response is only in its trace log, so keep it when the publish fails.
