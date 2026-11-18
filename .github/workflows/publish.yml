@@ -19,6 +19,7 @@ jobs:
       contents: write
       checks: write
       pull-requests: write
+      packages: write
       id-token: write # Required for keyless signing
 
     steps:
@@ -105,10 +106,22 @@ jobs:
             ${{ steps.build_cli_jar.outputs.cli_jar_path }}
           tag_name: ${{ github.event.release.tag_name }}
 
+      - name: Publish Release Candidate to GitHub Packages
+        if: github.event_name == 'release' && github.event.release.prerelease
+        run: |
+          ./gradlew clean
+          ./gradlew -Prelease.useLastTag=true \
+            runner:publishAllPublicationsToGitHubPackagesRepository \
+            lib:publishAllPublicationsToGitHubPackagesRepository \
+            api:publishAllPublicationsToGitHubPackagesRepository --stacktrace
+        env:
+          GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Publish Release to Maven Central. `clean` runs on its own: in one invocation it
       # deletes build/jreleaser/trace.log after JReleaser has already opened it.
       - name: Publish Release to Maven Central
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && !github.event.release.prerelease
         run: |
           ./gradlew clean
           ./gradlew -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy --stacktrace
@@ -124,7 +137,7 @@ jobs:
       # JReleaser drops the body of a 4xx from the Central Portal, so ask the portal
       # directly: the deployment's state and errors, then the publish response itself.
       - name: Query the Central Portal for the failed deployment
-        if: failure() && github.event_name == 'release'
+        if: failure() && github.event_name == 'release' && !github.event.release.prerelease
         env:
           PORTAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           PORTAL_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
@@ -150,7 +163,7 @@ jobs:
       # JReleaser reports portal errors as "Unexpected error" on the console; the HTTP
       # response is only in its trace log, so keep it when the publish fails.
       - name: Upload JReleaser trace log
-        if: failure() && github.event_name == 'release'
+        if: failure() && github.event_name == 'release' && !github.event.release.prerelease
         uses: actions/upload-artifact@v7
         with:
           name: jreleaser-trace
