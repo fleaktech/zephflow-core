@@ -70,11 +70,16 @@ allprojects {
 }
 
 def isReleaseCandidate = version.toString() ==~ /.*-rc\.\d+/
+// Throwaway versions published by a manual run of the publish workflow to check the GitHub Packages path.
+def isPublishCheck = version.toString() ==~ /.*-ghpverify\.\d+/
 
 tasks.named('jreleaserDeploy') {
   doFirst {
     if (isReleaseCandidate) {
       throw new GradleException("Release candidate ${version} goes to GitHub Packages, not Maven Central")
+    }
+    if (isPublishCheck) {
+      throw new GradleException("Publish check version ${version} goes to GitHub Packages only, never to Maven Central")
     }
   }
 }
@@ -147,17 +152,18 @@ subprojects {
       }
     }
 
+    // Every version goes to GitHub Packages; full releases are also staged here for JReleaser
+    // to upload to Maven Central. The workflow picks the destination by task name.
     repositories {
-      if (isReleaseCandidate) {
-        maven {
-          name = 'GitHubPackages'
-          url = 'https://maven.pkg.github.com/fleaktech/zephflow-core'
-          credentials {
-            username = System.getenv('GITHUB_ACTOR')
-            password = System.getenv('GITHUB_TOKEN')
-          }
+      maven {
+        name = 'GitHubPackages'
+        url = 'https://maven.pkg.github.com/fleaktech/zephflow-core'
+        credentials {
+          username = System.getenv('GITHUB_ACTOR')
+          password = System.getenv('GITHUB_TOKEN')
         }
-      } else {
+      }
+      if (!isReleaseCandidate) {
         maven {
           url = project.rootProject.layout.buildDirectory.dir('staging-deploy')
         }
