@@ -1,9 +1,12 @@
-FROM ghcr.io/graalvm/graalvm-community:21
+# Corretto 21, pinned by digest so Renovate proposes base updates. GraalVM is only used as
+# Maven libraries (Polyglot, GraalPy), which run on any JDK 21.
+FROM public.ecr.aws/amazoncorretto/amazoncorretto:21-al2023@sha256:3862df600cb4956b7e3a048562478ce457ed4afc7fd49cc2fe480799009a6bdf
 
 WORKDIR /app
 
-# Create a non-root user to run the application
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+# Create a non-root user to run the application (the al2023 base has no groupadd/useradd)
+RUN dnf install -y shadow-utils && dnf clean all \
+    && groupadd -r appgroup && useradd -r -g appgroup appuser
 
 # Copy JAR (built externally by GitHub Actions)
 COPY ./build/libs/*-all.jar clistarter.jar
