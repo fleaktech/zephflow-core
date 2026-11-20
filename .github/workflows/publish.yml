@@ -7,6 +7,14 @@ on:
     branches: [ "**" ]
   release:
     types: [ created ]
+  # Manual run on a throwaway tag (v0.0.N-ghpverify.M) to check the GitHub Packages publish path.
+  # It never reaches Maven Central or Docker Hub; delete the published versions and the tag afterwards.
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Run as a release candidate (only to check that the tag check rejects it)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
@@ -66,6 +74,45 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      # Fail before anything is uploaded when the tag does not match how the release was marked:
+      # a pre-release needs vX.Y.Z-rc.N, a full release needs vX.Y.Z. A manual run only accepts
+      # v0.0.N-ghpverify.M, so a throwaway version always sorts below every real release.
+      - name: Check the release tag
+        id: tag
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [ "$EVENT" = release ]; then
+            tag="$RELEASE_TAG"
+            if [ "$RELEASE_PRERELEASE" = true ]; then
+              pattern='^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$'
+            else
+              pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+            fi
+          else
+            if [ "$INPUT_PRERELEASE" = true ]; then
+              echo "::error::A manual run publishes a full-release-shaped check version; run it with prerelease=false"
+              exit 1
+            fi
+            if [ "$REF_TYPE" != tag ]; then
+              echo "::error::Run this workflow manually on a v0.0.N-ghpverify.M tag, not on $REF_TYPE $REF_NAME"
+              exit 1
+            fi
+            tag="$REF_NAME"
+            pattern='^v0\.0\.[0-9]+-ghpverify\.[0-9]+$'
+          fi
+          if ! [[ "$tag" =~ $pattern ]]; then
+            echo "::error::Tag $tag does not match $pattern for this run"
+            exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
       # Import GPG key for Maven Central publishing
       - name: Import GPG key
         if: github.event_name == 'release'
@@ -106,25 +153,30 @@ jobs:
             ${{ steps.build_cli_jar.outputs.cli_jar_path }}
           tag_name: ${{ github.event.release.tag_name }}
 
-      - name: Publish Release Candidate to GitHub Packages
-        if: github.event_name == 'release' && github.event.release.prerelease
-        run: |
-          ./gradlew clean
-          ./gradlew -Prelease.useLastTag=true \
-            runner:publishAllPublicationsToGitHubPackagesRepository \
-            lib:publishAllPublicationsToGitHubPackagesRepository \
-            api:publishAllPublicationsToGitHubPackagesRepository --stacktrace
+      # Every release (RC and full) and every manual check run goes to GitHub Packages first, so a
+      # Maven Central refusal still leaves the version usable for internal projects. Modules already
+      # there are skipped, which keeps a re-run of a half-failed release working.
+      - name: Publish to GitHub Packages
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        run: .github/scripts/publish-to-github-packages.sh
         env:
           GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
+          VERSION: ${{ steps.tag.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Publish Release to Maven Central. `clean` runs on its own: in one invocation it
       # deletes build/jreleaser/trace.log after JReleaser has already opened it.
+      # Only the staging repository is published here (GitHub Packages already has the version),
+      # and only runner, lib and api: clistarter has a publication too but must not reach Central.
       - name: Publish Release to Maven Central
         if: github.event_name == 'release' && !github.event.release.prerelease
         run: |
           ./gradlew clean
-          ./gradlew -Prelease.useLastTag=true runner:publish lib:publish api:publish jreleaserDeploy --stacktrace
+          ./gradlew -Prelease.useLastTag=true \
+            runner:publishAllPublicationsToMavenRepository \
+            lib:publishAllPublicationsToMavenRepository \
+            api:publishAllPublicationsToMavenRepository \
+            jreleaserDeploy --stacktrace
         env:
           GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.OSSRH_USERNAME }}
@@ -133,6 +185,24 @@ jobs:
           JRELEASER_GPG_SECRET_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Manual check run: stage what the Maven Central step would upload, without uploading it,
+      # and fail if anything other than runner, lib and api ends up in the staging directory.
+      - name: Stage Maven Central artifacts without uploading
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          ./gradlew -Prelease.useLastTag=true \
+            runner:publishAllPublicationsToMavenRepository \
+            lib:publishAllPublicationsToMavenRepository \
+            api:publishAllPublicationsToMavenRepository --stacktrace
+          staged=$(ls build/staging-deploy/io/fleak/zephflow | sort | tr '\n' ' ')
+          echo "Staged modules: $staged"
+          if [ "$staged" != "api lib runner " ]; then
+            echo "::error::Expected only api, lib and runner in build/staging-deploy, found: $staged"
+            exit 1
+          fi
+        env:
+          GRADLE_OPTS: "-Xmx6g -Xms3g -XX:MaxMetaspaceSize=512m"
 
       # JReleaser drops the body of a 4xx from the Central Portal, so ask the portal
       # directly: the deployment's state and errors, then the publish response itself.
