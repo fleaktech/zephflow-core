@@ -1,0 +1,32 @@
+{
+  "medium" : {
+    "failure" : "io.fleak.zephflow.lib.serdes.decode.SourceReadException: reading the input failed <- java.io.IOException: the source failed after 50",
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "tight" : {
+    "failure" : "io.fleak.zephflow.lib.serdes.decode.SourceReadException: reading the input failed <- java.io.IOException: the source failed after 50",
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "trickle_medium" : {
+    "failure" : "io.fleak.zephflow.lib.serdes.decode.SourceReadException: reading the input failed <- java.io.IOException: the source failed after 50",
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "trickle_tight" : {
+    "failure" : "io.fleak.zephflow.lib.serdes.decode.SourceReadException: reading the input failed <- java.io.IOException: the source failed after 50",
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "trickle_unlimited" : {
+    "failure" : "io.fleak.zephflow.lib.serdes.decode.SourceReadException: reading the input failed <- java.io.IOException: the source failed after 50",
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "unlimited" : {
+    "failure" : "io.fleak.zephflow.lib.serdes.decode.SourceReadException: reading the input failed <- java.io.IOException: the source failed after 50",
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  }
+}

@@ -13,7 +13,6 @@
  */
 package io.fleak.zephflow.lib.commands.source;
 
-import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonString;
 import static io.fleak.zephflow.lib.utils.MiscUtils.getCallingUserTagAndEventTags;
 
 import io.fleak.zephflow.api.structure.FleakData;
@@ -95,10 +94,13 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
   @Override
   public ConvertedResult<SerializedEvent> convert(
       SerializedEvent sourceRecord, SourceExecutionContext<?> context) {
-    return convert(sourceRecord, context, sourceRecord::toString);
+    return convert(sourceRecord, context, () -> "");
   }
 
-  /** As {@link #convert}, with {@code description} logged after the first line of a failure. */
+  /**
+   * As {@link #convert}, with {@code description} logged after the first line of a failure. It
+   * names the message, as an id does, and holds none of its content.
+   */
   ConvertedResult<SerializedEvent> convert(
       SerializedEvent sourceRecord,
       SourceExecutionContext<?> context,
@@ -133,15 +135,14 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
     context.dataSizeCounter().increase(size, Map.of());
     context.deserializeFailureCounter().increase(Map.of());
     if (log.isErrorEnabled()) {
-      log.error("failed to deserialize event: {}\n{}", logLine(failure), description.get());
+      String identity = description.get();
+      log.error(
+          "failed to deserialize event ({} bytes): {}{}",
+          size,
+          failure.getMessage(),
+          identity.isEmpty() ? "" : "\n" + identity);
     }
     return ConvertedResult.failure(failure, sourceRecord);
-  }
-
-  /** The first line, with the error's message: the first line names only its class. */
-  private static String logLine(MessageDecodeException failure) {
-    String message = failure.getCause() == null ? "" : UnitRun.causeMessage(failure.getCause());
-    return message.isEmpty() ? failure.getMessage() : failure.getMessage() + ": " + message;
   }
 
   private ConvertedResult<SerializedEvent> succeed(
@@ -153,9 +154,6 @@ public class MessageDecodingConverter implements RawDataConverter<SerializedEven
         getCallingUserTagAndEventTags(null, records.isEmpty() ? null : records.getFirst());
     context.dataSizeCounter().increase(size, eventTags);
     context.inputEventCounter().increase(records.size(), eventTags);
-    if (log.isDebugEnabled()) {
-      records.forEach(e -> log.debug("got message: {}", toJsonString(e)));
-    }
     return ConvertedResult.success(records, sourceRecord);
   }
 

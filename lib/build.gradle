@@ -156,6 +156,10 @@ tasks.named('test') {
   if (System.getProperty('fssource.snapshot.update') != null) {
     systemProperty 'fssource.snapshot.update', System.getProperty('fssource.snapshot.update')
   }
+  // -Dautoframing.snapshot.update=true rewrites AutoFramingSnapshotTest's expected results
+  if (System.getProperty('autoframing.snapshot.update') != null) {
+    systemProperty 'autoframing.snapshot.update', System.getProperty('autoframing.snapshot.update')
+  }
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [
     '--add-exports', 'java.base/jdk.internal.ref=ALL-UNNAMED',

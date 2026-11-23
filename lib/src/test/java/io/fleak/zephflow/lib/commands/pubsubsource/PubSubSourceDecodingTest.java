@@ -177,9 +177,7 @@ class PubSubSourceDecodingTest {
 
     assertEquals(
         List.of(
-            "failed to deserialize event: MALFORMED json message: JsonParseException: Unrecognized"
-                + " token 'not': was expecting (JSON String, Number, Array, Object or token 'null',"
-                + " 'true' or 'false')\n"
+            "failed to deserialize event (8 bytes): MALFORMED json message: JsonParseException\n"
                 + "Pub/Sub messageId: m-1"),
         errors);
 

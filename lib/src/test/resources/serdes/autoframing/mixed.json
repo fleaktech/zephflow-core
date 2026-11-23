@@ -1,0 +1,1076 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 190,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 42,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 52,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a,b,c"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 58,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 16,
+      "offset" : 59,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "plain words here"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 76,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 7,
+      "offset" : 82,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v x=y"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 47,
+      "offset" : 90,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 29,
+      "offset" : 138,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2,
+            "nested" : {
+              "a" : [ 1, 2 ]
+            }
+          },
+          "text" : "{\"id\":2,\"nested\":{\"a\":[1,2]}}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 9,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 12,
+      "offset" : 168,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "{broken json"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 10,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 181,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 11,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 190,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 42,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 52,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a,b,c"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 58,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 16,
+      "offset" : 59,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "plain words here"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 76,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 7,
+      "offset" : 82,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v x=y"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 47,
+      "offset" : 90,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 29,
+      "offset" : 138,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2,
+            "nested" : {
+              "a" : [ 1, 2 ]
+            }
+          },
+          "text" : "{\"id\":2,\"nested\":{\"a\":[1,2]}}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 9,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 12,
+      "offset" : 168,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "{broken json"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 10,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 181,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 11,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 190,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 42,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 52,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a,b,c"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 58,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 16,
+      "offset" : 59,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "plain words here"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 76,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 7,
+      "offset" : 82,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v x=y"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 47,
+      "offset" : 90,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 29,
+      "offset" : 138,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2,
+            "nested" : {
+              "a" : [ 1, 2 ]
+            }
+          },
+          "text" : "{\"id\":2,\"nested\":{\"a\":[1,2]}}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 9,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 12,
+      "offset" : 168,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "{broken json"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 10,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 181,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 11,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 190,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 42,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 52,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a,b,c"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 58,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 16,
+      "offset" : 59,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "plain words here"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 76,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 7,
+      "offset" : 82,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v x=y"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 47,
+      "offset" : 90,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 29,
+      "offset" : 138,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2,
+            "nested" : {
+              "a" : [ 1, 2 ]
+            }
+          },
+          "text" : "{\"id\":2,\"nested\":{\"a\":[1,2]}}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 9,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 12,
+      "offset" : 168,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "{broken json"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 10,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 181,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 11,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 190,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 42,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 52,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a,b,c"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 58,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 16,
+      "offset" : 59,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "plain words here"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 76,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 7,
+      "offset" : 82,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v x=y"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 47,
+      "offset" : 90,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 29,
+      "offset" : 138,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2,
+            "nested" : {
+              "a" : [ 1, 2 ]
+            }
+          },
+          "text" : "{\"id\":2,\"nested\":{\"a\":[1,2]}}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 9,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 12,
+      "offset" : 168,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "{broken json"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 10,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 181,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 11,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 190,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 42,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 52,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a,b,c"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 58,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 16,
+      "offset" : 59,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "plain words here"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 5,
+      "offset" : 76,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 7,
+      "offset" : 82,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v x=y"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 47,
+      "offset" : 90,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 29,
+      "offset" : 138,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2,
+            "nested" : {
+              "a" : [ 1, 2 ]
+            }
+          },
+          "text" : "{\"id\":2,\"nested\":{\"a\":[1,2]}}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 9,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 12,
+      "offset" : 168,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "{broken json"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 10,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 181,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 11,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

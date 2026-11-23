@@ -1,0 +1,416 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 24331,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 0
+          },
+          "text" : "{\"id\":0}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8104,
+      "offset" : 9,
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "4255e7fea34e5056c7c56e4feda569f0384daf5bb56dcb4adea447f01ab9647b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 8114,
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "e19e4ee3c039a2f4e7247440a7f4192b6d8ca4d6663da60d58fbcb1eba4fa712",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 16218,
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "recordJsonLength" : 16338,
+      "recordJsonSha256" : "57b54b3ca00b4482d7cd7605d63ee062e8d6dba6988227a3c86dd52bba029b9b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 24322,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 4
+          },
+          "text" : "{\"id\":4}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 24331,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 0
+          },
+          "text" : "{\"id\":0}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8104,
+      "limit" : "MAX_RECORD_BYTES",
+      "limitValue" : 1024,
+      "offset" : 9,
+      "previewLength" : 0,
+      "previewSha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "sizeSoFar" : 8104,
+      "terminal" : false,
+      "type" : "oversized"
+    }, {
+      "length" : 8103,
+      "limit" : "MAX_RECORD_BYTES",
+      "limitValue" : 1024,
+      "offset" : 8114,
+      "previewLength" : 0,
+      "previewSha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "sizeSoFar" : 8103,
+      "terminal" : false,
+      "type" : "oversized"
+    }, {
+      "length" : 8103,
+      "limit" : "MAX_RECORD_BYTES",
+      "limitValue" : 1024,
+      "offset" : 16218,
+      "previewLength" : 0,
+      "previewSha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "sizeSoFar" : 8103,
+      "terminal" : false,
+      "type" : "oversized"
+    }, {
+      "length" : 8,
+      "offset" : 24322,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 4
+          },
+          "text" : "{\"id\":4}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 24331,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 0
+          },
+          "text" : "{\"id\":0}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8104,
+      "offset" : 9,
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "4255e7fea34e5056c7c56e4feda569f0384daf5bb56dcb4adea447f01ab9647b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 8114,
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "e19e4ee3c039a2f4e7247440a7f4192b6d8ca4d6663da60d58fbcb1eba4fa712",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 16218,
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "recordJsonLength" : 16338,
+      "recordJsonSha256" : "57b54b3ca00b4482d7cd7605d63ee062e8d6dba6988227a3c86dd52bba029b9b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 24322,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 4
+          },
+          "text" : "{\"id\":4}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 24331,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 0
+          },
+          "text" : "{\"id\":0}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8104,
+      "offset" : 9,
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "4255e7fea34e5056c7c56e4feda569f0384daf5bb56dcb4adea447f01ab9647b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 8114,
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "e19e4ee3c039a2f4e7247440a7f4192b6d8ca4d6663da60d58fbcb1eba4fa712",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 16218,
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "recordJsonLength" : 16338,
+      "recordJsonSha256" : "57b54b3ca00b4482d7cd7605d63ee062e8d6dba6988227a3c86dd52bba029b9b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 24322,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 4
+          },
+          "text" : "{\"id\":4}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 24331,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 0
+          },
+          "text" : "{\"id\":0}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8104,
+      "limit" : "MAX_RECORD_BYTES",
+      "limitValue" : 1024,
+      "offset" : 9,
+      "previewLength" : 0,
+      "previewSha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "sizeSoFar" : 8104,
+      "terminal" : false,
+      "type" : "oversized"
+    }, {
+      "length" : 8103,
+      "limit" : "MAX_RECORD_BYTES",
+      "limitValue" : 1024,
+      "offset" : 8114,
+      "previewLength" : 0,
+      "previewSha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "sizeSoFar" : 8103,
+      "terminal" : false,
+      "type" : "oversized"
+    }, {
+      "length" : 8103,
+      "limit" : "MAX_RECORD_BYTES",
+      "limitValue" : 1024,
+      "offset" : 16218,
+      "previewLength" : 0,
+      "previewSha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "sizeSoFar" : 8103,
+      "terminal" : false,
+      "type" : "oversized"
+    }, {
+      "length" : 8,
+      "offset" : 24322,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 4
+          },
+          "text" : "{\"id\":4}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 24331,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 0
+          },
+          "text" : "{\"id\":0}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8104,
+      "offset" : 9,
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "4255e7fea34e5056c7c56e4feda569f0384daf5bb56dcb4adea447f01ab9647b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 8114,
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "recordJsonLength" : 16340,
+      "recordJsonSha256" : "e19e4ee3c039a2f4e7247440a7f4192b6d8ca4d6663da60d58fbcb1eba4fa712",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8103,
+      "offset" : 16218,
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "recordJsonLength" : 16338,
+      "recordJsonSha256" : "57b54b3ca00b4482d7cd7605d63ee062e8d6dba6988227a3c86dd52bba029b9b",
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 24322,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 4
+          },
+          "text" : "{\"id\":4}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

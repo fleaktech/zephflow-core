@@ -1,0 +1,302 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 52,
+    "outcomes" : [ {
+      "length" : 15,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a=1 b=2 c=\"x y\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 31,
+      "offset" : 16,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "user=alice action=login ok=true"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 48,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 52,
+    "outcomes" : [ {
+      "length" : 15,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a=1 b=2 c=\"x y\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 31,
+      "offset" : 16,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "user=alice action=login ok=true"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 48,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 52,
+    "outcomes" : [ {
+      "length" : 15,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a=1 b=2 c=\"x y\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 31,
+      "offset" : 16,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "user=alice action=login ok=true"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 48,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 52,
+    "outcomes" : [ {
+      "length" : 15,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a=1 b=2 c=\"x y\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 31,
+      "offset" : 16,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "user=alice action=login ok=true"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 48,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 52,
+    "outcomes" : [ {
+      "length" : 15,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a=1 b=2 c=\"x y\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 31,
+      "offset" : 16,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "user=alice action=login ok=true"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 48,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 52,
+    "outcomes" : [ {
+      "length" : 15,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "a=1 b=2 c=\"x y\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 31,
+      "offset" : 16,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "user=alice action=login ok=true"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 48,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "k=v"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

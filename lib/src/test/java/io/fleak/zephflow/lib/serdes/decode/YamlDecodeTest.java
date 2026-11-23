@@ -230,7 +230,10 @@ class YamlDecodeTest {
                 5,
                 "ConstructorException: could not determine a constructor for the tag !foo",
                 false),
-            malformed(6, "MalformedYamlException: two keys map to the same name: 1", false),
+            malformed(
+                6,
+                "MalformedYamlException: key 2 of a mapping maps to the same name as an earlier key",
+                false),
             malformed(7, "MalformedYamlException: mapping key is not a scalar", false),
             malformed(
                 8, "MalformedYamlException: document contains itself through an alias", false),

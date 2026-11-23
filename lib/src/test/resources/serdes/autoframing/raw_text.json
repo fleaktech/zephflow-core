@@ -1,0 +1,392 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 41,
+    "outcomes" : [ {
+      "length" : 11,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 18,
+      "offset" : 12,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "this is plain text"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 31,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 32,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "last line"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 41,
+    "outcomes" : [ {
+      "length" : 11,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 18,
+      "offset" : 12,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "this is plain text"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 31,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 32,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "last line"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 41,
+    "outcomes" : [ {
+      "length" : 11,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 18,
+      "offset" : 12,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "this is plain text"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 31,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 32,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "last line"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 41,
+    "outcomes" : [ {
+      "length" : 11,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 18,
+      "offset" : 12,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "this is plain text"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 31,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 32,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "last line"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 41,
+    "outcomes" : [ {
+      "length" : 11,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 18,
+      "offset" : 12,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "this is plain text"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 31,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 32,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "last line"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 41,
+    "outcomes" : [ {
+      "length" : 11,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 18,
+      "offset" : 12,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "this is plain text"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 31,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 32,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "last line"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}
