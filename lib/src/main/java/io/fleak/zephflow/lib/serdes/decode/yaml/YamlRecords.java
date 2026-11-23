@@ -94,10 +94,13 @@ final class YamlRecords {
       case Map<?, ?> map -> {
         boolean copy = enter(map);
         Map<String, FleakData> payload = new HashMap<>();
+        int ordinal = 0;
         for (Map.Entry<?, ?> entry : map.entrySet()) {
           String key = key(entry.getKey());
+          ordinal++;
           if (payload.containsKey(key)) {
-            throw new MalformedYamlException("two keys map to the same name");
+            throw new MalformedYamlException(
+                "key " + ordinal + " of a mapping maps to the same name as an earlier key");
           }
           payload.put(key, convert(entry.getValue()));
         }
