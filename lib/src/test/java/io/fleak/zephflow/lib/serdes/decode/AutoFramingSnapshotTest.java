@@ -24,20 +24,23 @@ import io.fleak.zephflow.lib.serdes.decode.config.AutoFormatConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfigCompiler;
 import io.fleak.zephflow.lib.serdes.decode.config.DecompressionCodec;
-import java.io.ByteArrayInputStream;
+import io.fleak.zephflow.lib.serdes.decode.internal.BudgetCaptureStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -59,6 +62,10 @@ class AutoFramingSnapshotTest {
   private static final Path EXPECTED = Path.of("src/test/resources/serdes/autoframing");
   private static final boolean UPDATE = Boolean.getBoolean("autoframing.snapshot.update");
   private static final int INLINE_RECORD_CHARACTERS = 2048;
+
+  /** Ends a run that does not end by itself (malformed UTF-16 repeats its input today). */
+  private static final int MAXIMUM_OUTCOMES = 100;
+
   private static final Map<String, DecodeLimits> PROFILES =
       Map.of(
           "unlimited", DecodeLimits.UNLIMITED,
@@ -73,7 +80,20 @@ class AutoFramingSnapshotTest {
           .enable(SerializationFeature.INDENT_OUTPUT)
           .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
 
-  record Case(String name, byte[] content) {
+  /**
+   * One input. {@code failAfter} is the byte count after which the source throws (-1: it never
+   * does). A {@code wellFormed} input also runs its gzip, and reads in small chunks must give the
+   * same outcomes; for a failing or damaged one the small-chunk run is recorded as its own result,
+   * since it may fail at another point. {@code inlineRecords} keeps records up to {@link
+   * #INLINE_RECORD_CHARACTERS} as JSON, otherwise every record is a digest.
+   */
+  record Case(
+      String name,
+      byte[] content,
+      long failAfter,
+      Map<String, DecodeLimits> profiles,
+      boolean wellFormed,
+      boolean inlineRecords) {
     @Override
     public String toString() {
       return name;
@@ -83,6 +103,11 @@ class AutoFramingSnapshotTest {
   static Stream<Arguments> cases() {
     String small =
         "{\"id\":1,\"name\":\"a\"}\n{\"id\":2,\"name\":\"b\"}\n{\"id\":3,\"name\":\"c\"}\n";
+    byte[] longLineThenLines =
+        concat(
+            variedLines(0, 30, 500),
+            (padded(1, 20_000) + "\n").getBytes(StandardCharsets.UTF_8),
+            variedLines(30, 50, 500));
     String trailingLines =
         IntStream.range(100, 108)
             .mapToObj(i -> padded(i, 1000) + "\n")
@@ -171,25 +196,77 @@ class AutoFramingSnapshotTest {
         text(
             "json_line_210000_then_lines",
             "{\"id\":0}\n" + padded(1, 210_000) + "\n" + trailingLines),
-        text("empty", ""));
+        text("empty", ""),
+        text(
+            "jsonl_line_of_8000_bytes",
+            "{\"id\":0}\n" + padded(1, 8000) + "\n" + padded(2, 8000) + "\n{\"id\":3}\n"),
+        text(
+            "jsonl_line_of_8192_bytes",
+            "{\"id\":0}\n" + padded(1, 8192) + "\n" + padded(2, 8192) + "\n{\"id\":3}\n"),
+        text(
+            "jsonl_multibyte_character_across_fill",
+            "{\"id\":0}\n"
+                + characterAt(1, 7999, "日")
+                + "\n"
+                + characterAt(2, 7999, "ż")
+                + "\n"
+                + characterAt(3, 7998, "日")
+                + "\n{\"id\":4}\n"),
+        budgetOnFillEnd("json_line_66000_budget_on_fill_end", 66_000, trailingLines),
+        budgetOnFillEnd("json_line_71999_budget_on_fill_end", 71_999, trailingLines),
+        budgetOnFillEnd("json_line_75000_budget_on_fill_end", 75_000, trailingLines),
+        failing("source_fails_during_recognition", variedLines(0, 60, 500), 50),
+        failing("source_fails_after_the_first_fill", variedLines(0, 60, 500), 12_345),
+        failing("source_fails_at_a_line_end", variedLines(0, 60, 500), 15_000),
+        failing("source_fails_inside_a_line", variedLines(0, 60, 500), 15_050),
+        failing("source_fails_on_a_fill_boundary", variedLines(0, 60, 500), 15_000 + 8_000),
+        failing("source_fails_in_a_long_line_second_fill", longLineThenLines, 15_000 + 9_000),
+        failing("source_fails_after_a_long_line", longLineThenLines, 15_000 + 20_001 + 4_050),
+        precompressed(
+            "gzip_truncated_jsonl",
+            Arrays.copyOf(
+                gzipOf(variedLines(0, 60, 500)), gzipOf(variedLines(0, 60, 500)).length * 3 / 5)),
+        precompressed(
+            "gzip_corrupt_second_member",
+            concat(gzipOf(variedLines(0, 40, 500)), corrupted(gzipOf(variedLines(40, 80, 500))))),
+        precompressed(
+            "utf16_malformed_surrogate",
+            concat(
+                ("\uFEFF" + new String(variedLines(0, 24, 500), StandardCharsets.UTF_8))
+                    .getBytes(StandardCharsets.UTF_16LE),
+                new byte[] {0x00, (byte) 0xD8},
+                new String(variedLines(24, 34, 500), StandardCharsets.UTF_8)
+                    .getBytes(StandardCharsets.UTF_16LE))));
   }
 
   @ParameterizedTest
   @MethodSource("cases")
   void autoFramingMatchesExpected(Case c) throws IOException {
     Map<String, Object> actual = new LinkedHashMap<>();
-    byte[] compressed = gzip(c.content());
-    for (var profile : PROFILES.entrySet()) {
+    byte[] compressed = gzipOf(c.content());
+    for (var profile : c.profiles().entrySet()) {
       Map<String, Object> plain =
-          run(() -> new ByteArrayInputStream(c.content()), profile.getValue());
+          run(
+              () -> new SourceStream(c.content(), false, c.failAfter()),
+              profile.getValue(),
+              c.inlineRecords());
+      Map<String, Object> trickled =
+          run(
+              () -> new SourceStream(c.content(), true, c.failAfter()),
+              profile.getValue(),
+              c.inlineRecords());
+      actual.put(profile.getKey(), plain);
+      if (!c.wellFormed()) {
+        actual.put("trickle_" + profile.getKey(), trickled);
+        continue;
+      }
       assertEquals(
           plain,
-          run(() -> new TrickleInputStream(c.content()), profile.getValue()),
+          trickled,
           "reads in small chunks give other outcomes for profile " + profile.getKey());
-      actual.put(profile.getKey(), plain);
       actual.put(
           "gzip_" + profile.getKey(),
-          run(() -> new ByteArrayInputStream(compressed), profile.getValue()));
+          run(() -> new SourceStream(compressed, false, -1), profile.getValue(), true));
     }
     JsonNode actualTree = MAPPER.readTree(MAPPER.writeValueAsString(actual));
 
@@ -214,7 +291,8 @@ class AutoFramingSnapshotTest {
     }
   }
 
-  private static Map<String, Object> run(ByteInput input, DecodeLimits limits) {
+  private static Map<String, Object> run(
+      ByteInput input, DecodeLimits limits, boolean inlineRecords) {
     List<Map<String, Object>> outcomes = new ArrayList<>();
     String failure = null;
     long normalizedEnd;
@@ -222,7 +300,8 @@ class AutoFramingSnapshotTest {
       try {
         DecodeOutcome outcome;
         while ((outcome = cursor.next()) != null) {
-          outcomes.add(describe(outcome));
+          outcomes.add(describe(outcome, inlineRecords));
+          if (outcomes.size() == MAXIMUM_OUTCOMES) break;
         }
       } catch (SourceReadException exception) {
         failure = describe(exception);
@@ -233,10 +312,13 @@ class AutoFramingSnapshotTest {
     result.put("outcomes", outcomes);
     result.put("failure", failure);
     result.put("normalizedEnd", normalizedEnd);
+    if (outcomes.size() == MAXIMUM_OUTCOMES) {
+      result.put("stoppedAfterMaximumOutcomes", true);
+    }
     return result;
   }
 
-  private static Map<String, Object> describe(DecodeOutcome outcome) {
+  private static Map<String, Object> describe(DecodeOutcome outcome, boolean inlineRecords) {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("recordIndex", outcome.recordIndex());
     result.put("recordCount", outcome.recordCount());
@@ -247,7 +329,7 @@ class AutoFramingSnapshotTest {
       case DecodeOutcome.Decoded decoded -> {
         result.put("type", "decoded");
         String record = writeJson(decoded.record().unwrap());
-        if (record.length() <= INLINE_RECORD_CHARACTERS) {
+        if (inlineRecords && record.length() <= INLINE_RECORD_CHARACTERS) {
           result.put("record", decoded.record().unwrap());
         } else {
           result.put("recordJsonLength", record.length());
@@ -287,7 +369,71 @@ class AutoFramingSnapshotTest {
   }
 
   private static Arguments bytes(String name, byte[] content) {
-    return Arguments.of(new Case(name, content));
+    return Arguments.of(new Case(name, content, -1, PROFILES, true, true));
+  }
+
+  private static Arguments failing(String name, byte[] content, long failAfter) {
+    return Arguments.of(new Case(name, content, failAfter, PROFILES, false, false));
+  }
+
+  private static Arguments precompressed(String name, byte[] content) {
+    return Arguments.of(new Case(name, content, -1, PROFILES, false, false));
+  }
+
+  /**
+   * A JSON line of {@code length} after a small one, then {@code trailingLines}, under a document
+   * limit whose budget (limit plus read-ahead slack) is exactly nine 8000-byte parser fills.
+   */
+  private static Arguments budgetOnFillEnd(String name, int length, String trailingLines) {
+    long documentLimit = 9 * 8000 - BudgetCaptureStream.READ_AHEAD_SLACK;
+    byte[] content =
+        ("{\"id\":0}\n" + padded(1, length) + "\n" + trailingLines)
+            .getBytes(StandardCharsets.UTF_8);
+    return Arguments.of(
+        new Case(
+            name,
+            content,
+            -1,
+            Map.of(
+                "unlimited",
+                DecodeLimits.UNLIMITED,
+                "fill_aligned",
+                new DecodeLimits(1024, documentLimit)),
+            true,
+            true));
+  }
+
+  /**
+   * Lines {@code from} to {@code to} (exclusive), each exactly {@code length} bytes with its
+   * newline, holding hex digits that compress poorly.
+   */
+  private static byte[] variedLines(int from, int to, int length) {
+    Random random = new Random(from);
+    StringBuilder text = new StringBuilder();
+    for (int index = from; index < to; index++) {
+      String head = String.format("{\"id\":%05d,\"v\":\"", index);
+      text.append(head);
+      for (int digit = 0; digit < length - head.length() - 3; digit++) {
+        text.append(Character.forDigit(random.nextInt(16), 16));
+      }
+      text.append("\"}\n");
+    }
+    return text.toString().getBytes(StandardCharsets.UTF_8);
+  }
+
+  /** A JSON line whose {@code character} starts at byte {@code offset} of the line. */
+  private static String characterAt(int id, int offset, String character) {
+    String head = "{\"id\":" + id + ",\"pad\":\"";
+    return head + "x".repeat(offset - head.length()) + character + "y".repeat(100) + "\"}";
+  }
+
+  /** Flips eight bytes in the middle of a gzip member's compressed data. */
+  private static byte[] corrupted(byte[] member) {
+    byte[] result = member.clone();
+    for (int index = result.length / 2; index < result.length / 2 + 8; index++) {
+      result[index] ^= (byte) 0xFF;
+    }
+    return result;
   }
 
   /** A one-line JSON object of exactly {@code length} bytes. */
@@ -303,10 +449,12 @@ class AutoFramingSnapshotTest {
     return output.toByteArray();
   }
 
-  private static byte[] gzip(byte[] content) throws IOException {
+  private static byte[] gzipOf(byte[] content) {
     ByteArrayOutputStream output = new ByteArrayOutputStream();
     try (GZIPOutputStream gzip = new GZIPOutputStream(output)) {
       gzip.write(content);
+    } catch (IOException exception) {
+      throw new UncheckedIOException(exception);
     }
     return output.toByteArray();
   }
@@ -327,25 +475,36 @@ class AutoFramingSnapshotTest {
     }
   }
 
-  /** Returns at most seven bytes per read, so no layer can rely on full reads from its source. */
-  private static final class TrickleInputStream extends InputStream {
+  /**
+   * The content in full reads, or in reads of at most seven bytes so no layer can rely on full
+   * reads from its source; it throws on every read once {@code failAfter} bytes are delivered.
+   */
+  private static final class SourceStream extends InputStream {
     private final byte[] content;
+    private final boolean trickle;
+    private final long failAfter;
     private int position;
 
-    private TrickleInputStream(byte[] content) {
+    private SourceStream(byte[] content, boolean trickle, long failAfter) {
       this.content = content;
+      this.trickle = trickle;
+      this.failAfter = failAfter;
     }
 
     @Override
-    public int read() {
-      return position == content.length ? -1 : content[position++] & 255;
+    public int read() throws IOException {
+      byte[] one = new byte[1];
+      return read(one, 0, 1) < 0 ? -1 : one[0] & 255;
     }
 
     @Override
-    public int read(byte[] target, int offset, int count) {
+    public int read(byte[] target, int offset, int count) throws IOException {
       if (count == 0) return 0;
+      if (position == failAfter) throw new IOException("the source failed after " + failAfter);
       if (position == content.length) return -1;
-      int copied = Math.min(Math.min(count, 1 + position % 7), content.length - position);
+      long end = failAfter < 0 ? content.length : Math.min(content.length, failAfter);
+      int copied =
+          (int) Math.min(Math.min(count, trickle ? 1 + position % 7 : count), end - position);
       System.arraycopy(content, position, target, offset, copied);
       position += copied;
       return copied;
