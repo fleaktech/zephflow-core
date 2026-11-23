@@ -222,7 +222,7 @@ class CsvDecodeTest {
                 "a,a",
                 0,
                 RawSpan.toEnd(0),
-                "MalformedCsvException: header has a duplicate column name: a",
+                "MalformedCsvException: header column 2 repeats an earlier column name",
                 true)),
         decode(CSV, utf8("a,a\n1,2")));
     assertEquals(

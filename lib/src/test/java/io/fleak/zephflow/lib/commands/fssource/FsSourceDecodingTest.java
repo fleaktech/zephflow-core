@@ -401,15 +401,17 @@ class FsSourceDecodingTest {
           List.of(
               "dropping failures of "
                   + urn("a.jsonl")
-                  + " (no DLQ configured): MALFORMED json file:"
-                  + " JsonParseException",
+                  + " (no DLQ configured): MALFORMED json file: JsonParseException / file "
+                  + urn("a.jsonl")
+                  + "; 2 outcomes; recordIndex 1-2 (bytes 0-9)",
               "dropping failures of "
                   + urn("a.jsonl")
-                  + " (no DLQ configured): OVERSIZED json file:"
-                  + " maxRecordBytes"),
+                  + " (no DLQ configured): OVERSIZED json file: maxRecordBytes / file "
+                  + urn("a.jsonl")
+                  + "; 1 outcome; recordIndex 3 (bytes 10-218)"),
           logs.events().stream()
               .filter(e -> e.getLevel() == Level.ERROR)
-              .map(e -> e.getMessage().getFormattedMessage().lines().findFirst().orElseThrow())
+              .map(e -> e.getMessage().getFormattedMessage())
               .toList());
     }
     assertEquals(List.of(1), batches);

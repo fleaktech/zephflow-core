@@ -51,15 +51,25 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.config.LoggerConfig;
+import org.apache.logging.log4j.core.config.Property;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -198,10 +208,9 @@ class MessageDecodingConverterTest {
 
     assertEquals(
         List.of(
-            "failed to deserialize event: MALFORMED json message: JsonParseException: Unrecognized"
-                + " token 'not': was expecting (JSON String, Number, Array, Object or token 'null',"
-                + " 'true' or 'false')\n"
-                + message),
+            "failed to deserialize event ("
+                + message.value().length
+                + " bytes): MALFORMED json message: JsonParseException"),
         errors);
 
     Throwable cause = result.error().getCause();
@@ -224,26 +233,86 @@ class MessageDecodingConverterTest {
   }
 
   @Test
-  void errorLogSaysWhyAndShowsATextValueAsText() {
+  void logOfAMessageThatDoesNotDecodeHoldsSizeFormatAndErrorClassButNoContent() {
+    String payload = "payload" + UUID.randomUUID().toString().replace("-", "");
     DecodingConfig jsonArray =
         new DecodingConfig(List.of(), new JsonFormatConfig(JsonFormatConfig.Mode.ARRAY));
+    SerializedEvent badLine =
+        new SerializedEvent(
+            payload.getBytes(StandardCharsets.UTF_8),
+            ("{\"a\":1}\n" + payload + "\n").getBytes(StandardCharsets.UTF_8),
+            Map.of("header", payload));
+    SerializedEvent objectForArray = message("{\"id\":\"" + payload + "\"}");
 
-    List<String> errors;
-    try (BoundedLogCapture logs = new BoundedLogCapture(MessageDecodingConverter.class)) {
-      convert(jsonArray, message("{\"id\":1}"));
-      errors =
-          logs.events().stream()
-              .filter(e -> e.getLevel() == Level.ERROR)
-              .map(e -> e.getMessage().getFormattedMessage())
-              .toList();
-    }
+    List<String> output =
+        completeLogOutputOf(
+            () -> {
+              convert(JSON_LINES, badLine);
+              convert(jsonArray, objectForArray);
+            });
 
     assertEquals(
         List.of(
-            "failed to deserialize event: MALFORMED json message: IllegalArgumentException:"
-                + " expected a JSON array, got a JSON object\n"
-                + "key:\nnull\nvalue(text):\n{\"id\":1}\nmetadata:\nnull"),
-        errors);
+            "failed to deserialize event ("
+                + badLine.value().length
+                + " bytes): MALFORMED json message: JsonParseException",
+            "failed to deserialize event ("
+                + objectForArray.value().length
+                + " bytes): MALFORMED json message: IllegalArgumentException"),
+        output);
+    assertTrue(output.stream().noneMatch(line -> line.contains(payload)), output.toString());
+  }
+
+  /**
+   * Every event logged at any level by any logger while {@code action} runs, with its error. The
+   * appender sits on the root and on every logger that does not pass events up, so each event
+   * reaches it once.
+   */
+  private static List<String> completeLogOutputOf(Runnable action) {
+    LoggerContext loggerContext = (LoggerContext) LogManager.getContext(false);
+    Configuration configuration = loggerContext.getConfiguration();
+    List<LoggerConfig> loggerConfigs = new ArrayList<>(configuration.getLoggers().values());
+    if (!loggerConfigs.contains(configuration.getRootLogger())) {
+      loggerConfigs.add(configuration.getRootLogger());
+    }
+    Map<LoggerConfig, Level> originalLevels = new HashMap<>();
+    List<String> output = new CopyOnWriteArrayList<>();
+    AbstractAppender appender =
+        new AbstractAppender(
+            "complete-log-capture",
+            null,
+            PatternLayout.createDefaultLayout(),
+            false,
+            Property.EMPTY_ARRAY) {
+          @Override
+          public void append(LogEvent event) {
+            output.add(
+                event.getMessage().getFormattedMessage()
+                    + (event.getThrown() == null
+                        ? ""
+                        : "\n" + ExceptionUtils.getStackTrace(event.getThrown())));
+          }
+        };
+    appender.start();
+    for (LoggerConfig loggerConfig : loggerConfigs) {
+      originalLevels.put(loggerConfig, loggerConfig.getLevel());
+      loggerConfig.setLevel(Level.ALL);
+      if (loggerConfig.getParent() == null || !loggerConfig.isAdditive()) {
+        loggerConfig.addAppender(appender, Level.ALL, null);
+      }
+    }
+    loggerContext.updateLoggers();
+    try {
+      action.run();
+    } finally {
+      for (LoggerConfig loggerConfig : loggerConfigs) {
+        loggerConfig.removeAppender(appender.getName());
+        loggerConfig.setLevel(originalLevels.get(loggerConfig));
+      }
+      loggerContext.updateLoggers();
+      appender.stop();
+    }
+    return List.copyOf(output);
   }
 
   @Test

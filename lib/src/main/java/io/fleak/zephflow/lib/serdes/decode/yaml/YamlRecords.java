@@ -97,7 +97,7 @@ final class YamlRecords {
         for (Map.Entry<?, ?> entry : map.entrySet()) {
           String key = key(entry.getKey());
           if (payload.containsKey(key)) {
-            throw new MalformedYamlException("two keys map to the same name: " + key);
+            throw new MalformedYamlException("two keys map to the same name");
           }
           payload.put(key, convert(entry.getValue()));
         }
