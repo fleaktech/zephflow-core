@@ -27,16 +27,19 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 /**
- * Frames per second of the automatic framer on 100,000 lines. Prints the rates; only JSON Lines has
- * a bound, far below what the framer reaches, so that a return of per-byte reads under the JSON
- * probe fails without timing noise failing the build.
+ * Frames per second of the automatic framer on 100,000 lines, the best of a few passes after
+ * warm-up. Prints the rates. JSON Lines must stay within a factor of CSV-like lines measured in the
+ * same run, a bound far looser than the framer reaches, so that a return of per-byte reads under
+ * the JSON probe fails while a slow machine does not.
  */
 class AutoRecordFramerThroughputTest {
   private static final int LINES = 100_000;
-  private static final double MINIMUM_JSON_LINES_FRAMES_PER_SECOND = 50_000;
+  private static final int WARM_UP_PASSES = 2;
+  private static final int MEASURED_PASSES = 3;
+  private static final double MAXIMUM_CSV_LIKE_TO_JSON_LINES_RATIO = 20;
 
   @Test
-  void framesJsonLinesFasterThanTheBound() throws IOException {
+  void framesJsonLinesWithinAFactorOfCsvLikeLines() throws IOException {
     double jsonLines =
         measure(
             "JSON Lines",
@@ -58,10 +61,14 @@ class AutoRecordFramerThroughputTest {
               case 3 -> "user=user-" + index + " action=login ok=true";
               default -> "plain words for line " + index;
             });
-    measure("CSV-like", index -> index + ",user-" + index + ",login,true," + index % 1000);
+    double csvLike =
+        measure("CSV-like", index -> index + ",user-" + index + ",login,true," + index % 1000);
     assertTrue(
-        jsonLines >= MINIMUM_JSON_LINES_FRAMES_PER_SECOND,
-        "JSON Lines framed at " + Math.round(jsonLines) + " frames/s");
+        jsonLines * MAXIMUM_CSV_LIKE_TO_JSON_LINES_RATIO >= csvLike,
+        "JSON Lines framed at "
+            + Math.round(jsonLines)
+            + " frames/s, CSV-like lines at "
+            + Math.round(csvLike));
   }
 
   private static double measure(String name, IntFunction<String> line) throws IOException {
@@ -70,12 +77,15 @@ class AutoRecordFramerThroughputTest {
             .mapToObj(line)
             .collect(Collectors.joining("\n", "", "\n"))
             .getBytes(StandardCharsets.UTF_8);
-    frameAll(content);
-    long start = System.nanoTime();
-    int frames = frameAll(content);
-    double seconds = (System.nanoTime() - start) / 1e9;
-    assertEquals(LINES, frames);
-    double rate = frames / seconds;
+    for (int pass = 0; pass < WARM_UP_PASSES; pass++) frameAll(content);
+    double rate = 0;
+    for (int pass = 0; pass < MEASURED_PASSES; pass++) {
+      long start = System.nanoTime();
+      int frames = frameAll(content);
+      double seconds = (System.nanoTime() - start) / 1e9;
+      assertEquals(LINES, frames);
+      rate = Math.max(rate, frames / seconds);
+    }
     System.out.printf("auto framer %s: %d frames/s%n", name, Math.round(rate));
     return rate;
   }
