@@ -21,6 +21,8 @@ import static org.mockito.Mockito.spy;
 
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
@@ -29,13 +31,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.invocation.Invocation;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.retries.api.RetryStrategy;
+import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ServiceClientConfiguration;
 
 class S3DlqWriterClientTest {
@@ -48,6 +51,7 @@ class S3DlqWriterClientTest {
       ResponseChecksumValidation responseChecksumValidation,
       Optional<Duration> apiCallAttemptTimeout,
       Optional<Duration> apiCallTimeout,
+      Optional<Integer> retryMaxAttempts,
       List<Duration> connectionTimeouts,
       List<Duration> socketTimeouts) {}
 
@@ -58,29 +62,28 @@ class S3DlqWriterClientTest {
             Optional.of(URI.create(ENDPOINT)),
             RequestChecksumCalculation.WHEN_REQUIRED,
             ResponseChecksumValidation.WHEN_REQUIRED,
-            Optional.of(Duration.ofSeconds(60)),
-            Optional.of(Duration.ofSeconds(120)),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(1),
             List.of(Duration.ofSeconds(5)),
             List.of(Duration.ofSeconds(30))),
         clientSettingsOfWriterFor(ENDPOINT));
   }
 
   @Test
-  void clientForAwsWithoutEndpointOverrideKeepsTheSdkDefaults() throws IOException {
-    Optional<URI> environmentEndpoint =
-        Optional.ofNullable(System.getenv("AWS_ENDPOINT_URL_S3"))
-            .filter(StringUtils::isNotBlank)
-            .map(URI::create);
-    assertEquals(
-        new ClientSettings(
-            environmentEndpoint,
-            RequestChecksumCalculation.WHEN_SUPPORTED,
-            ResponseChecksumValidation.WHEN_SUPPORTED,
-            Optional.empty(),
-            Optional.empty(),
-            List.of(),
-            List.of()),
-        clientSettingsOfWriterFor(null));
+  void clientForAwsWithoutEndpointOverrideIsTheFactoryDefaultClient() throws IOException {
+    ClientSettings factoryDefault;
+    try (S3Client client =
+        new AwsClientFactory()
+            .createS3Client(
+                "us-east-1",
+                new UsernamePasswordCredential(
+                    "access-" + UUID.randomUUID(), "x-" + UUID.randomUUID()),
+                null)) {
+      factoryDefault = clientSettings(client, List.of());
+    }
+
+    assertEquals(factoryDefault, clientSettingsOfWriterFor(null));
   }
 
   private static ClientSettings clientSettingsOfWriterFor(String endpoint) throws IOException {
@@ -113,17 +116,23 @@ class S3DlqWriterClientTest {
                   "prefix",
                   new MetricClientProvider.NoopMetricClientProvider(),
                   Map.of())) {
-        S3ServiceClientConfiguration configuration = writer.s3Client.serviceClientConfiguration();
-        return new ClientSettings(
-            configuration.endpointOverride(),
-            configuration.requestChecksumCalculation(),
-            configuration.responseChecksumValidation(),
-            configuration.overrideConfiguration().apiCallAttemptTimeout(),
-            configuration.overrideConfiguration().apiCallTimeout(),
-            argumentsOf(httpClientBuilders, "connectionTimeout"),
-            argumentsOf(httpClientBuilders, "socketTimeout"));
+        return clientSettings(writer.s3Client, httpClientBuilders);
       }
     }
+  }
+
+  private static ClientSettings clientSettings(
+      S3Client client, List<ApacheHttpClient.Builder> httpClientBuilders) {
+    S3ServiceClientConfiguration configuration = client.serviceClientConfiguration();
+    return new ClientSettings(
+        configuration.endpointOverride(),
+        configuration.requestChecksumCalculation(),
+        configuration.responseChecksumValidation(),
+        configuration.overrideConfiguration().apiCallAttemptTimeout(),
+        configuration.overrideConfiguration().apiCallTimeout(),
+        configuration.overrideConfiguration().retryStrategy().map(RetryStrategy::maxAttempts),
+        argumentsOf(httpClientBuilders, "connectionTimeout"),
+        argumentsOf(httpClientBuilders, "socketTimeout"));
   }
 
   private static List<Duration> argumentsOf(

@@ -110,13 +110,13 @@ public class AwsClientFactory implements Serializable {
     return s3ClientBuilder(regionStr, usernamePasswordCredential, s3EndpointOverride).build();
   }
 
-  public record S3ClientTimeouts(
-      Duration connect, Duration socketRead, Duration apiCallAttempt, Duration apiCall) {}
+  public record S3ClientTimeouts(Duration connect, Duration socketRead) {}
 
   /**
    * A client for an S3-compatible store at {@code s3EndpointOverride}. Checksums are sent and
    * validated only when an operation requires them, because the defaults of AWS SDK 2.30+ are
-   * rejected by some S3-compatible servers.
+   * rejected by some S3-compatible servers. The SDK does not retry: the caller owns the one retry
+   * loop and the time each attempt may take.
    */
   public S3Client createS3CompatibleStorageClient(
       String regionStr,
@@ -130,11 +130,7 @@ public class AwsClientFactory implements Serializable {
             ApacheHttpClient.builder()
                 .connectionTimeout(timeouts.connect())
                 .socketTimeout(timeouts.socketRead()))
-        .overrideConfiguration(
-            override ->
-                override
-                    .apiCallAttemptTimeout(timeouts.apiCallAttempt())
-                    .apiCallTimeout(timeouts.apiCall()))
+        .overrideConfiguration(override -> override.retryStrategy(retry -> retry.maxAttempts(1)))
         .build();
   }
 
@@ -152,17 +148,32 @@ public class AwsClientFactory implements Serializable {
     }
 
     if (!StringUtils.isEmpty(s3EndpointOverride)) {
-      log.info("Setting s3 endpoint to {}", s3EndpointOverride);
+      log.info("Setting s3 endpoint to {}", loggableEndpoint(s3EndpointOverride));
       builder.endpointOverride(URI.create(s3EndpointOverride));
     }
 
     if (StringUtils.contains(s3EndpointOverride, "minio")
         || !StringUtils.equalsAnyIgnoreCase(useForceStyle, "1", "true", "enabled", "ok", "yes")) {
-      log.info("Configuring s3 to use Path-Style URLs: {}", s3EndpointOverride);
+      log.info("Configuring s3 to use Path-Style URLs: {}", loggableEndpoint(s3EndpointOverride));
       builder.forcePathStyle(true);
     }
 
     return builder;
+  }
+
+  /** Scheme, host and port only: user info, path and query stay out of logs. */
+  static String loggableEndpoint(String endpoint) {
+    if (StringUtils.isBlank(endpoint)) {
+      return "none";
+    }
+    URI uri = URI.create(endpoint);
+    if (uri.getHost() == null) {
+      return "an endpoint without a host";
+    }
+    return uri.getScheme()
+        + "://"
+        + uri.getHost()
+        + (uri.getPort() == -1 ? "" : ":" + uri.getPort());
   }
 
   public record S3TransferResources(S3AsyncClient asyncClient, S3TransferManager transferManager)
@@ -195,7 +206,7 @@ public class AwsClientFactory implements Serializable {
     }
 
     if (!StringUtils.isEmpty(s3EndpointOverride)) {
-      log.info("Setting s3 async endpoint to {}", s3EndpointOverride);
+      log.info("Setting s3 async endpoint to {}", loggableEndpoint(s3EndpointOverride));
       asyncBuilder.endpointOverride(URI.create(s3EndpointOverride));
     }
 

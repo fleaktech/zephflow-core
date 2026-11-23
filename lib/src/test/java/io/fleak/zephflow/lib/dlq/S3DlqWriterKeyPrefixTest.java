@@ -32,7 +32,8 @@ class S3DlqWriterKeyPrefixTest {
         keyPrefix,
         "dead-letters",
         "deadletter",
-        new NoopFleakCounter());
+        new NoopFleakCounter(),
+        S3DlqWriter.AWS_UPLOADS);
   }
 
   @Test

@@ -189,7 +189,7 @@ class RunSummaryMetricClientProviderTest {
                 METRIC_NAME_PIPELINE_INPUT_EVENT, 10L,
                 METRIC_NAME_SINK_OUTPUT_COUNT, 6L,
                 METRIC_NAME_PIPELINE_ERROR_EVENT, 4L,
-                METRIC_NAME_DLQ_WRITE_ERROR_COUNT, 3L));
+                METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, 3L));
 
     assertEquals(
         "input events: 10, deserialize failures: 0, output events: 6,"
@@ -204,11 +204,11 @@ class RunSummaryMetricClientProviderTest {
     RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
 
     provider
-        .counter(METRIC_NAME_DLQ_WRITE_ERROR_COUNT, Map.of(METRIC_TAG_NODE_ID, "source"))
+        .counter(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, Map.of(METRIC_TAG_NODE_ID, "source"))
         .increase(2, Map.of());
 
     assertEquals(
-        new RunSummary(Map.of(METRIC_NAME_DLQ_WRITE_ERROR_COUNT, 2L), List.of()),
+        new RunSummary(Map.of(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, 2L), List.of()),
         provider.summarize());
   }
 }

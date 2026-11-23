@@ -13,7 +13,7 @@
  */
 package io.fleak.zephflow.lib.dlq;
 
-import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_DLQ_WRITE_ERROR_COUNT;
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -134,7 +134,7 @@ class S3DlqWriterStorageTest {
             .build();
     MetricClientProvider metricClientProvider = mock(MetricClientProvider.class);
     FleakCounter unwrittenDeadLetterCounter = mock(FleakCounter.class);
-    when(metricClientProvider.counter(METRIC_NAME_DLQ_WRITE_ERROR_COUNT, Map.of()))
+    when(metricClientProvider.counter(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, Map.of()))
         .thenReturn(unwrittenDeadLetterCounter);
 
     try (S3Client reader =
@@ -178,7 +178,7 @@ class S3DlqWriterStorageTest {
       }
       assertEquals(expected, readDeadLetters(object));
     }
-    verify(metricClientProvider).counter(METRIC_NAME_DLQ_WRITE_ERROR_COUNT, Map.of());
+    verify(metricClientProvider).counter(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, Map.of());
     verifyNoInteractions(unwrittenDeadLetterCounter);
   }
 
@@ -199,7 +199,7 @@ class S3DlqWriterStorageTest {
     MetricClientProvider metricClientProvider = mock(MetricClientProvider.class);
     FleakCounter unwrittenDeadLetterCounter = mock(FleakCounter.class);
     Map<String, String> metricTags = Map.of("node_id", "node-1");
-    when(metricClientProvider.counter(METRIC_NAME_DLQ_WRITE_ERROR_COUNT, metricTags))
+    when(metricClientProvider.counter(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, metricTags))
         .thenReturn(unwrittenDeadLetterCounter);
 
     List<CapturedEvent> events;
@@ -231,7 +231,7 @@ class S3DlqWriterStorageTest {
         objectKey);
     String failure = "NoSuchBucketException, status 404, error code NoSuchBucket";
     List<CapturedEvent> expectedWriterEvents = new ArrayList<>();
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    for (int attempt = 1; attempt <= 2; attempt++) {
       expectedWriterEvents.add(
           new CapturedEvent(
               S3DlqWriter.class.getName(),
