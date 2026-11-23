@@ -97,7 +97,7 @@ public final class FsSourceCommand extends SourceCommand {
         metricClientProvider.counter(METRIC_NAME_INPUT_DESER_ERR_COUNT, metricTags);
     executionContext.skippedFileCounter =
         metricClientProvider.counter(METRIC_NAME_INPUT_FILE_SKIPPED_COUNT, metricTags);
-    executionContext.dlqWriter = buildDlqWriter(jobContext);
+    executionContext.dlqWriter = buildDlqWriter(jobContext, metricClientProvider, metricTags);
     executionContext.localSpoolMaxBytes =
         config.getLocalSpoolMaxBytes() == null
             ? FsFileAccess.DEFAULT_LOCAL_SPOOL_MAX_BYTES
@@ -120,13 +120,17 @@ public final class FsSourceCommand extends SourceCommand {
     return metricTags;
   }
 
-  private static DlqWriter buildDlqWriter(JobContext jobContext) {
+  private static DlqWriter buildDlqWriter(
+      JobContext jobContext,
+      MetricClientProvider metricClientProvider,
+      Map<String, String> metricTags) {
     JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
     if (dlqConfig == null) {
       return null;
     }
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-    DlqWriter dlqWriter = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    DlqWriter dlqWriter =
+        DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix, metricClientProvider, metricTags);
     dlqWriter.open();
     return dlqWriter;
   }

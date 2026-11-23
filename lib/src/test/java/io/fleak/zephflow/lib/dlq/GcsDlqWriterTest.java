@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
+import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
@@ -88,7 +89,8 @@ public class GcsDlqWriterTest {
             flushIntervalMillis,
             keyPrefix,
             "dead-letters",
-            "deadletter");
+            "deadletter",
+            new NoopFleakCounter());
     dlqWriter.open();
   }
 
@@ -106,7 +108,8 @@ public class GcsDlqWriterTest {
             flushIntervalMillis,
             keyPrefix,
             "raw-data-samples",
-            "sample");
+            "sample",
+            new NoopFleakCounter());
     dlqWriter.open();
   }
 

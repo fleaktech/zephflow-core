@@ -50,7 +50,8 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
     SinkCounters counters =
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
-    Flusher<Map<String, Object>> flusher = createBatchFlusher(config, counters);
+    Flusher<Map<String, Object>> flusher =
+        createBatchFlusher(config, counters, metricClientProvider);
 
     SinkMessagePreProcessor<Map<String, Object>> preprocessor = new DatabricksMessageProcessor();
 
@@ -65,10 +66,12 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
   }
 
   private Flusher<Map<String, Object>> createBatchFlusher(
-      DatabricksSinkDto.Config config, SinkCounters counters) {
+      DatabricksSinkDto.Config config,
+      SinkCounters counters,
+      MetricClientProvider metricClientProvider) {
     try {
       Path tempDir = Files.createTempDirectory("databricks-sink-");
-      DlqWriter dlqWriter = createDlqWriter();
+      DlqWriter dlqWriter = createDlqWriter(metricClientProvider);
       DatabricksCredential credential =
           lookupDatabricksCredential(jobContext, config.getDatabricksCredentialId());
       WorkspaceClient workspaceClient = DatabricksClientFactory.createClient(credential);
@@ -90,13 +93,18 @@ public class DatabricksSinkCommand extends SimpleSinkCommand<Map<String, Object>
     }
   }
 
-  private DlqWriter createDlqWriter() {
+  private DlqWriter createDlqWriter(MetricClientProvider metricClientProvider) {
     JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
     if (dlqConfig == null) {
       return null;
     }
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-    DlqWriter writer = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    DlqWriter writer =
+        DlqWriterFactory.createDlqWriter(
+            dlqConfig,
+            keyPrefix,
+            metricClientProvider,
+            basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId));
     writer.open();
     return writer;
   }

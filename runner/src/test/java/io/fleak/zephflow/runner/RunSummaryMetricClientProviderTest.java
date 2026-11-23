@@ -180,4 +180,35 @@ class RunSummaryMetricClientProviderTest {
             + " skipped objects: 1, sink errors: 3, processing errors: 4",
         summary.summaryText());
   }
+
+  @Test
+  void summaryTextReportsDeadLettersTheStoreRefused() {
+    RunSummary summary =
+        new RunSummary(
+            Map.of(
+                METRIC_NAME_PIPELINE_INPUT_EVENT, 10L,
+                METRIC_NAME_SINK_OUTPUT_COUNT, 6L,
+                METRIC_NAME_PIPELINE_ERROR_EVENT, 4L,
+                METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, 3L));
+
+    assertEquals(
+        "input events: 10, deserialize failures: 0, output events: 6,"
+            + " processing errors: 4, dead letters not written: 3",
+        summary.summaryText());
+  }
+
+  @Test
+  void dlqWriteErrorsReachTheSummaryThroughTheProvider() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+
+    provider
+        .counter(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, Map.of(METRIC_TAG_NODE_ID, "source"))
+        .increase(2, Map.of());
+
+    assertEquals(
+        new RunSummary(Map.of(METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN, 2L), List.of()),
+        provider.summarize());
+  }
 }
