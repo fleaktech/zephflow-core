@@ -134,6 +134,7 @@ public interface MiscUtils {
   String METRIC_NAME_ERROR_EVENT_COUNT = "error_event_count";
   String METRIC_NAME_SINK_OUTPUT_COUNT = "sink_output_count";
   String METRIC_NAME_SINK_ERROR_COUNT = "sink_error_count";
+  String METRIC_NAME_DLQ_WRITE_ERROR_COUNT = "dlq_write_error_count";
 
   String EVENT_TAG_FIELD = "__tag__";
   String METRIC_TAG_CALLING_USER = "calling_user";

@@ -15,8 +15,10 @@ package io.fleak.zephflow.lib.commands.filesource;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
@@ -115,7 +117,10 @@ class FileSourceDecodingTest {
     List<RecordFleakData> records;
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
-          .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
+          .when(
+              () ->
+                  DlqWriterFactory.createDlqWriter(
+                      eq(jobContext.getDlqConfig()), isNull(), any(), any()))
           .thenReturn(dlqWriter);
       dlqFactory
           .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))

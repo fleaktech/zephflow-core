@@ -156,7 +156,10 @@ class PubSubSourceDecodingTest {
     List<String> errors;
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
-          .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
+          .when(
+              () ->
+                  DlqWriterFactory.createDlqWriter(
+                      eq(jobContext.getDlqConfig()), isNull(), any(), any()))
           .thenReturn(dlqWriter);
       dlqFactory
           .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))

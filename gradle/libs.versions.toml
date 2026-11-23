@@ -112,6 +112,7 @@ influxdb-java = { module = "org.influxdb:influxdb-java", version.ref = "influxdb
 influxdb-v2-java = { module = "com.influxdb:influxdb-client-java", version.ref = "influxdb2" }
 
 aws-s3 = { module = "software.amazon.awssdk:s3", version.ref = "aws" }
+aws-apache-client = { module = "software.amazon.awssdk:apache-client", version.ref = "aws" }
 aws-kinesis = { module = "software.amazon.awssdk:kinesis", version.ref = "aws" }
 aws-s3-transfer-manager = { module = "software.amazon.awssdk:s3-transfer-manager", version.ref = "aws" }
 aws-kinesis-client = { module = "software.amazon.kinesis:amazon-kinesis-client", version.ref = "awsKinesis" }

@@ -13,18 +13,33 @@
  */
 package io.fleak.zephflow.lib.dlq;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_DLQ_WRITE_ERROR_COUNT;
+
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
+import java.util.Map;
 
 public class DlqWriterFactory {
 
-  public static DlqWriter createDlqWriter(JobContext.DlqConfig dlqConfig, String keyPrefix) {
+  /**
+   * Dead letters the writer drops because the store refused them are counted on {@code
+   * dlq_write_error_count} with the given tags, which also puts them in the run summary.
+   */
+  public static DlqWriter createDlqWriter(
+      JobContext.DlqConfig dlqConfig,
+      String keyPrefix,
+      MetricClientProvider metricClientProvider,
+      Map<String, String> metricTags) {
+    FleakCounter unwrittenDeadLetterCounter =
+        metricClientProvider.counter(METRIC_NAME_DLQ_WRITE_ERROR_COUNT, metricTags);
     if (dlqConfig instanceof JobContext.S3DlqConfig s3DlqConfig) {
-      return S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix);
+      return S3DlqWriter.createS3DlqWriter(s3DlqConfig, keyPrefix, unwrittenDeadLetterCounter);
     }
     if (dlqConfig instanceof JobContext.GcsDlqConfig gcsDlqConfig) {
-      return GcsDlqWriter.createGcsDlqWriter(gcsDlqConfig, keyPrefix);
+      return GcsDlqWriter.createGcsDlqWriter(gcsDlqConfig, keyPrefix, unwrittenDeadLetterCounter);
     }
-    throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
+    throw unsupported(dlqConfig);
   }
 
   public static DlqWriter createSampleWriter(JobContext.DlqConfig dlqConfig, String keyPrefix) {
@@ -34,6 +49,11 @@ public class DlqWriterFactory {
     if (dlqConfig instanceof JobContext.GcsDlqConfig gcsDlqConfig) {
       return GcsDlqWriter.createGcsSampleWriter(gcsDlqConfig, keyPrefix);
     }
-    throw new UnsupportedOperationException("unsupported dlq type: " + dlqConfig);
+    throw unsupported(dlqConfig);
+  }
+
+  private static UnsupportedOperationException unsupported(JobContext.DlqConfig dlqConfig) {
+    return new UnsupportedOperationException(
+        "unsupported dlq type: " + dlqConfig.getClass().getName());
   }
 }

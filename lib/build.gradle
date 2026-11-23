@@ -23,6 +23,7 @@ dependencies {
   implementation libs.snappy.java
   implementation libs.lz4
   implementation libs.aws.s3
+  implementation libs.aws.apache.client
   implementation libs.aws.kinesis
   implementation libs.aws.s3.transfer.manager
 

@@ -14,24 +14,28 @@
 package io.fleak.zephflow.lib.dlq;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
-import static io.fleak.zephflow.lib.utils.MiscUtils.toBase64String;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import javax.annotation.Nonnull;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -42,6 +46,21 @@ public class S3DlqWriter extends DlqWriter {
   private static final String DEFAULT_PATH_SEGMENT = "dead-letters";
   private static final String DEFAULT_FILE_PREFIX = "deadletter";
 
+  /**
+   * Timeouts of the client for an S3-compatible store. A batch is flushed on the pipeline's own
+   * thread once it is full, so a store that hangs must fail the upload instead of stalling the
+   * pipeline. Connecting to a reachable store takes milliseconds; 5 s fails a dead one fast enough
+   * for the writer's own retries to run. A read waits for the store's answer to one PUT and keeps
+   * the SDK's 30 s. One attempt carries a whole batch (a batch-size count of records of any size,
+   * no byte cap), so it gets 60 s, and the call, which includes the SDK's own retries, 120 s.
+   */
+  static final AwsClientFactory.S3ClientTimeouts STORAGE_CLIENT_TIMEOUTS =
+      new AwsClientFactory.S3ClientTimeouts(
+          Duration.ofSeconds(5),
+          Duration.ofSeconds(30),
+          Duration.ofSeconds(60),
+          Duration.ofSeconds(120));
+
   @VisibleForTesting final BufferedWriter<DeadLetter> bufferedWriter;
   @VisibleForTesting final S3Client s3Client;
   private final String bucketName;
@@ -49,9 +68,12 @@ public class S3DlqWriter extends DlqWriter {
   private final String pathSegment;
   private final String filePrefix;
   private final DeadLetterCommiterSerializer serializer;
+  private final FleakCounter unwrittenDeadLetterCounter;
 
   public static S3DlqWriter createS3DlqWriter(
-      JobContext.S3DlqConfig s3DlqConfig, String keyPrefix) {
+      JobContext.S3DlqConfig s3DlqConfig,
+      String keyPrefix,
+      FleakCounter unwrittenDeadLetterCounter) {
     return createWriter(
         s3DlqConfig.getRegion(),
         s3DlqConfig.getBucket(),
@@ -62,7 +84,8 @@ public class S3DlqWriter extends DlqWriter {
         s3DlqConfig.getS3EndpointOverride(),
         keyPrefix,
         DEFAULT_PATH_SEGMENT,
-        DEFAULT_FILE_PREFIX);
+        DEFAULT_FILE_PREFIX,
+        unwrittenDeadLetterCounter);
   }
 
   @VisibleForTesting
@@ -83,7 +106,8 @@ public class S3DlqWriter extends DlqWriter {
         s3EndpointOverride,
         keyPrefix,
         DEFAULT_PATH_SEGMENT,
-        DEFAULT_FILE_PREFIX);
+        DEFAULT_FILE_PREFIX,
+        new NoopFleakCounter());
   }
 
   public static S3DlqWriter createS3SampleWriter(
@@ -98,7 +122,8 @@ public class S3DlqWriter extends DlqWriter {
         s3DlqConfig.getS3EndpointOverride(),
         keyPrefix,
         "raw-data-samples",
-        "sample");
+        "sample",
+        new NoopFleakCounter());
   }
 
   @VisibleForTesting
@@ -119,7 +144,8 @@ public class S3DlqWriter extends DlqWriter {
         s3EndpointOverride,
         keyPrefix,
         "raw-data-samples",
-        "sample");
+        "sample",
+        new NoopFleakCounter());
   }
 
   private static S3DlqWriter createWriter(
@@ -131,17 +157,29 @@ public class S3DlqWriter extends DlqWriter {
       String s3EndpointOverride,
       String keyPrefix,
       String pathSegment,
-      String filePrefix) {
+      String filePrefix,
+      FleakCounter unwrittenDeadLetterCounter) {
     Preconditions.checkArgument(
         batchSize > 0, "batchSize must be positive but provided %d", batchSize);
     Preconditions.checkArgument(
         flushIntervalMillis > 0,
         "flushIntervalMillis must be positive but provided %d",
         flushIntervalMillis);
+    AwsClientFactory awsClientFactory = new AwsClientFactory();
     S3Client s3Client =
-        new AwsClientFactory().createS3Client(region, credential, s3EndpointOverride);
+        StringUtils.isBlank(s3EndpointOverride)
+            ? awsClientFactory.createS3Client(region, credential, s3EndpointOverride)
+            : awsClientFactory.createS3CompatibleStorageClient(
+                region, credential, s3EndpointOverride, STORAGE_CLIENT_TIMEOUTS);
     return new S3DlqWriter(
-        s3Client, bucketName, batchSize, flushIntervalMillis, keyPrefix, pathSegment, filePrefix);
+        s3Client,
+        bucketName,
+        batchSize,
+        flushIntervalMillis,
+        keyPrefix,
+        pathSegment,
+        filePrefix,
+        unwrittenDeadLetterCounter);
   }
 
   @VisibleForTesting
@@ -152,13 +190,15 @@ public class S3DlqWriter extends DlqWriter {
       long flushIntervalMillis,
       String keyPrefix,
       String pathSegment,
-      String filePrefix) {
+      String filePrefix,
+      FleakCounter unwrittenDeadLetterCounter) {
     this.s3Client = s3Client;
     this.bucketName = bucketName;
     this.keyPrefix = sanitizeKeyPrefix(keyPrefix);
     this.pathSegment = pathSegment;
     this.filePrefix = filePrefix;
     this.serializer = new DeadLetterCommiterSerializer();
+    this.unwrittenDeadLetterCounter = unwrittenDeadLetterCounter;
     this.bufferedWriter =
         new BufferedWriter<>(
             batchSize, flushIntervalMillis, this::uploadToS3, "s3-" + pathSegment + "-flusher");
@@ -203,7 +243,12 @@ public class S3DlqWriter extends DlqWriter {
     try {
       data = serializer.serialize(batch);
     } catch (Exception e) {
-      log.error("failed to serialize {}, dropping {} records", pathSegment, batch.size(), e);
+      unwrittenDeadLetterCounter.increase(batch.size(), Map.of());
+      log.error(
+          "Dropped {} {} records, serialization failed: {}",
+          batch.size(),
+          pathSegment,
+          describeFailure(e));
       return;
     }
 
@@ -212,7 +257,13 @@ public class S3DlqWriter extends DlqWriter {
       uploadToS3WithRetry(data, objectKey);
       log.info("Uploaded {} records to s3://{}/{}", batch.size(), bucketName, objectKey);
     } catch (Exception e) {
-      log.error("failed to write to S3 {}. data: {}", pathSegment, toBase64String(data), e);
+      unwrittenDeadLetterCounter.increase(batch.size(), Map.of());
+      log.error(
+          "Dropped {} {} records, object {} not written: {}",
+          batch.size(),
+          pathSegment,
+          objectKey,
+          describeFailure(e));
     }
   }
 
@@ -251,10 +302,11 @@ public class S3DlqWriter extends DlqWriter {
           throw e;
         }
         log.warn(
-            "S3 upload failed (attempt {}/{}), retrying: {}",
+            "Upload of {} failed (attempt {}/{}), retrying: {}",
+            objectKey,
             attempt + 1,
             MAX_RETRIES,
-            e.getMessage());
+            describeFailure(e));
         threadSleep(1000L * (attempt + 1));
       }
       attempt++;
