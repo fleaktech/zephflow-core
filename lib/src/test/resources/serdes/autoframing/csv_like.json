@@ -1,0 +1,392 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 77,
+    "outcomes" : [ {
+      "length" : 12,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "id,name,note"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 13,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "1,alice,\"likes, commas\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 37,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "2,bob,\"says \"\"hi\"\"\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 57,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "3,carol,\"two\nlines\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 77,
+    "outcomes" : [ {
+      "length" : 12,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "id,name,note"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 13,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "1,alice,\"likes, commas\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 37,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "2,bob,\"says \"\"hi\"\"\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 57,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "3,carol,\"two\nlines\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 77,
+    "outcomes" : [ {
+      "length" : 12,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "id,name,note"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 13,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "1,alice,\"likes, commas\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 37,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "2,bob,\"says \"\"hi\"\"\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 57,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "3,carol,\"two\nlines\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 77,
+    "outcomes" : [ {
+      "length" : 12,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "id,name,note"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 13,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "1,alice,\"likes, commas\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 37,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "2,bob,\"says \"\"hi\"\"\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 57,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "3,carol,\"two\nlines\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 77,
+    "outcomes" : [ {
+      "length" : 12,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "id,name,note"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 13,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "1,alice,\"likes, commas\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 37,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "2,bob,\"says \"\"hi\"\"\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 57,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "3,carol,\"two\nlines\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 77,
+    "outcomes" : [ {
+      "length" : 12,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "id,name,note"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 13,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "1,alice,\"likes, commas\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 37,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "2,bob,\"says \"\"hi\"\"\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 19,
+      "offset" : 57,
+      "record" : {
+        "__format__" : {
+          "id" : "csv",
+          "metadata" : { },
+          "record" : { },
+          "text" : "3,carol,\"two\nlines\""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

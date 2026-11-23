@@ -1,0 +1,776 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 28,
+    "outcomes" : [ {
+      "length" : 0,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 1,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 10,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 11,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "   "
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 1,
+      "offset" : 15,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "\t"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 17,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2
+          },
+          "text" : "{\"id\":2}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 26,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 27,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 28,
+    "outcomes" : [ {
+      "length" : 0,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 1,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 10,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 11,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "   "
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 1,
+      "offset" : 15,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "\t"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 17,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2
+          },
+          "text" : "{\"id\":2}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 26,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 27,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 28,
+    "outcomes" : [ {
+      "length" : 0,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 1,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 10,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 11,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "   "
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 1,
+      "offset" : 15,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "\t"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 17,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2
+          },
+          "text" : "{\"id\":2}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 26,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 27,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 28,
+    "outcomes" : [ {
+      "length" : 0,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 1,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 10,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 11,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "   "
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 1,
+      "offset" : 15,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "\t"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 17,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2
+          },
+          "text" : "{\"id\":2}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 26,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 27,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 28,
+    "outcomes" : [ {
+      "length" : 0,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 1,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 10,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 11,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "   "
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 1,
+      "offset" : 15,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "\t"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 17,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2
+          },
+          "text" : "{\"id\":2}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 26,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 27,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 28,
+    "outcomes" : [ {
+      "length" : 0,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 1,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 10,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 3,
+      "offset" : 11,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "   "
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 1,
+      "offset" : 15,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : "\t"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 5,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 17,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 2
+          },
+          "text" : "{\"id\":2}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 6,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 26,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 7,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 0,
+      "offset" : 27,
+      "record" : {
+        "__format__" : {
+          "id" : "unrecognized_text",
+          "metadata" : { },
+          "record" : { },
+          "text" : ""
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 8,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}
