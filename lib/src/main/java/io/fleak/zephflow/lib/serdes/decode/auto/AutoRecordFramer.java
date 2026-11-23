@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Objects;
 
 final class AutoRecordFramer {
   record Frame(byte[] bytes, long offset, long length, long limit, LimitKind kind) {
@@ -118,20 +119,52 @@ final class AutoRecordFramer {
 
   private Frame json(long start) throws IOException {
     ByteArrayOutputStream captured = new ByteArrayOutputStream();
+    long documentMaximum = limits.maxDocumentBytes();
+    long budget =
+        documentMaximum > 0
+            ? documentMaximum + BudgetCaptureStream.READ_AHEAD_SLACK
+            : Long.MAX_VALUE;
     InputStream probe =
         new InputStream() {
           @Override
           public int read() throws IOException {
-            long maximum = limits.maxDocumentBytes();
-            if (maximum > 0 && captured.size() >= maximum + BudgetCaptureStream.READ_AHEAD_SLACK) {
-              flags.markBudget(
-                  new DecodeFlags.BudgetExceeded(
-                      start, LimitKind.MAX_DOCUMENT_BYTES, maximum, captured.size(), new byte[0]));
-              throw new IOException("JSON document exceeds maxDocumentBytes");
-            }
+            if (captured.size() >= budget) throw budgetExceeded();
             int value = AutoRecordFramer.this.read();
             if (value >= 0) captured.write(value);
             return value;
+          }
+
+          /**
+           * Fills {@code target} up to {@code count} bytes or the end of input, as single-byte
+           * reads would, and marks the budget when it cuts the fill short, as the next single-byte
+           * read would have.
+           */
+          @Override
+          public int read(byte[] target, int offset, int count) throws IOException {
+            Objects.checkFromIndexSize(offset, count, target.length);
+            if (count == 0) return 0;
+            if (captured.size() >= budget) throw budgetExceeded();
+            int allowed = (int) Math.min(count, budget - captured.size());
+            int copied = AutoRecordFramer.this.read(target, offset, allowed);
+            if (copied < 0) return -1;
+            captured.write(target, offset, copied);
+            if (copied == allowed && allowed < count) markBudget();
+            return copied;
+          }
+
+          private IOException budgetExceeded() {
+            markBudget();
+            return new IOException("JSON document exceeds maxDocumentBytes");
+          }
+
+          private void markBudget() {
+            flags.markBudget(
+                new DecodeFlags.BudgetExceeded(
+                    start,
+                    LimitKind.MAX_DOCUMENT_BYTES,
+                    documentMaximum,
+                    captured.size(),
+                    new byte[0]));
           }
         };
     try (JsonParser parser = JsonRecognition.parser(probe)) {
@@ -246,6 +279,28 @@ final class AutoRecordFramer {
     next = -2;
     if (value >= 0) position++;
     return value;
+  }
+
+  /** Reads up to {@code count} bytes, stopping early only at the end of input. */
+  private int read(byte[] target, int offset, int count) throws IOException {
+    int first = read();
+    if (first < 0) return -1;
+    target[offset] = (byte) first;
+    int copied = 1;
+    while (copied < count && !replay.isEmpty()) {
+      ByteBuffer buffer = replay.getFirst();
+      int length = Math.min(buffer.remaining(), count - copied);
+      buffer.get(target, offset + copied, length);
+      copied += length;
+      if (!buffer.hasRemaining()) replay.removeFirst();
+    }
+    while (copied < count) {
+      int length = input.read(target, offset + copied, count - copied);
+      if (length <= 0) break;
+      copied += length;
+    }
+    position += copied - 1;
+    return copied;
   }
 
   private static final class Retained {
