@@ -41,7 +41,8 @@ public class ParserConfigCompiler {
         parserConfig.getTargetField(),
         parserConfig.isRemoveTargetField(),
         extractionRule,
-        dispatchRule);
+        dispatchRule,
+        parserConfig.getTargetFieldPath());
   }
 
   private CompiledRules.DispatchRule compileDispatchConfig(

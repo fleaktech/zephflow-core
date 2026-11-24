@@ -21,8 +21,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
+import io.fleak.zephflow.api.structure.FleakData;
 import io.fleak.zephflow.api.structure.RecordFleakData;
 import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
+import io.fleak.zephflow.lib.parser.CompiledRules;
 import io.fleak.zephflow.lib.utils.JsonUtils;
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,6 +37,45 @@ import org.junit.jupiter.api.Test;
 
 /** Created by bolei on 3/18/25 */
 class ParserCommandTest {
+  @Test
+  void detailedExecutionUsesTheSameCompiledCommandAndPreservesSource() throws Exception {
+    var command = (ParserCommand) new ParserCommandFactory().createCommand("parse", JOB_CONTEXT);
+    command.parseAndValidateArg(
+        Map.of(
+            "targetField",
+            "payload.message",
+            "targetFieldPath",
+            List.of("payload", "message"),
+            "removeTargetField",
+            true,
+            "extractionConfig",
+            Map.of("type", "json", "outputFieldName", "parsed")));
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    var context = (ParserExecutionContext) command.getExecutionContext();
+    try {
+      var input =
+          (RecordFleakData) FleakData.wrap(Map.of("payload", Map.of("message", "{\"a\":1}")));
+      var detailed = context.getParseRule().parseDetailed(input);
+      assertEquals(
+          command.processOneEvent(input, "test_user", context).getFirst(), detailed.outputRecord());
+      assertEquals(Map.of("payload", Map.of("message", "{\"a\":1}")), input.unwrap());
+      var invalid =
+          (RecordFleakData) FleakData.wrap(Map.of("payload", Map.of("message", "startup")));
+      var ordinary =
+          assertThrows(
+              RuntimeException.class, () -> command.processOneEvent(invalid, "test_user", context));
+      var failure =
+          assertThrows(
+              CompiledRules.DetailedParseException.class,
+              () -> context.getParseRule().parseDetailed(invalid));
+      assertEquals(ordinary.getMessage(), failure.getMessage());
+      assertEquals(ordinary.getCause().getClass(), failure.getCause().getClass());
+      assertEquals(ordinary.getCause().getMessage(), failure.getCause().getMessage());
+    } finally {
+      context.close();
+    }
+  }
+
   @Test
   public void testParse() throws IOException {
     Map<String, Object> parserConfigMap =

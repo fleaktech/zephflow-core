@@ -1,0 +1,24 @@
+{
+  "targetField": "__raw__",
+  "removeTargetField": true,
+  "extractionConfig": {
+    "type": "json",
+    "outputFieldName": "payload"
+  },
+  "dispatchConfig": {
+    "dispatchField": "kind",
+    "defaultConfig": {
+      "targetField": "payload.message",
+      "targetFieldPath": [
+        "payload",
+        "message"
+      ],
+      "removeTargetField": true,
+      "extractionConfig": {
+        "type": "kv_pair",
+        "pairSeparator": " ",
+        "kvSeparator": "="
+      }
+    }
+  }
+}

@@ -1,0 +1,3 @@
+{"__raw__": "{\"message\": \"host=inner action=login\"}", "kind": "event", "payload.message": "host=literal"}
+{"__raw__": "{\"message\": \"startup\"}", "kind": "event"}
+{"__raw__": "{\"message\": {\"host\": \"object\"}}", "kind": "event"}
