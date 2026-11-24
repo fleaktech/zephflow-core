@@ -65,12 +65,15 @@ public final class JsonTemplate {
     try {
       tree = OBJECT_MAPPER.readTree(parseable);
     } catch (JsonProcessingException failure) {
+      // Callers such as the test run panel show getMessage(), which is the original failure's
+      // message, so it carries the guidance too; the parser's report quotes the template and stays
+      // in the cause for logs.
       throw ConfigurationValidationException.at(
-          path, new IllegalArgumentException(failure.getOriginalMessage(), failure), INVALID_JSON);
+          path, new IllegalArgumentException(INVALID_JSON, failure), INVALID_JSON);
     }
     if (tree == null || tree.isMissingNode()) {
       throw ConfigurationValidationException.at(
-          path, new IllegalArgumentException("empty JSON template"), INVALID_JSON);
+          path, new IllegalArgumentException(INVALID_JSON), INVALID_JSON);
     }
     return new JsonTemplate(compile(tree, path, bare));
   }
