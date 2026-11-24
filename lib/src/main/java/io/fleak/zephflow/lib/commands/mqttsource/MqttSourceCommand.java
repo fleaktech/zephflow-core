@@ -133,6 +133,12 @@ public class MqttSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     return new SourceDecoding(config.getDecoding()).decodingConfig();
   }
 
+  // The client keeps queueing messages in memory while paused, so a drain would lose them.
+  @Override
+  public boolean supportsPause() {
+    return false;
+  }
+
   @Override
   public SourceType sourceType() {
     return SourceType.STREAMING;

@@ -30,7 +30,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 
@@ -196,6 +199,41 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
   @Override
   public CommitStrategy commitStrategy() {
     return commitStrategy;
+  }
+
+  /**
+   * Stops the processor so its partitions go to other processors in the consumer group. Queued
+   * events were never handled and are left to the next owner; the queue is emptied while stopping
+   * so that partition callbacks blocked on a full queue can finish.
+   */
+  @Override
+  public void pause() {
+    CompletableFuture<Void> stopped =
+        CompletableFuture.runAsync(() -> processorClient.stop(STOP_TIMEOUT));
+    while (!stopped.isDone()) {
+      queue.clear();
+      try {
+        stopped.get(50, TimeUnit.MILLISECONDS);
+      } catch (TimeoutException e) {
+        // keep emptying the queue
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+      } catch (ExecutionException e) {
+        throw new IllegalStateException("failed to stop the Event Hub processor", e.getCause());
+      }
+    }
+    queue.clear();
+    progress.next(List.of());
+    latestCheckpointByPartition.clear();
+    lastEnqueuedByPartition.clear();
+    checkpointedByPartition.clear();
+    backlog = SourceBacklog.UNKNOWN;
+  }
+
+  @Override
+  public void resume() {
+    processorClient.start();
   }
 
   @Override

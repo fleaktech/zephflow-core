@@ -22,11 +22,13 @@ import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.Metric;
@@ -48,6 +50,10 @@ public final class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
   // Partition and offset of each record of the latest fetch, in the order fetch() returned them.
   private List<TopicPartition> fetchedPartitions = List.of();
   private long[] fetchedOffsets = new long[0];
+
+  // Offsets handed to commitAsync since the last pause, re-committed synchronously on pause.
+  private final Map<TopicPartition, OffsetAndMetadata> committedOffsets = new HashMap<>();
+  private Set<String> pausedSubscription = Set.of();
 
   // Computed on the polling thread because KafkaConsumer may not be used from other threads.
   private volatile SourceBacklog backlog = SourceBacklog.UNKNOWN;
@@ -179,9 +185,47 @@ public final class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
         }
         if (!next.isEmpty()) {
           consumer.commitAsync(next, COMMIT_CALLBACK);
+          committedOffsets.putAll(next);
         }
       }
     };
+  }
+
+  /** Commits synchronously, then leaves the group so its partitions move to other consumers. */
+  @Override
+  public void pause() {
+    consumer.commitSync(Map.copyOf(committedOffsets));
+    committedOffsets.clear();
+    pausedSubscription = Set.copyOf(consumer.subscription());
+    consumer.unsubscribe();
+    fetchedPartitions = List.of();
+    fetchedOffsets = new long[0];
+    backlog = SourceBacklog.UNKNOWN;
+  }
+
+  @Override
+  public void resume() {
+    subscribe(consumer, pausedSubscription);
+  }
+
+  static void subscribe(KafkaConsumer<byte[], byte[]> consumer, Collection<String> topics) {
+    consumer.subscribe(
+        topics,
+        new ConsumerRebalanceListener() {
+          @Override
+          public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+            log.info(
+                "Partitions revoked: {}",
+                partitions.stream().map(TopicPartition::toString).collect(Collectors.joining(",")));
+          }
+
+          @Override
+          public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+            log.info(
+                "Partitions assigned: {}",
+                partitions.stream().map(TopicPartition::toString).collect(Collectors.joining(",")));
+          }
+        });
   }
 
   @Override

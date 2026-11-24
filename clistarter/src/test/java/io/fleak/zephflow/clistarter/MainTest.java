@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.lib.utils.MiscUtils;
+import io.fleak.zephflow.runner.RunSummary;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -89,8 +90,25 @@ class MainTest {
             "drainState",
             "RUNNING",
             "supportsDrain",
-            false),
+            true),
         payload);
+  }
+
+  @Test
+  public void aDrainedRunIsMarkedInTheRunSummary(@TempDir Path tempDir) throws Exception {
+    Path drainedFile = tempDir.resolve("drained.json");
+    Path completedFile = tempDir.resolve("completed.json");
+
+    Main.writeRunSummary(new RunSummary(Map.of()), true, drainedFile.toString());
+    Main.writeRunSummary(new RunSummary(Map.of()), false, completedFile.toString());
+
+    assertEquals(
+        true,
+        fromJsonString(Files.readString(drainedFile), new TypeReference<Map<String, Object>>() {})
+            .get("drained"));
+    assertFalse(
+        fromJsonString(Files.readString(completedFile), new TypeReference<Map<String, Object>>() {})
+            .containsKey("drained"));
   }
 
   @Test

@@ -15,6 +15,8 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -25,7 +27,11 @@ import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.lifecycle.events.InitializationInput;
 import software.amazon.kinesis.lifecycle.events.ProcessRecordsInput;
 import software.amazon.kinesis.lifecycle.events.ShutdownRequestedInput;
@@ -149,5 +155,63 @@ class KinesisSourceFetcherCommitTest {
     perCommit.add(drainCheckpoints());
 
     assertEquals(List.of(List.of("shard-1@1"), List.of("shard-1@2", "shard-2@10")), perCommit);
+  }
+
+  @Test
+  void pauseShutsDownGracefullyAndEachShardCheckpointsItsLastHandledRecord() throws Exception {
+    Scheduler scheduler = mock();
+    List<ShardRecordProcessor> processors = new ArrayList<>();
+    RecordProcessorCheckpointer onShutdown = checkpointer("shard-1");
+    when(scheduler.startGracefulShutdown())
+        .thenAnswer(
+            call -> {
+              checkpoints.add("graceful-shutdown");
+              for (ShardRecordProcessor processor : processors) {
+                processor.shutdownRequested(
+                    ShutdownRequestedInput.builder().checkpointer(onShutdown).build());
+              }
+              return CompletableFuture.completedFuture(true);
+            });
+    CountDownLatch stopped = new CountDownLatch(1);
+    doAnswer(
+            call -> {
+              stopped.await();
+              return null;
+            })
+        .when(scheduler)
+        .run();
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(() -> scheduler);
+    processors.add(deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"), record("2")));
+    assertEquals(2, fetcher.fetch().size());
+    fetcher.committer().commitThrough(2);
+    deliver(fetcher, "shard-1", checkpointer("shard-1"), record("3"));
+
+    fetcher.pause();
+    fetcher.resume();
+
+    assertEquals(List.of("shard-1@2", "graceful-shutdown", "shard-1@2"), checkpoints);
+    assertEquals(List.of(), fetcher.fetch());
+    verify(scheduler, timeout(5_000)).run();
+    stopped.countDown();
+    fetcher.close();
+  }
+
+  @Test
+  void pauseReleasesAShardProcessorBlockedOnAFullQueue() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    KinesisClientRecord[] records =
+        IntStream.range(0, 600)
+            .mapToObj(i -> record(Integer.toString(i)))
+            .toArray(KinesisClientRecord[]::new);
+    RecordProcessorCheckpointer shard1 = checkpointer("shard-1");
+    Thread processing = new Thread(() -> deliver(fetcher, "shard-1", shard1, records));
+    processing.start();
+    Thread.sleep(300);
+    assertTrue(processing.isAlive());
+
+    fetcher.pause();
+
+    processing.join(5_000);
+    assertFalse(processing.isAlive());
   }
 }

@@ -17,6 +17,7 @@ import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.fleak.zephflow.api.PausableSource;
 import io.fleak.zephflow.api.SourceCommand;
 import io.fleak.zephflow.api.SourceEventAcceptor;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
@@ -96,6 +97,15 @@ class SyslogUdpCommandTest {
       assertNotNull(unwrapped.get("source_port"));
       assertNotNull(unwrapped.get("received_at"));
     }
+  }
+
+  @Test
+  void doesNotSupportPause() {
+    var factory = OperatorCommandRegistry.OPERATOR_COMMANDS.get(MiscUtils.COMMAND_NAME_SYSLOG_UDP);
+    PausableSource command =
+        (PausableSource) factory.createCommand("test_node", TestUtils.JOB_CONTEXT);
+
+    assertFalse(command.supportsPause());
   }
 
   private static int findFreePort() throws Exception {

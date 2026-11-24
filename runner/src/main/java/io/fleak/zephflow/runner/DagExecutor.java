@@ -92,11 +92,16 @@ public record DagExecutor(
   }
 
   public void executeDag() throws Exception {
-    executeDagWithStatsFile(null);
+    executeDagWithRunFiles(null, null);
   }
 
-  /** Also keeps {@code statsFile} up to date while the source runs, when it is not null. */
-  public void executeDagWithStatsFile(Path statsFile) throws Exception {
+  /**
+   * Also keeps {@code statsFile} up to date and follows {@code controlFile} while the source runs;
+   * either may be null.
+   *
+   * @return whether the run ended because it drained at the control file's request
+   */
+  public boolean executeDagWithRunFiles(Path statsFile, Path controlFile) throws Exception {
     applyLogLevel(jobConfig.getDagDefinition().getJobContext());
     var compiledDag = dagCompiler.compile(jobConfig.getDagDefinition(), true);
     Pair<Dag<OperatorCommand>, Dag<OperatorCommand>> entryNodesDagAndRest =
@@ -123,6 +128,9 @@ public record DagExecutor(
         new ShutdownFlushHook(sourceCommand, noSourceDagRunner, ShutdownFlushHook.DEFAULT_TIMEOUT);
     List<OperatorCommand> downstreamCommands =
         subDagWithoutSource.getNodes().stream().map(Node::getNodeContent).toList();
+    DrainControl drainControl =
+        new DrainControl(
+            controlFile, sourceCommand, () -> RunStats.bufferState(downstreamCommands));
     RunStatsFileWriter statsWriter = null;
     try {
       // Initialize source command before execution
@@ -131,8 +139,16 @@ public record DagExecutor(
       if (statsFile != null) {
         statsWriter =
             RunStatsFileWriter.start(
-                statsFile, () -> RunStats.collect(sourceNodeId, sourceCommand, downstreamCommands));
+                statsFile,
+                () ->
+                    RunStats.collect(
+                        sourceNodeId,
+                        sourceCommand,
+                        downstreamCommands,
+                        drainControl.state(),
+                        drainControl.supportsDrain()));
       }
+      drainControl.start(DrainControl.POLL_INTERVAL);
 
       if (sourceCommand.confirmsDeliveryBeforeCommit()) {
         noSourceDagRunner.deferDeliveryConfirmation();
@@ -169,6 +185,7 @@ public record DagExecutor(
             }
           });
     } finally {
+      drainControl.close();
       if (statsWriter != null) {
         statsWriter.close();
       }
@@ -179,6 +196,7 @@ public record DagExecutor(
         shutdownFlushHook.pipelineFinished();
       }
     }
+    return drainControl.state() == RunStats.DrainState.DRAINED;
   }
 
   static void applyLogLevel(JobContext jobContext) {

@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
@@ -120,6 +121,8 @@ public class ChronicleStoreForward implements SinkStoreForward {
   // Outstanding bytes still on disk (appended minus drained). Bounds disk use against maxBytes.
   // Reset to 0 on restart: the cap then applies to newly appended data only.
   private final AtomicLong outstandingBytes = new AtomicLong(0);
+  private final AtomicLong pendingRecords = new AtomicLong(0);
+  private final AtomicInteger writersWaitingForSpace = new AtomicInteger(0);
 
   private final Object stateLock = new Object();
   private volatile boolean buffering = false;
@@ -253,6 +256,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
     }
     writeMarker();
     outstandingBytes.set(0);
+    pendingRecords.set(0);
     waitForSpace = false;
     replayFailing = false;
   }
@@ -300,6 +304,16 @@ public class ChronicleStoreForward implements SinkStoreForward {
   }
 
   @Override
+  public long pendingRecords() {
+    return pendingRecords.get();
+  }
+
+  @Override
+  public boolean isWaitingForSpace() {
+    return writersWaitingForSpace.get() > 0;
+  }
+
+  @Override
   public boolean shouldBuffer(Throwable t) {
     return classifier.isConnectionFailure(t);
   }
@@ -340,6 +354,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
         }
         append(payload);
         outstandingBytes.addAndGet(need);
+        pendingRecords.incrementAndGet();
         stored++;
       }
       inc(bufferedCounter, stored);
@@ -389,18 +404,23 @@ public class ChronicleStoreForward implements SinkStoreForward {
     // the worker only drains while buffering, so flip it on before waiting for it
     buffering = true;
     stateLock.notifyAll();
-    while (outstandingBytes.get() + need > maxBytes) {
-      if (closed || !waitForSpace) {
-        return false;
+    writersWaitingForSpace.incrementAndGet();
+    try {
+      while (outstandingBytes.get() + need > maxBytes) {
+        if (closed || !waitForSpace) {
+          return false;
+        }
+        try {
+          stateLock.wait(retryIntervalMs);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return false;
+        }
       }
-      try {
-        stateLock.wait(retryIntervalMs);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return false;
-      }
+      return true;
+    } finally {
+      writersWaitingForSpace.decrementAndGet();
     }
-    return true;
   }
 
   private void releaseSpace(long bytes) {
@@ -417,6 +437,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
     // Resume a backlog from a previous run before the sink does any direct write; if there is none,
     // reclaim the empty queue the constructor just built (and any leftovers from a clean shutdown).
     if (peekHasMore()) {
+      pendingRecords.set(countUnread());
       buffering = true;
       log.info("store-and-forward [{}] found a backlog on startup; resuming drain", nodeId);
     } else {
@@ -548,6 +569,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
         return DrainOutcome.CONN_FAILURE;
       }
       releaseSpace(chunk.bytes);
+      pendingRecords.addAndGet(-chunk.records.size());
       inc(replayedCounter, chunk.records.size());
       return DrainOutcome.DELIVERED;
     } catch (Exception e) {
@@ -575,6 +597,7 @@ public class ChronicleStoreForward implements SinkStoreForward {
         return DrainOutcome.CONN_FAILURE;
       }
       releaseSpace(chunk.bytes);
+      pendingRecords.addAndGet(-chunk.records.size());
       inc(droppedCounter, chunk.records.size());
       log.error(
           "store-and-forward [{}] dropping {} records after a replay failure that is not retried",
@@ -630,6 +653,22 @@ public class ChronicleStoreForward implements SinkStoreForward {
       }
     }
     return new Chunk(records, bytes, startIndex);
+  }
+
+  /** Pre-worker only: counts the excerpts from the tailer's position on, without moving it. */
+  private long countUnread() {
+    long count = 0;
+    try (ExcerptTailer counter = queue.createTailer()) {
+      counter.moveToIndex(tailer.index());
+      while (true) {
+        try (DocumentContext dc = counter.readingDocument()) {
+          if (!dc.isPresent()) {
+            return count;
+          }
+          count++;
+        }
+      }
+    }
   }
 
   /** Worker-thread / pre-worker only. True if an unread excerpt exists, without consuming it. */

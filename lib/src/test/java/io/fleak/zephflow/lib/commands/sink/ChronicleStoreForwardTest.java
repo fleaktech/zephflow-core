@@ -211,6 +211,58 @@ class ChronicleStoreForwardTest {
   }
 
   @Test
+  void pendingRecordsCountsWhatIsNotDeliveredYet(@TempDir Path dir) throws Exception {
+    CountDownLatch release = new CountDownLatch(1);
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 1_000_000, 2), IO_IS_CONNECTION, null, null, null);
+    sf.start(records -> release.await());
+    assertEquals(0, sf.pendingRecords());
+
+    sf.offer(List.of(record("a"), record("b"), record("c")));
+    assertEquals(3, sf.pendingRecords());
+
+    release.countDown();
+    await(() -> !sf.isBuffering());
+    assertEquals(0, sf.pendingRecords());
+    sf.close();
+  }
+
+  @Test
+  void droppedRecordsAreNoLongerPending(@TempDir Path dir) throws Exception {
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    sf.start(
+        records -> {
+          throw new IllegalStateException("rejected");
+        });
+
+    sf.offer(List.of(record("a"), record("b")));
+    await(() -> !sf.isBuffering());
+    assertEquals(0, sf.pendingRecords());
+    sf.close();
+  }
+
+  @Test
+  void aBlockedSpillReportsWaitingForSpace(@TempDir Path dir) throws Exception {
+    CountDownLatch release = new CountDownLatch(1);
+    ChronicleStoreForward sf =
+        new ChronicleStoreForward(config(dir, 30, 1), IO_IS_CONNECTION, null, null, null);
+    sf.start(records -> release.await());
+    assertFalse(sf.isWaitingForSpace());
+
+    CompletableFuture<Integer> stored =
+        CompletableFuture.supplyAsync(
+            () -> sf.spill(List.of(record("a"), record("b"), record("c"))));
+    await(sf::isWaitingForSpace);
+    assertFalse(stored.isDone());
+
+    release.countDown();
+    assertEquals(3, stored.get(10, TimeUnit.SECONDS));
+    assertFalse(sf.isWaitingForSpace());
+    sf.close();
+  }
+
+  @Test
   void offerDuringASpillAlsoWaitsForSpace(@TempDir Path dir) throws Exception {
     CountingCounter dropped = new CountingCounter();
     CountDownLatch release = new CountDownLatch(1);
@@ -516,6 +568,36 @@ class ChronicleStoreForwardTest {
 
     await(() -> !second.isBuffering());
     assertEquals(List.of("a", "b", "c"), values(delivered));
+    second.close();
+  }
+
+  @Test
+  void restartCountsTheBacklogAsPending(@TempDir Path dir) throws Exception {
+    ChronicleStoreForward first =
+        new ChronicleStoreForward(config(dir, 1_000_000, 1), IO_IS_CONNECTION, null, null, null);
+    CountDownLatch firstDelivered = new CountDownLatch(1);
+    first.start(
+        records -> {
+          if (firstDelivered.getCount() > 0) {
+            firstDelivered.countDown();
+            return;
+          }
+          throw new IOException("down for the rest of the first run");
+        });
+    first.offer(List.of(record("a"), record("b"), record("c")));
+    firstDelivered.await(10, TimeUnit.SECONDS);
+    await(() -> first.pendingRecords() == 2);
+    first.close();
+
+    CountDownLatch release = new CountDownLatch(1);
+    ChronicleStoreForward second =
+        new ChronicleStoreForward(config(dir, 1_000_000, 10), IO_IS_CONNECTION, null, null, null);
+    second.start(records -> release.await());
+
+    assertEquals(2, second.pendingRecords());
+    release.countDown();
+    await(() -> !second.isBuffering());
+    assertEquals(0, second.pendingRecords());
     second.close();
   }
 

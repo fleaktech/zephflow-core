@@ -17,6 +17,7 @@ import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.OperatorCommand;
 import io.fleak.zephflow.api.SourceCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
+import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
 import io.fleak.zephflow.lib.commands.source.SourceBacklog;
 import io.fleak.zephflow.lib.commands.source.SourceExecutionContext;
 import java.util.Collection;
@@ -25,7 +26,8 @@ import java.util.Locale;
 
 /**
  * What the run stats file carries. A null backlog or partition count means unknown. The buffer is
- * PENDING while any sink is writing to its store-and-forward buffer.
+ * PENDING while any sink's store-and-forward buffer holds records, and WAITING_FOR_SPACE while a
+ * writer is blocked on a full one.
  */
 public record RunStats(
     List<SourceStats> sources,
@@ -35,28 +37,29 @@ public record RunStats(
 
   public enum BufferState {
     EMPTY,
-    PENDING
+    PENDING,
+    WAITING_FOR_SPACE
   }
 
   public enum DrainState {
-    RUNNING
+    RUNNING,
+    DRAINING,
+    DRAINED
   }
 
   public record SourceStats(
       String nodeId, Long backlog, String backlogUnit, Integer partitionCount) {}
 
   static RunStats collect(
-      String sourceNodeId, SourceCommand source, Collection<? extends OperatorCommand> downstream) {
+      String sourceNodeId,
+      SourceCommand source,
+      Collection<? extends OperatorCommand> downstream,
+      DrainState drainState,
+      boolean supportsDrain) {
     SourceBacklog backlog =
         contextOf(source) instanceof SourceExecutionContext<?> sourceContext
             ? sourceContext.fetcher().backlog()
             : SourceBacklog.UNKNOWN;
-    boolean buffering =
-        downstream.stream()
-            .anyMatch(
-                command ->
-                    contextOf(command) instanceof SinkExecutionContext<?> sinkContext
-                        && sinkContext.storeForward().isBuffering());
     return new RunStats(
         List.of(
             new SourceStats(
@@ -64,9 +67,26 @@ public record RunStats(
                 backlog.amount(),
                 backlog.unit().name().toLowerCase(Locale.ROOT),
                 backlog.partitionCount())),
-        buffering ? BufferState.PENDING : BufferState.EMPTY,
-        DrainState.RUNNING,
-        false);
+        bufferState(downstream),
+        drainState,
+        supportsDrain);
+  }
+
+  static BufferState bufferState(Collection<? extends OperatorCommand> downstream) {
+    BufferState state = BufferState.EMPTY;
+    for (OperatorCommand command : downstream) {
+      if (!(contextOf(command) instanceof SinkExecutionContext<?> sinkContext)) {
+        continue;
+      }
+      SinkStoreForward storeForward = sinkContext.storeForward();
+      if (storeForward.isWaitingForSpace()) {
+        return BufferState.WAITING_FOR_SPACE;
+      }
+      if (storeForward.isBuffering() || storeForward.pendingRecords() > 0) {
+        state = BufferState.PENDING;
+      }
+    }
+    return state;
   }
 
   private static ExecutionContext contextOf(OperatorCommand command) {

@@ -34,6 +34,7 @@ import io.fleak.zephflow.lib.commands.fssource.util.PendingFile;
 import io.fleak.zephflow.lib.commands.fssource.util.PendingFileSelector;
 import io.fleak.zephflow.lib.commands.fssource.util.SourceIdHasher;
 import io.fleak.zephflow.lib.commands.source.BatchEmittingConverter.Emitter;
+import io.fleak.zephflow.lib.commands.source.SourcePause;
 import io.fleak.zephflow.lib.dlq.DlqWriter;
 import io.fleak.zephflow.lib.dlq.DlqWriterFactory;
 import java.time.Instant;
@@ -46,7 +47,7 @@ import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public final class FsSourceCommand extends SourceCommand {
+public final class FsSourceCommand extends SourceCommand implements PausableSource {
 
   static final String DEFAULT_CHECKPOINT_SCOPE = "local";
   static final String SKIP_REASON_READ_ERROR = "read_error";
@@ -55,6 +56,7 @@ public final class FsSourceCommand extends SourceCommand {
   static final String SKIP_REASON_FILE_TOO_LARGE = "file_too_large";
 
   private volatile boolean terminated = false;
+  private final SourcePause pause = new SourcePause();
 
   public FsSourceCommand(String nodeId, JobContext jobContext) {
     super(nodeId, jobContext, new FsSourceConfigParser(), new FsSourceConfigValidator());
@@ -364,6 +366,12 @@ public final class FsSourceCommand extends SourceCommand {
             executionContext.localSpoolMaxBytes)) {
       for (PendingFile pending : pendingFiles) {
         if (terminated) break;
+        // Every finished file is checkpointed by now.
+        if (pause.requested()) {
+          log.info("fs_source paused");
+          if (!pause.hold(() -> terminated)) break;
+          log.info("fs_source resumed");
+        }
         FileEntry fileEntry = pending.entry();
         int bucket = bucketOf(pending);
 
@@ -465,7 +473,23 @@ public final class FsSourceCommand extends SourceCommand {
   @Override
   public boolean requestStop() {
     terminated = true;
+    pause.wake();
     return true;
+  }
+
+  @Override
+  public void requestPause() {
+    pause.request();
+  }
+
+  @Override
+  public void requestResume() {
+    pause.resume();
+  }
+
+  @Override
+  public boolean isPaused() {
+    return pause.isPaused();
   }
 
   @Override

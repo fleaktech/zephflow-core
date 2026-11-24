@@ -112,6 +112,102 @@ class FsSourceCommandResumeTest {
   }
 
   @Test
+  void pausesAfterCheckpointingAFileAndResumesWithTheNext(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
+    Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");
+    Files.writeString(tempDir.resolve("evt_3.log"), "{\"v\":\"c\"}");
+    PausingRun run = new PausingRun(tempDir);
+
+    run.start();
+    awaitTrue(run.command::isPaused);
+    assertEquals(List.of("a"), emittedValues(run.emitted));
+    assertEquals(distinctBuckets(tempDir, "evt_1.log").size(), store.size());
+
+    run.command.requestResume();
+    run.thread.join(10_000);
+    assertFalse(run.thread.isAlive());
+    assertFalse(run.command.isPaused());
+    assertEquals(List.of("a", "b", "c"), emittedValues(run.emitted));
+  }
+
+  @Test
+  void aRunStoppedWhilePausedLeavesTheRestForTheNextRun(@TempDir Path tempDir) throws Exception {
+    Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
+    Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");
+    PausingRun run = new PausingRun(tempDir);
+
+    run.start();
+    awaitTrue(run.command::isPaused);
+    run.command.requestStop();
+    run.thread.join(10_000);
+    assertFalse(run.thread.isAlive());
+    assertEquals(List.of("a"), emittedValues(run.emitted));
+
+    assertEquals(List.of("b"), emittedValues(runOnce(tempDir)));
+  }
+
+  /** Runs the source on its own thread and asks it to pause once the first record arrives. */
+  private final class PausingRun {
+    final List<RecordFleakData> emitted = new java.util.concurrent.CopyOnWriteArrayList<>();
+    final FsSourceCommand command;
+    final Thread thread;
+
+    PausingRun(Path tempDir) {
+      JobContext jobContext =
+          JobContext.builder()
+              .otherProperties(new HashMap<>(Map.of(JobContext.CHECKPOINT_URL, baseUrl)))
+              .build();
+      command = new FsSourceCommand("n", jobContext);
+      command.parseAndValidateArg(
+          Map.of(
+              "backend",
+              "file",
+              "root",
+              tempDir.toUri().toString(),
+              "fileNameRegex",
+              "evt_(?<ts>\\d+)\\.log",
+              "decoding",
+              Decodings.autoCompressionConfig(Decodings.JSON_LINES)));
+      command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+      SourceEventAcceptor out =
+          new SourceEventAcceptor() {
+            @Override
+            public void accept(List<RecordFleakData> records) {
+              if (emitted.isEmpty()) {
+                command.requestPause();
+              }
+              emitted.addAll(records);
+            }
+
+            @Override
+            public void terminate() {}
+          };
+      thread =
+          new Thread(
+              () -> {
+                try {
+                  command.execute("u", out);
+                } catch (Exception e) {
+                  throw new RuntimeException(e);
+                }
+              });
+    }
+
+    void start() {
+      thread.start();
+    }
+  }
+
+  private static void awaitTrue(java.util.function.BooleanSupplier condition)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+    while (!condition.getAsBoolean()) {
+      assertTrue(System.nanoTime() < deadline, "timed out");
+      Thread.sleep(10);
+    }
+  }
+
+  @Test
   void secondRunSkipsAlreadyCheckpointedFiles(@TempDir Path tempDir) throws Exception {
     Files.writeString(tempDir.resolve("evt_1.log"), "{\"v\":\"a\"}");
     Files.writeString(tempDir.resolve("evt_2.log"), "{\"v\":\"b\"}");

@@ -14,6 +14,7 @@
 package io.fleak.zephflow.runner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -32,7 +33,12 @@ class RunStatsTest {
   @Test
   void reportsTheSourceBacklogInRecords() {
     RunStats stats =
-        RunStats.collect("kafka", source(SourceBacklog.records(150L, 6)), List.of(sink(false)));
+        RunStats.collect(
+            "kafka",
+            source(SourceBacklog.records(150L, 6)),
+            List.of(sink(false)),
+            RunStats.DrainState.RUNNING,
+            false);
 
     assertEquals(
         new RunStats(
@@ -46,7 +52,12 @@ class RunStatsTest {
   @Test
   void reportsKinesisTimeBehindInMillis() {
     RunStats stats =
-        RunStats.collect("kinesis", source(SourceBacklog.millisBehind(7_000L)), List.of());
+        RunStats.collect(
+            "kinesis",
+            source(SourceBacklog.millisBehind(7_000L)),
+            List.of(),
+            RunStats.DrainState.RUNNING,
+            false);
 
     assertEquals(
         new RunStats.SourceStats("kinesis", 7_000L, "millis", null), stats.sources().getFirst());
@@ -54,7 +65,8 @@ class RunStatsTest {
 
   @Test
   void aSourceWhoseFetcherCannotReadItsBacklogReportsUnknown() {
-    RunStats stats = RunStats.collect("pubsub", source(null), List.of());
+    RunStats stats =
+        RunStats.collect("pubsub", source(null), List.of(), RunStats.DrainState.RUNNING, false);
 
     assertEquals(
         new RunStats.SourceStats("pubsub", null, "records", null), stats.sources().getFirst());
@@ -65,7 +77,8 @@ class RunStatsTest {
     SourceCommand syslog = mock(SourceCommand.class);
     when(syslog.isInitialized()).thenReturn(true);
 
-    RunStats stats = RunStats.collect("syslog", syslog, List.of());
+    RunStats stats =
+        RunStats.collect("syslog", syslog, List.of(), RunStats.DrainState.RUNNING, false);
 
     assertEquals(
         new RunStats.SourceStats("syslog", null, "records", null), stats.sources().getFirst());
@@ -76,9 +89,42 @@ class RunStatsTest {
   void aSinkBufferingToDiskMakesTheBufferPending() {
     RunStats stats =
         RunStats.collect(
-            "kafka", source(SourceBacklog.UNKNOWN), List.of(sink(false), sink(true), notASink()));
+            "kafka",
+            source(SourceBacklog.UNKNOWN),
+            List.of(sink(false), sink(true), notASink()),
+            RunStats.DrainState.RUNNING,
+            false);
 
     assertEquals(RunStats.BufferState.PENDING, stats.bufferState());
+  }
+
+  @Test
+  void recordsLeftInABufferMakeItPending() {
+    SinkStoreForward storeForward = mock(SinkStoreForward.class);
+    when(storeForward.pendingRecords()).thenReturn(3L);
+
+    assertEquals(RunStats.BufferState.PENDING, RunStats.bufferState(List.of(sink(storeForward))));
+  }
+
+  @Test
+  void aWriterBlockedOnAFullBufferIsWaitingForSpace() {
+    SinkStoreForward storeForward = mock(SinkStoreForward.class);
+    when(storeForward.isBuffering()).thenReturn(true);
+    when(storeForward.isWaitingForSpace()).thenReturn(true);
+
+    assertEquals(
+        RunStats.BufferState.WAITING_FOR_SPACE,
+        RunStats.bufferState(List.of(sink(false), sink(storeForward))));
+  }
+
+  @Test
+  void carriesTheDrainStateAndWhetherTheSourceCanDrain() {
+    RunStats stats =
+        RunStats.collect(
+            "kafka", source(SourceBacklog.UNKNOWN), List.of(), RunStats.DrainState.DRAINING, true);
+
+    assertEquals(RunStats.DrainState.DRAINING, stats.drainState());
+    assertTrue(stats.supportsDrain());
   }
 
   @Test
@@ -86,7 +132,8 @@ class RunStatsTest {
     OperatorCommand sink = mock(OperatorCommand.class);
     SourceCommand source = mock(SourceCommand.class);
 
-    RunStats stats = RunStats.collect("src", source, List.of(sink));
+    RunStats stats =
+        RunStats.collect("src", source, List.of(sink), RunStats.DrainState.RUNNING, false);
 
     assertEquals(RunStats.BufferState.EMPTY, stats.bufferState());
     assertEquals(null, stats.sources().getFirst().backlog());
@@ -129,6 +176,10 @@ class RunStatsTest {
   private static OperatorCommand sink(boolean buffering) {
     SinkStoreForward storeForward = mock(SinkStoreForward.class);
     when(storeForward.isBuffering()).thenReturn(buffering);
+    return sink(storeForward);
+  }
+
+  private static OperatorCommand sink(SinkStoreForward storeForward) {
     OperatorCommand sink = mock(OperatorCommand.class);
     when(sink.isInitialized()).thenReturn(true);
     when(sink.getExecutionContext())

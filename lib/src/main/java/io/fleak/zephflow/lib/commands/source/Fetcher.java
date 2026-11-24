@@ -39,6 +39,16 @@ public interface Fetcher<T> extends Closeable {
     return SourceBacklog.UNKNOWN;
   }
 
+  /**
+   * Called on the fetching thread when the source pauses, after everything handled has been
+   * committed. A fetcher whose consumer group shares the input commits synchronously here and gives
+   * up its partitions, shards or leases so other consumers take them over.
+   */
+  default void pause() {}
+
+  /** Called on the fetching thread when a paused source resumes; reverses {@link #pause}. */
+  default void resume() {}
+
   default Fetcher.Committer committer() {
     return null;
   }

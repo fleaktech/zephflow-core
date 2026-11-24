@@ -395,6 +395,89 @@ public class KafkaSourceCommandTest {
     }
   }
 
+  @Test
+  public void aPausedSourceHandsItsPartitionsToASiblingAndResumesFromTheCommittedOffset()
+      throws Exception {
+    String topic = "pause_topic_" + System.currentTimeMillis();
+    adminClient
+        .createTopics(List.of(new NewTopic(topic, 2, (short) 1)))
+        .all()
+        .get(30, TimeUnit.SECONDS);
+    String groupId = "pause-group-" + System.currentTimeMillis();
+    Map<String, String> properties = Map.of("auto.offset.reset", "earliest");
+    KafkaSourceCommand first = createCommand(topic, properties, groupId);
+    KafkaSourceCommand sibling = createCommand(topic, properties, groupId);
+    TestSourceEventAcceptor firstEvents = new TestSourceEventAcceptor();
+    TestSourceEventAcceptor siblingEvents = new TestSourceEventAcceptor();
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> firstRun = executor.submit(() -> run(first, firstEvents));
+      sendMessages(topic, idMessages(1, 10));
+      awaitCondition(() -> firstEvents.getReceivedEvents().size() == 10);
+
+      first.requestPause();
+      awaitCondition(first::isPaused);
+      Future<?> siblingRun = executor.submit(() -> run(sibling, siblingEvents));
+      sendMessages(topic, idMessages(11, 20));
+      awaitCondition(() -> siblingEvents.getReceivedEvents().size() >= 10);
+      assertEquals(rangeIds(11, 20), sortedIds(siblingEvents));
+      assertEquals(10, firstEvents.getReceivedEvents().size());
+
+      sibling.requestPause();
+      awaitCondition(sibling::isPaused);
+      sibling.requestStop();
+      siblingRun.get(30, TimeUnit.SECONDS);
+
+      first.requestResume();
+      sendMessages(topic, idMessages(21, 25));
+      awaitCondition(() -> firstEvents.getReceivedEvents().size() >= 15);
+      Thread.sleep(1000);
+      List<Long> expected = new ArrayList<>(rangeIds(1, 10));
+      expected.addAll(rangeIds(21, 25));
+      assertEquals(expected, sortedIds(firstEvents));
+
+      first.requestStop();
+      firstRun.get(30, TimeUnit.SECONDS);
+    } finally {
+      executor.shutdownNow();
+      //noinspection ResultOfMethodCallIgnored
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+  }
+
+  private static Void run(KafkaSourceCommand command, SourceEventAcceptor acceptor)
+      throws Exception {
+    command.initialize(new MetricClientProvider.NoopMetricClientProvider());
+    command.execute("test_user", acceptor);
+    return null;
+  }
+
+  private static List<String> idMessages(int from, int to) {
+    return IntStream.rangeClosed(from, to).mapToObj(id -> "{\"id\":%d}".formatted(id)).toList();
+  }
+
+  private static List<Long> rangeIds(int from, int to) {
+    return IntStream.rangeClosed(from, to).mapToObj(id -> (long) id).toList();
+  }
+
+  private static List<Long> sortedIds(TestSourceEventAcceptor events) {
+    synchronized (events.getReceivedEvents()) {
+      return events.getReceivedEvents().stream()
+          .map(event -> ((Number) event.unwrap().get("id")).longValue())
+          .sorted()
+          .toList();
+    }
+  }
+
+  private static void awaitCondition(java.util.function.BooleanSupplier condition)
+      throws InterruptedException {
+    long deadline = System.currentTimeMillis() + 60_000;
+    while (!condition.getAsBoolean()) {
+      assertTrue(System.currentTimeMillis() < deadline, "timed out");
+      Thread.sleep(100);
+    }
+  }
+
   private static List<String> sourceToSinkMessages(int batch) {
     return IntStream.rangeClosed(1, 3)
         .mapToObj(id -> "{\"id\":%d,\"value\":\"test%d\",\"batch\":%d}".formatted(id, id, batch))
@@ -442,6 +525,11 @@ public class KafkaSourceCommandTest {
   }
 
   private static KafkaSourceCommand createCommand(String topic, Map<String, String> properties) {
+    return createCommand(topic, properties, "test-group-" + System.currentTimeMillis());
+  }
+
+  private static KafkaSourceCommand createCommand(
+      String topic, Map<String, String> properties, String groupId) {
     KafkaSourceCommand kafkaSourceCommand =
         new KafkaSourceCommandFactory().createCommand("my_node", TestUtils.JOB_CONTEXT);
     KafkaSourceDto.Config config =
@@ -449,7 +537,7 @@ public class KafkaSourceCommandTest {
             .broker(KAFKA_CONTAINER.getBootstrapServers())
             .topic(topic)
             .decoding(Decodings.autoCompression(Decodings.JSON_OBJECT))
-            .groupId("test-group-" + System.currentTimeMillis())
+            .groupId(groupId)
             .properties(properties)
             .build();
     kafkaSourceCommand.parseAndValidateArg(

@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands.azureeventhubsource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.*;
 
 import com.azure.messaging.eventhubs.EventData;
@@ -59,6 +60,69 @@ class AzureEventHubSourceFetcherBacklogTest {
     fetcher.committer().commit();
 
     assertEquals(SourceBacklog.UNKNOWN, fetcher.backlog());
+  }
+
+  @Test
+  void pauseStopsTheProcessorAndForgetsWhatItNoLongerOwns() throws Exception {
+    EventProcessorClient processor = mock();
+    EventContext first = event("0", 10, 110L);
+    EventContext second = event("0", 11, 111L);
+    LinkedBlockingQueue<EventContext> queue = new LinkedBlockingQueue<>(List.of(first, second));
+    AzureEventHubSourceFetcher fetcher = fetcher(processor, queue);
+    fetcher.fetch();
+    fetcher.committer().commitThrough(1);
+    queue.add(event("0", 12, 112L));
+
+    fetcher.pause();
+
+    verify(processor).stop(any(Duration.class));
+    assertEquals(0, queue.size());
+    assertEquals(SourceBacklog.UNKNOWN, fetcher.backlog());
+
+    fetcher.resume();
+    verify(processor).start();
+    EventContext afterResume = event("1", 5, 5L);
+    queue.add(afterResume);
+    fetcher.fetch();
+    fetcher.committer().commit();
+    verify(first).updateCheckpoint();
+    verify(second, never()).updateCheckpoint();
+    verify(afterResume).updateCheckpoint();
+  }
+
+  @Test
+  void pauseLetsACallbackBlockedOnAFullQueueFinish() throws Exception {
+    EventProcessorClient processor = mock();
+    LinkedBlockingQueue<EventContext> queue = new LinkedBlockingQueue<>(1);
+    queue.add(event("0", 1, 1L));
+    Thread callback =
+        new Thread(
+            () -> {
+              try {
+                queue.put(event("0", 2, 2L));
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+            });
+    callback.start();
+    doAnswer(
+            call -> {
+              callback.join();
+              return null;
+            })
+        .when(processor)
+        .stop(any(Duration.class));
+
+    fetcher(processor, queue).pause();
+
+    assertFalse(callback.isAlive());
+    assertEquals(0, queue.size());
+  }
+
+  private static AzureEventHubSourceFetcher fetcher(
+      EventProcessorClient processor, LinkedBlockingQueue<EventContext> queue) {
+    return new AzureEventHubSourceFetcher(
+        processor, queue, 500, Duration.ofMillis(50), PerRecordCommitStrategy.INSTANCE);
   }
 
   private static AzureEventHubSourceFetcher fetcher(EventContext... events) {
