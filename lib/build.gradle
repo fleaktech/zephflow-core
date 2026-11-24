@@ -96,6 +96,8 @@ dependencies {
   implementation libs.chronicle.queue
 
   testImplementation libs.unboundid.ldapsdk
+  // Certificates of a test's own authority for S3 clients over HTTPS
+  testImplementation libs.bcpkix
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.azure
 
