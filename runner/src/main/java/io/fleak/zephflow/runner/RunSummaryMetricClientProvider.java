@@ -14,6 +14,7 @@
 package io.fleak.zephflow.runner;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.*;
+import static io.fleak.zephflow.runner.Constants.METRIC_NAME_PIPELINE_ERROR_EVENT;
 
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.FleakGauge;
@@ -34,6 +35,7 @@ public final class RunSummaryMetricClientProvider implements MetricClientProvide
   private final ConcurrentMap<String, LongAdder> counterTotals = new ConcurrentHashMap<>();
   // node_id -> totals of that node's counters; only nodes with a sink_output_count are sinks
   private final ConcurrentMap<String, NodeTotals> nodeTotals = new ConcurrentHashMap<>();
+  private final AtomicReference<String> processingErrorSample = new AtomicReference<>();
   // error messages can carry whole HTTP response bodies; the summary only needs the gist
   static final int MAX_ERROR_SAMPLE_LENGTH = 500;
 
@@ -70,8 +72,12 @@ public final class RunSummaryMetricClientProvider implements MetricClientProvide
 
       @Override
       public void recordErrorSample(String errorMessage) {
-        if (node != null && errorMessage != null && !errorMessage.isBlank()) {
-          node.firstError.compareAndSet(null, truncate(errorMessage));
+        if (errorMessage != null && !errorMessage.isBlank()) {
+          if (node != null) {
+            node.firstError.compareAndSet(null, truncate(errorMessage));
+          } else if (METRIC_NAME_PIPELINE_ERROR_EVENT.equals(name)) {
+            processingErrorSample.compareAndSet(null, truncate(errorMessage));
+          }
         }
         delegateCounter.recordErrorSample(errorMessage);
       }
@@ -102,7 +108,7 @@ public final class RunSummaryMetricClientProvider implements MetricClientProvide
             .map(e -> e.getValue().toSinkSummary(e.getKey()))
             .sorted(Comparator.comparing(RunSummary.SinkSummary::nodeId))
             .toList();
-    return new RunSummary(totals, sinks);
+    return new RunSummary(totals, sinks, processingErrorSample.get());
   }
 
   private static String truncate(String errorMessage) {

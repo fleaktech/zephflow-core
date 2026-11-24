@@ -570,6 +570,7 @@ class NoSourceDagRunnerTest {
       verify(mockCounters)
           .increaseErrorEventCounter(eq((long) errors.size()), tagsCaptor.capture());
       assertEquals(createNodeTags(NODE_ID_1, CMD_NAME_1), tagsCaptor.getValue());
+      verify(mockCounters).recordProcessingErrorSample("Scalar failed");
       verify(mockCounters)
           .increaseOutputEventCounter(eq((long) successfulEvents.size()), tagsCaptor.capture());
       assertEquals(createNodeTags(NODE_ID_2, CMD_NAME_2), tagsCaptor.getValue());
@@ -654,6 +655,7 @@ class NoSourceDagRunnerTest {
       verify(mockCounters)
           .increaseErrorEventCounter(eq((long) errors.size()), tagsCaptor.capture());
       assertEquals(createNodeTags(SINK_ID, SINK_CMD_NAME), tagsCaptor.getValue());
+      verify(mockCounters, never()).recordProcessingErrorSample(any());
       verify(mockCounters)
           .increaseOutputEventCounter(eq((long) successCount), tagsCaptor.capture());
       assertEquals(createNodeTags(SINK_ID, SINK_CMD_NAME), tagsCaptor.getValue());
@@ -789,6 +791,7 @@ class NoSourceDagRunnerTest {
       assertFalse(
           result.outputEvents.containsKey(sinkAId), "failing sink A should produce no output");
       verify(mockCounters).increaseErrorEventCounter(eq((long) inputEvents.size()), anyMap());
+      verify(mockCounters, never()).recordProcessingErrorSample(any());
     }
 
     @Test
@@ -918,6 +921,7 @@ class NoSourceDagRunnerTest {
       assertFalse(
           result.outputEvents.containsKey(SINK_ID), "downstream of a failing node must be skipped");
       verify(mockCounters).increaseErrorEventCounter(eq((long) inputEvents.size()), anyMap());
+      verify(mockCounters).recordProcessingErrorSample("node1 blew up");
     }
 
     @Test

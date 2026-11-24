@@ -384,17 +384,24 @@ class EndOfInputFlushTest {
 
   @Test
   void failingFlush_isRecordedAndOtherNodesStillFlush() {
+    RunSummaryMetricClientProvider summaryProvider =
+        new RunSummaryMetricClientProvider(new MetricClientProvider.NoopMetricClientProvider());
     NoSourceDagRunner runner =
-        runner(
-            List.of(node("bad", new FailingFlushCommand("bad")), node("s", sample("s", 10))),
-            List.of(),
-            List.of("bad", "s"));
+        new NoSourceDagRunner(
+            List.of(edge(SOURCE, "bad"), edge(SOURCE, "s")),
+            new Dag<>(
+                List.of(node("bad", new FailingFlushCommand("bad")), node("s", sample("s", 10))),
+                List.of()),
+            new MetricClientProvider.NoopMetricClientProvider(),
+            DagRunCounters.createPipelineCounters(summaryProvider, Map.of()),
+            false);
 
     DagResult result = runner.run(events("a", 3), USER, DEBUG_CONFIG, true);
 
     assertEquals(
         new DagResult.NodeFailure("bad", "failingflush", "flush failed"), result.getFirstFailure());
     assertEquals(byUpstream(SOURCE, List.of(sampled("a", 3))), result.getOutputByStep().get("s"));
+    assertEquals("flush failed", summaryProvider.summarize().processingErrorSample());
   }
 
   @Test

@@ -60,6 +60,33 @@ class MainTest {
         sinks.stream().mapToLong(sink -> ((Number) sink.get("outputCount")).longValue()).sum();
     assertEquals(20, sinkOutput);
     assertTrue(sinks.stream().allMatch(sink -> sink.get("nodeId") != null), sinks.toString());
+    assertEquals(Set.of("counters", "summary", "sinks"), payload.keySet());
+  }
+
+  @Test
+  public void testMainWritesProcessingErrorSample(@TempDir Path tempDir) throws Exception {
+    Path summaryFile = tempDir.resolve("run-summary.json");
+    String firstBadValue = "first" + "x".repeat(1000);
+    String stdinJson =
+        toJsonString(
+            List.of(Map.of("s", firstBadValue), Map.of("s", "second"), Map.of("s", "third")));
+
+    System.setProperty(Main.RUN_SUMMARY_FILE_SYS_PROP, summaryFile.toString());
+    try {
+      runMainWithDag("/test_dag_eval_failure.yml", stdinJson);
+    } finally {
+      System.clearProperty(Main.RUN_SUMMARY_FILE_SYS_PROP);
+    }
+
+    Map<String, Object> payload =
+        fromJsonString(Files.readString(summaryFile), new TypeReference<Map<String, Object>>() {});
+    @SuppressWarnings("unchecked")
+    Map<String, Object> counters = (Map<String, Object>) payload.get("counters");
+    assertEquals(3, ((Number) counters.get("pipeline_error_event_count")).intValue());
+    String sample = (String) payload.get("processingErrorSample");
+    assertTrue(sample.contains(firstBadValue.substring(0, 100)), sample);
+    assertEquals(501, sample.length());
+    assertTrue(sample.endsWith("…"), sample);
   }
 
   @Test

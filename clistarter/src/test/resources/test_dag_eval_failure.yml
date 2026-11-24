@@ -1,0 +1,34 @@
+jobContext:
+  otherProperties:
+  metricTags:
+  dlqConfig:
+
+dag:
+  - id: "in"
+    commandName: "stdin"
+    config:
+      decoding:
+        compression: []
+        format:
+          type: "json"
+          mode: "array"
+    outputs:
+      - "parse"
+
+  - id: "parse"
+    commandName: "eval"
+    config:
+      expression: |
+        dict(
+          num=parse_int($.s)
+        )
+    outputs:
+      - "out"
+
+  - id: "out"
+    commandName: "stdout"
+    config:
+      encoding:
+        format:
+          type: "json"
+          mode: "object"

@@ -135,6 +135,43 @@ class RunSummaryMetricClientProviderTest {
   }
 
   @Test
+  void keepsFirstProcessingErrorSampleTruncated() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    FleakCounter delegateCounter = mock(FleakCounter.class);
+    when(delegate.counter(any(), any())).thenReturn(delegateCounter);
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+    DagRunCounters counters =
+        DagRunCounters.createPipelineCounters(provider, Map.of("service", "svc"));
+    String firstMessage = "first " + "x".repeat(2000);
+
+    counters.increaseErrorEventCounter(3, Map.of("node_id", "eval"));
+    counters.recordProcessingErrorSample(firstMessage);
+    counters.recordProcessingErrorSample("second");
+
+    RunSummary summary = provider.summarize();
+    assertEquals(3L, summary.counterTotal(METRIC_NAME_PIPELINE_ERROR_EVENT));
+    assertEquals(
+        firstMessage.substring(0, RunSummaryMetricClientProvider.MAX_ERROR_SAMPLE_LENGTH) + "…",
+        summary.processingErrorSample());
+    assertEquals(List.of(), summary.sinks());
+    verify(delegateCounter).recordErrorSample(firstMessage);
+  }
+
+  @Test
+  void hasNoProcessingErrorSampleWhenNoneRecorded() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+    Map<String, String> tags = Map.of("node_id", "sink", "command_name", "httpsink");
+    provider.counter(METRIC_NAME_SINK_OUTPUT_COUNT, tags);
+    FleakCounter sinkErrors = provider.counter(METRIC_NAME_SINK_ERROR_COUNT, tags);
+    sinkErrors.increase(Map.of());
+    sinkErrors.recordErrorSample("sink down");
+
+    assertNull(provider.summarize().processingErrorSample());
+  }
+
+  @Test
   void delegatesGaugeStopWatchAndClose() {
     MetricClientProvider delegate = mock(MetricClientProvider.class);
     @SuppressWarnings("unchecked")
