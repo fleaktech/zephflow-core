@@ -34,6 +34,11 @@ public interface Fetcher<T> extends Closeable {
     return false;
   }
 
+  /** Safe to call from any thread; sources that cannot read their backlog report unknown. */
+  default SourceBacklog backlog() {
+    return SourceBacklog.UNKNOWN;
+  }
+
   default Fetcher.Committer committer() {
     return null;
   }

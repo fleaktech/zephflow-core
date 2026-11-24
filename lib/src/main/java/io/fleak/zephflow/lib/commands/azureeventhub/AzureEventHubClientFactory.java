@@ -73,7 +73,8 @@ public class AzureEventHubClientFactory implements Serializable {
             .checkpointStore(checkpointStore)
             .initialPartitionEventPosition(partitionId -> initialPosition)
             .processEvent(processEvent)
-            .processError(processError);
+            .processError(processError)
+            .trackLastEnqueuedEventProperties(true);
     if (connection.usesConnectionString()) {
       builder.connectionString(connection.connectionString(), connection.eventHubName());
     } else {

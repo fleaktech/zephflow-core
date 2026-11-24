@@ -47,6 +47,10 @@ public class Main {
 
   public static final String RUN_SUMMARY_FILE_SYS_PROP = "zephflow.run.summary.file";
 
+  public static final String STATS_FILE_ENV_VAR = "ZEPHFLOW_STATS_FILE";
+
+  public static final String STATS_FILE_SYS_PROP = "zephflow.stats.file";
+
   public static void main(String[] args) throws Exception {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
@@ -55,7 +59,7 @@ public class Main {
             new RunSummaryMetricClientProvider(innerProvider);
         try {
           DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
-          dagExecutor.executeDag();
+          dagExecutor.executeDagWithStatsFile(resolveStatsPath());
         } catch (Exception e) {
           // Without this the failure only reaches stderr, which the run logs don't carry.
           log.error("Pipeline run failed: {}", e.getMessage(), e);
@@ -71,9 +75,18 @@ public class Main {
   }
 
   private static String resolveRunSummaryPath() {
-    String path = System.getenv(RUN_SUMMARY_FILE_ENV_VAR);
+    return resolvePath(RUN_SUMMARY_FILE_ENV_VAR, RUN_SUMMARY_FILE_SYS_PROP);
+  }
+
+  private static Path resolveStatsPath() {
+    String path = resolvePath(STATS_FILE_ENV_VAR, STATS_FILE_SYS_PROP);
+    return path == null || path.isBlank() ? null : Path.of(path);
+  }
+
+  private static String resolvePath(String envVar, String sysProp) {
+    String path = System.getenv(envVar);
     if (path == null || path.isBlank()) {
-      path = System.getProperty(RUN_SUMMARY_FILE_SYS_PROP);
+      path = System.getProperty(sysProp);
     }
     return path;
   }

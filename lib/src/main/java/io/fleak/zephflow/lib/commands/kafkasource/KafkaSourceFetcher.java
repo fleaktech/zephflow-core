@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.commands.kafkasource;
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceBacklog;
 import io.fleak.zephflow.lib.kafka.KafkaHealthMonitor;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
@@ -24,9 +25,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.common.Metric;
+import org.apache.kafka.common.MetricName;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 
 /** Created by bolei on 9/24/24 */
@@ -43,6 +48,9 @@ public final class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
   // Partition and offset of each record of the latest fetch, in the order fetch() returned them.
   private List<TopicPartition> fetchedPartitions = List.of();
   private long[] fetchedOffsets = new long[0];
+
+  // Computed on the polling thread because KafkaConsumer may not be used from other threads.
+  private volatile SourceBacklog backlog = SourceBacklog.UNKNOWN;
 
   public KafkaSourceFetcher(
       KafkaConsumer<byte[], byte[]> consumer,
@@ -87,7 +95,67 @@ public final class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
     }
     fetchedPartitions = partitions;
     fetchedOffsets = offsets;
+    try {
+      backlog = SourceBacklog.records(recordsLag(), partitionCount());
+    } catch (RuntimeException e) {
+      log.debug("could not read the consumer backlog", e);
+      backlog = SourceBacklog.UNKNOWN;
+    }
     return rawEvents;
+  }
+
+  @Override
+  public SourceBacklog backlog() {
+    return backlog;
+  }
+
+  /** Null unless every assigned partition has a lag sample, so a rebalance never reads as zero. */
+  private Long recordsLag() {
+    Set<TopicPartition> assigned = consumer.assignment();
+    if (assigned.isEmpty()) {
+      return null;
+    }
+    Map<TopicPartition, Double> lagByPartition = new HashMap<>();
+    for (Map.Entry<MetricName, ? extends Metric> entry : consumer.metrics().entrySet()) {
+      MetricName name = entry.getKey();
+      if (!"records-lag".equals(name.name())
+          || !"consumer-fetch-manager-metrics".equals(name.group())) {
+        continue;
+      }
+      String topic = name.tags().get("topic");
+      String partition = name.tags().get("partition");
+      if (topic == null
+          || partition == null
+          || !(entry.getValue().metricValue() instanceof Double lag)) {
+        continue;
+      }
+      lagByPartition.put(new TopicPartition(topic, Integer.parseInt(partition)), lag);
+    }
+    long total = 0;
+    for (TopicPartition tp : assigned) {
+      Double lag = lagByPartition.get(tp);
+      if (lag == null || lag.isNaN()) {
+        return null;
+      }
+      total += lag.longValue();
+    }
+    return total;
+  }
+
+  private Integer partitionCount() {
+    Set<String> topics = consumer.subscription();
+    if (topics.isEmpty()) {
+      return null;
+    }
+    int count = 0;
+    for (String topic : topics) {
+      List<PartitionInfo> partitions = consumer.partitionsFor(topic);
+      if (partitions == null || partitions.isEmpty()) {
+        return null;
+      }
+      count += partitions.size();
+    }
+    return count;
   }
 
   @Override

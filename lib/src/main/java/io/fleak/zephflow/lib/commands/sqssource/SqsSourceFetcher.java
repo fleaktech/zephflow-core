@@ -17,19 +17,26 @@ import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
+import io.fleak.zephflow.lib.commands.source.SourceBacklog;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.LongSupplier;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
+import software.amazon.awssdk.services.sqs.model.GetQueueAttributesRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
+import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 
 @Slf4j
 public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
+
+  private static final long BACKLOG_READ_INTERVAL_NANOS = Duration.ofSeconds(30).toNanos();
 
   private final SqsClient sqsClient;
   private final String queueUrl;
@@ -38,6 +45,9 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
   private final int visibilityTimeoutSeconds;
   private final ConcurrentLinkedQueue<String> pendingReceiptHandles = new ConcurrentLinkedQueue<>();
   private final FetchProgress<String> progress = new FetchProgress<>();
+  private final LongSupplier nanoClock;
+  private Long lastBacklogReadNanos;
+  private volatile SourceBacklog backlog = SourceBacklog.UNKNOWN;
 
   public SqsSourceFetcher(
       SqsClient sqsClient,
@@ -45,6 +55,23 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
       int maxNumberOfMessages,
       int waitTimeSeconds,
       int visibilityTimeoutSeconds) {
+    this(
+        sqsClient,
+        queueUrl,
+        maxNumberOfMessages,
+        waitTimeSeconds,
+        visibilityTimeoutSeconds,
+        System::nanoTime);
+  }
+
+  SqsSourceFetcher(
+      SqsClient sqsClient,
+      String queueUrl,
+      int maxNumberOfMessages,
+      int waitTimeSeconds,
+      int visibilityTimeoutSeconds,
+      LongSupplier nanoClock) {
+    this.nanoClock = nanoClock;
     this.sqsClient = sqsClient;
     this.queueUrl = queueUrl;
     this.maxNumberOfMessages = maxNumberOfMessages;
@@ -54,6 +81,7 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
 
   @Override
   public List<SqsReceivedMessage> fetch() {
+    maybeReadBacklog();
     ReceiveMessageRequest request =
         ReceiveMessageRequest.builder()
             .queueUrl(queueUrl)
@@ -87,6 +115,37 @@ public class SqsSourceFetcher implements Fetcher<SqsReceivedMessage> {
 
     log.debug("Fetched {} messages from SQS queue: {}", result.size(), queueUrl);
     return result;
+  }
+
+  @Override
+  public SourceBacklog backlog() {
+    return backlog;
+  }
+
+  private void maybeReadBacklog() {
+    long now = nanoClock.getAsLong();
+    if (lastBacklogReadNanos != null && now - lastBacklogReadNanos < BACKLOG_READ_INTERVAL_NANOS) {
+      return;
+    }
+    lastBacklogReadNanos = now;
+    try {
+      String depth =
+          sqsClient
+              .getQueueAttributes(
+                  GetQueueAttributesRequest.builder()
+                      .queueUrl(queueUrl)
+                      .attributeNames(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES)
+                      .build())
+              .attributes()
+              .get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES);
+      backlog =
+          depth == null
+              ? SourceBacklog.UNKNOWN
+              : SourceBacklog.records(Long.parseLong(depth), null);
+    } catch (Exception e) {
+      log.debug("could not read the depth of SQS queue {}", queueUrl, e);
+      backlog = SourceBacklog.UNKNOWN;
+    }
   }
 
   @Override

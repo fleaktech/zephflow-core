@@ -25,6 +25,7 @@ import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
 import io.fleak.zephflow.runner.spi.CommandProvider;
+import java.nio.file.Path;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -91,6 +92,11 @@ public record DagExecutor(
   }
 
   public void executeDag() throws Exception {
+    executeDagWithStatsFile(null);
+  }
+
+  /** Also keeps {@code statsFile} up to date while the source runs, when it is not null. */
+  public void executeDagWithStatsFile(Path statsFile) throws Exception {
     applyLogLevel(jobConfig.getDagDefinition().getJobContext());
     var compiledDag = dagCompiler.compile(jobConfig.getDagDefinition(), true);
     Pair<Dag<OperatorCommand>, Dag<OperatorCommand>> entryNodesDagAndRest =
@@ -115,10 +121,18 @@ public record DagExecutor(
             jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
     ShutdownFlushHook shutdownFlushHook =
         new ShutdownFlushHook(sourceCommand, noSourceDagRunner, ShutdownFlushHook.DEFAULT_TIMEOUT);
+    List<OperatorCommand> downstreamCommands =
+        subDagWithoutSource.getNodes().stream().map(Node::getNodeContent).toList();
+    RunStatsFileWriter statsWriter = null;
     try {
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
       shutdownFlushHook.install();
+      if (statsFile != null) {
+        statsWriter =
+            RunStatsFileWriter.start(
+                statsFile, () -> RunStats.collect(sourceNodeId, sourceCommand, downstreamCommands));
+      }
 
       if (sourceCommand.confirmsDeliveryBeforeCommit()) {
         noSourceDagRunner.deferDeliveryConfirmation();
@@ -155,6 +169,9 @@ public record DagExecutor(
             }
           });
     } finally {
+      if (statsWriter != null) {
+        statsWriter.close();
+      }
       try {
         sourceCommand.terminate();
         noSourceDagRunner.terminate();

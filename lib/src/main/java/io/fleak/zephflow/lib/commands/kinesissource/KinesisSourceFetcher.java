@@ -20,6 +20,7 @@ import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
 import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceBacklog;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -59,6 +60,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   private final AtomicReference<Exception> schedulerError = new AtomicReference<>();
 
   private final ArrayBlockingQueue<ShardRecord> recordQueue = new ArrayBlockingQueue<>(500);
+  private final Map<String, Long> millisBehindByShard = new ConcurrentHashMap<>();
   private final AtomicReference<Scheduler> schedulerRef = new AtomicReference<>();
 
   private final FetchProgress<ShardRecord> progress = new FetchProgress<>();
@@ -91,7 +93,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
         AwsClientFactory.getCloudWatchAsyncClient(
             region, config.getCloudWatchEndpoint(), credentialsProvider);
 
-    var recordProcessorFactory = new RecordProcessorFactory(recordQueue);
+    var recordProcessorFactory = new RecordProcessorFactory(recordQueue, millisBehindByShard);
     ConfigsBuilder configsBuilder =
         new ConfigsBuilder(
             config.getStreamName(),
@@ -126,7 +128,15 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   KinesisSourceFetcher() {}
 
   ShardRecordProcessor newShardRecordProcessor() {
-    return new ZephflowShardRecordProcessor(recordQueue);
+    return new ZephflowShardRecordProcessor(recordQueue, millisBehindByShard);
+  }
+
+  @Override
+  public SourceBacklog backlog() {
+    return millisBehindByShard.values().stream()
+        .max(Long::compare)
+        .map(SourceBacklog::millisBehind)
+        .orElse(SourceBacklog.UNKNOWN);
   }
 
   public void start() {
@@ -301,9 +311,12 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   public static class RecordProcessorFactory implements ShardRecordProcessorFactory {
 
     private final BlockingQueue<ShardRecord> records;
+    private final Map<String, Long> millisBehindByShard;
 
-    private RecordProcessorFactory(BlockingQueue<ShardRecord> records) {
+    private RecordProcessorFactory(
+        BlockingQueue<ShardRecord> records, Map<String, Long> millisBehindByShard) {
       this.records = records;
+      this.millisBehindByShard = millisBehindByShard;
     }
 
     @Override
@@ -313,7 +326,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
 
     @Override
     public ShardRecordProcessor shardRecordProcessor() {
-      return new ZephflowShardRecordProcessor(records);
+      return new ZephflowShardRecordProcessor(records, millisBehindByShard);
     }
   }
 
@@ -321,11 +334,14 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   public static class ZephflowShardRecordProcessor implements ShardRecordProcessor {
 
     private final BlockingQueue<ShardRecord> records;
+    private final Map<String, Long> millisBehindByShard;
     private String shardId;
 
-    private ZephflowShardRecordProcessor(BlockingQueue<ShardRecord> records) {
+    private ZephflowShardRecordProcessor(
+        BlockingQueue<ShardRecord> records, Map<String, Long> millisBehindByShard) {
       log.info("Starting ZephflowShardRecordProcessor processor");
       this.records = records;
+      this.millisBehindByShard = millisBehindByShard;
     }
 
     @Override
@@ -341,6 +357,10 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       // pull based.
       // To bridge this we push data to a blocking queue which Zephflow will pull from as it
       // processes the records.
+      Long millisBehind = processRecordsInput.millisBehindLatest();
+      if (millisBehind != null) {
+        millisBehindByShard.put(shardId, millisBehind);
+      }
       var checkpointer = processRecordsInput.checkpointer();
       for (var record : processRecordsInput.records()) {
         try {
@@ -357,11 +377,13 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     @Override
     public void leaseLost(LeaseLostInput leaseLostInput) {
       log.info("Lease lost: {}", leaseLostInput);
+      millisBehindByShard.remove(shardId);
     }
 
     @Override
     public void shardEnded(ShardEndedInput shardEndedInput) {
       log.info("Shard ended: {}", shardEndedInput);
+      millisBehindByShard.remove(shardId);
       try {
         shardEndedInput.checkpointer().checkpoint();
       } catch (Exception e) {
@@ -373,6 +395,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     public void shutdownRequested(ShutdownRequestedInput shutdownRequestedInput) {
       // Records still queued here are not handled yet; the source checkpoints what it handles.
       log.info("Shutdown requested: {}", shutdownRequestedInput);
+      millisBehindByShard.remove(shardId);
     }
   }
 }

@@ -63,6 +63,37 @@ class MainTest {
   }
 
   @Test
+  public void testMainWritesStatsFile(@TempDir Path tempDir) throws Exception {
+    Path statsFile = tempDir.resolve("stats.json");
+
+    System.setProperty(Main.STATS_FILE_SYS_PROP, statsFile.toString());
+    try {
+      runMainWithStdioDag();
+    } finally {
+      System.clearProperty(Main.STATS_FILE_SYS_PROP);
+    }
+
+    Map<String, Object> payload =
+        fromJsonString(Files.readString(statsFile), new TypeReference<Map<String, Object>>() {});
+    Map<String, Object> stdinSource = new HashMap<>();
+    stdinSource.put("nodeId", "a");
+    stdinSource.put("backlog", null);
+    stdinSource.put("backlogUnit", "records");
+    stdinSource.put("partitionCount", null);
+    assertEquals(
+        Map.of(
+            "sources",
+            List.of(stdinSource),
+            "bufferState",
+            "EMPTY",
+            "drainState",
+            "RUNNING",
+            "supportsDrain",
+            false),
+        payload);
+  }
+
+  @Test
   public void testMainWritesRunSummaryWhenPipelineFails(@TempDir Path tempDir) throws Exception {
     Path summaryFile = tempDir.resolve("run-summary.json");
 
