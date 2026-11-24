@@ -14,6 +14,7 @@
 package io.fleak.zephflow.lib.commands;
 
 import static io.fleak.zephflow.lib.utils.JsonUtils.OBJECT_MAPPER;
+import static io.fleak.zephflow.lib.utils.JsonUtils.toJsonNode;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,6 +30,7 @@ import io.fleak.zephflow.lib.commands.TemplatePlaceholderResolver.MissingValue;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,7 +70,6 @@ public final class JsonTemplate {
     return new JsonTemplate(compile(tree, path));
   }
 
-  /** Renders the template for one event as a JSON string. */
   public String render(FleakData event) {
     try {
       return OBJECT_MAPPER.writeValueAsString(root.render(event));
@@ -88,12 +89,12 @@ public final class JsonTemplate {
         }
         fields.put(field.getKey(), compile(field.getValue(), path));
       }
-      return new ObjectPart(fields);
+      return allLiteral(fields.values()) ? new Literal(node) : new ObjectPart(fields);
     }
     if (node.isArray()) {
       List<Part> elements = new ArrayList<>();
       node.forEach(element -> elements.add(compile(element, path)));
-      return new ArrayPart(elements);
+      return allLiteral(elements) ? new Literal(node) : new ArrayPart(elements);
     }
     if (node.isTextual()) {
       String text = node.textValue();
@@ -113,6 +114,10 @@ public final class JsonTemplate {
     return new Literal(node);
   }
 
+  private static boolean allLiteral(Collection<Part> parts) {
+    return parts.stream().allMatch(part -> part instanceof Literal);
+  }
+
   private sealed interface Part permits Literal, Slot, MixedString, ObjectPart, ArrayPart {
     JsonNode render(FleakData event);
   }
@@ -128,7 +133,7 @@ public final class JsonTemplate {
     @Override
     public JsonNode render(FleakData event) {
       FleakData value = pathExpression.calculateValue(event);
-      return value == null ? NullNode.getInstance() : OBJECT_MAPPER.valueToTree(value.unwrap());
+      return value == null ? NullNode.getInstance() : toJsonNode(value);
     }
   }
 
