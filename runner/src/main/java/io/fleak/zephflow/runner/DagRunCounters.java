@@ -51,6 +51,10 @@ public record DagRunCounters(
     errorEventCounter.increase(n, callingUserTag);
   }
 
+  public void recordProcessingErrorSample(String errorMessage) {
+    errorEventCounter.recordErrorSample(errorMessage);
+  }
+
   public void increaseNumRequestCounter(long n, Map<String, String> callingUserTag) {
     numRequests.increase(n, callingUserTag);
   }

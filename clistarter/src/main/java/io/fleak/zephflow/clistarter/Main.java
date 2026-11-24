@@ -87,6 +87,9 @@ public class Main {
       payload.put("counters", new TreeMap<>(runSummary.counters()));
       payload.put("summary", runSummary.summaryText());
       payload.put("sinks", runSummary.sinks());
+      if (runSummary.processingErrorSample() != null) {
+        payload.put("processingErrorSample", runSummary.processingErrorSample());
+      }
       Files.writeString(Path.of(path), JsonUtils.toJsonString(payload));
       log.info("Wrote run summary to {}: {}", path, runSummary.summaryText());
     } catch (Exception e) {

@@ -454,8 +454,17 @@ public class NoSourceDagRunner {
         tags.put(METRIC_TAG_NODE_ID, nee.getNodeId());
         tags.put(METRIC_TAG_COMMAND_NAME, nee.getCommandName());
         counters.increaseErrorEventCounter(events.size(), tags);
+        recordProcessingErrorSample(
+            compiledDagWithoutSource.lookupNode(nee.getNodeId()).getNodeContent(),
+            nee.getMessage());
         log.debug("node {} failed; isolating branch", nee.getNodeId(), nee);
       }
+    }
+  }
+
+  private void recordProcessingErrorSample(OperatorCommand command, String errorMessage) {
+    if (!(command instanceof ScalarSinkCommand)) {
+      counters.recordProcessingErrorSample(errorMessage);
     }
   }
 
@@ -489,6 +498,9 @@ public class NoSourceDagRunner {
             result.getOutput(),
             result.getFailureEvents(),
             counters);
+        if (CollectionUtils.isNotEmpty(result.getFailureEvents())) {
+          counters.recordProcessingErrorSample(result.getFailureEvents().getFirst().errorMessage());
+        }
 
         routeToDownstream(
             currentNodeId, command.commandName(), result.getOutput(), downstreamEdges, runContext);
@@ -800,6 +812,7 @@ public class NoSourceDagRunner {
         tags.put(METRIC_TAG_NODE_ID, nodeId);
         tags.put(METRIC_TAG_COMMAND_NAME, command.commandName());
         counters.increaseErrorEventCounter(1, tags);
+        recordProcessingErrorSample(command, e.getMessage());
         continue;
       }
       if (CollectionUtils.isEmpty(output)) {

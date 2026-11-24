@@ -24,10 +24,15 @@ import java.util.Map;
  * End-of-run totals. {@code sinks} breaks delivery down per sink node so a caller can tell a run
  * whose sinks wrote everything from one whose sinks rejected every record — both exit 0.
  */
-public record RunSummary(Map<String, Long> counters, List<SinkSummary> sinks) {
+public record RunSummary(
+    Map<String, Long> counters, List<SinkSummary> sinks, String processingErrorSample) {
 
   public RunSummary(Map<String, Long> counters) {
-    this(counters, List.of());
+    this(counters, List.of(), null);
+  }
+
+  public RunSummary(Map<String, Long> counters, List<SinkSummary> sinks) {
+    this(counters, sinks, null);
   }
 
   /**
