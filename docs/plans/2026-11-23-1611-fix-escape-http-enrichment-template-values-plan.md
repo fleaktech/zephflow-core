@@ -89,7 +89,6 @@ The HTTP Client provider inserts event values into its templates verbatim (`Temp
 #### Deferred to Follow-Up Work
 
 - dynamicapi rollout, after a zephflow-plus release containing PR2 exists. The Grid runs the zephflow-plus version dynamicapi was built with (`appserver/build.gradle`), so the fix reaches running pipelines only after this step:
-  - Before the bump, query deployed HTTP Client configs for payload templates that are not JSON even with bare placeholders counted as values (for example plain text), and set `payloadFormat: text` on them or tell their owners.
   - Bump `zephflowplus-commands` in `gradle/libs.versions.toml`.
   - Add a `payloadFormat` pass-through assertion to `EnrichmentTranslatorTest` (R13).
 - webapp: a `payloadFormat` dropdown in the HTTP Client form. The zod schema (`webapp/src/api/fleak/schemas/common.ts`, `EnrichmentHttpClientProviderSchema`) strips unknown keys, so a UI edit resets `payloadFormat` to the default `json` until the dropdown exists.
@@ -180,7 +179,7 @@ flowchart TB
 ### Risks & Dependencies
 
 - PR2 depends on a published zephflow-core release. Until a maintainer publishes it, PR2 stays open with CI unable to resolve the new version.
-- A deployed HTTP Client node whose payload template is not JSON at all (for example plain text) fails at provider creation as soon as its job starts on the new zephflow-plus runtime, including a restart without redeploy. This was accepted with the no-compatibility decision; the pre-bump query in the dynamicapi follow-up finds such nodes, which need `payloadFormat: text`.
+- A deployed HTTP Client node whose payload template is not JSON at all (for example plain text) fails at provider creation as soon as its job starts on the new zephflow-plus runtime, including a restart without redeploy. This was accepted with the no-compatibility decision, and the rollout does not migrate existing workflows; such a node needs `payloadFormat: text`.
 - Accepted, not built: a template whose whole URL or whole host comes from an event field (AE5) can send configured credentials to any public host the event names, because `SecurityUtils.isUrlAllowed` only rejects private and loopback addresses. This follows the settled `{+var}` decision; revisit with a host allowlist if users attach static auth to such templates.
 
 ---
