@@ -199,4 +199,16 @@ class TemplatePlaceholderResolverTest {
         TemplatePlaceholderResolver.create("geo={{$.geo}} end", Escaping.NONE, MissingValue.EMPTY)
             .resolvePlaceholders(URL_EVENT));
   }
+
+  @Test
+  void urlEscapingIgnoresASchemeSeparatorThatAppearsAfterThePathStarts() {
+    FleakData event =
+        FleakData.wrap(Map.of("base", "https://h.io", "id", "a&b c", "q", "x&admin=true"));
+    assertEquals(
+        "https://h.io/items/a%26b%20c?cb=https://x.com",
+        url("{{$.base}}/items/{{$.id}}?cb=https://x.com", event));
+    assertEquals(
+        "https://h.io/search?q=x%26admin%3Dtrue&next=https://app.example.com",
+        url("{{$.base}}/search?q={{$.q}}&next=https://app.example.com", event));
+  }
 }

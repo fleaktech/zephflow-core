@@ -41,7 +41,6 @@ public class TemplatePlaceholderResolver {
 
   /** How resolved values are encoded for the text the template produces. */
   public enum Escaping {
-    /** Insert values verbatim. */
     NONE,
     /**
      * The template is a URL. Values after the scheme and host are percent-encoded. A placeholder
@@ -55,7 +54,6 @@ public class TemplatePlaceholderResolver {
   public enum MissingValue {
     /** Return null for the whole template so the caller can detect the missing field. */
     RETURN_NULL,
-    /** Render the missing value as empty text. */
     EMPTY
   }
 
@@ -101,7 +99,6 @@ public class TemplatePlaceholderResolver {
     return create(template, path, Escaping.NONE, MissingValue.RETURN_NULL);
   }
 
-  /** Locates an invalid placeholder in the configuration field containing its template. */
   public static TemplatePlaceholderResolver create(
       String template, ConfigurationPath path, Escaping escaping, MissingValue missingValue) {
     try {
@@ -139,7 +136,6 @@ public class TemplatePlaceholderResolver {
     return resolve(event, true);
   }
 
-  /** The placeholders in template order. */
   List<Placeholder> placeholders() {
     return placeholders;
   }
@@ -171,7 +167,6 @@ public class TemplatePlaceholderResolver {
     return result.toString();
   }
 
-  /** The value as text: records and arrays as JSON, everything else via its string form. */
   static String text(FleakData fleakData) {
     if (fleakData instanceof RecordFleakData || fleakData instanceof ArrayFleakData) {
       return toJsonString(fleakData.unwrap());
@@ -214,17 +209,11 @@ public class TemplatePlaceholderResolver {
       Arrays.fill(literal, placeholder.start, placeholder.end, '\0');
     }
     String literalText = new String(literal);
-    int schemeEnd = literalText.indexOf("://");
-    int hostStart = schemeEnd < 0 ? 0 : schemeEnd + 3;
-    int hostEnd = template.length();
-    for (int i = hostStart; i < literalText.length(); i++) {
-      char c = literalText.charAt(i);
-      if (c == '/' || c == '?' || c == '#') {
-        hostEnd = i;
-        break;
-      }
-    }
-    int boundary = hostEnd;
+    int separator = literalText.indexOf("://");
+    // A "://" after the path starts belongs to a path or query value, not the scheme.
+    boolean hasScheme = separator >= 0 && separator < firstPathDelimiter(literalText, 0);
+    int hostStart = hasScheme ? separator + 3 : 0;
+    int boundary = firstPathDelimiter(literalText, hostStart);
     return placeholders.stream()
         .map(
             placeholder -> {
@@ -233,10 +222,21 @@ public class TemplatePlaceholderResolver {
               }
               boolean startsTemplate = placeholder.start == 0;
               boolean wholeHost =
-                  schemeEnd >= 0 && placeholder.start == hostStart && placeholder.end == boundary;
+                  hasScheme && placeholder.start == hostStart && placeholder.end == boundary;
               return startsTemplate || wholeHost ? Encoding.VERBATIM : Encoding.HOST_SEGMENT;
             })
         .toList();
+  }
+
+  /** Index of the first '/', '?' or '#' at or after {@code from}, or the text length if none. */
+  private static int firstPathDelimiter(String literalText, int from) {
+    for (int i = from; i < literalText.length(); i++) {
+      char c = literalText.charAt(i);
+      if (c == '/' || c == '?' || c == '#') {
+        return i;
+      }
+    }
+    return literalText.length();
   }
 
   private static List<Placeholder> extractPlaceholders(String template, ConfigurationPath path) {
