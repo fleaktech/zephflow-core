@@ -109,7 +109,7 @@ public final class TestCertificateAuthority {
       KeyManagerFactory keyManagers =
           KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
       keyManagers.init(keyStore, keyPassword);
-      SSLContext context = SSLContext.getInstance("TLS");
+      SSLContext context = SSLContext.getInstance("TLSv1.3");
       context.init(keyManagers.getKeyManagers(), null, null);
       return context;
     } catch (GeneralSecurityException | IOException e) {
