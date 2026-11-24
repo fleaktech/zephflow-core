@@ -38,11 +38,12 @@ class RunStatsTest {
             source(SourceBacklog.records(150L, 6)),
             List.of(sink(false)),
             RunStats.DrainState.RUNNING,
-            false);
+            false,
+            null);
 
     assertEquals(
         new RunStats(
-            List.of(new RunStats.SourceStats("kafka", 150L, "records", 6)),
+            List.of(new RunStats.SourceStats("kafka", 150L, "records", 6, null)),
             RunStats.BufferState.EMPTY,
             RunStats.DrainState.RUNNING,
             false),
@@ -57,19 +58,23 @@ class RunStatsTest {
             source(SourceBacklog.millisBehind(7_000L)),
             List.of(),
             RunStats.DrainState.RUNNING,
-            false);
+            false,
+            null);
 
     assertEquals(
-        new RunStats.SourceStats("kinesis", 7_000L, "millis", null), stats.sources().getFirst());
+        new RunStats.SourceStats("kinesis", 7_000L, "millis", null, null),
+        stats.sources().getFirst());
   }
 
   @Test
   void aSourceWhoseFetcherCannotReadItsBacklogReportsUnknown() {
     RunStats stats =
-        RunStats.collect("pubsub", source(null), List.of(), RunStats.DrainState.RUNNING, false);
+        RunStats.collect(
+            "pubsub", source(null), List.of(), RunStats.DrainState.RUNNING, false, null);
 
     assertEquals(
-        new RunStats.SourceStats("pubsub", null, "records", null), stats.sources().getFirst());
+        new RunStats.SourceStats("pubsub", null, "records", null, null),
+        stats.sources().getFirst());
   }
 
   @Test
@@ -78,11 +83,27 @@ class RunStatsTest {
     when(syslog.isInitialized()).thenReturn(true);
 
     RunStats stats =
-        RunStats.collect("syslog", syslog, List.of(), RunStats.DrainState.RUNNING, false);
+        RunStats.collect("syslog", syslog, List.of(), RunStats.DrainState.RUNNING, false, null);
 
     assertEquals(
-        new RunStats.SourceStats("syslog", null, "records", null), stats.sources().getFirst());
+        new RunStats.SourceStats("syslog", null, "records", null, null),
+        stats.sources().getFirst());
     assertEquals(false, stats.supportsDrain());
+  }
+
+  @Test
+  void reportsHowManyRecordsTheSourceHasConsumed() {
+    RunStats stats =
+        RunStats.collect(
+            "kafka",
+            source(SourceBacklog.records(150L, 6)),
+            List.of(),
+            RunStats.DrainState.RUNNING,
+            false,
+            42L);
+
+    assertEquals(
+        new RunStats.SourceStats("kafka", 150L, "records", 6, 42L), stats.sources().getFirst());
   }
 
   @Test
@@ -93,7 +114,8 @@ class RunStatsTest {
             source(SourceBacklog.UNKNOWN),
             List.of(sink(false), sink(true), notASink()),
             RunStats.DrainState.RUNNING,
-            false);
+            false,
+            null);
 
     assertEquals(RunStats.BufferState.PENDING, stats.bufferState());
   }
@@ -121,7 +143,12 @@ class RunStatsTest {
   void carriesTheDrainStateAndWhetherTheSourceCanDrain() {
     RunStats stats =
         RunStats.collect(
-            "kafka", source(SourceBacklog.UNKNOWN), List.of(), RunStats.DrainState.DRAINING, true);
+            "kafka",
+            source(SourceBacklog.UNKNOWN),
+            List.of(),
+            RunStats.DrainState.DRAINING,
+            true,
+            null);
 
     assertEquals(RunStats.DrainState.DRAINING, stats.drainState());
     assertTrue(stats.supportsDrain());
@@ -133,7 +160,7 @@ class RunStatsTest {
     SourceCommand source = mock(SourceCommand.class);
 
     RunStats stats =
-        RunStats.collect("src", source, List.of(sink), RunStats.DrainState.RUNNING, false);
+        RunStats.collect("src", source, List.of(sink), RunStats.DrainState.RUNNING, false, null);
 
     assertEquals(RunStats.BufferState.EMPTY, stats.bufferState());
     assertEquals(null, stats.sources().getFirst().backlog());

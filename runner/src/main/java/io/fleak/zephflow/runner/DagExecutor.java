@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.runner;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 
@@ -146,7 +147,10 @@ public record DagExecutor(
                         sourceCommand,
                         downstreamCommands,
                         drainControl.state(),
-                        drainControl.supportsDrain()));
+                        drainControl.supportsDrain(),
+                        metricClientProvider instanceof RunSummaryMetricClientProvider summary
+                            ? summary.nodeCounterTotal(sourceNodeId, METRIC_NAME_INPUT_EVENT_COUNT)
+                            : null));
       }
       drainControl.start(DrainControl.POLL_INTERVAL);
 

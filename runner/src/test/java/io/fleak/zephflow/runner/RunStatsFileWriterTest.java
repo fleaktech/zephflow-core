@@ -39,8 +39,8 @@ class RunStatsFileWriterTest {
     RunStats stats =
         new RunStats(
             List.of(
-                new RunStats.SourceStats("kafka", 150L, "records", 6),
-                new RunStats.SourceStats("pubsub", null, "records", null)),
+                new RunStats.SourceStats("kafka", 150L, "records", 6, 1_000L),
+                new RunStats.SourceStats("pubsub", null, "records", null, null)),
             RunStats.BufferState.PENDING,
             RunStats.DrainState.RUNNING,
             false);
@@ -58,7 +58,9 @@ class RunStatsFileWriterTest {
                       "backlogUnit",
                       "records",
                       "partitionCount",
-                      6),
+                      6,
+                      "consumedRecords",
+                      1000),
                   nullBacklog("pubsub")),
               "bufferState",
               "PENDING",
@@ -94,7 +96,7 @@ class RunStatsFileWriterTest {
     int sourceCount = 20_000;
     List<RunStats.SourceStats> manySources =
         LongStream.range(0, sourceCount)
-            .mapToObj(i -> new RunStats.SourceStats("source-" + i, i, "records", 6))
+            .mapToObj(i -> new RunStats.SourceStats("source-" + i, i, "records", 6, i))
             .toList();
     RunStats big =
         new RunStats(manySources, RunStats.BufferState.EMPTY, RunStats.DrainState.RUNNING, false);
@@ -130,7 +132,7 @@ class RunStatsFileWriterTest {
 
   private static RunStats stats(long backlog) {
     return new RunStats(
-        List.of(new RunStats.SourceStats("kafka", backlog, "records", 6)),
+        List.of(new RunStats.SourceStats("kafka", backlog, "records", 6, backlog)),
         RunStats.BufferState.EMPTY,
         RunStats.DrainState.RUNNING,
         false);
@@ -142,6 +144,7 @@ class RunStatsFileWriterTest {
     source.put("backlog", null);
     source.put("backlogUnit", "records");
     source.put("partitionCount", null);
+    source.put("consumedRecords", null);
     return source;
   }
 

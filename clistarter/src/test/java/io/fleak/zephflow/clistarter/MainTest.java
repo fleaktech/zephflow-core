@@ -76,6 +76,11 @@ class MainTest {
 
     Map<String, Object> payload =
         fromJsonString(Files.readString(statsFile), new TypeReference<Map<String, Object>>() {});
+    @SuppressWarnings("unchecked")
+    Map<String, Object> reportedSource =
+        ((List<Map<String, Object>>) payload.get("sources")).getFirst();
+    // the snapshot may be taken before or after stdin is read
+    assertInstanceOf(Number.class, reportedSource.remove("consumedRecords"));
     Map<String, Object> stdinSource = new HashMap<>();
     stdinSource.put("nodeId", "a");
     stdinSource.put("backlog", null);

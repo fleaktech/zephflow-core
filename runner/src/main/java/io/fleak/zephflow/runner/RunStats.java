@@ -25,7 +25,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * What the run stats file carries. A null backlog or partition count means unknown. The buffer is
+ * What the run stats file carries. A null backlog, partition count or consumed count means unknown;
+ * consumedRecords counts every record the source has consumed since the run started. The buffer is
  * PENDING while any sink's store-and-forward buffer holds records, and WAITING_FOR_SPACE while a
  * writer is blocked on a full one.
  */
@@ -48,14 +49,19 @@ public record RunStats(
   }
 
   public record SourceStats(
-      String nodeId, Long backlog, String backlogUnit, Integer partitionCount) {}
+      String nodeId,
+      Long backlog,
+      String backlogUnit,
+      Integer partitionCount,
+      Long consumedRecords) {}
 
   static RunStats collect(
       String sourceNodeId,
       SourceCommand source,
       Collection<? extends OperatorCommand> downstream,
       DrainState drainState,
-      boolean supportsDrain) {
+      boolean supportsDrain,
+      Long consumedRecords) {
     SourceBacklog backlog =
         contextOf(source) instanceof SourceExecutionContext<?> sourceContext
             ? sourceContext.fetcher().backlog()
@@ -66,7 +72,8 @@ public record RunStats(
                 sourceNodeId,
                 backlog.amount(),
                 backlog.unit().name().toLowerCase(Locale.ROOT),
-                backlog.partitionCount())),
+                backlog.partitionCount(),
+                consumedRecords)),
         bufferState(downstream),
         drainState,
         supportsDrain);

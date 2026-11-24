@@ -93,6 +93,12 @@ public final class RunSummaryMetricClientProvider implements MetricClientProvide
     delegate.close();
   }
 
+  Long nodeCounterTotal(String nodeId, String counterName) {
+    NodeTotals node = nodeTotals.get(nodeId);
+    LongAdder adder = node == null ? null : node.counters.get(counterName);
+    return adder == null ? null : adder.sum();
+  }
+
   public RunSummary summarize() {
     Map<String, Long> totals = new HashMap<>();
     counterTotals.forEach((counterName, adder) -> totals.put(counterName, adder.sum()));
