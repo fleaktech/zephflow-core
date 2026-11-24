@@ -37,6 +37,8 @@ class SimpleSourceCommandPauseTest {
   private final AtomicInteger fetched = new AtomicInteger();
   private final AtomicInteger accepted = new AtomicInteger();
   private final AtomicInteger committedThrough = new AtomicInteger();
+  private volatile boolean pauseFails;
+  private volatile boolean pauseFailsFatally;
 
   private final Fetcher<Integer> fetcher =
       new Fetcher<>() {
@@ -67,6 +69,12 @@ class SimpleSourceCommandPauseTest {
         @Override
         public void pause() {
           calls.add("pause");
+          if (pauseFails) {
+            throw new IllegalStateException("commit failed during a rebalance");
+          }
+          if (pauseFailsFatally) {
+            throw new FatalPauseException("records dropped", new IllegalStateException());
+          }
         }
 
         @Override
@@ -154,6 +162,41 @@ class SimpleSourceCommandPauseTest {
     assertFalse(loop.isAlive());
     assertFalse(source.isPaused());
     assertFalse(calls.contains("pause"));
+  }
+
+  @Test
+  void aFailedPauseKeepsTheSourceFetching() throws Exception {
+    pauseFails = true;
+    SimpleSourceCommand<Integer> source = source();
+    Thread loop = new Thread(() -> source.execute("user", acceptor));
+    loop.start();
+
+    awaitTrue(() -> accepted.get() >= 2);
+    source.requestPause();
+    awaitTrue(() -> calls.contains("pause"));
+    int fetchedAtPause = fetched.get();
+    awaitTrue(() -> fetched.get() > fetchedAtPause + 2);
+    assertTrue(loop.isAlive());
+    assertFalse(source.isPaused());
+
+    source.requestStop();
+    loop.join(TIMEOUT.toMillis());
+    assertFalse(loop.isAlive());
+  }
+
+  @Test
+  void aFatalPauseFailureEndsTheSource() throws Exception {
+    pauseFailsFatally = true;
+    SimpleSourceCommand<Integer> source = source();
+    Thread loop = new Thread(() -> source.execute("user", acceptor));
+    loop.start();
+
+    awaitTrue(() -> accepted.get() >= 2);
+    source.requestPause();
+    loop.join(TIMEOUT.toMillis());
+
+    assertFalse(loop.isAlive());
+    assertEquals("pause", calls.getLast());
   }
 
   @Test

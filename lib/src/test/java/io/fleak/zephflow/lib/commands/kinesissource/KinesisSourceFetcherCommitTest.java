@@ -25,10 +25,15 @@ import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import software.amazon.kinesis.coordinator.Scheduler;
@@ -194,6 +199,86 @@ class KinesisSourceFetcherCommitTest {
     verify(scheduler, timeout(5_000)).run();
     stopped.countDown();
     fetcher.close();
+  }
+
+  @Test
+  void aTimedOutGracefulShutdownForcesTheOldSchedulerToStopBeforeResumeStartsANewOne()
+      throws Exception {
+    List<String> events = new CopyOnWriteArrayList<>();
+    CountDownLatch oldStopped = new CountDownLatch(1);
+    Scheduler old = mock();
+    when(old.startGracefulShutdown()).thenReturn(CompletableFuture.completedFuture(false));
+    doAnswer(
+            call -> {
+              events.add("old shutdown");
+              oldStopped.countDown();
+              return null;
+            })
+        .when(old)
+        .shutdown();
+    doAnswer(
+            call -> {
+              oldStopped.await();
+              events.add("old run exited");
+              return null;
+            })
+        .when(old)
+        .run();
+    CountDownLatch newStopped = new CountDownLatch(1);
+    Scheduler next = runsUntil(newStopped, events, "new run started");
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(schedulers(old, next));
+    fetcher.start();
+    verify(old, timeout(5_000)).run();
+
+    fetcher.pause();
+    fetcher.resume();
+
+    verify(next, timeout(5_000)).run();
+    assertEquals(List.of("old shutdown", "old run exited", "new run started"), events);
+    assertEquals(List.of(), fetcher.fetch());
+    newStopped.countDown();
+    fetcher.close();
+  }
+
+  @Test
+  void anOldRunExitingAfterResumeDoesNotMarkTheNewSchedulerAsStopped() throws Exception {
+    List<String> events = new CopyOnWriteArrayList<>();
+    CountDownLatch oldStopped = new CountDownLatch(1);
+    Scheduler old = runsUntil(oldStopped, events, "old run started");
+    when(old.startGracefulShutdown()).thenReturn(CompletableFuture.completedFuture(true));
+    CountDownLatch newStopped = new CountDownLatch(1);
+    Scheduler next = runsUntil(newStopped, events, "new run started");
+    KinesisSourceFetcher fetcher =
+        new KinesisSourceFetcher(schedulers(old, next), Duration.ofMillis(200));
+    fetcher.start();
+    verify(old, timeout(5_000)).run();
+
+    fetcher.pause();
+    fetcher.resume();
+    oldStopped.countDown();
+
+    verify(next, timeout(5_000)).run();
+    assertEquals(List.of(), fetcher.fetch());
+    newStopped.countDown();
+    fetcher.close();
+  }
+
+  private static Scheduler runsUntil(CountDownLatch stopped, List<String> events, String started) {
+    Scheduler scheduler = mock();
+    doAnswer(
+            call -> {
+              events.add(started);
+              stopped.await(30, TimeUnit.SECONDS);
+              return null;
+            })
+        .when(scheduler)
+        .run();
+    return scheduler;
+  }
+
+  private static Supplier<Scheduler> schedulers(Scheduler... schedulers) {
+    Iterator<Scheduler> next = List.of(schedulers).iterator();
+    return next::next;
   }
 
   @Test

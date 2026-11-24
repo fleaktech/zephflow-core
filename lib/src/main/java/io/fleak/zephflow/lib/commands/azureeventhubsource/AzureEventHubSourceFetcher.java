@@ -18,6 +18,7 @@ import com.azure.messaging.eventhubs.EventProcessorClient;
 import com.azure.messaging.eventhubs.models.EventContext;
 import com.azure.messaging.eventhubs.models.LastEnqueuedEventProperties;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
+import io.fleak.zephflow.lib.commands.source.FatalPauseException;
 import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
 import io.fleak.zephflow.lib.commands.source.SourceBacklog;
@@ -218,9 +219,10 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
         // keep emptying the queue
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        break;
+        throw new FatalPauseException("interrupted while stopping the Event Hub processor", e);
       } catch (ExecutionException e) {
-        throw new IllegalStateException("failed to stop the Event Hub processor", e.getCause());
+        // The queue is already dropped; a still-running processor would checkpoint past it.
+        throw new FatalPauseException("failed to stop the Event Hub processor", e.getCause());
       }
     }
     queue.clear();

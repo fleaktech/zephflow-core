@@ -657,6 +657,19 @@ public class NoSourceDagRunner {
     }
   }
 
+  public boolean isTerminated() {
+    return terminated.get();
+  }
+
+  public void initializeCommands() {
+    pipelineLock.lock();
+    try {
+      initializeAllCommands();
+    } finally {
+      pipelineLock.unlock();
+    }
+  }
+
   /**
    * Initialize all commands in the DAG. Should be called once before processing events. This method
    * is idempotent - calling it multiple times will only initialize each command once due to

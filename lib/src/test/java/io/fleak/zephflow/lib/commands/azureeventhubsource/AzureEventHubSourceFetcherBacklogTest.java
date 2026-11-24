@@ -15,6 +15,7 @@ package io.fleak.zephflow.lib.commands.azureeventhubsource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.Mockito.*;
 
 import com.azure.messaging.eventhubs.EventData;
@@ -22,11 +23,17 @@ import com.azure.messaging.eventhubs.EventProcessorClient;
 import com.azure.messaging.eventhubs.models.EventContext;
 import com.azure.messaging.eventhubs.models.LastEnqueuedEventProperties;
 import com.azure.messaging.eventhubs.models.PartitionContext;
+import io.fleak.zephflow.lib.commands.source.FatalPauseException;
 import io.fleak.zephflow.lib.commands.source.PerRecordCommitStrategy;
+import io.fleak.zephflow.lib.commands.source.SimpleSourceCommand;
 import io.fleak.zephflow.lib.commands.source.SourceBacklog;
+import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
+import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class AzureEventHubSourceFetcherBacklogTest {
@@ -117,6 +124,57 @@ class AzureEventHubSourceFetcherBacklogTest {
 
     assertFalse(callback.isAlive());
     assertEquals(0, queue.size());
+  }
+
+  @Test
+  void aFailedStopEndsTheSourceLoop() throws Exception {
+    EventProcessorClient processor = mock();
+    doThrow(new IllegalStateException("stop timed out")).when(processor).stop(any(Duration.class));
+    SimpleSourceCommand<SerializedEvent> source =
+        SourceLoopHarness.source(
+            fetcher(processor, new LinkedBlockingQueue<>()),
+            SourceLoopHarness.oneEventPerRecord(),
+            null);
+    Thread loop = new Thread(() -> source.execute("user", SourceLoopHarness.failing(r -> false)));
+    loop.start();
+
+    source.requestPause();
+    loop.join(10_000);
+
+    assertFalse(loop.isAlive(), "the source keeps reading after its queue was dropped");
+    verify(processor, never()).start();
+  }
+
+  @Test
+  void anInterruptedStopFailsThePause() throws Exception {
+    EventProcessorClient processor = mock();
+    CountDownLatch stopReturns = new CountDownLatch(1);
+    doAnswer(
+            call -> {
+              stopReturns.await();
+              return null;
+            })
+        .when(processor)
+        .stop(any(Duration.class));
+    AzureEventHubSourceFetcher fetcher = fetcher(processor, new LinkedBlockingQueue<>());
+    AtomicReference<Throwable> thrown = new AtomicReference<>();
+    Thread pausing =
+        new Thread(
+            () -> {
+              try {
+                fetcher.pause();
+              } catch (Throwable t) {
+                thrown.set(t);
+              }
+            });
+    pausing.start();
+    Thread.sleep(200);
+
+    pausing.interrupt();
+    pausing.join(10_000);
+    stopReturns.countDown();
+
+    assertInstanceOf(FatalPauseException.class, thrown.get());
   }
 
   private static AzureEventHubSourceFetcher fetcher(

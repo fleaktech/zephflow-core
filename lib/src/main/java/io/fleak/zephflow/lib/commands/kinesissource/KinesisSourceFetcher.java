@@ -57,15 +57,18 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   // Checkpoints handled records once a second at most, and at the end of each fetch.
   private static final CommitStrategy COMMIT_STRATEGY = BatchCommitStrategy.ofInterval(1000);
   private static final Duration GRACEFUL_SHUTDOWN_TIMEOUT = Duration.ofSeconds(60);
+  private static final Duration RUN_EXIT_TIMEOUT = Duration.ofSeconds(30);
 
   private final AtomicBoolean started = new AtomicBoolean(false);
-  private final AtomicBoolean schedulerRunning = new AtomicBoolean(false);
-  private final AtomicReference<Exception> schedulerError = new AtomicReference<>();
+  private final AtomicReference<SchedulerRunState> runState =
+      new AtomicReference<>(new SchedulerRunState(null, null));
 
   private final ArrayBlockingQueue<ShardRecord> recordQueue = new ArrayBlockingQueue<>(500);
   private final Map<String, Long> millisBehindByShard = new ConcurrentHashMap<>();
   private final AtomicReference<Scheduler> schedulerRef = new AtomicReference<>();
+  private volatile Future<?> schedulerRun;
   private final Supplier<Scheduler> schedulerFactory;
+  private final Duration runExitTimeout;
   // Set while paused: shard processors drop records instead of queueing them.
   private final AtomicBoolean releasing = new AtomicBoolean(false);
   private final Map<String, ShardRecord> lastCheckpointedByShard = new ConcurrentHashMap<>();
@@ -87,12 +90,18 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   public KinesisSourceFetcher(
       @NonNull KinesisSourceDto.Config config, AwsCredentialsProvider credentialsProvider) {
     this.schedulerFactory = () -> newScheduler(config, credentialsProvider);
+    this.runExitTimeout = RUN_EXIT_TIMEOUT;
     schedulerRef.set(schedulerFactory.get());
   }
 
   /** A fetcher whose scheduler comes from {@code schedulerFactory}, which may return null. */
   KinesisSourceFetcher(Supplier<Scheduler> schedulerFactory) {
+    this(schedulerFactory, RUN_EXIT_TIMEOUT);
+  }
+
+  KinesisSourceFetcher(Supplier<Scheduler> schedulerFactory, Duration runExitTimeout) {
     this.schedulerFactory = schedulerFactory;
+    this.runExitTimeout = runExitTimeout;
     schedulerRef.set(schedulerFactory.get());
   }
 
@@ -167,20 +176,42 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       return;
     }
     var scheduler = Objects.requireNonNull(schedulerRef.get());
-    schedulerRunning.set(true);
+    var running = new SchedulerRunState(scheduler, null);
+    runState.set(running);
 
-    EXECUTOR.submit(
-        () -> {
-          try {
-            // ensure we print an error message if the scheduler fails to initialise
-            scheduler.run();
-          } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            schedulerError.set(e);
-          } finally {
-            schedulerRunning.set(false);
-          }
-        });
+    schedulerRun =
+        EXECUTOR.submit(
+            () -> {
+              Exception failure = null;
+              try {
+                // ensure we print an error message if the scheduler fails to initialise
+                scheduler.run();
+              } catch (Exception e) {
+                log.error(e.getMessage(), e);
+                failure = e;
+              } finally {
+                // A scheduler replaced by resume() must not report its successor as stopped.
+                runState.compareAndSet(running, new SchedulerRunState(null, failure));
+              }
+            });
+  }
+
+  private record SchedulerRunState(Scheduler scheduler, Exception error) {}
+
+  private void awaitSchedulerRunExit() {
+    Future<?> run = schedulerRun;
+    if (run == null) {
+      return;
+    }
+    try {
+      run.get(runExitTimeout.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (TimeoutException e) {
+      log.warn("Kinesis scheduler still running after {}", runExitTimeout);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (ExecutionException e) {
+      log.warn("Kinesis scheduler run failed", e);
+    }
   }
 
   private SingleStreamTracker configureStreamTracker(KinesisSourceDto.Config config) {
@@ -229,10 +260,11 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   private void checkSchedulerIsRunning() {
     // first process all messages
     // and then throw any exceptions or report not running
-    if (schedulerError.get() != null) {
-      throw new KinesisSourceFetcherError("kinesis scheduler error", schedulerError.get());
+    SchedulerRunState state = runState.get();
+    if (state.error() != null) {
+      throw new KinesisSourceFetcherError("kinesis scheduler error", state.error());
     }
-    if (!schedulerRunning.get()) {
+    if (state.scheduler() == null) {
       throw new KinesisSourceFetcherError("The kinesis scheduler stopped running");
     }
   }
@@ -323,10 +355,13 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
     recordQueue.clear();
     Scheduler scheduler = schedulerRef.get();
     if (scheduler != null) {
+      boolean graceful = false;
       try {
-        if (!scheduler
-            .startGracefulShutdown()
-            .get(GRACEFUL_SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+        graceful =
+            scheduler
+                .startGracefulShutdown()
+                .get(GRACEFUL_SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        if (!graceful) {
           log.warn("Kinesis graceful shutdown did not complete; leases will expire instead");
         }
       } catch (InterruptedException e) {
@@ -334,6 +369,10 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
       } catch (Exception e) {
         log.warn("Kinesis graceful shutdown failed; leases will expire instead", e);
       }
+      if (!graceful) {
+        scheduler.shutdown();
+      }
+      awaitSchedulerRunExit();
     }
     recordQueue.clear();
     progress.next(List.of());
@@ -346,6 +385,7 @@ public class KinesisSourceFetcher implements Fetcher<SerializedEvent> {
   @Override
   public void resume() {
     recordQueue.clear();
+    awaitSchedulerRunExit();
     releasing.set(false);
     Scheduler scheduler = schedulerFactory.get();
     if (scheduler == null) {

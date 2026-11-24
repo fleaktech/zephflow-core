@@ -194,6 +194,8 @@ public final class KafkaSourceFetcher implements Fetcher<SerializedEvent> {
   /** Commits synchronously, then leaves the group so its partitions move to other consumers. */
   @Override
   public void pause() {
+    // A partition lost in a rebalance may already have a newer offset from its new owner.
+    committedOffsets.keySet().retainAll(consumer.assignment());
     consumer.commitSync(Map.copyOf(committedOffsets));
     committedOffsets.clear();
     pausedSubscription = Set.copyOf(consumer.subscription());

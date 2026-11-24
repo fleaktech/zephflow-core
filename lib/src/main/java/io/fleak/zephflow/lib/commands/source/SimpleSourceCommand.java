@@ -128,7 +128,16 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand implements Pa
   /** Every handled record is committed by the time a fetch has been processed. */
   private void pauseFetching(Fetcher<T> fetcher, SourceEventAcceptor sourceEventAcceptor) {
     sourceEventAcceptor.beforeCommit();
-    fetcher.pause();
+    try {
+      fetcher.pause();
+    } catch (FatalPauseException e) {
+      throw e;
+    } catch (Exception e) {
+      // Keep running unpaused: the drain stays pending until the supervisor resumes it.
+      log.error("Source {} failed to pause; it keeps running", nodeId, e);
+      pause.resume();
+      return;
+    }
     log.info("Source {} paused", nodeId);
     if (pause.hold(finished::get)) {
       fetcher.resume();

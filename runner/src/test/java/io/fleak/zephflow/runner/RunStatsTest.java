@@ -19,6 +19,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.fleak.zephflow.api.OperatorCommand;
+import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.SourceCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
@@ -36,7 +37,7 @@ class RunStatsTest {
         RunStats.collect(
             "kafka",
             source(SourceBacklog.records(150L, 6)),
-            List.of(sink(false)),
+            RunStats.bufferState(List.of(sink(false)), true),
             RunStats.DrainState.RUNNING,
             false,
             null);
@@ -56,7 +57,7 @@ class RunStatsTest {
         RunStats.collect(
             "kinesis",
             source(SourceBacklog.millisBehind(7_000L)),
-            List.of(),
+            RunStats.BufferState.EMPTY,
             RunStats.DrainState.RUNNING,
             false,
             null);
@@ -70,7 +71,12 @@ class RunStatsTest {
   void aSourceWhoseFetcherCannotReadItsBacklogReportsUnknown() {
     RunStats stats =
         RunStats.collect(
-            "pubsub", source(null), List.of(), RunStats.DrainState.RUNNING, false, null);
+            "pubsub",
+            source(null),
+            RunStats.BufferState.EMPTY,
+            RunStats.DrainState.RUNNING,
+            false,
+            null);
 
     assertEquals(
         new RunStats.SourceStats("pubsub", null, "records", null, null),
@@ -83,7 +89,8 @@ class RunStatsTest {
     when(syslog.isInitialized()).thenReturn(true);
 
     RunStats stats =
-        RunStats.collect("syslog", syslog, List.of(), RunStats.DrainState.RUNNING, false, null);
+        RunStats.collect(
+            "syslog", syslog, RunStats.BufferState.EMPTY, RunStats.DrainState.RUNNING, false, null);
 
     assertEquals(
         new RunStats.SourceStats("syslog", null, "records", null, null),
@@ -97,7 +104,7 @@ class RunStatsTest {
         RunStats.collect(
             "kafka",
             source(SourceBacklog.records(150L, 6)),
-            List.of(),
+            RunStats.BufferState.EMPTY,
             RunStats.DrainState.RUNNING,
             false,
             42L);
@@ -112,7 +119,7 @@ class RunStatsTest {
         RunStats.collect(
             "kafka",
             source(SourceBacklog.UNKNOWN),
-            List.of(sink(false), sink(true), notASink()),
+            RunStats.bufferState(List.of(sink(false), sink(true), notASink()), true),
             RunStats.DrainState.RUNNING,
             false,
             null);
@@ -125,7 +132,8 @@ class RunStatsTest {
     SinkStoreForward storeForward = mock(SinkStoreForward.class);
     when(storeForward.pendingRecords()).thenReturn(3L);
 
-    assertEquals(RunStats.BufferState.PENDING, RunStats.bufferState(List.of(sink(storeForward))));
+    assertEquals(
+        RunStats.BufferState.PENDING, RunStats.bufferState(List.of(sink(storeForward)), true));
   }
 
   @Test
@@ -136,7 +144,7 @@ class RunStatsTest {
 
     assertEquals(
         RunStats.BufferState.WAITING_FOR_SPACE,
-        RunStats.bufferState(List.of(sink(false), sink(storeForward))));
+        RunStats.bufferState(List.of(sink(false), sink(storeForward)), true));
   }
 
   @Test
@@ -145,7 +153,7 @@ class RunStatsTest {
         RunStats.collect(
             "kafka",
             source(SourceBacklog.UNKNOWN),
-            List.of(),
+            RunStats.BufferState.EMPTY,
             RunStats.DrainState.DRAINING,
             true,
             null);
@@ -160,10 +168,24 @@ class RunStatsTest {
     SourceCommand source = mock(SourceCommand.class);
 
     RunStats stats =
-        RunStats.collect("src", source, List.of(sink), RunStats.DrainState.RUNNING, false, null);
+        RunStats.collect(
+            "src",
+            source,
+            RunStats.bufferState(List.of(sink), true),
+            RunStats.DrainState.RUNNING,
+            false,
+            null);
 
     assertEquals(RunStats.BufferState.EMPTY, stats.bufferState());
     assertEquals(null, stats.sources().getFirst().backlog());
+  }
+
+  @Test
+  void aSinkNotYetInitializedIsPendingUntilThePipelineCloses() {
+    ScalarSinkCommand sink = mock(ScalarSinkCommand.class);
+
+    assertEquals(RunStats.BufferState.PENDING, RunStats.bufferState(List.of(sink), true));
+    assertEquals(RunStats.BufferState.EMPTY, RunStats.bufferState(List.of(sink), false));
   }
 
   /** A null backlog means a fetcher that keeps the interface default. */

@@ -15,6 +15,7 @@ package io.fleak.zephflow.runner;
 
 import io.fleak.zephflow.api.ExecutionContext;
 import io.fleak.zephflow.api.OperatorCommand;
+import io.fleak.zephflow.api.ScalarSinkCommand;
 import io.fleak.zephflow.api.SourceCommand;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
@@ -58,7 +59,7 @@ public record RunStats(
   static RunStats collect(
       String sourceNodeId,
       SourceCommand source,
-      Collection<? extends OperatorCommand> downstream,
+      BufferState bufferState,
       DrainState drainState,
       boolean supportsDrain,
       Long consumedRecords) {
@@ -74,15 +75,21 @@ public record RunStats(
                 backlog.unit().name().toLowerCase(Locale.ROOT),
                 backlog.partitionCount(),
                 consumedRecords)),
-        bufferState(downstream),
+        bufferState,
         drainState,
         supportsDrain);
   }
 
-  static BufferState bufferState(Collection<? extends OperatorCommand> downstream) {
+  /** While {@code pipelineOpen}, a sink not yet initialized counts as pending. */
+  static BufferState bufferState(
+      Collection<? extends OperatorCommand> downstream, boolean pipelineOpen) {
     BufferState state = BufferState.EMPTY;
     for (OperatorCommand command : downstream) {
       if (!(contextOf(command) instanceof SinkExecutionContext<?> sinkContext)) {
+        // It may yet find a store-and-forward backlog left by an earlier run.
+        if (pipelineOpen && command instanceof ScalarSinkCommand && !command.isInitialized()) {
+          state = BufferState.PENDING;
+        }
         continue;
       }
       SinkStoreForward storeForward = sinkContext.storeForward();

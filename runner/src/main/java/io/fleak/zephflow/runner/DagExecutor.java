@@ -28,6 +28,7 @@ import io.fleak.zephflow.runner.dag.Node;
 import io.fleak.zephflow.runner.spi.CommandProvider;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -129,14 +130,25 @@ public record DagExecutor(
         new ShutdownFlushHook(sourceCommand, noSourceDagRunner, ShutdownFlushHook.DEFAULT_TIMEOUT);
     List<OperatorCommand> downstreamCommands =
         subDagWithoutSource.getNodes().stream().map(Node::getNodeContent).toList();
-    DrainControl drainControl =
-        new DrainControl(
-            controlFile, sourceCommand, () -> RunStats.bufferState(downstreamCommands));
+    Supplier<RunStats.BufferState> bufferState =
+        () -> RunStats.bufferState(downstreamCommands, !noSourceDagRunner.isTerminated());
+    DrainControl drainControl = new DrainControl(controlFile, sourceCommand, bufferState);
     RunStatsFileWriter statsWriter = null;
     try {
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
       shutdownFlushHook.install();
+      if (sourceCommand.confirmsDeliveryBeforeCommit()) {
+        noSourceDagRunner.deferDeliveryConfirmation();
+      }
+      if (statsFile != null || controlFile != null) {
+        // Sinks find a previous run's store-and-forward backlog only once initialized.
+        try {
+          noSourceDagRunner.initializeCommands();
+        } catch (Exception e) {
+          log.warn("Failed to initialize the pipeline; retrying on the first event", e);
+        }
+      }
       if (statsFile != null) {
         statsWriter =
             RunStatsFileWriter.start(
@@ -145,7 +157,7 @@ public record DagExecutor(
                     RunStats.collect(
                         sourceNodeId,
                         sourceCommand,
-                        downstreamCommands,
+                        bufferState.get(),
                         drainControl.state(),
                         drainControl.supportsDrain(),
                         metricClientProvider instanceof RunSummaryMetricClientProvider summary
@@ -154,9 +166,6 @@ public record DagExecutor(
       }
       drainControl.start(DrainControl.POLL_INTERVAL);
 
-      if (sourceCommand.confirmsDeliveryBeforeCommit()) {
-        noSourceDagRunner.deferDeliveryConfirmation();
-      }
       // Streaming path is long-lived, so time-triggered windows get a background flush thread.
       // No-op unless the DAG actually contains a windowed node.
       noSourceDagRunner.startFlushScheduler(jobConfig.getJobId());
