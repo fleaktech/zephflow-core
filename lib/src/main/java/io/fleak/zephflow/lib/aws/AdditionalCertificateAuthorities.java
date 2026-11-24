@@ -32,7 +32,7 @@ import javax.net.ssl.X509TrustManager;
  * certificates issued by the given authorities. Nothing JVM-wide changes: other clients keep the
  * default trust.
  */
-final class AdditionalCertificateAuthorities {
+public final class AdditionalCertificateAuthorities {
 
   private AdditionalCertificateAuthorities() {}
 
@@ -42,7 +42,11 @@ final class AdditionalCertificateAuthorities {
    * @throws IllegalArgumentException when the text holds no certificate or one that cannot be read
    */
   static TrustManager[] trustManagersWithDefaultsAnd(String pemCertificates) {
-    List<X509Certificate> authorities = parse(pemCertificates);
+    return trustManagersWithDefaultsAnd(parse(pemCertificates));
+  }
+
+  /** Trust managers that accept what the JVM's default ones accept, and the given authorities. */
+  public static TrustManager[] trustManagersWithDefaultsAnd(List<X509Certificate> authorities) {
     try {
       KeyStore trusted = KeyStore.getInstance(KeyStore.getDefaultType());
       trusted.load(null, null);

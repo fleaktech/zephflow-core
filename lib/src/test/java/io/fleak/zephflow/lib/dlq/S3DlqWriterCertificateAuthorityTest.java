@@ -26,6 +26,7 @@ import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.api.metric.FleakCounter;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
+import io.fleak.zephflow.lib.aws.TestCertificateAuthority;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.SeekableByteArrayInput;
 import org.apache.avro.specific.SpecificDatumReader;
@@ -202,6 +204,34 @@ class S3DlqWriterCertificateAuthorityTest {
     }
 
     assertEquals(List.of("/" + BUCKET + "/object"), List.copyOf(store.objects().keySet()));
+  }
+
+  @Test
+  void refusesAStoreWhoseCertificateTheAuthorityIssuedForAnotherName() throws Exception {
+    try (HttpsObjectStore otherName =
+            new HttpsObjectStore(
+                STORE_AUTHORITY.serverContextForDnsName("other-store.example.internal"));
+        S3Client client =
+            new AwsClientFactory()
+                .createS3CompatibleStorageClient(
+                    REGION,
+                    new UsernamePasswordCredential(accessKey, secretKey),
+                    otherName.endpoint(),
+                    S3DlqWriter.STORAGE_CLIENT_TIMEOUTS,
+                    STORE_AUTHORITY.certificatePem())) {
+      SdkClientException refused =
+          assertThrows(
+              SdkClientException.class,
+              () ->
+                  client.putObject(
+                      request -> request.bucket(BUCKET).key("object"),
+                      RequestBody.fromString("content")));
+
+      assertTrue(
+          ExceptionUtils.indexOfType(refused, SSLPeerUnverifiedException.class) >= 0,
+          ExceptionUtils.getStackTrace(refused));
+      assertEquals(Map.of(), otherName.objects());
+    }
   }
 
   @Test

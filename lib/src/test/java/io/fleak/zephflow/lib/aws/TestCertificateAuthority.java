@@ -11,7 +11,7 @@
  * express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.fleak.zephflow.lib.dlq;
+package io.fleak.zephflow.lib.aws;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -40,8 +40,8 @@ import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
-/** A certificate authority of a test, which issues the certificate of a server on 127.0.0.1. */
-final class TestCertificateAuthority {
+/** A certificate authority of a test, which issues the certificate of a server. */
+public final class TestCertificateAuthority {
 
   private final KeyPair keyPair;
   private final X509Certificate certificate;
@@ -51,14 +51,18 @@ final class TestCertificateAuthority {
     this.certificate = certificate;
   }
 
-  static TestCertificateAuthority create(String name) {
+  public static TestCertificateAuthority create(String name) {
     KeyPair keyPair = newKeyPair();
     X500Name subject = new X500Name("CN=" + name);
     return new TestCertificateAuthority(
-        keyPair, sign(subject, subject, keyPair, keyPair, new BasicConstraints(true)));
+        keyPair, sign(subject, subject, keyPair, keyPair, new BasicConstraints(true), null));
   }
 
-  String certificatePem() {
+  public X509Certificate certificate() {
+    return certificate;
+  }
+
+  public String certificatePem() {
     try {
       StringWriter writer = new StringWriter();
       try (JcaPEMWriter pemWriter = new JcaPEMWriter(writer)) {
@@ -71,16 +75,29 @@ final class TestCertificateAuthority {
   }
 
   /** The TLS context of a server on 127.0.0.1 whose certificate this authority issued. */
-  SSLContext serverContext() {
+  public SSLContext serverContext() {
+    return serverContext("CN=127.0.0.1", new GeneralName(GeneralName.iPAddress, "127.0.0.1"));
+  }
+
+  /**
+   * The TLS context of a server whose certificate this authority issued for {@code dnsName} only,
+   * which a client that reaches it at another name must refuse.
+   */
+  public SSLContext serverContextForDnsName(String dnsName) {
+    return serverContext("CN=" + dnsName, new GeneralName(GeneralName.dNSName, dnsName));
+  }
+
+  private SSLContext serverContext(String subject, GeneralName subjectAlternativeName) {
     try {
       KeyPair serverKeyPair = newKeyPair();
       X509Certificate serverCertificate =
           sign(
-              new X500Name("CN=127.0.0.1"),
+              new X500Name(subject),
               X500Name.getInstance(certificate.getSubjectX500Principal().getEncoded()),
               serverKeyPair,
               keyPair,
-              new BasicConstraints(false));
+              new BasicConstraints(false),
+              subjectAlternativeName);
       char[] keyPassword = new char[0];
       KeyStore keyStore = KeyStore.getInstance("PKCS12");
       keyStore.load(null, null);
@@ -105,7 +122,8 @@ final class TestCertificateAuthority {
       X500Name issuer,
       KeyPair subjectKeyPair,
       KeyPair issuerKeyPair,
-      BasicConstraints constraints) {
+      BasicConstraints constraints,
+      GeneralName subjectAlternativeName) {
     try {
       Instant now = Instant.now();
       JcaX509v3CertificateBuilder builder =
@@ -117,10 +135,10 @@ final class TestCertificateAuthority {
               subject,
               subjectKeyPair.getPublic());
       builder.addExtension(Extension.basicConstraints, true, constraints);
-      builder.addExtension(
-          Extension.subjectAlternativeName,
-          false,
-          new GeneralNames(new GeneralName(GeneralName.iPAddress, "127.0.0.1")));
+      if (subjectAlternativeName != null) {
+        builder.addExtension(
+            Extension.subjectAlternativeName, false, new GeneralNames(subjectAlternativeName));
+      }
       return new JcaX509CertificateConverter()
           .getCertificate(
               builder.build(
