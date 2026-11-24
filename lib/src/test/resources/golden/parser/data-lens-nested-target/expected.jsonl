@@ -1,0 +1,9 @@
+{"host":"inner","payload":{"sibling":"kept"},"payload.message":"host=literal"}
+{"payload":{}}
+{"payload":{"message":""}}
+{"payload":{"message":null}}
+{"payload":{"message":{"host":"object"}}}
+{"payload":{"message":23}}
+{"payload":{"message":["text"]}}
+{"payload":{}}
+{"payload.message":"host=literal"}

@@ -1,0 +1,3 @@
+{"action":"login","host":"inner","kind":"event","payload":{},"payload.message":"host=literal"}
+{"kind":"event","payload":{}}
+{"kind":"event","payload":{"message":{"host":"object"}}}

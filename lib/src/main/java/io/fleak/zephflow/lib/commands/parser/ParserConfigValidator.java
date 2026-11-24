@@ -13,12 +13,12 @@
  */
 package io.fleak.zephflow.lib.commands.parser;
 
-import static io.fleak.zephflow.api.ConfigurationPath.of;
 import static io.fleak.zephflow.api.ConfigurationValidationException.at;
 import static io.fleak.zephflow.api.ConfigurationValidationException.require;
 
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.api.ConfigValidator;
+import io.fleak.zephflow.api.ConfigurationPath;
 import io.fleak.zephflow.api.JobContext;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
 import io.fleak.zephflow.lib.parser.extractions.WindowsMultilineExtractionConfig;
@@ -28,11 +28,28 @@ import java.time.ZoneId;
 public class ParserConfigValidator implements ConfigValidator {
   @Override
   public void validateConfig(CommandConfig commandConfig, String nodeId, JobContext jobContext) {
-    var parserConfig = ((ParserConfigs.ParserConfig) commandConfig);
-    require(parserConfig.getTargetField() != null, of("targetField"), "targetField is missing");
+    validate((ParserConfigs.ParserConfig) commandConfig, ConfigurationPath.root());
+  }
+
+  private void validate(ParserConfigs.ParserConfig parserConfig, ConfigurationPath path) {
+    require(
+        parserConfig.getTargetField() != null, path.field("targetField"), "targetField is missing");
+    var targetPath = parserConfig.getTargetFieldPath();
+    if (targetPath != null) {
+      require(
+          !targetPath.isEmpty(),
+          path.field("targetFieldPath"),
+          "targetFieldPath must not be empty");
+      for (int index = 0; index < targetPath.size(); index++) {
+        require(
+            targetPath.get(index) != null,
+            path.field("targetFieldPath").index(index),
+            "targetFieldPath keys must not be null");
+      }
+    }
     require(
         parserConfig.getExtractionConfig() != null,
-        of("extractionConfig"),
+        path.field("extractionConfig"),
         "extractionConfig is missing");
     if (parserConfig.getExtractionConfig() instanceof WindowsMultilineExtractionConfig windows
         && windows.getTimezone() != null) {
@@ -40,9 +57,24 @@ public class ParserConfigValidator implements ConfigValidator {
         ZoneId.of(windows.getTimezone());
       } catch (DateTimeException failure) {
         throw at(
-            of("extractionConfig", "timezone"),
+            path.field("extractionConfig").field("timezone"),
             failure,
             "timezone is not a recognised time zone name or offset");
+      }
+    }
+    var dispatch = parserConfig.getDispatchConfig();
+    if (dispatch != null) {
+      var dispatchPath = path.field("dispatchConfig");
+      if (dispatch.getDispatchMap() != null) {
+        dispatch
+            .getDispatchMap()
+            .forEach(
+                (key, rule) -> {
+                  if (rule != null) validate(rule, dispatchPath.field("dispatchMap").field(key));
+                });
+      }
+      if (dispatch.getDefaultConfig() != null) {
+        validate(dispatch.getDefaultConfig(), dispatchPath.field("defaultConfig"));
       }
     }
   }
