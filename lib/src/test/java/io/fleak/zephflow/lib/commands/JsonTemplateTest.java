@@ -134,6 +134,19 @@ class JsonTemplateTest {
   }
 
   @Test
+  void plainTextTemplateFailsWithTheGuidanceAsTheExceptionMessage() {
+    // The test run panel shows getMessage(), so it must carry the guidance, not the parser's
+    // report, which quotes the template.
+    var failure =
+        assertThrows(
+            ConfigurationValidationException.class,
+            () -> JsonTemplate.create("Alert secret-token {{$.rule}}", PATH));
+    assertEquals(failure.issues().getFirst().message(), failure.getMessage());
+    assertFalse(failure.getMessage().contains("secret-token"));
+    assertFalse(failure.getMessage().contains("Alert"));
+  }
+
+  @Test
   void unquotedPlaceholderAsAnObjectKeyIsAConfigurationError() {
     var failure =
         assertThrows(
