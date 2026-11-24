@@ -1,0 +1,13 @@
+{
+  "targetField": "payload.message",
+  "targetFieldPath": [
+    "payload",
+    "message"
+  ],
+  "removeTargetField": true,
+  "extractionConfig": {
+    "type": "kv_pair",
+    "pairSeparator": " ",
+    "kvSeparator": "="
+  }
+}
