@@ -14,13 +14,14 @@
 package io.fleak.zephflow.lib.dlq;
 
 import static io.fleak.zephflow.lib.utils.MiscUtils.threadSleep;
-import static io.fleak.zephflow.lib.utils.MiscUtils.toBase64String;
 
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.FleakCounter;
+import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.gcp.GcsClientFactory;
 import io.fleak.zephflow.lib.utils.BufferedWriter;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,9 +47,12 @@ public class GcsDlqWriter extends DlqWriter {
   private final String pathSegment;
   private final String filePrefix;
   private final DeadLetterCommiterSerializer serializer;
+  private final FleakCounter unwrittenDeadLetterCounter;
 
   public static GcsDlqWriter createGcsDlqWriter(
-      JobContext.GcsDlqConfig gcsDlqConfig, String keyPrefix) {
+      JobContext.GcsDlqConfig gcsDlqConfig,
+      String keyPrefix,
+      FleakCounter unwrittenDeadLetterCounter) {
     return createWriter(
         gcsDlqConfig.getServiceAccountJson(),
         gcsDlqConfig.getBucket(),
@@ -55,7 +60,8 @@ public class GcsDlqWriter extends DlqWriter {
         gcsDlqConfig.getFlushIntervalMillis(),
         keyPrefix,
         DEFAULT_PATH_SEGMENT,
-        DEFAULT_FILE_PREFIX);
+        DEFAULT_FILE_PREFIX,
+        unwrittenDeadLetterCounter);
   }
 
   public static GcsDlqWriter createGcsSampleWriter(
@@ -67,7 +73,8 @@ public class GcsDlqWriter extends DlqWriter {
         gcsDlqConfig.getFlushIntervalMillis(),
         keyPrefix,
         "raw-data-samples",
-        "sample");
+        "sample",
+        new NoopFleakCounter());
   }
 
   private static GcsDlqWriter createWriter(
@@ -77,7 +84,8 @@ public class GcsDlqWriter extends DlqWriter {
       long flushIntervalMillis,
       String keyPrefix,
       String pathSegment,
-      String filePrefix) {
+      String filePrefix,
+      FleakCounter unwrittenDeadLetterCounter) {
     Preconditions.checkArgument(
         batchSize > 0, "batchSize must be positive but provided %d", batchSize);
     Preconditions.checkArgument(
@@ -86,7 +94,14 @@ public class GcsDlqWriter extends DlqWriter {
         flushIntervalMillis);
     Storage storage = new GcsClientFactory().createStorageClient(serviceAccountJson);
     return new GcsDlqWriter(
-        storage, bucketName, batchSize, flushIntervalMillis, keyPrefix, pathSegment, filePrefix);
+        storage,
+        bucketName,
+        batchSize,
+        flushIntervalMillis,
+        keyPrefix,
+        pathSegment,
+        filePrefix,
+        unwrittenDeadLetterCounter);
   }
 
   @VisibleForTesting
@@ -97,13 +112,15 @@ public class GcsDlqWriter extends DlqWriter {
       long flushIntervalMillis,
       String keyPrefix,
       String pathSegment,
-      String filePrefix) {
+      String filePrefix,
+      FleakCounter unwrittenDeadLetterCounter) {
     this.storage = storage;
     this.bucketName = bucketName;
     this.keyPrefix = sanitizeKeyPrefix(keyPrefix);
     this.pathSegment = pathSegment;
     this.filePrefix = filePrefix;
     this.serializer = new DeadLetterCommiterSerializer();
+    this.unwrittenDeadLetterCounter = unwrittenDeadLetterCounter;
     this.bufferedWriter =
         new BufferedWriter<>(
             batchSize, flushIntervalMillis, this::uploadToGcs, "gcs-" + pathSegment + "-flusher");
@@ -152,7 +169,12 @@ public class GcsDlqWriter extends DlqWriter {
     try {
       data = serializer.serialize(batch);
     } catch (Exception e) {
-      log.error("failed to serialize {}, dropping {} records", pathSegment, batch.size(), e);
+      unwrittenDeadLetterCounter.increase(batch.size(), Map.of());
+      log.error(
+          "Dropped {} {} records, serialization failed: {}",
+          batch.size(),
+          pathSegment,
+          describeFailure(e));
       return;
     }
 
@@ -161,7 +183,13 @@ public class GcsDlqWriter extends DlqWriter {
       uploadToGcsWithRetry(data, objectName);
       log.info("Uploaded {} records to gs://{}/{}", batch.size(), bucketName, objectName);
     } catch (Exception e) {
-      log.error("failed to write to GCS {}. data: {}", pathSegment, toBase64String(data), e);
+      unwrittenDeadLetterCounter.increase(batch.size(), Map.of());
+      log.error(
+          "Dropped {} {} records, object {} not written: {}",
+          batch.size(),
+          pathSegment,
+          objectName,
+          describeFailure(e));
     }
   }
 
@@ -199,10 +227,11 @@ public class GcsDlqWriter extends DlqWriter {
           throw e;
         }
         log.warn(
-            "GCS upload failed (attempt {}/{}), retrying: {}",
+            "Upload of {} failed (attempt {}/{}), retrying: {}",
+            objectName,
             attempt + 1,
             MAX_RETRIES,
-            e.getMessage());
+            describeFailure(e));
         threadSleep(1000L * (attempt + 1));
       }
       attempt++;

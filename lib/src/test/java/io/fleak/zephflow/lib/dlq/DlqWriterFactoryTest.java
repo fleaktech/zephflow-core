@@ -16,7 +16,9 @@ package io.fleak.zephflow.lib.dlq;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.MetricClientProvider;
 import java.io.IOException;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class DlqWriterFactoryTest {
@@ -33,7 +35,9 @@ class DlqWriterFactoryTest {
             .secretAccessKey("testSecret")
             .s3EndpointOverride("http://localhost:9000")
             .build();
-    DlqWriter writer = DlqWriterFactory.createDlqWriter(config, "test-prefix");
+    DlqWriter writer =
+        DlqWriterFactory.createDlqWriter(
+            config, "test-prefix", new MetricClientProvider.NoopMetricClientProvider(), Map.of());
     assertInstanceOf(S3DlqWriter.class, writer);
     writer.close();
   }
@@ -60,7 +64,12 @@ class DlqWriterFactoryTest {
     JobContext.DlqConfig unknownConfig = new JobContext.DlqConfig() {};
     assertThrows(
         UnsupportedOperationException.class,
-        () -> DlqWriterFactory.createDlqWriter(unknownConfig, "test-prefix"));
+        () ->
+            DlqWriterFactory.createDlqWriter(
+                unknownConfig,
+                "test-prefix",
+                new MetricClientProvider.NoopMetricClientProvider(),
+                Map.of()));
   }
 
   @Test

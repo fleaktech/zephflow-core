@@ -57,6 +57,7 @@ public record RunSummary(Map<String, Long> counters, List<SinkSummary> sinks) {
     addIfPositive(parts, "skipped objects", METRIC_NAME_SKIPPED_OBJECT_COUNT);
     addIfPositive(parts, "sink errors", METRIC_NAME_SINK_ERROR_COUNT);
     addIfPositive(parts, "processing errors", METRIC_NAME_PIPELINE_ERROR_EVENT);
+    addIfPositive(parts, "dead letters not written", METRIC_NAME_DLQ_RECORDS_NOT_WRITTEN);
     return String.join(", ", parts);
   }
 

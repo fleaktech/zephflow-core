@@ -29,6 +29,7 @@ import java.net.http.HttpClient;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Map;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.TrustManager;
@@ -77,7 +78,10 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
             httpClient,
             batchSize,
             FLUSH_INTERVAL_MS,
-            createDlqWriter(jobContext),
+            createDlqWriter(
+                jobContext,
+                metricClientProvider,
+                basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId)),
             jobContext,
             nodeId,
             counters.sinkOutputCounter(),
@@ -124,13 +128,17 @@ public class SplunkHecSinkCommand extends SimpleSinkCommand<SplunkHecOutboundEve
         counters.sinkErrorCounter());
   }
 
-  private static DlqWriter createDlqWriter(JobContext jobContext) {
+  private static DlqWriter createDlqWriter(
+      JobContext jobContext,
+      MetricClientProvider metricClientProvider,
+      Map<String, String> metricTags) {
     JobContext.DlqConfig dlqConfig = jobContext.getDlqConfig();
     if (dlqConfig == null) {
       return null;
     }
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
-    DlqWriter writer = DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix);
+    DlqWriter writer =
+        DlqWriterFactory.createDlqWriter(dlqConfig, keyPrefix, metricClientProvider, metricTags);
     writer.open();
     return writer;
   }

@@ -21,7 +21,6 @@ import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.internal.BudgetCaptureStream;
 import io.fleak.zephflow.lib.serdes.decode.internal.DecodeFlags;
 import io.fleak.zephflow.lib.serdes.decode.json.JsonRecognition;
-import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,6 +29,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Objects;
 
 final class AutoRecordFramer {
   record Frame(byte[] bytes, long offset, long length, long limit, LimitKind kind) {
@@ -39,11 +39,14 @@ final class AutoRecordFramer {
   }
 
   private final InputStream input;
+  private final byte[] buffer = new byte[8192];
   private final DecodeLimits limits;
   private final DecodeFlags flags;
   private final ArrayDeque<ByteBuffer> replay = new ArrayDeque<>();
   private final boolean yamlDocuments;
   private int next = -2;
+  private int bufferPosition;
+  private int bufferLength;
   private long position;
   private byte[] pendingYamlLine;
   private long pendingYamlOffset;
@@ -51,7 +54,7 @@ final class AutoRecordFramer {
 
   AutoRecordFramer(
       InputStream input, DecodeLimits limits, DecodeFlags flags, boolean yamlDocuments) {
-    this.input = new BufferedInputStream(input);
+    this.input = input;
     this.limits = limits;
     this.flags = flags;
     this.yamlDocuments = yamlDocuments;
@@ -118,20 +121,52 @@ final class AutoRecordFramer {
 
   private Frame json(long start) throws IOException {
     ByteArrayOutputStream captured = new ByteArrayOutputStream();
+    long documentMaximum = limits.maxDocumentBytes();
+    long budget =
+        documentMaximum > 0
+            ? documentMaximum + BudgetCaptureStream.READ_AHEAD_SLACK
+            : Long.MAX_VALUE;
     InputStream probe =
         new InputStream() {
           @Override
           public int read() throws IOException {
-            long maximum = limits.maxDocumentBytes();
-            if (maximum > 0 && captured.size() >= maximum + BudgetCaptureStream.READ_AHEAD_SLACK) {
-              flags.markBudget(
-                  new DecodeFlags.BudgetExceeded(
-                      start, LimitKind.MAX_DOCUMENT_BYTES, maximum, captured.size(), new byte[0]));
-              throw new IOException("JSON document exceeds maxDocumentBytes");
-            }
+            if (captured.size() >= budget) throw budgetExceeded();
             int value = AutoRecordFramer.this.read();
             if (value >= 0) captured.write(value);
             return value;
+          }
+
+          /**
+           * Fills {@code target} up to {@code count} bytes or the end of input, as single-byte
+           * reads would, and marks the budget when it cuts the fill short, as the next single-byte
+           * read would have.
+           */
+          @Override
+          public int read(byte[] target, int offset, int count) throws IOException {
+            Objects.checkFromIndexSize(offset, count, target.length);
+            if (count == 0) return 0;
+            if (captured.size() >= budget) throw budgetExceeded();
+            int allowed = (int) Math.min(count, budget - captured.size());
+            int copied = AutoRecordFramer.this.read(target, offset, allowed);
+            if (copied < 0) return -1;
+            captured.write(target, offset, copied);
+            if (copied == allowed && allowed < count) markBudget();
+            return copied;
+          }
+
+          private IOException budgetExceeded() {
+            markBudget();
+            return new IOException("JSON document exceeds maxDocumentBytes");
+          }
+
+          private void markBudget() {
+            flags.markBudget(
+                new DecodeFlags.BudgetExceeded(
+                    start,
+                    LimitKind.MAX_DOCUMENT_BYTES,
+                    documentMaximum,
+                    captured.size(),
+                    new byte[0]));
           }
         };
     try (JsonParser parser = JsonRecognition.parser(probe)) {
@@ -229,16 +264,30 @@ final class AutoRecordFramer {
   }
 
   private int peek() throws IOException {
-    if (Thread.currentThread().isInterrupted()) {
-      var failure = new InterruptedIOException("Format framing interrupted");
-      flags.markRead(failure);
-      throw failure;
-    }
+    checkInterrupted();
     if (next == -2) {
       while (!replay.isEmpty() && !replay.getFirst().hasRemaining()) replay.removeFirst();
-      next = replay.isEmpty() ? input.read() : replay.getFirst().get() & 255;
+      if (!replay.isEmpty()) next = replay.getFirst().get() & 255;
+      else next = bufferPosition < bufferLength || fill() ? buffer[bufferPosition++] & 255 : -1;
     }
     return next;
+  }
+
+  private void checkInterrupted() throws InterruptedIOException {
+    if (!Thread.currentThread().isInterrupted()) return;
+    var failure = new InterruptedIOException("Format framing interrupted");
+    flags.markRead(failure);
+    throw failure;
+  }
+
+  /** Reads the input once into the empty buffer; false at its end. */
+  private boolean fill() throws IOException {
+    bufferPosition = 0;
+    bufferLength = 0;
+    int length = input.read(buffer, 0, buffer.length);
+    if (length <= 0) return false;
+    bufferLength = length;
+    return true;
   }
 
   private int read() throws IOException {
@@ -246,6 +295,54 @@ final class AutoRecordFramer {
     next = -2;
     if (value >= 0) position++;
     return value;
+  }
+
+  /**
+   * Reads up to {@code count} bytes, stopping early at the end of input, as {@link
+   * InputStream#read(byte[], int, int)} does over single-byte reads: a failure after the first byte
+   * returns the bytes read so far, and the next read meets it again.
+   */
+  private int read(byte[] target, int offset, int count) throws IOException {
+    int first = read();
+    if (first < 0) return -1;
+    target[offset] = (byte) first;
+    int copied = 1;
+    try {
+      while (copied < count) {
+        int length = copy(target, offset + copied, count - copied);
+        if (length == 0) break;
+        copied += length;
+      }
+    } catch (IOException ignored) {
+      // Returned on the next read, which goes to the input again.
+    }
+    position += copied - 1;
+    return copied;
+  }
+
+  /**
+   * Copies from the replay, else from the buffer, filling it when empty; 0 at the end of input. A
+   * fill yields one byte so that, as with single-byte reads, an interrupt that arrived during it
+   * stops the rest.
+   */
+  private int copy(byte[] target, int offset, int count) throws IOException {
+    checkInterrupted();
+    while (!replay.isEmpty() && !replay.getFirst().hasRemaining()) replay.removeFirst();
+    if (!replay.isEmpty()) {
+      ByteBuffer replayed = replay.getFirst();
+      int length = Math.min(replayed.remaining(), count);
+      replayed.get(target, offset, length);
+      return length;
+    }
+    if (bufferPosition == bufferLength) {
+      if (!fill()) return 0;
+      target[offset] = buffer[bufferPosition++];
+      return 1;
+    }
+    int length = Math.min(bufferLength - bufferPosition, count);
+    System.arraycopy(buffer, bufferPosition, target, offset, length);
+    bufferPosition += length;
+    return length;
   }
 
   private static final class Retained {

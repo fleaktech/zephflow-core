@@ -23,6 +23,7 @@ dependencies {
   implementation libs.snappy.java
   implementation libs.lz4
   implementation libs.aws.s3
+  implementation libs.aws.apache.client
   implementation libs.aws.kinesis
   implementation libs.aws.s3.transfer.manager
 
@@ -95,6 +96,8 @@ dependencies {
   implementation libs.chronicle.queue
 
   testImplementation libs.unboundid.ldapsdk
+  // Certificates of a test's own authority for S3 clients over HTTPS
+  testImplementation libs.bcpkix
   testImplementation libs.testcontainers.clickhouse
   testImplementation libs.testcontainers.azure
 
@@ -154,6 +157,10 @@ tasks.named('test') {
   // -Dfssource.snapshot.update=true rewrites FsSourceSnapshotTest's expected results
   if (System.getProperty('fssource.snapshot.update') != null) {
     systemProperty 'fssource.snapshot.update', System.getProperty('fssource.snapshot.update')
+  }
+  // -Dautoframing.snapshot.update=true rewrites AutoFramingSnapshotTest's expected results
+  if (System.getProperty('autoframing.snapshot.update') != null) {
+    systemProperty 'autoframing.snapshot.update', System.getProperty('autoframing.snapshot.update')
   }
   // Chronicle Queue memory-maps files via JDK internals; Java 17+ needs these opened/exported.
   jvmArgs += [

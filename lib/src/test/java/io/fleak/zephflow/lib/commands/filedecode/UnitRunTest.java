@@ -38,7 +38,6 @@ import io.fleak.zephflow.lib.serdes.decode.DecodeOutcome;
 import io.fleak.zephflow.lib.serdes.decode.ErrorKind;
 import io.fleak.zephflow.lib.serdes.decode.LimitKind;
 import io.fleak.zephflow.lib.serdes.decode.RawSpan;
-import io.fleak.zephflow.lib.serdes.decode.SourceReadException;
 import io.fleak.zephflow.lib.utils.BoundedLogCapture;
 import java.io.EOFException;
 import java.io.IOException;
@@ -373,34 +372,21 @@ class UnitRunTest {
                   Level.ERROR,
                   "dropping failures of "
                       + URN
-                      + " (no DLQ configured): MALFORMED json file:"
-                      + " IOException",
-                  "file " + URN + "; 2 outcomes; recordIndex 1-2 (bytes 0-9)"),
+                      + " (no DLQ configured): MALFORMED json file: IOException / file "
+                      + URN
+                      + "; 2 outcomes; recordIndex 1-2 (bytes 0-9)"),
               List.of(
                   Level.ERROR,
                   "dropping failures of "
                       + URN
-                      + " (no DLQ configured): OVERSIZED json file:"
-                      + " maxRecordBytes",
-                  "file " + URN + "; 1 outcome; recordIndex 3 (bytes 10-26)")),
+                      + " (no DLQ configured): OVERSIZED json file: maxRecordBytes / file "
+                      + URN
+                      + "; 1 outcome; recordIndex 3 (bytes 10-26)")),
           logs.events().stream()
-              .map(
-                  e -> {
-                    List<String> lines = e.getMessage().getFormattedMessage().lines().toList();
-                    return List.<Object>of(e.getLevel(), lines.getFirst(), lines.getLast());
-                  })
+              .map(e -> List.<Object>of(e.getLevel(), e.getMessage().getFormattedMessage()))
               .toList());
     }
     assertEquals(3L, decodeFailures.get());
-  }
-
-  @Test
-  void causeMessageIsTheFirstLineOfTheInnermostCause() {
-    IOException cause = new IOException("  bad byte at 7  \nstack detail");
-    assertEquals(
-        "bad byte at 7", UnitRun.causeMessage(new SourceReadException("reading failed", cause)));
-    assertEquals(
-        "", UnitRun.causeMessage(new SourceReadException("reading failed", new EOFException())));
   }
 
   @Test

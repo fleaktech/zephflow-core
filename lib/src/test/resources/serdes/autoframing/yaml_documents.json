@@ -1,0 +1,302 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 26,
+    "outcomes" : [ {
+      "length" : 9,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\na: 1\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\nb: 2\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\n- x\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 26,
+    "outcomes" : [ {
+      "length" : 9,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\na: 1\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\nb: 2\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\n- x\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 26,
+    "outcomes" : [ {
+      "length" : 9,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\na: 1\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\nb: 2\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\n- x\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 26,
+    "outcomes" : [ {
+      "length" : 9,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\na: 1\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\nb: 2\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\n- x\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 26,
+    "outcomes" : [ {
+      "length" : 9,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\na: 1\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\nb: 2\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\n- x\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 26,
+    "outcomes" : [ {
+      "length" : 9,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\na: 1\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 9,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\nb: 2\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 8,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "yaml",
+          "metadata" : { },
+          "record" : { },
+          "text" : "---\n- x\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

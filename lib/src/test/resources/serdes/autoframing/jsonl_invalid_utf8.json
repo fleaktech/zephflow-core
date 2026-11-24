@@ -1,0 +1,302 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 31,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "error" : "java.nio.charset.MalformedInputException: Input length = 1",
+      "kind" : "MALFORMED",
+      "length" : 12,
+      "offset" : 9,
+      "rawLength" : 12,
+      "rawSha256" : "6c429a2ef06873fb9857523dbf81fba9472b228cd42ae9f7b32612d230f9683d",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "failed"
+    }, {
+      "length" : 8,
+      "offset" : 22,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 31,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "error" : "java.nio.charset.MalformedInputException: Input length = 1",
+      "kind" : "MALFORMED",
+      "length" : 12,
+      "offset" : 9,
+      "rawLength" : 12,
+      "rawSha256" : "6c429a2ef06873fb9857523dbf81fba9472b228cd42ae9f7b32612d230f9683d",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "failed"
+    }, {
+      "length" : 8,
+      "offset" : 22,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 31,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "error" : "java.nio.charset.MalformedInputException: Input length = 1",
+      "kind" : "MALFORMED",
+      "length" : 12,
+      "offset" : 9,
+      "rawLength" : 12,
+      "rawSha256" : "6c429a2ef06873fb9857523dbf81fba9472b228cd42ae9f7b32612d230f9683d",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "failed"
+    }, {
+      "length" : 8,
+      "offset" : 22,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 31,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "error" : "java.nio.charset.MalformedInputException: Input length = 1",
+      "kind" : "MALFORMED",
+      "length" : 12,
+      "offset" : 9,
+      "rawLength" : 12,
+      "rawSha256" : "6c429a2ef06873fb9857523dbf81fba9472b228cd42ae9f7b32612d230f9683d",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "failed"
+    }, {
+      "length" : 8,
+      "offset" : 22,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 31,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "error" : "java.nio.charset.MalformedInputException: Input length = 1",
+      "kind" : "MALFORMED",
+      "length" : 12,
+      "offset" : 9,
+      "rawLength" : 12,
+      "rawSha256" : "6c429a2ef06873fb9857523dbf81fba9472b228cd42ae9f7b32612d230f9683d",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "failed"
+    }, {
+      "length" : 8,
+      "offset" : 22,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 31,
+    "outcomes" : [ {
+      "length" : 8,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 1
+          },
+          "text" : "{\"id\":1}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "error" : "java.nio.charset.MalformedInputException: Input length = 1",
+      "kind" : "MALFORMED",
+      "length" : 12,
+      "offset" : 9,
+      "rawLength" : 12,
+      "rawSha256" : "6c429a2ef06873fb9857523dbf81fba9472b228cd42ae9f7b32612d230f9683d",
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "failed"
+    }, {
+      "length" : 8,
+      "offset" : 22,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "id" : 3
+          },
+          "text" : "{\"id\":3}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

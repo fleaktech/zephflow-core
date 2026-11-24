@@ -141,7 +141,10 @@ class AzureIotHubSourceDecodingTest {
         .accept(any());
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
-          .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
+          .when(
+              () ->
+                  DlqWriterFactory.createDlqWriter(
+                      eq(jobContext.getDlqConfig()), isNull(), any(), any()))
           .thenReturn(dlqWriter);
       dlqFactory
           .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))
@@ -184,10 +187,7 @@ class AzureIotHubSourceDecodingTest {
             lines.getLast()));
     assertEquals(
         List.of(
-            "failed to deserialize event: MALFORMED json message: JsonParseException: Unrecognized"
-                + " token 'not': was expecting (JSON String, Number, Array, Object or token 'null',"
-                + " 'true' or 'false')\n"
-                + value.getValue()),
+            "failed to deserialize event (8 bytes): MALFORMED json message: JsonParseException"),
         errors);
     verify(acceptor)
         .accept(

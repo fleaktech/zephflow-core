@@ -57,7 +57,7 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
         createSinkCounters(metricClientProvider, jobContext, commandName(), nodeId);
 
     S3SinkDto.Config config = (S3SinkDto.Config) commandConfig;
-    BatchS3Flusher flusher = createS3Flusher(config, jobContext, counters);
+    BatchS3Flusher flusher = createS3Flusher(config, jobContext, counters, metricClientProvider);
     SimpleSinkCommand.SinkMessagePreProcessor<RecordFleakData> messagePreProcessor =
         new PassThroughMessagePreProcessor();
     S3DestinationFailureClassifier classifier = new S3DestinationFailureClassifier();
@@ -99,7 +99,10 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
   }
 
   private BatchS3Flusher createS3Flusher(
-      S3SinkDto.Config config, JobContext jobContext, SinkCounters counters) {
+      S3SinkDto.Config config,
+      JobContext jobContext,
+      SinkCounters counters,
+      MetricClientProvider metricClientProvider) {
     Optional<UsernamePasswordCredential> usernamePasswordCredentialOpt =
         lookupUsernamePasswordCredentialOpt(jobContext, config.getCredentialId());
     AwsClientFactory.S3TransferResources s3TransferResources =
@@ -113,7 +116,12 @@ public class S3SinkCommand extends SimpleSinkCommand<RecordFleakData> {
     String keyPrefix = (String) jobContext.getOtherProperties().get(JobContext.DATA_KEY_PREFIX);
     DlqWriter dlqWriter = null;
     if (jobContext.getDlqConfig() != null) {
-      dlqWriter = DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), keyPrefix);
+      dlqWriter =
+          DlqWriterFactory.createDlqWriter(
+              jobContext.getDlqConfig(),
+              keyPrefix,
+              metricClientProvider,
+              basicCommandMetricTags(jobContext.getMetricTags(), commandName(), nodeId));
     }
     BatchS3Flusher flusher =
         new BatchS3Flusher(

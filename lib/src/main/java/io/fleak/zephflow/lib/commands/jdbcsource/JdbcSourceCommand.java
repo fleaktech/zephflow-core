@@ -63,7 +63,10 @@ public class JdbcSourceCommand extends SimpleSourceCommand<Map<String, Object>> 
     DlqWriter dlqWriter =
         Optional.of(jobContext)
             .map(JobContext::getDlqConfig)
-            .map(c -> DlqWriterFactory.createDlqWriter(c, keyPrefix))
+            .map(
+                c ->
+                    DlqWriterFactory.createDlqWriter(
+                        c, keyPrefix, metricClientProvider, metricTags))
             .orElse(null);
     if (dlqWriter != null) {
       dlqWriter.open();
