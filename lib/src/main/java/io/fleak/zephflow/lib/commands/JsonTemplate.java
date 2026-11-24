@@ -37,15 +37,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A JSON document with placeholders in its string values, rendered against an event into valid
- * JSON. The template is parsed once when created. A string that is exactly one placeholder takes
- * the value's own JSON type (null when the value is missing); a string mixing text and placeholders
- * stays a string, with missing values rendered as empty text. Object keys cannot hold placeholders.
+ * A JSON document with placeholders, rendered against an event into valid JSON. The template is
+ * parsed once when created. A placeholder that stands in for a whole JSON value, either bare
+ * ({@code {"payload": {{$}}}}) or as the entire string ({@code "{{$}}"}), takes the value's own
+ * JSON type (null when the value is missing); a string mixing text and placeholders stays a string,
+ * with missing values rendered as empty text. Object keys cannot hold placeholders.
  */
 public final class JsonTemplate {
   private static final String INVALID_JSON =
-      "Template must be valid JSON, with each placeholder inside quotes, for example"
-          + " \"{{$.field}}\".";
+      "Template must be valid JSON, where a placeholder either stands for a whole value, as in"
+          + " {\"payload\": {{$.field}}}, or sits inside a quoted string.";
+  // Marks a bare placeholder after it is swapped for a JSON string so the template can be parsed.
+  private static final char BARE_PLACEHOLDER_MARK = '\u0000';
   private static final String PLACEHOLDER_IN_KEY =
       "Template placeholders are not supported in JSON object keys.";
 
@@ -56,9 +59,11 @@ public final class JsonTemplate {
   }
 
   public static JsonTemplate create(String template, ConfigurationPath path) {
+    List<TemplatePlaceholderResolver.Placeholder> bare = new ArrayList<>();
+    String parseable = replaceBarePlaceholders(template, path, bare);
     JsonNode tree;
     try {
-      tree = OBJECT_MAPPER.readTree(template);
+      tree = OBJECT_MAPPER.readTree(parseable);
     } catch (JsonProcessingException failure) {
       throw ConfigurationValidationException.at(
           path, new IllegalArgumentException(failure.getOriginalMessage(), failure), INVALID_JSON);
@@ -67,7 +72,41 @@ public final class JsonTemplate {
       throw ConfigurationValidationException.at(
           path, new IllegalArgumentException("empty JSON template"), INVALID_JSON);
     }
-    return new JsonTemplate(compile(tree, path));
+    return new JsonTemplate(compile(tree, path, bare));
+  }
+
+  /**
+   * Swaps each placeholder outside a JSON string for a marked string literal holding its index in
+   * {@code bare}, so the rest of the template can be parsed as JSON.
+   */
+  private static String replaceBarePlaceholders(
+      String template, ConfigurationPath path, List<TemplatePlaceholderResolver.Placeholder> bare) {
+    List<TemplatePlaceholderResolver.Placeholder> placeholders =
+        TemplatePlaceholderResolver.create(template, path).placeholders();
+    StringBuilder parseable = new StringBuilder(template.length());
+    boolean inString = false;
+    int next = 0;
+    for (int i = 0; i < template.length(); i++) {
+      if (next < placeholders.size() && placeholders.get(next).start() == i) {
+        TemplatePlaceholderResolver.Placeholder placeholder = placeholders.get(next++);
+        if (inString) {
+          parseable.append(template, placeholder.start(), placeholder.end());
+        } else {
+          parseable.append("\"\\u0000").append(bare.size()).append('"');
+          bare.add(placeholder);
+        }
+        i = placeholder.end() - 1;
+        continue;
+      }
+      char c = template.charAt(i);
+      parseable.append(c);
+      if (inString && c == '\\' && i + 1 < template.length()) {
+        parseable.append(template.charAt(++i));
+      } else if (c == '"') {
+        inString = !inString;
+      }
+    }
+    return parseable.toString();
   }
 
   public String render(FleakData event) {
@@ -78,26 +117,31 @@ public final class JsonTemplate {
     }
   }
 
-  private static Part compile(JsonNode node, ConfigurationPath path) {
+  private static Part compile(
+      JsonNode node, ConfigurationPath path, List<TemplatePlaceholderResolver.Placeholder> bare) {
     if (node.isObject()) {
       Map<String, Part> fields = new LinkedHashMap<>();
       for (Iterator<Map.Entry<String, JsonNode>> it = node.fields(); it.hasNext(); ) {
         Map.Entry<String, JsonNode> field = it.next();
-        if (!TemplatePlaceholderResolver.create(field.getKey(), path).placeholders().isEmpty()) {
+        if (isBareMark(field.getKey(), bare)
+            || !TemplatePlaceholderResolver.create(field.getKey(), path).placeholders().isEmpty()) {
           throw ConfigurationValidationException.at(
               path, new IllegalArgumentException(PLACEHOLDER_IN_KEY), PLACEHOLDER_IN_KEY);
         }
-        fields.put(field.getKey(), compile(field.getValue(), path));
+        fields.put(field.getKey(), compile(field.getValue(), path, bare));
       }
       return allLiteral(fields.values()) ? new Literal(node) : new ObjectPart(fields);
     }
     if (node.isArray()) {
       List<Part> elements = new ArrayList<>();
-      node.forEach(element -> elements.add(compile(element, path)));
+      node.forEach(element -> elements.add(compile(element, path, bare)));
       return allLiteral(elements) ? new Literal(node) : new ArrayPart(elements);
     }
     if (node.isTextual()) {
       String text = node.textValue();
+      if (isBareMark(text, bare)) {
+        return new Slot(bare.get(Integer.parseInt(text.substring(1))).pathExpression());
+      }
       TemplatePlaceholderResolver resolver =
           TemplatePlaceholderResolver.create(text, path, Escaping.NONE, MissingValue.EMPTY);
       List<TemplatePlaceholderResolver.Placeholder> placeholders = resolver.placeholders();
@@ -112,6 +156,19 @@ public final class JsonTemplate {
       return new MixedString(resolver);
     }
     return new Literal(node);
+  }
+
+  private static boolean isBareMark(
+      String text, List<TemplatePlaceholderResolver.Placeholder> bare) {
+    if (text.length() < 2 || text.charAt(0) != BARE_PLACEHOLDER_MARK) {
+      return false;
+    }
+    for (int i = 1; i < text.length(); i++) {
+      if (!Character.isDigit(text.charAt(i))) {
+        return false;
+      }
+    }
+    return Integer.parseInt(text.substring(1)) < bare.size();
   }
 
   private static boolean allLiteral(Collection<Part> parts) {

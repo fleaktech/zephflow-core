@@ -103,14 +103,49 @@ class JsonTemplateTest {
   }
 
   @Test
-  void placeholderOutsideQuotesIsAConfigurationErrorThatDoesNotEchoTheTemplate() {
+  void placeholderOutsideQuotesRendersAJsonValue() throws Exception {
+    JsonNode body =
+        render(
+            "{\"payload\": {{$.payload}}, \"n\": {{ $.count }}, \"ok\": {{$.ok}},"
+                + " \"rule\": {{$.rule}}, \"geo\": {{$.geo}}, \"list\": [{{$.tags}}, 1]}");
+    assertEquals(RULE, body.get("payload").get("text").asText());
+    assertTrue(body.get("n").isNumber());
+    assertEquals(3, body.get("n").asInt());
+    assertTrue(body.get("ok").booleanValue());
+    assertEquals(RULE, body.get("rule").asText());
+    assertTrue(body.get("geo").isNull());
+    assertEquals("a", body.get("list").get(0).get(0).asText());
+  }
+
+  @Test
+  void wholeTemplateUnquotedPlaceholderSerializesTheRecord() throws Exception {
+    assertEquals(RULE, render("{{$.payload}}").get("text").asText());
+  }
+
+  @Test
+  void invalidJsonAroundAPlaceholderIsAConfigurationErrorThatDoesNotEchoTheTemplate() {
     var failure =
         assertThrows(
             ConfigurationValidationException.class,
-            () -> JsonTemplate.create("{\"n\": {{$.secret-token}}}", PATH));
+            () -> JsonTemplate.create("{\"n\": 1{{$.secret-token}}}", PATH));
     assertEquals(PATH, failure.issues().getFirst().path());
     assertTrue(failure.issues().getFirst().message().contains("placeholder"));
     assertFalse(failure.issues().getFirst().message().contains("secret-token"));
+  }
+
+  @Test
+  void unquotedPlaceholderAsAnObjectKeyIsAConfigurationError() {
+    var failure =
+        assertThrows(
+            ConfigurationValidationException.class,
+            () -> JsonTemplate.create("{ {{$.k}}: 1}", PATH));
+    assertEquals(PATH, failure.issues().getFirst().path());
+  }
+
+  @Test
+  void placeholderWithQuotesInsideAStringValueStaysInTheString() throws Exception {
+    assertEquals(
+        "say \"" + RULE + "\"", render("{\"t\": \"say \\\"{{$.rule}}\\\"\"}").get("t").asText());
   }
 
   @Test

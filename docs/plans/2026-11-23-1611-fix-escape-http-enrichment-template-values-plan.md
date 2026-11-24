@@ -38,7 +38,7 @@ The HTTP Client provider inserts event values into its templates verbatim (`Temp
 **JSON body**
 - R1. With `payloadFormat: json`, the request body is valid JSON for any event field content.
 - R2. A JSON payload template that is not valid JSON is a configuration error at deploy time, located at `payloadTemplate`.
-- R3. A JSON string in the template that consists of exactly one placeholder renders the value with its native JSON type (string, number, boolean, object, array); a missing value renders as JSON `null`.
+- R3. A placeholder that stands for a whole JSON value, either bare (`{"payload": {{$}}}`) or as a string that is exactly one placeholder (`"{{$}}"`), renders the value with its native JSON type (string, number, boolean, object, array); a missing value renders as JSON `null`.
 - R4. A JSON string that mixes literal text and placeholders renders as a JSON string; a missing value contributes an empty string.
 
 **Body format and Content-Type**
@@ -63,7 +63,8 @@ The HTTP Client provider inserts event values into its templates verbatim (`Temp
 - **A missing URL value fails the event.** Governs R9. (session-settled: user-directed — chosen over rendering an empty value: a request to the wrong endpoint is worse than an error)
 - **Existing template outputs need not be preserved.** Governs R1, R3, R4, R5. (session-settled: user-directed — chosen over keeping every currently valid output unchanged: the user stated backward compatibility is not needed)
 - **The body format is an explicit `payloadFormat` setting with a derived Content-Type.** Governs R5, R6. (session-settled: user-approved — chosen over inferring the format from the Content-Type header or by sniffing the template: Logstash `format`, Postman and Python requests `json=` all derive Content-Type from an explicit format, and Postman, Vector, Grafana and EventBridge let a user-set header win)
-- **JSON bodies use a parsed JSON template.** Governs R1, R2, R3, R4. Complex payloads are built upstream with an eval node and inserted as `"{{$.payload}}"`. (session-settled: user-approved — chosen over scanning the template for quote positions and escaping by context: output is valid by construction and template mistakes surface at deploy time)
+- **JSON bodies use a parsed JSON template.** Governs R1, R2, R3, R4. Complex payloads are built upstream with an eval node and inserted as `{{$.payload}}` or `"{{$.payload}}"`. (session-settled: user-approved — chosen over escaping by context in the rendered text: output is valid by construction and template mistakes surface at deploy time)
+- **Bare placeholders are allowed where a JSON value goes.** Governs R2, R3. A load-time scan finds placeholders outside JSON strings and treats each like a single-placeholder string, so existing templates such as `{{$}}` and `{"payload": {{$}}}` keep working. (session-settled: user-directed — chosen over requiring every placeholder to sit inside quotes: unquoted value placeholders are the common pattern in EventBridge, n8n, Go templates and Elastic Watcher, and requiring quotes broke existing templates)
 - **URL values follow RFC 6570's split between `{var}` and `{+var}`.** Governs R8. (session-settled: user-approved — chosen over encoding everything or nothing: values are encoded like `{var}`, a host or whole-URL placeholder is kept like `{+var}`)
 - **Missing header and auth values fail the event.** Governs R10. (session-settled: user-approved — chosen over sending the literal `null`, as today)
 - **Line breaks in header values are rejected, not stripped.** Governs R11. (session-settled: user-approved — chosen over silently removing CR/LF: Java HttpClient, OkHttp and Vector reject such values, and stripping hides the problem)
@@ -88,9 +89,8 @@ The HTTP Client provider inserts event values into its templates verbatim (`Temp
 #### Deferred to Follow-Up Work
 
 - dynamicapi rollout, after a zephflow-plus release containing PR2 exists. The Grid runs the zephflow-plus version dynamicapi was built with (`appserver/build.gradle`), so the fix reaches running pipelines only after this step:
-  - Before the bump, query deployed HTTP Client configs for payload templates Jackson cannot parse, and fix them or tell their owners.
+  - Before the bump, query deployed HTTP Client configs for payload templates that are not JSON even with bare placeholders counted as values (for example plain text), and set `payloadFormat: text` on them or tell their owners.
   - Bump `zephflowplus-commands` in `gradle/libs.versions.toml`.
-  - Change `payloadTemplate` from `{{$}}` to `"{{$}}"` in `ExecutionPreparedRuntimeTest`, `McpGraphReadHttpIntegrationTest` and `src/test/resources/dags/execution_managed_http_and_hec.json`, which run real HTTP Client enrichments.
   - Add a `payloadFormat` pass-through assertion to `EnrichmentTranslatorTest` (R13).
 - webapp: a `payloadFormat` dropdown in the HTTP Client form. The zod schema (`webapp/src/api/fleak/schemas/common.ts`, `EnrichmentHttpClientProviderSchema`) strips unknown keys, so a UI edit resets `payloadFormat` to the default `json` until the dropdown exists.
 - zephflow-doc: document `payloadFormat`, the JSON-template rules and URL encoding in the Enrichment node docs (`docs/workflowbuilder/nodes` in `fleaktech/zephflow-doc`), which copilot and MCP read.
@@ -135,6 +135,7 @@ JSON template grammar, directional:
 ```text
 template      := any JSON value (parsed once at load; invalid JSON -> config error at payloadTemplate)
 object key    := literal string only (a placeholder here -> config error)
+bare value    := {{ path }} outside any string -> slot: native value of path, or null when missing
 string leaf   := "{{ path }}"            -> slot: native value of path, or null when missing
                | text with {{ path }}... -> string: placeholders rendered as text, missing -> ""
                | text without {{ }}      -> literal, copied as is
@@ -173,13 +174,13 @@ flowchart TB
 ### System-Wide Impact
 
 - Shared component: `TemplatePlaceholderResolver` is used by the zephflow-core SMTP sink and by zephflow-plus in-memory lookup, JDBC, BigQuery, s3read and LLM chat. Only opt-in options change it (KTD3); R12 holds them unchanged.
-- External contract: `payloadFormat` is a new optional field on the HTTP Client provider config, read by dynamicapi (pass-through; its execution tests use `{{$}}` and need the deferred fixture update), webapp (stripped, deferred) and zephflow-doc (deferred).
-- Behavior change for existing HTTP Client nodes: JSON payload templates must now be valid JSON with placeholders inside quotes. The UI's own placeholder example (`webapp/.../HttpClientFields.tsx`, `"payload": {{$}}`) becomes invalid and should read `"payload": "{{$}}"` in the webapp follow-up.
+- External contract: `payloadFormat` is a new optional field on the HTTP Client provider config, read by dynamicapi (pass-through), webapp (stripped, deferred) and zephflow-doc (deferred).
+- Behavior change for existing HTTP Client nodes: JSON payload templates must be valid JSON once each bare placeholder counts as a value. Templates such as `{{$}}` and the UI's own example `"payload": {{$}}` stay valid; a template that is not JSON at all (plain text) needs `payloadFormat: text`.
 
 ### Risks & Dependencies
 
 - PR2 depends on a published zephflow-core release. Until a maintainer publishes it, PR2 stays open with CI unable to resolve the new version.
-- A deployed HTTP Client node whose payload template is not valid JSON fails at provider creation as soon as its job starts on the new zephflow-plus runtime, including a restart without redeploy, not only at its next deploy. This was accepted with the no-compatibility decision; the pre-bump query in the dynamicapi follow-up finds such nodes first, and the error says how to fix the template (placeholders go inside quotes).
+- A deployed HTTP Client node whose payload template is not JSON at all (for example plain text) fails at provider creation as soon as its job starts on the new zephflow-plus runtime, including a restart without redeploy. This was accepted with the no-compatibility decision; the pre-bump query in the dynamicapi follow-up finds such nodes, which need `payloadFormat: text`.
 - Accepted, not built: a template whose whole URL or whole host comes from an event field (AE5) can send configured credentials to any public host the event names, because `SecurityUtils.isUrlAllowed` only rejects private and loopback addresses. This follows the settled `{+var}` decision; revisit with a host allowlist if users attach static auth to such templates.
 
 ---
@@ -222,7 +223,7 @@ Waits on: nothing.
   - `lib/src/main/java/io/fleak/zephflow/lib/commands/` (new renderer class next to `TemplatePlaceholderResolver`; name decided at implementation)
   - `lib/src/test/java/io/fleak/zephflow/lib/commands/` (new matching test class; unit seam: catches grammar and serialization; misses HTTP wiring)
 - **Approach:**
-  1. Parse with the project's Jackson `ObjectMapper` (`lib/utils/JsonUtils`); on failure throw `ConfigurationValidationException` located at the caller's `ConfigurationPath`. The issue message is a fixed sentence saying the template must be valid JSON with placeholders inside quotes; it never includes Jackson's message or template text, which may hold secrets. The Jackson exception is kept only as the original failure. zephflow-plus `EnrichmentConfigurationDiagnosticsTest` already requires a `payloadTemplate` issue that mentions "placeholder" and never echoes the template.
+  1. Parse with the project's Jackson `ObjectMapper` (`lib/utils/JsonUtils`); on failure throw `ConfigurationValidationException` located at the caller's `ConfigurationPath`. The issue message is a fixed sentence saying the template must be valid JSON where a placeholder stands for a whole value or sits inside a string; it never includes Jackson's message or template text, which may hold secrets. The Jackson exception is kept only as the original failure. zephflow-plus `EnrichmentConfigurationDiagnosticsTest` already requires a `payloadTemplate` issue that mentions "placeholder" and never echoes the template.
   2. Classify string leaves per the High-Level Technical Design grammar; reject placeholders in object keys.
   3. Render by rebuilding the tree and serializing; unwrap `FleakData` values for single-placeholder slots.
 - **Patterns to follow:** `TemplatePlaceholderResolver.create(template, ConfigurationPath)` for located configuration errors.
@@ -232,7 +233,7 @@ Waits on: nothing.
   - Covers AE3. Template `"{{$.payload}}"` serializes a record value as the whole body.
   - A mixed string with a missing placeholder renders the surrounding text with an empty string.
   - Nested arrays and objects with placeholders at several depths render correctly.
-  - `{"n": {{$.n}}}` (placeholder outside quotes) fails creation with a located configuration error.
+  - `{"n": {{$.n}}}` (bare placeholder) renders the value's JSON type; `{"n": 1{{$.n}}}` fails creation with a located configuration error that does not echo the template.
   - A placeholder in an object key fails creation.
   - A template with no placeholders renders to its own normalized JSON.
 - **Verification:** renderer tests pass; `./gradlew :lib:goldenTest` unchanged.
@@ -255,7 +256,7 @@ Waits on: PR1, needed before this group's CI can build, because zephflow-plus re
 - **Approach:**
   1. Add `payloadFormat` with JSON values `json` and `text`, null meaning `json`.
   2. In the validator, build the URL resolver in URL mode and, for a non-blank payload template, the JSON renderer or text resolver per format, each located at its config path (KTD8).
-  3. Update existing zephflow-plus fixtures whose payload templates are not valid JSON: `commands/src/test/resources/httpclient/http_client_config.json` (`[{{$}}]` becomes `["{{$}}"]`) and `HttpClientBoundedExecutionTest` (`{{$.message}}` becomes `"{{$.message}}"`).
+  3. Existing zephflow-plus fixtures with bare placeholders (`[{{$}}]` in `commands/src/test/resources/httpclient/http_client_config.json`, `{{$.message}}` in `HttpClientBoundedExecutionTest`) stay unchanged and must keep passing.
 - **Patterns to follow:** existing `require(...)` and `of(...)` usage in `HttpClientConfigValidator`; lowercase format values as in zephflow-core `FormatConfig` `type`.
 - **Test scenarios:**
   - Config without `payloadFormat` and with a valid JSON template passes.
