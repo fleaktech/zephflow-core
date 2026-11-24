@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import javax.net.ssl.TrustManager;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -107,7 +108,25 @@ public class AwsClientFactory implements Serializable {
       String regionStr,
       UsernamePasswordCredential usernamePasswordCredential,
       String s3EndpointOverride) {
-    return s3ClientBuilder(regionStr, usernamePasswordCredential, s3EndpointOverride).build();
+    return createS3Client(regionStr, usernamePasswordCredential, s3EndpointOverride, null);
+  }
+
+  /**
+   * Like {@link #createS3Client(String, UsernamePasswordCredential, String)}, and the client also
+   * trusts the authorities in {@code additionalCaCertificates} (PEM) besides the JVM's default
+   * ones. Blank keeps the default trust.
+   */
+  public S3Client createS3Client(
+      String regionStr,
+      UsernamePasswordCredential usernamePasswordCredential,
+      String s3EndpointOverride,
+      @Nullable String additionalCaCertificates) {
+    S3ClientBuilder builder =
+        s3ClientBuilder(regionStr, usernamePasswordCredential, s3EndpointOverride);
+    if (StringUtils.isNotBlank(additionalCaCertificates)) {
+      builder.httpClientBuilder(trustingAlso(ApacheHttpClient.builder(), additionalCaCertificates));
+    }
+    return builder.build();
   }
 
   public record S3ClientTimeouts(Duration connect, Duration socketRead) {}
@@ -123,15 +142,41 @@ public class AwsClientFactory implements Serializable {
       UsernamePasswordCredential usernamePasswordCredential,
       @Nonnull String s3EndpointOverride,
       S3ClientTimeouts timeouts) {
+    return createS3CompatibleStorageClient(
+        regionStr, usernamePasswordCredential, s3EndpointOverride, timeouts, null);
+  }
+
+  /**
+   * Like {@link #createS3CompatibleStorageClient(String, UsernamePasswordCredential, String,
+   * S3ClientTimeouts)}, and the client also trusts the authorities in {@code
+   * additionalCaCertificates} (PEM) besides the JVM's default ones. Blank keeps the default trust.
+   */
+  public S3Client createS3CompatibleStorageClient(
+      String regionStr,
+      UsernamePasswordCredential usernamePasswordCredential,
+      @Nonnull String s3EndpointOverride,
+      S3ClientTimeouts timeouts,
+      @Nullable String additionalCaCertificates) {
+    ApacheHttpClient.Builder httpClient =
+        ApacheHttpClient.builder()
+            .connectionTimeout(timeouts.connect())
+            .socketTimeout(timeouts.socketRead());
+    if (StringUtils.isNotBlank(additionalCaCertificates)) {
+      trustingAlso(httpClient, additionalCaCertificates);
+    }
     return s3ClientBuilder(regionStr, usernamePasswordCredential, s3EndpointOverride)
         .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
         .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
-        .httpClientBuilder(
-            ApacheHttpClient.builder()
-                .connectionTimeout(timeouts.connect())
-                .socketTimeout(timeouts.socketRead()))
+        .httpClientBuilder(httpClient)
         .overrideConfiguration(override -> override.retryStrategy(retry -> retry.maxAttempts(1)))
         .build();
+  }
+
+  private static ApacheHttpClient.Builder trustingAlso(
+      ApacheHttpClient.Builder httpClient, String additionalCaCertificates) {
+    TrustManager[] trustManagers =
+        AdditionalCertificateAuthorities.trustManagersWithDefaultsAnd(additionalCaCertificates);
+    return httpClient.tlsTrustManagersProvider(() -> trustManagers);
   }
 
   private S3ClientBuilder s3ClientBuilder(

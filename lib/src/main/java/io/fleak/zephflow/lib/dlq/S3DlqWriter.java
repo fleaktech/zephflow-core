@@ -105,6 +105,7 @@ public class S3DlqWriter extends DlqWriter {
         new UsernamePasswordCredential(
             s3DlqConfig.getAccessKeyId(), s3DlqConfig.getSecretAccessKey()),
         s3DlqConfig.getS3EndpointOverride(),
+        s3DlqConfig.getCaCertificates(),
         keyPrefix,
         DEFAULT_PATH_SEGMENT,
         DEFAULT_FILE_PREFIX,
@@ -127,6 +128,7 @@ public class S3DlqWriter extends DlqWriter {
         flushIntervalMillis,
         credential,
         s3EndpointOverride,
+        null,
         keyPrefix,
         DEFAULT_PATH_SEGMENT,
         DEFAULT_FILE_PREFIX,
@@ -143,6 +145,7 @@ public class S3DlqWriter extends DlqWriter {
         new UsernamePasswordCredential(
             s3DlqConfig.getAccessKeyId(), s3DlqConfig.getSecretAccessKey()),
         s3DlqConfig.getS3EndpointOverride(),
+        s3DlqConfig.getCaCertificates(),
         keyPrefix,
         "raw-data-samples",
         "sample",
@@ -165,6 +168,7 @@ public class S3DlqWriter extends DlqWriter {
         flushIntervalMillis,
         credential,
         s3EndpointOverride,
+        null,
         keyPrefix,
         "raw-data-samples",
         "sample",
@@ -178,6 +182,7 @@ public class S3DlqWriter extends DlqWriter {
       long flushIntervalMillis,
       UsernamePasswordCredential credential,
       String s3EndpointOverride,
+      String caCertificates,
       String keyPrefix,
       String pathSegment,
       String filePrefix,
@@ -192,9 +197,10 @@ public class S3DlqWriter extends DlqWriter {
     boolean awsStorage = StringUtils.isBlank(s3EndpointOverride);
     S3Client s3Client =
         awsStorage
-            ? awsClientFactory.createS3Client(region, credential, s3EndpointOverride)
+            ? awsClientFactory.createS3Client(
+                region, credential, s3EndpointOverride, caCertificates)
             : awsClientFactory.createS3CompatibleStorageClient(
-                region, credential, s3EndpointOverride, STORAGE_CLIENT_TIMEOUTS);
+                region, credential, s3EndpointOverride, STORAGE_CLIENT_TIMEOUTS, caCertificates);
     return new S3DlqWriter(
         s3Client,
         bucketName,

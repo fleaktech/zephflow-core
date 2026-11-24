@@ -92,6 +92,13 @@ public class JobContext implements Serializable {
     private String accessKeyId;
     private String secretAccessKey;
     private String s3EndpointOverride;
+
+    /**
+     * PEM certificates of authorities the writer's S3 client trusts besides the JVM's default ones,
+     * for a store whose certificate a private authority issued. Absent for the default trust only.
+     */
+    private String caCertificates;
+
     private @Builder.Default long rawDataSampleIntervalMs = 60_000;
   }
 
