@@ -15,6 +15,7 @@ package io.fleak.zephflow.api;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.fleak.zephflow.api.execution.ExecutionHooks;
@@ -97,6 +98,7 @@ public class JobContext implements Serializable {
      * PEM certificates of authorities the writer's S3 client trusts besides the JVM's default ones,
      * for a store whose certificate a private authority issued. Absent for the default trust only.
      */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String caCertificates;
 
     private @Builder.Default long rawDataSampleIntervalMs = 60_000;
