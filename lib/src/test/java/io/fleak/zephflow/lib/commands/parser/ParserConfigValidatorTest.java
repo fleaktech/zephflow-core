@@ -21,14 +21,78 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import io.fleak.zephflow.api.ConfigurationIssue;
 import io.fleak.zephflow.api.ConfigurationPath;
 import io.fleak.zephflow.api.ConfigurationValidationException;
+import io.fleak.zephflow.lib.parser.ParserConfigCompiler;
 import io.fleak.zephflow.lib.parser.ParserConfigs;
+import io.fleak.zephflow.lib.parser.extractions.JsonExtractionConfig;
 import io.fleak.zephflow.lib.parser.extractions.WindowsMultilineExtractionConfig;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class ParserConfigValidatorTest {
 
   private final ParserConfigValidator validator = new ParserConfigValidator();
+
+  @Test
+  void validatesExactPathAndAllowsAnEmptyKey() {
+    var config = windows(null);
+    config.setExtractionConfig(new JsonExtractionConfig("payload"));
+    config.setTargetFieldPath(List.of("payload", ""));
+    assertDoesNotThrow(() -> validator.validateConfig(config, "n", null));
+    config.setTargetFieldPath(List.of());
+    assertEquals(
+        ConfigurationPath.of("targetFieldPath"),
+        assertThrows(
+                ConfigurationValidationException.class,
+                () -> validator.validateConfig(config, "n", null))
+            .issues()
+            .getFirst()
+            .path());
+    assertThrows(IllegalArgumentException.class, () -> new ParserConfigCompiler().compile(config));
+    config.setTargetFieldPath(Arrays.asList("payload", null));
+    assertEquals(
+        ConfigurationPath.of("targetFieldPath").index(1),
+        assertThrows(
+                ConfigurationValidationException.class,
+                () -> validator.validateConfig(config, "n", null))
+            .issues()
+            .getFirst()
+            .path());
+  }
+
+  @Test
+  void validatesPathsInsideDispatchIncludingLiteralMapKeys() {
+    var invalid = windows(null);
+    invalid.setTargetFieldPath(List.of());
+    var config = windows(null);
+    config.setDispatchConfig(
+        ParserConfigs.DispatchConfig.builder()
+            .dispatchField("type")
+            .dispatchMap(Map.of("a.b", invalid))
+            .build());
+    assertEquals(
+        ConfigurationPath.of("dispatchConfig", "dispatchMap", "a.b", "targetFieldPath"),
+        assertThrows(
+                ConfigurationValidationException.class,
+                () -> validator.validateConfig(config, "n", null))
+            .issues()
+            .getFirst()
+            .path());
+    config.setDispatchConfig(
+        ParserConfigs.DispatchConfig.builder()
+            .dispatchField("type")
+            .defaultConfig(invalid)
+            .build());
+    assertEquals(
+        ConfigurationPath.of("dispatchConfig", "defaultConfig", "targetFieldPath"),
+        assertThrows(
+                ConfigurationValidationException.class,
+                () -> validator.validateConfig(config, "n", null))
+            .issues()
+            .getFirst()
+            .path());
+  }
 
   @Test
   void validateConfigAcceptsWindowsTimezone() {

@@ -13,8 +13,10 @@
  */
 package io.fleak.zephflow.lib.parser;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.fleak.zephflow.api.CommandConfig;
 import io.fleak.zephflow.lib.parser.extractions.ExtractionConfig;
+import java.util.List;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -32,6 +34,18 @@ public interface ParserConfigs {
     private boolean removeTargetField;
     private ExtractionConfig extractionConfig; // rule to apply to extract fields from the string
     private DispatchConfig dispatchConfig; // further parsing
+
+    // Exact object keys; when absent, targetField remains one literal key.
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<String> targetFieldPath;
+
+    public ParserConfig(
+        String targetField,
+        boolean removeTargetField,
+        ExtractionConfig extractionConfig,
+        DispatchConfig dispatchConfig) {
+      this(targetField, removeTargetField, extractionConfig, dispatchConfig, null);
+    }
   }
 
   @Data
