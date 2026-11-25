@@ -87,6 +87,16 @@ class SqsSourceFetcherBacklogTest {
     assertEquals(SourceBacklog.UNKNOWN, fetcher.backlog());
   }
 
+  @Test
+  void aMissingQueueDepthIsUnknown() {
+    when(sqsClient.getQueueAttributes(any(GetQueueAttributesRequest.class)))
+        .thenReturn(GetQueueAttributesResponse.builder().build());
+
+    fetcher.fetch();
+
+    assertEquals(SourceBacklog.UNKNOWN, fetcher.backlog());
+  }
+
   private void queueDepth(String depth) {
     when(sqsClient.getQueueAttributes(any(GetQueueAttributesRequest.class)))
         .thenReturn(

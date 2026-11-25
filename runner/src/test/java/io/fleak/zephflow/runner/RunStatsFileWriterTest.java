@@ -130,6 +130,17 @@ class RunStatsFileWriterTest {
     }
   }
 
+  @Test
+  void aFailedWriteIsSkipped() {
+    Path file = dir.resolve("missing").resolve("stats.json");
+    RunStatsFileWriter writer = new RunStatsFileWriter(file, () -> stats(1));
+
+    writer.write();
+    writer.close();
+
+    assertFalse(Files.exists(file));
+  }
+
   private static RunStats stats(long backlog) {
     return new RunStats(
         List.of(new RunStats.SourceStats("kafka", backlog, "records", 6, backlog)),

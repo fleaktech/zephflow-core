@@ -188,6 +188,15 @@ class RunStatsTest {
     assertEquals(RunStats.BufferState.EMPTY, RunStats.bufferState(List.of(sink), false));
   }
 
+  @Test
+  void aCommandTerminatedWhileReadingIsSkipped() {
+    OperatorCommand sink = mock(OperatorCommand.class);
+    when(sink.isInitialized()).thenReturn(true);
+    when(sink.getExecutionContext()).thenThrow(new IllegalStateException("terminated"));
+
+    assertEquals(RunStats.BufferState.EMPTY, RunStats.bufferState(List.of(sink), true));
+  }
+
   /** A null backlog means a fetcher that keeps the interface default. */
   private static SourceCommand source(SourceBacklog backlog) {
     Fetcher<Object> fetcher =

@@ -94,6 +94,59 @@ class KafkaSourceFetcherBacklogTest {
   }
 
   @Test
+  void unrelatedAndMalformedMetricsAreIgnored() {
+    assign(0);
+    lag(0, 100);
+    metrics.put(
+        new MetricName("records-lag", "other-group", "", Map.of("topic", TOPIC, "partition", "0")),
+        metric(5));
+    metrics.put(
+        new MetricName("records-lag", "consumer-fetch-manager-metrics", "", Map.of("topic", TOPIC)),
+        metric(5));
+    metrics.put(
+        new MetricName(
+            "records-lag", "consumer-fetch-manager-metrics", "", Map.of("partition", "0")),
+        metric(5));
+    Metric notANumber = mock();
+    when(notANumber.metricValue()).thenReturn("n/a");
+    metrics.put(
+        new MetricName(
+            "records-lag",
+            "consumer-fetch-manager-metrics",
+            "",
+            Map.of("client-id", "c2", "topic", TOPIC, "partition", "0")),
+        notANumber);
+    KafkaSourceFetcher fetcher = new KafkaSourceFetcher(consumer, null);
+
+    fetcher.fetch();
+
+    assertEquals(SourceBacklog.records(100L, 6), fetcher.backlog());
+  }
+
+  @Test
+  void aTopicWithoutPartitionMetadataMakesThePartitionCountUnknown() {
+    assign(0);
+    lag(0, 100);
+    when(consumer.partitionsFor(TOPIC)).thenReturn(null);
+    KafkaSourceFetcher fetcher = new KafkaSourceFetcher(consumer, null);
+
+    fetcher.fetch();
+
+    assertEquals(SourceBacklog.records(100L, null), fetcher.backlog());
+  }
+
+  @Test
+  void aFailedBacklogReadIsUnknown() {
+    assign(0);
+    when(consumer.metrics()).thenThrow(new IllegalStateException("closed"));
+    KafkaSourceFetcher fetcher = new KafkaSourceFetcher(consumer, null);
+
+    fetcher.fetch();
+
+    assertEquals(SourceBacklog.UNKNOWN, fetcher.backlog());
+  }
+
+  @Test
   void beforeTheFirstFetchTheBacklogIsUnknown() {
     assertEquals(SourceBacklog.UNKNOWN, new KafkaSourceFetcher(consumer, null).backlog());
   }

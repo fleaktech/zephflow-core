@@ -14,6 +14,7 @@
 package io.fleak.zephflow.api;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 
@@ -26,5 +27,12 @@ class SourceCommandTest {
     SourceCommand source = mock(SourceCommand.class, CALLS_REAL_METHODS);
 
     assertFalse(source.requestStop());
+  }
+
+  @Test
+  void aPausableSourceCanPauseUnlessItSaysOtherwise() {
+    PausableSource source = mock(PausableSource.class, CALLS_REAL_METHODS);
+
+    assertTrue(source.supportsPause());
   }
 }

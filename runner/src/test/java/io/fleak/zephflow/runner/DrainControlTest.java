@@ -139,6 +139,23 @@ class DrainControlTest {
     write("stop");
     control.poll();
 
+    write("stop");
+    control.poll();
+
+    assertEquals(DrainState.DRAINING, control.state());
+    verify(pausable, never()).requestResume();
+  }
+
+  @Test
+  void anUnreadableControlFileChangesNothing() throws Exception {
+    DrainControl control = control();
+    write("drain");
+    control.poll();
+
+    Files.delete(controlFile());
+    Files.createDirectory(controlFile());
+    control.poll();
+
     assertEquals(DrainState.DRAINING, control.state());
     verify(pausable, never()).requestResume();
   }
@@ -149,6 +166,7 @@ class DrainControlTest {
     DrainControl control = control();
     write("drain");
 
+    control.poll();
     control.poll();
 
     assertFalse(control.supportsDrain());
@@ -185,6 +203,19 @@ class DrainControlTest {
 
       verify(source, timeout(5_000)).requestStop();
       assertEquals(DrainState.DRAINED, control.state());
+    }
+  }
+
+  @Test
+  void aFailedBackgroundPollIsRetried() throws Exception {
+    when(pausable.isPaused()).thenReturn(true);
+    doThrow(new IllegalStateException("not ready")).doNothing().when(pausable).requestPause();
+    write("drain");
+    try (DrainControl control = control()) {
+      control.start(Duration.ofMillis(10));
+
+      verify(source, timeout(5_000)).requestStop();
+      verify(pausable, times(2)).requestPause();
     }
   }
 }
