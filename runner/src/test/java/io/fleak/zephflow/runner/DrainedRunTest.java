@@ -93,7 +93,6 @@ class DrainedRunTest {
 
     Path ready = dir.resolve("ready");
     Path controlFile = dir.resolve("control");
-    Files.writeString(controlFile, "drain");
     CountDownLatch sinkUp = new CountDownLatch(1);
     List<RecordFleakData> replayed = new CopyOnWriteArrayList<>();
     DagExecutor executor =
@@ -112,6 +111,7 @@ class DrainedRunTest {
 
     CompletableFuture<Boolean> drained = runAsync(executor, null, controlFile);
     await(() -> Files.exists(ready));
+    Files.writeString(controlFile, "drain");
     assertThrows(TimeoutException.class, () -> drained.get(5, TimeUnit.SECONDS));
 
     sinkUp.countDown();
