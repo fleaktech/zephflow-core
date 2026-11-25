@@ -1,0 +1,212 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 123,
+    "outcomes" : [ {
+      "length" : 63,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1 msg=hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 58,
+      "offset" : 64,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|101|logout|3|src=10.0.0.2 suser=bob"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 123,
+    "outcomes" : [ {
+      "length" : 63,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1 msg=hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 58,
+      "offset" : 64,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|101|logout|3|src=10.0.0.2 suser=bob"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 123,
+    "outcomes" : [ {
+      "length" : 63,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1 msg=hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 58,
+      "offset" : 64,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|101|logout|3|src=10.0.0.2 suser=bob"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 123,
+    "outcomes" : [ {
+      "length" : 63,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1 msg=hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 58,
+      "offset" : 64,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|101|logout|3|src=10.0.0.2 suser=bob"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 123,
+    "outcomes" : [ {
+      "length" : 63,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1 msg=hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 58,
+      "offset" : 64,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|101|logout|3|src=10.0.0.2 suser=bob"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 123,
+    "outcomes" : [ {
+      "length" : 63,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|100|login|5|src=10.0.0.1 msg=hello world"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 58,
+      "offset" : 64,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_cef",
+          "metadata" : { },
+          "record" : { },
+          "text" : "CEF:0|vendor|product|1|101|logout|3|src=10.0.0.2 suser=bob"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

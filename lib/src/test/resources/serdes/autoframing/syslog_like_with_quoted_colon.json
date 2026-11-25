@@ -1,0 +1,122 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 142,
+    "outcomes" : [ {
+      "length" : 142,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app: {\"user\": \"alice\"}\n<34>Oct 11 22:14:16 host app: {\"user\": \"bob\"}\n<34>Oct 11 22:14:17 host app: {\"user\": \"carol\"}\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 142,
+    "outcomes" : [ {
+      "length" : 142,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app: {\"user\": \"alice\"}\n<34>Oct 11 22:14:16 host app: {\"user\": \"bob\"}\n<34>Oct 11 22:14:17 host app: {\"user\": \"carol\"}\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 142,
+    "outcomes" : [ {
+      "length" : 142,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app: {\"user\": \"alice\"}\n<34>Oct 11 22:14:16 host app: {\"user\": \"bob\"}\n<34>Oct 11 22:14:17 host app: {\"user\": \"carol\"}\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 142,
+    "outcomes" : [ {
+      "length" : 142,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app: {\"user\": \"alice\"}\n<34>Oct 11 22:14:16 host app: {\"user\": \"bob\"}\n<34>Oct 11 22:14:17 host app: {\"user\": \"carol\"}\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 142,
+    "outcomes" : [ {
+      "length" : 142,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app: {\"user\": \"alice\"}\n<34>Oct 11 22:14:16 host app: {\"user\": \"bob\"}\n<34>Oct 11 22:14:17 host app: {\"user\": \"carol\"}\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 142,
+    "outcomes" : [ {
+      "length" : 142,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app: {\"user\": \"alice\"}\n<34>Oct 11 22:14:16 host app: {\"user\": \"bob\"}\n<34>Oct 11 22:14:17 host app: {\"user\": \"carol\"}\n"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

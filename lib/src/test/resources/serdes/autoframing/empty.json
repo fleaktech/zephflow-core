@@ -1,0 +1,32 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : -1,
+    "outcomes" : [ ]
+  }
+}

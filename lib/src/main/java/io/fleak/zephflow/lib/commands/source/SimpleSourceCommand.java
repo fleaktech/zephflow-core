@@ -257,7 +257,10 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand implements Pa
         log.trace("Transformed data: {}", convertedResult.transformedData().size());
         sourceEventAcceptor.accept(convertedResult.transformedData());
       } catch (Exception e) {
-        log.debug("failed to process data: {}", convertedResult.transformedData(), e);
+        log.debug(
+            "failed to process {} records",
+            CollectionUtils.size(convertedResult.transformedData()),
+            e);
         if (dlqWriter != null) {
           String failingNodeId =
               e instanceof NodeExecutionException nee ? nee.getNodeId() : "unknown";

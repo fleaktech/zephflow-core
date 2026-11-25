@@ -1,0 +1,446 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 82,
+    "outcomes" : [ {
+      "length" : 17,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "a" : "{",
+            "b" : "}"
+          },
+          "text" : "{\"a\":\"{\",\"b\":\"}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 24,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "q" : "say \"hi\" {now}"
+          },
+          "text" : "{\"q\":\"say \\\"hi\\\" {now}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "n" : "line\nbreak\r\t"
+          },
+          "text" : "{\"n\":\"line\\nbreak\\r\\t\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 14,
+      "offset" : 67,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "s" : "[\\\"]"
+          },
+          "text" : "{\"s\":\"[\\\\\\\"]\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 82,
+    "outcomes" : [ {
+      "length" : 17,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "a" : "{",
+            "b" : "}"
+          },
+          "text" : "{\"a\":\"{\",\"b\":\"}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 24,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "q" : "say \"hi\" {now}"
+          },
+          "text" : "{\"q\":\"say \\\"hi\\\" {now}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "n" : "line\nbreak\r\t"
+          },
+          "text" : "{\"n\":\"line\\nbreak\\r\\t\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 14,
+      "offset" : 67,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "s" : "[\\\"]"
+          },
+          "text" : "{\"s\":\"[\\\\\\\"]\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 82,
+    "outcomes" : [ {
+      "length" : 17,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "a" : "{",
+            "b" : "}"
+          },
+          "text" : "{\"a\":\"{\",\"b\":\"}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 24,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "q" : "say \"hi\" {now}"
+          },
+          "text" : "{\"q\":\"say \\\"hi\\\" {now}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "n" : "line\nbreak\r\t"
+          },
+          "text" : "{\"n\":\"line\\nbreak\\r\\t\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 14,
+      "offset" : 67,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "s" : "[\\\"]"
+          },
+          "text" : "{\"s\":\"[\\\\\\\"]\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 82,
+    "outcomes" : [ {
+      "length" : 17,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "a" : "{",
+            "b" : "}"
+          },
+          "text" : "{\"a\":\"{\",\"b\":\"}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 24,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "q" : "say \"hi\" {now}"
+          },
+          "text" : "{\"q\":\"say \\\"hi\\\" {now}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "n" : "line\nbreak\r\t"
+          },
+          "text" : "{\"n\":\"line\\nbreak\\r\\t\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 14,
+      "offset" : 67,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "s" : "[\\\"]"
+          },
+          "text" : "{\"s\":\"[\\\\\\\"]\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 82,
+    "outcomes" : [ {
+      "length" : 17,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "a" : "{",
+            "b" : "}"
+          },
+          "text" : "{\"a\":\"{\",\"b\":\"}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 24,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "q" : "say \"hi\" {now}"
+          },
+          "text" : "{\"q\":\"say \\\"hi\\\" {now}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "n" : "line\nbreak\r\t"
+          },
+          "text" : "{\"n\":\"line\\nbreak\\r\\t\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 14,
+      "offset" : 67,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "s" : "[\\\"]"
+          },
+          "text" : "{\"s\":\"[\\\\\\\"]\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 82,
+    "outcomes" : [ {
+      "length" : 17,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "a" : "{",
+            "b" : "}"
+          },
+          "text" : "{\"a\":\"{\",\"b\":\"}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 24,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "q" : "say \"hi\" {now}"
+          },
+          "text" : "{\"q\":\"say \\\"hi\\\" {now}\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 23,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "n" : "line\nbreak\r\t"
+          },
+          "text" : "{\"n\":\"line\\nbreak\\r\\t\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 14,
+      "offset" : 67,
+      "record" : {
+        "__format__" : {
+          "id" : "json_object",
+          "metadata" : { },
+          "record" : {
+            "s" : "[\\\"]"
+          },
+          "text" : "{\"s\":\"[\\\\\\\"]\"}"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 4,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

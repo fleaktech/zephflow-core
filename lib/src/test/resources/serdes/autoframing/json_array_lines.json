@@ -1,0 +1,302 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 21,
+    "outcomes" : [ {
+      "length" : 7,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2,3]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 8,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[{\"a\":1}]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 2,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 21,
+    "outcomes" : [ {
+      "length" : 7,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2,3]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 8,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[{\"a\":1}]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 2,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 21,
+    "outcomes" : [ {
+      "length" : 7,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2,3]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 8,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[{\"a\":1}]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 2,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 21,
+    "outcomes" : [ {
+      "length" : 7,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2,3]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 8,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[{\"a\":1}]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 2,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 21,
+    "outcomes" : [ {
+      "length" : 7,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2,3]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 8,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[{\"a\":1}]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 2,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 21,
+    "outcomes" : [ {
+      "length" : 7,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[1,2,3]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 9,
+      "offset" : 8,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[{\"a\":1}]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 2,
+      "offset" : 18,
+      "record" : {
+        "__format__" : {
+          "id" : "json_array",
+          "metadata" : { },
+          "record" : { },
+          "text" : "[]"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

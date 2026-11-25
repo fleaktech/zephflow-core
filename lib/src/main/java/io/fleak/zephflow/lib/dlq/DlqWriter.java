@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.lib.dlq;
 
+import com.google.cloud.BaseServiceException;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.io.Closeable;
@@ -20,6 +21,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Optional;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 
 /** Created by bolei on 11/5/24 */
 public abstract class DlqWriter implements Closeable {
@@ -46,4 +49,27 @@ public abstract class DlqWriter implements Closeable {
   }
 
   public abstract void open();
+
+  /**
+   * Exception class, HTTP status and error code only: messages of storage servers and of
+   * serializers are not ours to vouch for and must not carry record content or keys into logs.
+   */
+  protected static String describeFailure(Exception exception) {
+    String description = exception.getClass().getSimpleName();
+    if (exception instanceof AwsServiceException serviceException) {
+      String errorCode =
+          serviceException.awsErrorDetails() == null
+              ? null
+              : serviceException.awsErrorDetails().errorCode();
+      description += ", status " + serviceException.statusCode() + ", error code " + errorCode;
+    } else if (exception instanceof BaseServiceException serviceException) {
+      description +=
+          ", status " + serviceException.getCode() + ", reason " + serviceException.getReason();
+    }
+    Throwable rootCause = ExceptionUtils.getRootCause(exception);
+    if (rootCause != exception) {
+      description += ", caused by " + rootCause.getClass().getSimpleName();
+    }
+    return description;
+  }
 }

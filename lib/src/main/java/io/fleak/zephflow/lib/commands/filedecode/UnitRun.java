@@ -206,12 +206,6 @@ public final class UnitRun {
     return name;
   }
 
-  /** The first line of the message of the cause {@link #causeName} names, or "" without one. */
-  public static String causeMessage(Throwable error) {
-    String message = innermostCause(error).getMessage();
-    return message == null ? "" : message.lines().findFirst().orElse("").strip();
-  }
-
   private static Throwable innermostCause(Throwable error) {
     Throwable chosen = error;
     for (Throwable t : ExceptionUtils.getThrowableList(error)) {
@@ -471,7 +465,12 @@ public final class UnitRun {
 
   private void writeSummary(String text) {
     if (settings.dlqWriter() == null && settings.policy().summarizeWithoutDlq()) {
-      log.error("dropping failures of {} (no DLQ configured): {}", unit.location(), text);
+      List<String> lines = text.lines().toList();
+      log.error(
+          "dropping failures of {} (no DLQ configured): {} / {}",
+          unit.location(),
+          lines.getFirst(),
+          lines.getLast());
       return;
     }
     writeEntry(text);

@@ -16,6 +16,7 @@ package io.fleak.zephflow.lib.dlq;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.fleak.zephflow.api.JobContext;
+import io.fleak.zephflow.api.metric.MetricClientProvider.NoopMetricClientProvider.NoopFleakCounter;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.deadletter.DeadLetter;
@@ -319,7 +320,7 @@ public class S3DlqWriterTest {
             .s3EndpointOverride(minioContainer.getS3URL())
             .build();
 
-    dlqWriter = S3DlqWriter.createS3DlqWriter(config, TEST_KEY_PREFIX);
+    dlqWriter = S3DlqWriter.createS3DlqWriter(config, TEST_KEY_PREFIX, new NoopFleakCounter());
     dlqWriter.open();
     dlqWriter.s3Client.createBucket(b -> b.bucket(BUCKET_NAME));
 

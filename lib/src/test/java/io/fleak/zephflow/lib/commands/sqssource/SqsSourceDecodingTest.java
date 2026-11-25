@@ -129,7 +129,10 @@ class SqsSourceDecodingTest {
     List<String> errors;
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
-          .when(() -> DlqWriterFactory.createDlqWriter(jobContext.getDlqConfig(), null))
+          .when(
+              () ->
+                  DlqWriterFactory.createDlqWriter(
+                      eq(jobContext.getDlqConfig()), isNull(), any(), any()))
           .thenReturn(dlqWriter);
       dlqFactory
           .when(() -> DlqWriterFactory.createSampleWriter(jobContext.getDlqConfig(), null))
@@ -147,9 +150,7 @@ class SqsSourceDecodingTest {
 
     assertEquals(
         List.of(
-            "failed to deserialize event: MALFORMED json message: JsonParseException: Unrecognized"
-                + " token 'not': was expecting (JSON String, Number, Array, Object or token 'null',"
-                + " 'true' or 'false')\n"
+            "failed to deserialize event (8 bytes): MALFORMED json message: JsonParseException\n"
                 + "SQS messageId: m-1"),
         errors);
 

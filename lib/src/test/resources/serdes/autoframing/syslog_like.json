@@ -1,0 +1,302 @@
+{
+  "gzip_medium" : {
+    "failure" : null,
+    "normalizedEnd" : 160,
+    "outcomes" : [ {
+      "length" : 42,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 56,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<13>1 2003-10-11T22:14:15.003Z host app 123 ID47 - hello"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 59,
+      "offset" : 100,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "Oct 11 22:14:16 host sshd[42]: Accepted publickey for alice"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_tight" : {
+    "failure" : null,
+    "normalizedEnd" : 160,
+    "outcomes" : [ {
+      "length" : 42,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 56,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<13>1 2003-10-11T22:14:15.003Z host app 123 ID47 - hello"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 59,
+      "offset" : 100,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "Oct 11 22:14:16 host sshd[42]: Accepted publickey for alice"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "gzip_unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 160,
+    "outcomes" : [ {
+      "length" : 42,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 56,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<13>1 2003-10-11T22:14:15.003Z host app 123 ID47 - hello"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 59,
+      "offset" : 100,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "Oct 11 22:14:16 host sshd[42]: Accepted publickey for alice"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "medium" : {
+    "failure" : null,
+    "normalizedEnd" : 160,
+    "outcomes" : [ {
+      "length" : 42,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 56,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<13>1 2003-10-11T22:14:15.003Z host app 123 ID47 - hello"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 59,
+      "offset" : 100,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "Oct 11 22:14:16 host sshd[42]: Accepted publickey for alice"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "tight" : {
+    "failure" : null,
+    "normalizedEnd" : 160,
+    "outcomes" : [ {
+      "length" : 42,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 56,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<13>1 2003-10-11T22:14:15.003Z host app 123 ID47 - hello"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 59,
+      "offset" : 100,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "Oct 11 22:14:16 host sshd[42]: Accepted publickey for alice"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  },
+  "unlimited" : {
+    "failure" : null,
+    "normalizedEnd" : 160,
+    "outcomes" : [ {
+      "length" : 42,
+      "offset" : 0,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<34>Oct 11 22:14:15 host app[123]: started"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 1,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 56,
+      "offset" : 43,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "<13>1 2003-10-11T22:14:15.003Z host app 123 ID47 - hello"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 2,
+      "terminal" : false,
+      "type" : "decoded"
+    }, {
+      "length" : 59,
+      "offset" : 100,
+      "record" : {
+        "__format__" : {
+          "id" : "syslog_plain",
+          "metadata" : { },
+          "record" : { },
+          "text" : "Oct 11 22:14:16 host sshd[42]: Accepted publickey for alice"
+        }
+      },
+      "recordCount" : 1,
+      "recordIndex" : 3,
+      "terminal" : false,
+      "type" : "decoded"
+    } ]
+  }
+}

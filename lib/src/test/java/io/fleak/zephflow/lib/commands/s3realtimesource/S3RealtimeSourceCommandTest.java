@@ -221,7 +221,9 @@ class S3RealtimeSourceCommandTest {
     S3RealtimeSourceCommand command;
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
-          .when(() -> DlqWriterFactory.createDlqWriter(job.getDlqConfig(), null))
+          .when(
+              () ->
+                  DlqWriterFactory.createDlqWriter(eq(job.getDlqConfig()), isNull(), any(), any()))
           .thenReturn(dlq);
       command = initialize(job, config(), factory);
     }

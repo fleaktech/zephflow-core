@@ -74,9 +74,8 @@ class MappedMessageConverterTest {
             MessageDecodeException.class,
             "MALFORMED json message: JsonParseException",
             List.of(
-                "failed to deserialize event: MALFORMED json message: JsonParseException: Unrecognized"
-                    + " token 'not': was expecting (JSON String, Number, Array, Object or token 'null',"
-                    + " 'true' or 'false')\n"
+                "failed to deserialize event (16 bytes): MALFORMED json message:"
+                    + " JsonParseException\n"
                     + "test messageId: m-2")),
         Arrays.asList(
             result.transformedData(),

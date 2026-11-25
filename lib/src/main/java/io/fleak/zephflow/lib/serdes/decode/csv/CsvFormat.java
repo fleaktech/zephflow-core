@@ -108,7 +108,7 @@ public final class CsvFormat implements FormatCursor {
             name = generatedName(i);
           }
           if (!seen.add(name)) {
-            yield headerFailed(row, "header has a duplicate column name: " + name);
+            yield headerFailed(row, "header column " + (i + 1) + " repeats an earlier column name");
           }
           fromHeader.add(name);
         }

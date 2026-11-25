@@ -281,7 +281,9 @@ class S3RealtimeSourceCommandIntegrationTest {
     when(metrics.counter(anyString(), anyMap())).thenReturn(mock(FleakCounter.class));
     try (var dlqFactory = mockStatic(DlqWriterFactory.class)) {
       dlqFactory
-          .when(() -> DlqWriterFactory.createDlqWriter(job.getDlqConfig(), null))
+          .when(
+              () ->
+                  DlqWriterFactory.createDlqWriter(eq(job.getDlqConfig()), isNull(), any(), any()))
           .thenReturn(dlq);
       command.initialize(metrics);
     }
