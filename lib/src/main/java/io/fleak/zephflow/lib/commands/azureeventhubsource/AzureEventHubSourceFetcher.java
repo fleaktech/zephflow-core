@@ -211,10 +211,11 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
   public void pause() {
     CompletableFuture<Void> stopped =
         CompletableFuture.runAsync(() -> processorClient.stop(STOP_TIMEOUT));
-    while (!stopped.isDone()) {
+    while (true) {
       queue.clear();
       try {
         stopped.get(50, TimeUnit.MILLISECONDS);
+        break;
       } catch (TimeoutException e) {
         // keep emptying the queue
       } catch (InterruptedException e) {
