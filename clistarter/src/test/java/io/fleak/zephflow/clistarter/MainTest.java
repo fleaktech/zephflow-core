@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.fleak.zephflow.lib.utils.MiscUtils;
+import io.fleak.zephflow.runner.RunSummary;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -60,6 +61,59 @@ class MainTest {
         sinks.stream().mapToLong(sink -> ((Number) sink.get("outputCount")).longValue()).sum();
     assertEquals(20, sinkOutput);
     assertTrue(sinks.stream().allMatch(sink -> sink.get("nodeId") != null), sinks.toString());
+  }
+
+  @Test
+  public void testMainWritesStatsFile(@TempDir Path tempDir) throws Exception {
+    Path statsFile = tempDir.resolve("stats.json");
+
+    System.setProperty(Main.STATS_FILE_SYS_PROP, statsFile.toString());
+    try {
+      runMainWithStdioDag();
+    } finally {
+      System.clearProperty(Main.STATS_FILE_SYS_PROP);
+    }
+
+    Map<String, Object> payload =
+        fromJsonString(Files.readString(statsFile), new TypeReference<Map<String, Object>>() {});
+    @SuppressWarnings("unchecked")
+    Map<String, Object> reportedSource =
+        ((List<Map<String, Object>>) payload.get("sources")).getFirst();
+    // the snapshot may be taken before or after stdin is read
+    assertInstanceOf(Number.class, reportedSource.remove("consumedRecords"));
+    Map<String, Object> stdinSource = new HashMap<>();
+    stdinSource.put("nodeId", "a");
+    stdinSource.put("backlog", null);
+    stdinSource.put("backlogUnit", "records");
+    stdinSource.put("partitionCount", null);
+    assertEquals(
+        Map.of(
+            "sources",
+            List.of(stdinSource),
+            "bufferState",
+            "EMPTY",
+            "drainState",
+            "RUNNING",
+            "supportsDrain",
+            true),
+        payload);
+  }
+
+  @Test
+  public void aDrainedRunIsMarkedInTheRunSummary(@TempDir Path tempDir) throws Exception {
+    Path drainedFile = tempDir.resolve("drained.json");
+    Path completedFile = tempDir.resolve("completed.json");
+
+    Main.writeRunSummary(new RunSummary(Map.of()), true, drainedFile.toString());
+    Main.writeRunSummary(new RunSummary(Map.of()), false, completedFile.toString());
+
+    assertEquals(
+        true,
+        fromJsonString(Files.readString(drainedFile), new TypeReference<Map<String, Object>>() {})
+            .get("drained"));
+    assertFalse(
+        fromJsonString(Files.readString(completedFile), new TypeReference<Map<String, Object>>() {})
+            .containsKey("drained"));
   }
 
   @Test

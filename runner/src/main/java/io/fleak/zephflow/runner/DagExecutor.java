@@ -13,6 +13,7 @@
  */
 package io.fleak.zephflow.runner;
 
+import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_NAME_INPUT_EVENT_COUNT;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_ENV;
 import static io.fleak.zephflow.lib.utils.MiscUtils.METRIC_TAG_SERVICE;
 
@@ -25,7 +26,9 @@ import io.fleak.zephflow.runner.dag.Dag;
 import io.fleak.zephflow.runner.dag.Edge;
 import io.fleak.zephflow.runner.dag.Node;
 import io.fleak.zephflow.runner.spi.CommandProvider;
+import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -91,6 +94,16 @@ public record DagExecutor(
   }
 
   public void executeDag() throws Exception {
+    executeDagWithRunFiles(null, null);
+  }
+
+  /**
+   * Also keeps {@code statsFile} up to date and follows {@code controlFile} while the source runs;
+   * either may be null.
+   *
+   * @return whether the run ended because it drained at the control file's request
+   */
+  public boolean executeDagWithRunFiles(Path statsFile, Path controlFile) throws Exception {
     applyLogLevel(jobConfig.getDagDefinition().getJobContext());
     var compiledDag = dagCompiler.compile(jobConfig.getDagDefinition(), true);
     Pair<Dag<OperatorCommand>, Dag<OperatorCommand>> entryNodesDagAndRest =
@@ -115,14 +128,44 @@ public record DagExecutor(
             jobConfig.getDagDefinition().getJobContext().getDlqConfig() != null);
     ShutdownFlushHook shutdownFlushHook =
         new ShutdownFlushHook(sourceCommand, noSourceDagRunner, ShutdownFlushHook.DEFAULT_TIMEOUT);
+    List<OperatorCommand> downstreamCommands =
+        subDagWithoutSource.getNodes().stream().map(Node::getNodeContent).toList();
+    Supplier<RunStats.BufferState> bufferState =
+        () -> RunStats.bufferState(downstreamCommands, !noSourceDagRunner.isTerminated());
+    DrainControl drainControl = new DrainControl(controlFile, sourceCommand, bufferState);
+    RunStatsFileWriter statsWriter = null;
     try {
       // Initialize source command before execution
       sourceCommand.initialize(metricClientProvider);
       shutdownFlushHook.install();
-
       if (sourceCommand.confirmsDeliveryBeforeCommit()) {
         noSourceDagRunner.deferDeliveryConfirmation();
       }
+      if (statsFile != null || controlFile != null) {
+        // Sinks find a previous run's store-and-forward backlog only once initialized.
+        try {
+          noSourceDagRunner.initializeCommands();
+        } catch (Exception e) {
+          log.warn("Failed to initialize the pipeline; retrying on the first event", e);
+        }
+      }
+      if (statsFile != null) {
+        statsWriter =
+            RunStatsFileWriter.start(
+                statsFile,
+                () ->
+                    RunStats.collect(
+                        sourceNodeId,
+                        sourceCommand,
+                        bufferState.get(),
+                        drainControl.state(),
+                        drainControl.supportsDrain(),
+                        metricClientProvider instanceof RunSummaryMetricClientProvider summary
+                            ? summary.nodeCounterTotal(sourceNodeId, METRIC_NAME_INPUT_EVENT_COUNT)
+                            : null));
+      }
+      drainControl.start(DrainControl.POLL_INTERVAL);
+
       // Streaming path is long-lived, so time-triggered windows get a background flush thread.
       // No-op unless the DAG actually contains a windowed node.
       noSourceDagRunner.startFlushScheduler(jobConfig.getJobId());
@@ -155,6 +198,10 @@ public record DagExecutor(
             }
           });
     } finally {
+      drainControl.close();
+      if (statsWriter != null) {
+        statsWriter.close();
+      }
       try {
         sourceCommand.terminate();
         noSourceDagRunner.terminate();
@@ -162,6 +209,7 @@ public record DagExecutor(
         shutdownFlushHook.pipelineFinished();
       }
     }
+    return drainControl.state() == RunStats.DrainState.DRAINED;
   }
 
   static void applyLogLevel(JobContext jobContext) {

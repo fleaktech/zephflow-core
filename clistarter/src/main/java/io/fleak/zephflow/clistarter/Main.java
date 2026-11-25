@@ -47,21 +47,33 @@ public class Main {
 
   public static final String RUN_SUMMARY_FILE_SYS_PROP = "zephflow.run.summary.file";
 
+  public static final String STATS_FILE_ENV_VAR = "ZEPHFLOW_STATS_FILE";
+
+  public static final String STATS_FILE_SYS_PROP = "zephflow.stats.file";
+
+  public static final String CONTROL_FILE_ENV_VAR = "ZEPHFLOW_CONTROL_FILE";
+
+  public static final String CONTROL_FILE_SYS_PROP = "zephflow.control.file";
+
   public static void main(String[] args) throws Exception {
     try {
       JobConfig jobConfig = JobCliParser.parseArgs(args);
       try (MetricClientProvider innerProvider = createMetricClientProvider(args)) {
         RunSummaryMetricClientProvider metricClientProvider =
             new RunSummaryMetricClientProvider(innerProvider);
+        boolean drained = false;
         try {
           DagExecutor dagExecutor = DagExecutor.createDagExecutor(jobConfig, metricClientProvider);
-          dagExecutor.executeDag();
+          drained =
+              dagExecutor.executeDagWithRunFiles(
+                  resolveOptionalPath(STATS_FILE_ENV_VAR, STATS_FILE_SYS_PROP),
+                  resolveOptionalPath(CONTROL_FILE_ENV_VAR, CONTROL_FILE_SYS_PROP));
         } catch (Exception e) {
           // Without this the failure only reaches stderr, which the run logs don't carry.
           log.error("Pipeline run failed: {}", e.getMessage(), e);
           throw e;
         } finally {
-          writeRunSummary(metricClientProvider.summarize(), resolveRunSummaryPath());
+          writeRunSummary(metricClientProvider.summarize(), drained, resolveRunSummaryPath());
         }
       }
     } catch (ParseException cliParseException) {
@@ -71,14 +83,24 @@ public class Main {
   }
 
   private static String resolveRunSummaryPath() {
-    String path = System.getenv(RUN_SUMMARY_FILE_ENV_VAR);
+    return resolvePath(RUN_SUMMARY_FILE_ENV_VAR, RUN_SUMMARY_FILE_SYS_PROP);
+  }
+
+  private static Path resolveOptionalPath(String envVar, String sysProp) {
+    String path = resolvePath(envVar, sysProp);
+    return path == null || path.isBlank() ? null : Path.of(path);
+  }
+
+  private static String resolvePath(String envVar, String sysProp) {
+    String path = System.getenv(envVar);
     if (path == null || path.isBlank()) {
-      path = System.getProperty(RUN_SUMMARY_FILE_SYS_PROP);
+      path = System.getProperty(sysProp);
     }
     return path;
   }
 
-  static void writeRunSummary(RunSummary runSummary, String path) {
+  /** {@code drained} is written only when true, so readers that predate it see no new field. */
+  static void writeRunSummary(RunSummary runSummary, boolean drained, String path) {
     if (path == null || path.isBlank()) {
       return;
     }
@@ -87,6 +109,9 @@ public class Main {
       payload.put("counters", new TreeMap<>(runSummary.counters()));
       payload.put("summary", runSummary.summaryText());
       payload.put("sinks", runSummary.sinks());
+      if (drained) {
+        payload.put("drained", true);
+      }
       Files.writeString(Path.of(path), JsonUtils.toJsonString(payload));
       log.info("Wrote run summary to {}: {}", path, runSummary.summaryText());
     } catch (Exception e) {

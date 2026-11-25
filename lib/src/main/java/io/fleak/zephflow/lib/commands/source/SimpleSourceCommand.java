@@ -30,7 +30,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 
 /** Created by bolei on 9/23/24 */
 @Slf4j
-public abstract class SimpleSourceCommand<T> extends SourceCommand {
+public abstract class SimpleSourceCommand<T> extends SourceCommand implements PausableSource {
   private static final int SLEEP_INIT = 100;
   private static final int SLEEP_INC = 100;
   private static final int SLEEP_MAX = 2000;
@@ -38,6 +38,7 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   private final AtomicBoolean finished = new AtomicBoolean();
   // Set only by requestStop() and terminate(); finished is also set when the fetcher is exhausted.
   private final AtomicBoolean stopping = new AtomicBoolean();
+  private final SourcePause pause = new SourcePause();
 
   protected SimpleSourceCommand(
       String nodeId,
@@ -64,6 +65,10 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       rawDataSampler.open();
       int sleep = SLEEP_INIT;
       while (!finished.get()) {
+        if (pause.requested()) {
+          pauseFetching(fetcher, sourceEventAcceptor);
+          continue;
+        }
         // 1. Fetch source-specific records
         List<T> fetchedData = doFetch(fetcher);
 
@@ -117,6 +122,26 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
       } catch (Exception e) {
         log.error("failed to terminate source command", e);
       }
+    }
+  }
+
+  /** Every handled record is committed by the time a fetch has been processed. */
+  private void pauseFetching(Fetcher<T> fetcher, SourceEventAcceptor sourceEventAcceptor) {
+    sourceEventAcceptor.beforeCommit();
+    try {
+      fetcher.pause();
+    } catch (FatalPauseException e) {
+      throw e;
+    } catch (Exception e) {
+      // Keep running unpaused: the drain stays pending until the supervisor resumes it.
+      log.error("Source {} failed to pause; it keeps running", nodeId, e);
+      pause.resume();
+      return;
+    }
+    log.info("Source {} paused", nodeId);
+    if (pause.hold(finished::get)) {
+      fetcher.resume();
+      log.info("Source {} resumed", nodeId);
     }
   }
 
@@ -317,7 +342,23 @@ public abstract class SimpleSourceCommand<T> extends SourceCommand {
   public boolean requestStop() {
     stopping.set(true);
     finished.set(true);
+    pause.wake();
     return true;
+  }
+
+  @Override
+  public void requestPause() {
+    pause.request();
+  }
+
+  @Override
+  public void requestResume() {
+    pause.resume();
+  }
+
+  @Override
+  public boolean isPaused() {
+    return pause.isPaused();
   }
 
   @Override

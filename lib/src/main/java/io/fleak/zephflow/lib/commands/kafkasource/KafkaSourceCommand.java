@@ -26,10 +26,8 @@ import io.fleak.zephflow.lib.kafka.KafkaClientProperties;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import io.fleak.zephflow.lib.serdes.decode.config.DecodingConfig;
 import java.util.*;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.TopicPartition;
 
 /** Created by bolei on 9/23/24 */
 @Slf4j
@@ -105,7 +103,7 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
     }
     KafkaConsumer<byte[], byte[]> consumer =
         kafkaConsumerClientFactory.createKafkaConsumer(consumerProps);
-    initializeKafkaConsumer(consumer, config.getTopic());
+    KafkaSourceFetcher.subscribe(consumer, Collections.singletonList(config.getTopic()));
     var monitoring = kafkaConsumerClientFactory.createAndStartHealthMonitor(consumerProps);
 
     CommitStrategy commitStrategy = createCommitStrategy(config);
@@ -119,27 +117,6 @@ public class KafkaSourceCommand extends SimpleSourceCommand<SerializedEvent> {
 
   static DecodingConfig decodingConfig(KafkaSourceDto.Config config) {
     return new SourceDecoding(config.getDecoding()).decodingConfig();
-  }
-
-  private static void initializeKafkaConsumer(
-      KafkaConsumer<byte[], byte[]> consumer, String topic) {
-    consumer.subscribe(
-        Collections.singletonList(topic),
-        new ConsumerRebalanceListener() {
-          @Override
-          public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-            log.info(
-                "Partitions revoked: {}",
-                partitions.stream().map(TopicPartition::toString).collect(Collectors.joining(",")));
-          }
-
-          @Override
-          public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
-            log.info(
-                "Partitions assigned: {}",
-                partitions.stream().map(TopicPartition::toString).collect(Collectors.joining(",")));
-          }
-        });
   }
 
   private CommitStrategy createCommitStrategy(KafkaSourceDto.Config config) {

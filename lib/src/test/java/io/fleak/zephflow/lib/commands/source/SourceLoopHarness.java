@@ -99,15 +99,14 @@ public final class SourceLoopHarness {
       RawDataConverter<T> converter,
       SourceEventAcceptor acceptor,
       DlqWriter dlqWriter) {
+    source(new LimitedFetches<>(fetcher, fetches), converter, dlqWriter).execute("user", acceptor);
+  }
+
+  /** An initialized source over {@code fetcher}, for tests that drive its loop themselves. */
+  public static <T> SimpleSourceCommand<T> source(
+      Fetcher<T> fetcher, RawDataConverter<T> converter, DlqWriter dlqWriter) {
     SourceExecutionContext<T> context =
-        new SourceExecutionContext<>(
-            new LimitedFetches<>(fetcher, fetches),
-            converter,
-            mock(),
-            mock(),
-            mock(),
-            mock(),
-            dlqWriter);
+        new SourceExecutionContext<>(fetcher, converter, mock(), mock(), mock(), mock(), dlqWriter);
     ConfigParser parser = mock();
     when(parser.parseConfig(CONFIG)).thenReturn(mock(CommandConfig.class));
     SimpleSourceCommand<T> source =
@@ -133,7 +132,7 @@ public final class SourceLoopHarness {
         };
     source.parseAndValidateArg(CONFIG);
     source.initialize(mock(MetricClientProvider.class));
-    source.execute("user", acceptor);
+    return source;
   }
 
   private static final class LimitedFetches<T> implements Fetcher<T> {

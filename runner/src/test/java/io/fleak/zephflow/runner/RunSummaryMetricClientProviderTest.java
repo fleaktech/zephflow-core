@@ -54,6 +54,25 @@ class RunSummaryMetricClientProviderTest {
   }
 
   @Test
+  void readsTheTotalOfOneNodesCounter() {
+    MetricClientProvider delegate = mock(MetricClientProvider.class);
+    when(delegate.counter(any(), any())).thenReturn(mock(FleakCounter.class));
+    RunSummaryMetricClientProvider provider = new RunSummaryMetricClientProvider(delegate);
+
+    FleakCounter kafkaInput =
+        provider.counter(METRIC_NAME_INPUT_EVENT_COUNT, Map.of("node_id", "kafka"));
+    kafkaInput.increase(5, Map.of());
+    kafkaInput.increase(Map.of());
+    provider
+        .counter(METRIC_NAME_INPUT_EVENT_COUNT, Map.of("node_id", "eval"))
+        .increase(9, Map.of());
+
+    assertEquals(6L, provider.nodeCounterTotal("kafka", METRIC_NAME_INPUT_EVENT_COUNT));
+    assertNull(provider.nodeCounterTotal("kafka", METRIC_NAME_SINK_OUTPUT_COUNT));
+    assertNull(provider.nodeCounterTotal("missing", METRIC_NAME_INPUT_EVENT_COUNT));
+  }
+
+  @Test
   void breaksDeliveryDownPerSinkNode() {
     MetricClientProvider delegate = mock(MetricClientProvider.class);
     FleakCounter delegateCounter = mock(FleakCounter.class);

@@ -42,6 +42,14 @@ class MqttSourceCommandTest {
   }
 
   @Test
+  void doesNotSupportPause() {
+    MqttSourceCommand command =
+        new MqttSourceCommandFactory().createCommand("my_node", TestUtils.JOB_CONTEXT);
+
+    assertFalse(command.supportsPause());
+  }
+
+  @Test
   void testCreateExecutionContext_wiresFetcherAndConverter() throws Exception {
     MqttClientProvider mockProvider = mock(MqttClientProvider.class);
     MqttClient mockClient = mock(MqttClient.class);

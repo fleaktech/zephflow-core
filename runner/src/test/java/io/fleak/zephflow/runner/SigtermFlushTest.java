@@ -147,7 +147,7 @@ class SigtermFlushTest {
     }
   }
 
-  private static CommandFactory factory(CommandType type, Function<String, OperatorCommand> make) {
+  static CommandFactory factory(CommandType type, Function<String, OperatorCommand> make) {
     return new CommandFactory() {
       @Override
       public OperatorCommand createCommand(String nodeId, JobContext jobContext) {

@@ -16,18 +16,25 @@ package io.fleak.zephflow.lib.commands.azureeventhubsource;
 import com.azure.messaging.eventhubs.EventData;
 import com.azure.messaging.eventhubs.EventProcessorClient;
 import com.azure.messaging.eventhubs.models.EventContext;
+import com.azure.messaging.eventhubs.models.LastEnqueuedEventProperties;
 import io.fleak.zephflow.lib.commands.source.CommitStrategy;
+import io.fleak.zephflow.lib.commands.source.FatalPauseException;
 import io.fleak.zephflow.lib.commands.source.FetchProgress;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceBacklog;
 import io.fleak.zephflow.lib.serdes.SerializedEvent;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 
@@ -60,6 +67,10 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
 
   private final Map<String, EventContext> latestCheckpointByPartition = new LinkedHashMap<>();
   private final FetchProgress<EventContext> progress = new FetchProgress<>();
+  // Null values mean unknown; both maps are confined to the polling thread.
+  private final Map<String, Long> lastEnqueuedByPartition = new HashMap<>();
+  private final Map<String, Long> checkpointedByPartition = new HashMap<>();
+  private volatile SourceBacklog backlog = SourceBacklog.UNKNOWN;
 
   public AzureEventHubSourceFetcher(
       EventProcessorClient processorClient,
@@ -109,12 +120,39 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
       log.debug("AzureEventHubSourceFetcher interrupted while polling", e);
     }
     markHandled(progress.next(drained));
+    updateBacklog();
     return rawEvents;
+  }
+
+  @Override
+  public SourceBacklog backlog() {
+    return backlog;
+  }
+
+  private void updateBacklog() {
+    if (lastEnqueuedByPartition.isEmpty()) {
+      backlog = SourceBacklog.UNKNOWN;
+      return;
+    }
+    long total = 0;
+    for (Map.Entry<String, Long> entry : lastEnqueuedByPartition.entrySet()) {
+      Long checkpointed = checkpointedByPartition.get(entry.getKey());
+      if (entry.getValue() == null || checkpointed == null) {
+        backlog = SourceBacklog.UNKNOWN;
+        return;
+      }
+      total += Math.max(0, entry.getValue() - checkpointed);
+    }
+    backlog = SourceBacklog.records(total, null);
   }
 
   private void accept(
       EventContext eventContext, List<EventContext> drained, List<SerializedEvent> rawEvents) {
     drained.add(eventContext);
+    LastEnqueuedEventProperties lastEnqueued = eventContext.getLastEnqueuedEventProperties();
+    lastEnqueuedByPartition.put(
+        eventContext.getPartitionContext().getPartitionId(),
+        lastEnqueued == null ? null : lastEnqueued.getSequenceNumber());
     EventData eventData = eventContext.getEventData();
     byte[] key =
         eventData.getPartitionKey() == null
@@ -151,13 +189,54 @@ public class AzureEventHubSourceFetcher implements Fetcher<SerializedEvent> {
   private void checkpointHandled() {
     for (EventContext eventContext : latestCheckpointByPartition.values()) {
       eventContext.updateCheckpoint();
+      checkpointedByPartition.put(
+          eventContext.getPartitionContext().getPartitionId(),
+          eventContext.getEventData().getSequenceNumber());
     }
     latestCheckpointByPartition.clear();
+    updateBacklog();
   }
 
   @Override
   public CommitStrategy commitStrategy() {
     return commitStrategy;
+  }
+
+  /**
+   * Stops the processor so its partitions go to other processors in the consumer group. Queued
+   * events were never handled and are left to the next owner; the queue is emptied while stopping
+   * so that partition callbacks blocked on a full queue can finish.
+   */
+  @Override
+  public void pause() {
+    CompletableFuture<Void> stopped =
+        CompletableFuture.runAsync(() -> processorClient.stop(STOP_TIMEOUT));
+    while (true) {
+      queue.clear();
+      try {
+        stopped.get(50, TimeUnit.MILLISECONDS);
+        break;
+      } catch (TimeoutException e) {
+        // keep emptying the queue
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new FatalPauseException("interrupted while stopping the Event Hub processor", e);
+      } catch (ExecutionException e) {
+        // The queue is already dropped; a still-running processor would checkpoint past it.
+        throw new FatalPauseException("failed to stop the Event Hub processor", e.getCause());
+      }
+    }
+    queue.clear();
+    progress.next(List.of());
+    latestCheckpointByPartition.clear();
+    lastEnqueuedByPartition.clear();
+    checkpointedByPartition.clear();
+    backlog = SourceBacklog.UNKNOWN;
+  }
+
+  @Override
+  public void resume() {
+    processorClient.start();
   }
 
   @Override

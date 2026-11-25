@@ -15,19 +15,34 @@ package io.fleak.zephflow.lib.commands.kinesissource;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import io.fleak.zephflow.lib.commands.source.BatchCommitStrategy;
 import io.fleak.zephflow.lib.commands.source.Fetcher;
+import io.fleak.zephflow.lib.commands.source.SourceBacklog;
 import io.fleak.zephflow.lib.commands.source.SourceLoopHarness;
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import software.amazon.kinesis.coordinator.Scheduler;
 import software.amazon.kinesis.lifecycle.events.InitializationInput;
 import software.amazon.kinesis.lifecycle.events.ProcessRecordsInput;
+import software.amazon.kinesis.lifecycle.events.ShardEndedInput;
 import software.amazon.kinesis.lifecycle.events.ShutdownRequestedInput;
 import software.amazon.kinesis.processor.RecordProcessorCheckpointer;
 import software.amazon.kinesis.processor.ShardRecordProcessor;
@@ -149,5 +164,258 @@ class KinesisSourceFetcherCommitTest {
     perCommit.add(drainCheckpoints());
 
     assertEquals(List.of(List.of("shard-1@1"), List.of("shard-1@2", "shard-2@10")), perCommit);
+  }
+
+  @Test
+  void pauseShutsDownGracefullyAndEachShardCheckpointsItsLastHandledRecord() throws Exception {
+    Scheduler scheduler = mock();
+    List<ShardRecordProcessor> processors = new ArrayList<>();
+    RecordProcessorCheckpointer onShutdown = checkpointer("shard-1");
+    when(scheduler.startGracefulShutdown())
+        .thenAnswer(
+            call -> {
+              checkpoints.add("graceful-shutdown");
+              for (ShardRecordProcessor processor : processors) {
+                processor.shutdownRequested(
+                    ShutdownRequestedInput.builder().checkpointer(onShutdown).build());
+              }
+              return CompletableFuture.completedFuture(true);
+            });
+    CountDownLatch stopped = new CountDownLatch(1);
+    doAnswer(
+            call -> {
+              stopped.await();
+              return null;
+            })
+        .when(scheduler)
+        .run();
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(() -> scheduler);
+    processors.add(deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"), record("2")));
+    assertEquals(2, fetcher.fetch().size());
+    fetcher.committer().commitThrough(2);
+    deliver(fetcher, "shard-1", checkpointer("shard-1"), record("3"));
+
+    fetcher.pause();
+    fetcher.resume();
+
+    assertEquals(List.of("shard-1@2", "graceful-shutdown", "shard-1@2"), checkpoints);
+    assertEquals(List.of(), fetcher.fetch());
+    verify(scheduler, timeout(5_000)).run();
+    stopped.countDown();
+    fetcher.close();
+  }
+
+  @Test
+  void aTimedOutGracefulShutdownForcesTheOldSchedulerToStopBeforeResumeStartsANewOne()
+      throws Exception {
+    List<String> events = new CopyOnWriteArrayList<>();
+    CountDownLatch oldStopped = new CountDownLatch(1);
+    Scheduler old = mock();
+    when(old.startGracefulShutdown()).thenReturn(CompletableFuture.completedFuture(false));
+    doAnswer(
+            call -> {
+              events.add("old shutdown");
+              oldStopped.countDown();
+              return null;
+            })
+        .when(old)
+        .shutdown();
+    doAnswer(
+            call -> {
+              oldStopped.await();
+              events.add("old run exited");
+              return null;
+            })
+        .when(old)
+        .run();
+    CountDownLatch newStopped = new CountDownLatch(1);
+    Scheduler next = runsUntil(newStopped, events, "new run started");
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(schedulers(old, next));
+    fetcher.start();
+    verify(old, timeout(5_000)).run();
+
+    fetcher.pause();
+    fetcher.resume();
+
+    verify(next, timeout(5_000)).run();
+    assertEquals(List.of("old shutdown", "old run exited", "new run started"), events);
+    assertEquals(List.of(), fetcher.fetch());
+    newStopped.countDown();
+    fetcher.close();
+  }
+
+  @Test
+  void anOldRunExitingAfterResumeDoesNotMarkTheNewSchedulerAsStopped() throws Exception {
+    List<String> events = new CopyOnWriteArrayList<>();
+    CountDownLatch oldStopped = new CountDownLatch(1);
+    Scheduler old = runsUntil(oldStopped, events, "old run started");
+    when(old.startGracefulShutdown()).thenReturn(CompletableFuture.completedFuture(true));
+    CountDownLatch newStopped = new CountDownLatch(1);
+    Scheduler next = runsUntil(newStopped, events, "new run started");
+    KinesisSourceFetcher fetcher =
+        new KinesisSourceFetcher(schedulers(old, next), Duration.ofMillis(200));
+    fetcher.start();
+    verify(old, timeout(5_000)).run();
+
+    fetcher.pause();
+    fetcher.resume();
+    oldStopped.countDown();
+
+    verify(next, timeout(5_000)).run();
+    assertEquals(List.of(), fetcher.fetch());
+    newStopped.countDown();
+    fetcher.close();
+  }
+
+  private static Scheduler runsUntil(CountDownLatch stopped, List<String> events, String started) {
+    Scheduler scheduler = mock();
+    doAnswer(
+            call -> {
+              events.add(started);
+              stopped.await(30, TimeUnit.SECONDS);
+              return null;
+            })
+        .when(scheduler)
+        .run();
+    return scheduler;
+  }
+
+  private static Supplier<Scheduler> schedulers(Scheduler... schedulers) {
+    Iterator<Scheduler> next = List.of(schedulers).iterator();
+    return next::next;
+  }
+
+  @Test
+  void pauseReleasesAShardProcessorBlockedOnAFullQueue() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    KinesisClientRecord[] records =
+        IntStream.range(0, 600)
+            .mapToObj(i -> record(Integer.toString(i)))
+            .toArray(KinesisClientRecord[]::new);
+    RecordProcessorCheckpointer shard1 = checkpointer("shard-1");
+    Thread processing = new Thread(() -> deliver(fetcher, "shard-1", shard1, records));
+    processing.start();
+    Thread.sleep(300);
+    assertTrue(processing.isAlive());
+
+    fetcher.pause();
+
+    processing.join(5_000);
+    assertFalse(processing.isAlive());
+  }
+
+  @Test
+  void aFailedSchedulerRunEndsTheFetchWithItsError() {
+    Scheduler scheduler = mock();
+    RuntimeException failure = new IllegalStateException("lease table unavailable");
+    doThrow(failure).when(scheduler).run();
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(() -> scheduler);
+    fetcher.start();
+    verify(scheduler, timeout(5_000)).run();
+
+    KinesisSourceFetcherError error =
+        assertThrows(
+            KinesisSourceFetcherError.class,
+            () -> {
+              long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+              while (System.nanoTime() < deadline) {
+                fetcher.fetch();
+                Thread.sleep(10);
+              }
+            });
+    assertSame(failure, error.getCause());
+  }
+
+  @Test
+  void aFailedGracefulShutdownForcesTheSchedulerToStop() throws Exception {
+    List<String> events = new CopyOnWriteArrayList<>();
+    CountDownLatch stopped = new CountDownLatch(1);
+    Scheduler scheduler = runsUntil(stopped, events, "run started");
+    when(scheduler.startGracefulShutdown())
+        .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("lease lost")));
+    doAnswer(
+            call -> {
+              stopped.countDown();
+              return null;
+            })
+        .when(scheduler)
+        .shutdown();
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(() -> scheduler);
+    fetcher.start();
+    verify(scheduler, timeout(5_000)).run();
+
+    fetcher.pause();
+
+    verify(scheduler).shutdown();
+  }
+
+  @Test
+  void anInterruptedPauseStillStopsTheSchedulerAndKeepsTheInterrupt() {
+    List<String> events = new CopyOnWriteArrayList<>();
+    CountDownLatch stopped = new CountDownLatch(1);
+    Scheduler scheduler = runsUntil(stopped, events, "run started");
+    when(scheduler.startGracefulShutdown()).thenReturn(new CompletableFuture<>());
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher(() -> scheduler);
+    fetcher.start();
+    verify(scheduler, timeout(5_000)).run();
+
+    Thread.currentThread().interrupt();
+    try {
+      fetcher.pause();
+    } finally {
+      assertTrue(Thread.interrupted());
+      stopped.countDown();
+    }
+
+    verify(scheduler).shutdown();
+  }
+
+  @Test
+  void withoutASchedulerResumeKeepsAcceptingRecords() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    fetcher.pause();
+
+    fetcher.resume();
+
+    deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"));
+    assertEquals(1, fetcher.fetch().size());
+  }
+
+  @Test
+  void anEndedShardCheckpointsAndLeavesTheBacklog() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    ShardRecordProcessor processor = fetcher.newShardRecordProcessor();
+    processor.initialize(InitializationInput.builder().shardId("shard-1").build());
+    processor.processRecords(
+        ProcessRecordsInput.builder()
+            .records(List.of())
+            .millisBehindLatest(7_000L)
+            .checkpointer(checkpointer("shard-1"))
+            .build());
+    assertEquals(SourceBacklog.millisBehind(7_000L), fetcher.backlog());
+    RecordProcessorCheckpointer atEnd = mock();
+    doThrow(new IllegalStateException("throttled")).when(atEnd).checkpoint();
+
+    processor.shardEnded(ShardEndedInput.builder().checkpointer(atEnd).build());
+
+    verify(atEnd).checkpoint();
+    assertEquals(SourceBacklog.UNKNOWN, fetcher.backlog());
+  }
+
+  @Test
+  void aFailedCheckpointOnShutdownIsLogged() throws Exception {
+    KinesisSourceFetcher fetcher = new KinesisSourceFetcher();
+    ShardRecordProcessor processor =
+        deliver(fetcher, "shard-1", checkpointer("shard-1"), record("1"));
+    assertEquals(1, fetcher.fetch().size());
+    fetcher.committer().commitThrough(1);
+    RecordProcessorCheckpointer onShutdown = mock();
+    doThrow(new IllegalStateException("lease lost"))
+        .when(onShutdown)
+        .checkpoint(anyString(), anyLong());
+
+    processor.shutdownRequested(ShutdownRequestedInput.builder().checkpointer(onShutdown).build());
+
+    verify(onShutdown).checkpoint("1", 0L);
   }
 }

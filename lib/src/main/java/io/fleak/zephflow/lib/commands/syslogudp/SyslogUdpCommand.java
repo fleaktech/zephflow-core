@@ -95,6 +95,12 @@ public class SyslogUdpCommand extends SimpleSourceCommand<SerializedEvent> {
     }
   }
 
+  // Datagrams that arrive while paused would be lost.
+  @Override
+  public boolean supportsPause() {
+    return false;
+  }
+
   @Override
   public SourceType sourceType() {
     return SourceType.STREAMING;

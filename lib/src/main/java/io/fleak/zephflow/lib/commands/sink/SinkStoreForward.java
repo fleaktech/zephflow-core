@@ -38,6 +38,16 @@ public interface SinkStoreForward extends Closeable {
    */
   boolean isBuffering();
 
+  /** Records held locally that have not yet been delivered or dropped. */
+  default long pendingRecords() {
+    return 0;
+  }
+
+  /** Whether a writer is blocked until the buffer has room. */
+  default boolean isWaitingForSpace() {
+    return false;
+  }
+
   /**
    * Whether the given flush failure is a transient connectivity failure that should be buffered.
    */
