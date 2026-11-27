@@ -50,7 +50,11 @@ public final class KafkaConnectionValidator {
     this(Admin::create);
   }
 
-  KafkaConnectionValidator(Function<Properties, Admin> clientFactory) {
+  /**
+   * @param clientFactory creates the admin client from the effective client properties, for a
+   *     caller that needs control over how the client connects, for example its name resolution
+   */
+  public KafkaConnectionValidator(Function<Properties, Admin> clientFactory) {
     this.clientFactory = clientFactory;
   }
 
