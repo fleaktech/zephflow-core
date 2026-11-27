@@ -57,7 +57,6 @@ import io.fleak.zephflow.lib.commands.sqssink.SqsSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.sqssource.SqsSourceCommandFactory;
 import io.fleak.zephflow.lib.commands.stdin.StdInCommandFactory;
 import io.fleak.zephflow.lib.commands.stdout.StdOutSinkCommandFactory;
-import io.fleak.zephflow.lib.commands.syslogudp.SyslogUdpCommandFactory;
 import io.fleak.zephflow.lib.commands.throttle.ThrottleCommandFactory;
 import io.fleak.zephflow.lib.commands.timescaledbsink.TimescaleDbSinkCommandFactory;
 import io.fleak.zephflow.lib.commands.zerobussink.ZerobusSinkCommandFactory;
@@ -87,7 +86,6 @@ public interface OperatorCommandRegistry {
           .put(COMMAND_NAME_CLICK_HOUSE_SINK, new ClickHouseSinkCommandFactory())
           .put(COMMAND_NAME_DATABRICKS_SINK, new DatabricksSinkCommandFactory())
           .put(COMMAND_NAME_ZEROBUS_SINK, new ZerobusSinkCommandFactory())
-          .put(COMMAND_NAME_SYSLOG_UDP, new SyslogUdpCommandFactory())
           .put(COMMAND_NAME_ACTIVEMQ_SOURCE, new ActiveMqSourceCommandFactory())
           .put(COMMAND_NAME_MQTT_SOURCE, new MqttSourceCommandFactory())
           .put(COMMAND_NAME_JDBC_SOURCE, new JdbcSourceCommandFactory())
