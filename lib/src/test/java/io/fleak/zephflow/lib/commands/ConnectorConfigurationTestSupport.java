@@ -156,7 +156,6 @@ final class ConnectorConfigurationTestSupport {
           Map.entry(
               "clickhousesink",
               Map.of("endpoint", "http://localhost:8123", "database", "test", "table", "events")),
-          Map.entry("syslogudp", Map.of()),
           Map.entry(
               "splunksource",
               Map.of(
