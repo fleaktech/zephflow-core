@@ -95,7 +95,9 @@ final class ConnectorConfigurationTestSupport {
                   "queueUrl",
                   "https://sqs.us-east-1.amazonaws.com/123/events",
                   "regionStr",
-                  "us-east-1")),
+                  "us-east-1",
+                  "encoding",
+                  JSON_OBJECT)),
           Map.entry(
               "jdbcsource",
               Map.of(
@@ -167,7 +169,13 @@ final class ConnectorConfigurationTestSupport {
                   "test-credential")),
           Map.entry(
               "splunkhecsink",
-              Map.of("hecUrl", "https://splunk.example.test", "credentialId", "test-credential")),
+              Map.of(
+                  "hecUrl",
+                  "https://splunk.example.test",
+                  "credentialId",
+                  "test-credential",
+                  "encoding",
+                  JSON_OBJECT)),
           Map.entry("gcssink", Map.of("bucketName", "events")),
           Map.entry(
               "azureblobsink",

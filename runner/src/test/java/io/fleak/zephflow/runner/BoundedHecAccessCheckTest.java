@@ -73,7 +73,9 @@ class BoundedHecAccessCheckTest {
                   "credentialId",
                   "synthetic-hec",
                   "batchSize",
-                  2),
+                  2,
+                  "encoding",
+                  Map.of("format", Map.of("type", "json", "mode", "object"))),
               List.of());
       var properties = new HashMap<String, java.io.Serializable>();
       properties.put("synthetic-hec", new HashMap<>(Map.of("key", "test-only-token")));

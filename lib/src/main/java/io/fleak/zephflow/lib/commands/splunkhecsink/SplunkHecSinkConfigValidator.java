@@ -85,9 +85,7 @@ public class SplunkHecSinkConfigValidator implements ConfigValidator {
           "batchSize must be at least 1");
     }
 
-    if (config.getEncoding() != null) {
-      SinkEncoding.validate(config.getEncoding(), CAPABILITY);
-    }
+    SinkEncoding.validate(config.getEncoding(), CAPABILITY);
 
     if (config.isStoreAndForwardEnabled()) {
       require(
