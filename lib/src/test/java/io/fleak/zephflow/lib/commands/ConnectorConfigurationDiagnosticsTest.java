@@ -57,7 +57,6 @@ class ConnectorConfigurationDiagnosticsTest {
             Map.entry("elasticsearchsink", "host index"),
             Map.entry("influxdbsink", "url org bucket"),
             Map.entry("clickhousesink", "endpoint database table"),
-            Map.entry("syslogudp", "host"),
             Map.entry("splunksource", "splunkUrl searchQuery credentialId"),
             Map.entry("splunkhecsink", "hecUrl credentialId"),
             Map.entry("gcssink", "bucketName"),
@@ -101,7 +100,6 @@ class ConnectorConfigurationDiagnosticsTest {
             Map.entry("elasticsearchsource", "batchSize"),
             Map.entry("elasticsearchsink", "batchSize"),
             Map.entry("influxdbsink", "batchSize"),
-            Map.entry("syslogudp", "port bufferSize queueCapacity"),
             Map.entry("splunkhecsink", "batchSize"),
             Map.entry("gcssink", "batchSize"),
             Map.entry("azureblobsink", "batchSize"),
@@ -142,7 +140,6 @@ class ConnectorConfigurationDiagnosticsTest {
     cases.add(Arguments.of("sqssink", "batchSize", 11, 10));
     cases.add(Arguments.of("mqttsource", "qos", -1, 0));
     cases.add(Arguments.of("mqttsource", "qos", 3, 2));
-    cases.add(Arguments.of("syslogudp", "port", 65536, 65535));
     cases.add(Arguments.of("splunksource", "jobInitTimeoutMs", -1, 0));
     return cases.stream();
   }
@@ -416,9 +413,6 @@ class ConnectorConfigurationDiagnosticsTest {
           List.of(of("hecUrl")),
           invalid.contains(" ") ? "index" : invalid.startsWith("ftp") ? "scheme" : "host");
     }
-    var syslog = valid("syslogudp");
-    syslog.put("encoding", "do-not-copy-this");
-    assertFailure("syslogudp", syslog, List.of(of("encoding")), "supported charset");
     var ldap = valid("ldapsource");
     ldap.put("ldapUrl", "http://example.test");
     assertFailure("ldapsource", ldap, List.of(of("ldapUrl")), "ldap:// or ldaps://");

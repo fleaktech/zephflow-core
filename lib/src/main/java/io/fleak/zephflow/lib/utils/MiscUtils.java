@@ -98,7 +98,6 @@ public interface MiscUtils {
   String COMMAND_NAME_CLICK_HOUSE_SINK = "clickhousesink";
   String COMMAND_NAME_DATABRICKS_SINK = "databrickssink";
   String COMMAND_NAME_ZEROBUS_SINK = "zerobussink";
-  String COMMAND_NAME_SYSLOG_UDP = "syslogudp";
   String COMMAND_NAME_ACTIVEMQ_SOURCE = "activemqsource";
   String COMMAND_NAME_MQTT_SOURCE = "mqttsource";
   String COMMAND_NAME_JDBC_SOURCE = "jdbcsource";

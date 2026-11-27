@@ -30,7 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** The fixtures zephflow-plus otel_source is tested with, and the records they decode to. */
+/** OTLP export requests and the records they decode to. */
 public final class OtlpFixtures {
 
   private static final String TRACE_ID = "5b8efff798038103d269b633813fc60c";
