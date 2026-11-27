@@ -153,11 +153,8 @@ class SqsSinkConfigValidatorTest {
   }
 
   @Test
-  void validateConfig_withoutEncoding() {
-    assertDoesNotThrow(
-        () ->
-            new SqsSinkConfigValidator()
-                .validateConfig(standardQueue().build(), "nodeId", TEST_JOB_CONTEXT));
+  void validateConfig_missingEncoding_rejected() {
+    assertEquals("sqssink: encoding is required", refusal(standardQueue().build()));
   }
 
   private static SqsSinkDto.Config.ConfigBuilder standardQueue() {

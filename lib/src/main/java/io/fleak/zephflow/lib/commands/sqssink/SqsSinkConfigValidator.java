@@ -52,9 +52,7 @@ public class SqsSinkConfigValidator implements ConfigValidator {
         of("regionStr"),
         "regionStr is required and must not be blank.",
         "no region is provided");
-    if (config.getEncoding() != null) {
-      SinkEncoding.validate(config.getEncoding(), CAPABILITY);
-    }
+    SinkEncoding.validate(config.getEncoding(), CAPABILITY);
 
     if (config.getBatchSize() != null) {
       require(

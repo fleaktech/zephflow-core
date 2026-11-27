@@ -19,7 +19,6 @@ import io.fleak.zephflow.api.*;
 import io.fleak.zephflow.api.metric.MetricClientProvider;
 import io.fleak.zephflow.lib.aws.AwsClientFactory;
 import io.fleak.zephflow.lib.commands.sink.SimpleSinkCommand;
-import io.fleak.zephflow.lib.commands.sink.SinkEncoding;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.credentials.UsernamePasswordCredential;
 import io.fleak.zephflow.lib.pathselect.PathExpression;
@@ -95,10 +94,7 @@ public class SqsSinkCommand extends SimpleSinkCommand<SqsOutboundMessage> {
             : null;
 
     RecordEncoder encoder =
-        config.getEncoding() != null
-            ? EncodingCompiler.recordEncoder(
-                config.getEncoding(), SqsSinkConfigValidator.CAPABILITY)
-            : SinkEncoding.JSON_OBJECT;
+        EncodingCompiler.recordEncoder(config.getEncoding(), SqsSinkConfigValidator.CAPABILITY);
 
     return new SqsSinkMessageProcessor(
         encoder, messageGroupIdExpression, deduplicationIdExpression);

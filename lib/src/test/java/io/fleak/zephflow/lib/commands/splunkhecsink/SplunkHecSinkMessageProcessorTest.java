@@ -191,10 +191,16 @@ class SplunkHecSinkMessageProcessorTest {
   @Test
   void fromConfig_picksTheEncoder() throws Exception {
     SplunkHecSinkDto.Config config =
-        SplunkHecSinkDto.Config.builder().hecUrl("https://splunk:8088").credentialId("c").build();
+        SplunkHecSinkDto.Config.builder()
+            .hecUrl("https://splunk:8088")
+            .credentialId("c")
+            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
+            .build();
     RecordFleakData record = firewallRecord();
 
-    assertTrue(eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record).startsWith("{"));
+    assertEquals(
+        eventOf(new SplunkHecSinkMessageProcessor(null, null, null), record),
+        eventOf(SplunkHecSinkMessageProcessor.fromConfig(config), record));
 
     config.setEncoding(
         format("{\"type\":\"csv\",\"header\":false,\"columns\":[\"src_ip\",\"action\"]}"));

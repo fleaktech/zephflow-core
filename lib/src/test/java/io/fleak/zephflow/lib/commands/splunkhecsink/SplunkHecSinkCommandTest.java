@@ -34,6 +34,7 @@ import io.fleak.zephflow.api.structure.StringPrimitiveFleakData;
 import io.fleak.zephflow.lib.TestUtils;
 import io.fleak.zephflow.lib.commands.sink.SinkExecutionContext;
 import io.fleak.zephflow.lib.commands.sink.SinkStoreForward;
+import io.fleak.zephflow.lib.serdes.encode.EncodeTestSupport;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
@@ -90,6 +91,7 @@ class SplunkHecSinkCommandTest {
                 "http://127.0.0.1:" + server.getAddress().getPort() + "/services/collector/event")
             .credentialId("hec_token")
             .batchSize(500)
+            .encoding(EncodeTestSupport.format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
 
     SplunkHecSinkCommand command =
@@ -286,11 +288,10 @@ class SplunkHecSinkCommandTest {
               "a", new StringPrimitiveFleakData("1"), "b", new StringPrimitiveFleakData("x, y")));
 
   @Test
-  void encodingJsonObject_sendsTheDefaultEnvelope() throws Exception {
+  void encodingJsonObject_sendsTheEventAsAJsonObject() throws Exception {
     List<String> expected =
         List.of("{\"event\":{\"a\":\"1\",\"b\":\"x, y\"},\"sourcetype\":\"fleak\"}");
 
-    assertEquals(expected, sentEnvelopes(Map.of()));
     assertEquals(
         expected,
         sentEnvelopes(
@@ -602,6 +603,7 @@ class SplunkHecSinkCommandTest {
     Map<String, Object> nodeConfig = new HashMap<>();
     nodeConfig.put("hecUrl", hec.url());
     nodeConfig.put("credentialId", "hec_token");
+    nodeConfig.put("encoding", Map.of("format", Map.of("type", "json", "mode", "object")));
     nodeConfig.put("batchSize", 2);
     nodeConfig.put("storeAndForwardEnabled", storeAndForward);
     nodeConfig.put("localStorePath", storeBase().toString());

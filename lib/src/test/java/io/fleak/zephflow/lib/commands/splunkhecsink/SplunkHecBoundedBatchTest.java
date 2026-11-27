@@ -160,7 +160,15 @@ class SplunkHecBoundedBatchTest {
     var command =
         (SplunkHecSinkCommand) new SplunkHecSinkCommandFactory().createCommand("hec", job);
     command.parseAndValidateArg(
-        Map.of("hecUrl", receiver.url(), "credentialId", "hec-token", "batchSize", 2));
+        Map.of(
+            "hecUrl",
+            receiver.url(),
+            "credentialId",
+            "hec-token",
+            "batchSize",
+            2,
+            "encoding",
+            Map.of("format", Map.of("type", "json", "mode", "object"))));
     if (bounded)
       command.setExecutionHooks(
           new ExecutionHooks(

@@ -92,7 +92,7 @@ class SqsSinkCommandTest {
       "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue";
 
   @Test
-  void withoutOrWithJsonObjectEncoding_sendsTheJsonObject() throws Exception {
+  void jsonObjectEncoding_sendsTheJsonObject() throws Exception {
     RecordFleakData record =
         new RecordFleakData(
             Map.of(
@@ -108,7 +108,6 @@ class SqsSinkCommandTest {
                     .build())
             .build();
 
-    assertEquals(expected, sentRequest(Map.of(), record));
     assertEquals(
         expected,
         sentRequest(
