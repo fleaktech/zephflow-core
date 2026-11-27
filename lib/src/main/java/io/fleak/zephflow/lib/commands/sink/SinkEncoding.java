@@ -26,7 +26,7 @@ import java.nio.charset.StandardCharsets;
 /** How a byte-writing sink picks its output: its {@code encoding}. */
 public final class SinkEncoding {
 
-  /** Without {@code encoding}, sqssink and pubsubsink write each record as a JSON object. */
+  /** Without {@code encoding}, pubsubsink writes each record as a JSON object. */
   public static final RecordEncoder JSON_OBJECT =
       record -> toJsonString(record).getBytes(StandardCharsets.UTF_8);
 

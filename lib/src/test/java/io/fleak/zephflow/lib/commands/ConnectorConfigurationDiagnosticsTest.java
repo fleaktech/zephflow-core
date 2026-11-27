@@ -248,8 +248,7 @@ class ConnectorConfigurationDiagnosticsTest {
     assertFailure(
         operator, config, List.of(of("encoding", "format", "mode")), "Allowed JSON modes");
     config.remove("encoding");
-    if (List.of("sqssink", "pubsubsink", "splunkhecsink").contains(operator))
-      assertDoesNotThrow(() -> validate(operator, config));
+    if (operator.equals("pubsubsink")) assertDoesNotThrow(() -> validate(operator, config));
     else assertFailure(operator, config, List.of(of("encoding")), "required");
   }
 

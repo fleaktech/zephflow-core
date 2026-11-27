@@ -41,6 +41,7 @@ class SplunkHecSinkConfigValidatorTest {
         .credentialId("hec_token")
         .index("security_logs")
         .sourcetype("paloalto:traffic")
+        .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
         .build();
   }
 
@@ -50,6 +51,7 @@ class SplunkHecSinkConfigValidatorTest {
         SplunkHecSinkDto.Config.builder()
             .hecUrl("https://splunk:8088/services/collector/event")
             .credentialId("hec_token")
+            .encoding(format("{\"type\":\"json\",\"mode\":\"object\"}"))
             .build();
     assertDoesNotThrow(() -> validator.validateConfig(c, "node", TEST_JOB_CONTEXT));
   }
@@ -211,6 +213,13 @@ class SplunkHecSinkConfigValidatorTest {
             "splunkhecsink: text option charset UTF-16 cannot be used when writing; text is"
                 + " written as UTF-8"),
         List.of(refusal(noFraming), refusal(utf16)));
+  }
+
+  @Test
+  void validateConfig_missingEncoding_rejected() {
+    SplunkHecSinkDto.Config c = validConfig();
+    c.setEncoding(null);
+    assertEquals("splunkhecsink: encoding is required", refusal(c));
   }
 
   private String refusal(SplunkHecSinkDto.Config c) {

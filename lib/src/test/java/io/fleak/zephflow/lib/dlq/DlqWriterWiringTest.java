@@ -64,9 +64,14 @@ class DlqWriterWiringTest {
         new SplunkHecSinkCommandFactory().createCommand("sink-node", jobContext);
     command.parseAndValidateArg(
         Map.of(
-            "hecUrl", "http://127.0.0.1:1/services/collector/event",
-            "credentialId", "hec_token",
-            "batchSize", 2));
+            "hecUrl",
+            "http://127.0.0.1:1/services/collector/event",
+            "credentialId",
+            "hec_token",
+            "batchSize",
+            2,
+            "encoding",
+            Map.of("format", Map.of("type", "json", "mode", "object"))));
 
     assertEquals(
         Map.of(nodeTags(COMMAND_NAME_SPLUNK_HEC_SINK, "sink-node"), 1L),

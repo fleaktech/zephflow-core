@@ -71,10 +71,11 @@ public class SplunkHecSinkMessageProcessor
   }
 
   static SplunkHecSinkMessageProcessor fromConfig(SplunkHecSinkDto.Config config) {
-    LineEncoder lineEncoder =
-        config.getEncoding() != null ? lineEncoder(config.getEncoding()) : null;
     return new SplunkHecSinkMessageProcessor(
-        config.getIndex(), config.getSourcetype(), config.getSource(), lineEncoder);
+        config.getIndex(),
+        config.getSourcetype(),
+        config.getSource(),
+        lineEncoder(config.getEncoding()));
   }
 
   private static LineEncoder lineEncoder(EncodingConfig encoding) {
