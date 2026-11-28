@@ -1,6 +1,6 @@
 # Corretto 21, pinned by digest so Renovate proposes base updates. GraalVM is only used as
 # Maven libraries (Polyglot, GraalPy), which run on any JDK 21.
-FROM public.ecr.aws/amazoncorretto/amazoncorretto:21-al2023@sha256:862dc6a93b17b80773ec98dce64d0e5bb6facf1344fbb9e91be215d596a96f6e
+FROM public.ecr.aws/amazoncorretto/amazoncorretto:27-al2023@sha256:6a7c05b122ae52ff3b281570e03432a3a14b0161f67a44ff69c37e7da67f130f
 
 WORKDIR /app
 
